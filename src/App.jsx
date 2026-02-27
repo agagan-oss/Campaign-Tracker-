@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 
 const STORAGE_KEY = "campaign-tracker-v3";
+const EXPORT_KEY = "campaign-tracker-last-export";
 
 const initialCampaigns = [
   { mediaPartner:"WVR", campaignName:"Harry Green CDJR", platform:"FB", goal:"750K (7/1/25 - 12/31/25)", endDate:"2026-06-30", note1:"125K/Mo", note2:"", lastChecked:"2026-02-23", id:1769125165003, status:"", impressions:"", ctr:"", cpm:"", spend:"" },
@@ -273,6 +274,7 @@ export default function App() {
   const [sortDir,    setSortDir]    = useState("asc");
   const [editTarget, setEditTarget] = useState(null);
   const [showAdd,    setShowAdd]    = useState(false);
+  const [showExportReminder, setShowExportReminder] = useState(false);
   const [saved,      setSaved]      = useState(false);
   const [expanded,   setExpanded]   = useState(new Set());
   const [dateRange,  setDateRange]  = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
@@ -281,6 +283,14 @@ export default function App() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(campaigns)); setSaved(true); setTimeout(()=>setSaved(false),1400); }
     catch(e){ console.error(e); }
   },[campaigns]);
+
+  // Check if export reminder should show (every 3 days)
+  useEffect(()=>{
+    const last = localStorage.getItem(EXPORT_KEY);
+    if (!last) { setShowExportReminder(true); return; }
+    const daysSince = (Date.now() - parseInt(last)) / (1000*60*60*24);
+    if (daysSince >= 3) setShowExportReminder(true);
+  }, []);
 
   const platforms = useMemo(()=>[...new Set(campaigns.map(c=>c.platform))].sort(),[campaigns]);
 
@@ -342,12 +352,31 @@ export default function App() {
           <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
             <button onClick={()=>setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today})))} style={{ background:"#1e3a5f", border:"1px solid #3b82f640", borderRadius:7, padding:"6px 13px", color:"#60a5fa", fontWeight:600, fontSize:12, cursor:"pointer" }}>✓ Mark All Checked</button>
             <button onClick={()=>setShowAdd(true)} style={{ background:"#052e16", border:"1px solid #22c55e40", borderRadius:7, padding:"6px 13px", color:"#22c55e", fontWeight:600, fontSize:12, cursor:"pointer" }}>+ Add Campaign</button>
-            <button onClick={()=>{ const b=new Blob([JSON.stringify({campaigns,exportDate:new Date().toISOString()},null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=`campaign-tracker-${today}.json`; a.click(); }} style={{ background:"#1e293b", border:"1px solid #334155", borderRadius:7, padding:"6px 13px", color:"#94a3b8", fontWeight:600, fontSize:12, cursor:"pointer" }}>↓ Export</button>
+            <button onClick={()=>{ const b=new Blob([JSON.stringify({campaigns,exportDate:new Date().toISOString()},null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=`campaign-tracker-${today}.json`; a.click(); localStorage.setItem(EXPORT_KEY, Date.now().toString()); setShowExportReminder(false); }} style={{ background:"#1e293b", border:"1px solid #334155", borderRadius:7, padding:"6px 13px", color:"#94a3b8", fontWeight:600, fontSize:12, cursor:"pointer" }}>↓ Export</button>
           </div>
         </div>
       </div>
 
       <div style={{ maxWidth:1600, margin:"0 auto", padding:"18px 20px 40px" }}>
+
+        {/* Export Reminder Banner */}
+        {showExportReminder && (
+          <div style={{ background:"#1c1200", border:"1px solid #f59e0b60", borderRadius:10, padding:"12px 18px", marginBottom:14, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <span style={{ fontSize:18 }}>💾</span>
+              <div>
+                <div style={{ color:"#f59e0b", fontWeight:700, fontSize:13 }}>Time to back up your data!</div>
+                <div style={{ color:"#92400e", fontSize:11, marginTop:1 }}>It has been 3+ days since your last export. Export your JSON to avoid losing any changes if you clear your browser.</div>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={()=>{ const b=new Blob([JSON.stringify({campaigns,exportDate:new Date().toISOString()},null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=`campaign-tracker-${today}.json`; a.click(); localStorage.setItem(EXPORT_KEY, Date.now().toString()); setShowExportReminder(false); }}
+                style={{ background:"#f59e0b", border:"none", borderRadius:7, padding:"7px 16px", color:"#000", fontWeight:700, fontSize:12, cursor:"pointer" }}>↓ Export Now</button>
+              <button onClick={()=>{ localStorage.setItem(EXPORT_KEY, Date.now().toString()); setShowExportReminder(false); }}
+                style={{ background:"none", border:"1px solid #92400e", borderRadius:7, padding:"7px 12px", color:"#92400e", fontWeight:600, fontSize:12, cursor:"pointer" }}>Remind me later</button>
+            </div>
+          </div>
+        )}
 
         {/* Stats */}
         <div style={{ display:"flex", gap:9, flexWrap:"wrap", marginBottom:14 }}>
