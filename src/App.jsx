@@ -44,6 +44,7 @@ const STATUS_CFG = {
   "pacing-ahead":  { label:"Pacing Ahead",  color:"#fb923c", bg:"#1c0f00" },
   "pacing-behind": { label:"Pacing Behind", color:"#fde047", bg:"#1c1800" },
   "off":           { label:"Off",           color:"#ef4444", bg:"#1c0505" },
+  "close-to-goal": { label:"Close to Goal",  color:"#2dd4bf", bg:"#042220" },
   "":              { label:"Unknown",       color:"#a855f7", bg:"#1a0a2e" },
 };
 
@@ -218,7 +219,7 @@ function DateBar({ range, setRange }) {
 }
 
 function Modal({ campaign, onSave, onClose, isNew }) {
-  const blank = { mediaPartner:"", campaignName:"", platform:"FB", goal:"", endDate:"", status:"active", note1:"", note2:"", lastChecked:getToday(), impressions:"", ctr:"", cpm:"", spend:"" };
+  const blank = { mediaPartner:"", campaignName:"", platform:"FB", goal:"", endDate:"", status:"active", note1:"", note2:"", lastChecked:getToday(), impressions:"", ctr:"", cpm:"", spend:"", monthlyFlight:false };
   const [f, setF] = useState(campaign ? {...campaign} : blank);
   const set = (k,v) => setF(p=>({...p,[k]:v}));
   const iS = { width:"100%", background:"#1e293b", border:"1px solid #334155", borderRadius:6, padding:"7px 10px", color:"#e2e8f0", fontSize:13, boxSizing:"border-box" };
@@ -250,6 +251,24 @@ function Modal({ campaign, onSave, onClose, isNew }) {
         {row("note1","Note 1")}
         {row("note2","Note 2")}
         {row("lastChecked","Last Checked","date")}
+        {/* Monthly Flight Toggle */}
+        <div style={{ marginBottom:12 }}>
+          <label style={{ display:"block", fontSize:10, color:"#94a3b8", marginBottom:3, textTransform:"uppercase", letterSpacing:"0.06em" }}>Monthly Flights</label>
+          <button onClick={()=>set("monthlyFlight", !f.monthlyFlight)} style={{
+            display:"flex", alignItems:"center", gap:8,
+            background: f.monthlyFlight ? "#042220" : "#1e293b",
+            border: `1px solid ${f.monthlyFlight ? "#2dd4bf60" : "#334155"}`,
+            borderRadius:7, padding:"8px 14px", cursor:"pointer", width:"100%"
+          }}>
+            <span style={{ fontSize:15, color: f.monthlyFlight ? "#2dd4bf" : "#475569", transition:"color .15s" }}>★</span>
+            <span style={{ fontSize:12, color: f.monthlyFlight ? "#2dd4bf" : "#64748b", fontWeight: f.monthlyFlight ? 700 : 400 }}>
+              {f.monthlyFlight ? "Monthly flights enabled" : "No monthly flights"}
+            </span>
+            <span style={{ marginLeft:"auto", fontSize:10, color: f.monthlyFlight ? "#2dd4bf" : "#334155" }}>
+              {f.monthlyFlight ? "ON" : "OFF"}
+            </span>
+          </button>
+        </div>
         <div style={{ display:"flex", gap:8, marginTop:8 }}>
           <button onClick={submit} style={{ flex:1, background:isNew?"#22c55e":"#3b82f6", border:"none", borderRadius:7, padding:"10px 0", color:isNew?"#000":"#fff", fontWeight:700, fontSize:14, cursor:"pointer" }}>{isNew?"Add Campaign":"Save Changes"}</button>
           <button onClick={onClose} style={{ flex:1, background:"#1e293b", border:"1px solid #334155", borderRadius:7, padding:"10px 0", color:"#94a3b8", fontWeight:600, fontSize:14, cursor:"pointer" }}>Cancel</button>
@@ -314,6 +333,8 @@ export default function App() {
     behind: campaigns.filter(c=>c.status==="pacing-behind").length,
     off:    campaigns.filter(c=>c.status==="off").length,
     soon:   campaigns.filter(c=>{ const d=getDaysLeft(c.endDate); return d>=0&&d<=14; }).length,
+    closeToGoal: campaigns.filter(c=>c.status==="close-to-goal").length,
+    monthlyFlights: campaigns.filter(c=>c.monthlyFlight).length,
   }),[campaigns]);
 
   function toggleExpand(id) { setExpanded(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; }); }
@@ -338,6 +359,7 @@ export default function App() {
         input[type=number]::-webkit-inner-spin-button{opacity:.3;}
         input::placeholder{color:#2d3f55;}
         .crow:hover td{background:#0d1b2e!important;}
+        .crow:hover .star-toggle{opacity:1!important;}
         button{font-family:inherit;}
         .xbtn{transition:transform .18s ease;}
       `}</style>
@@ -380,7 +402,7 @@ export default function App() {
 
         {/* Stats */}
         <div style={{ display:"flex", gap:9, flexWrap:"wrap", marginBottom:14 }}>
-          {[{label:"Total",val:stats.total,color:"#94a3b8"},{label:"Active",val:stats.active,color:"#22c55e"},{label:"Ahead",val:stats.ahead,color:"#fb923c"},{label:"Behind",val:stats.behind,color:"#fde047"},{label:"Off",val:stats.off,color:"#ef4444"},{label:"≤14d End",val:stats.soon,color:"#f87171"}].map(s=>(
+          {[{label:"Total",val:stats.total,color:"#94a3b8"},{label:"Active",val:stats.active,color:"#22c55e"},{label:"Ahead",val:stats.ahead,color:"#fb923c"},{label:"Behind",val:stats.behind,color:"#fde047"},{label:"Close to Goal",val:stats.closeToGoal,color:"#2dd4bf"},{label:"Off",val:stats.off,color:"#ef4444"},{label:"≤14d End",val:stats.soon,color:"#f87171"},{label:"★ Monthly",val:stats.monthlyFlights,color:"#2dd4bf"}].map(s=>(
             <div key={s.label} style={{ background:"#0f172a", border:`1px solid ${s.color}30`, borderRadius:8, padding:"9px 15px", minWidth:75 }}>
               <div style={{ fontSize:19, fontWeight:700, color:s.color, lineHeight:1 }}>{s.val}</div>
               <div style={{ fontSize:10, color:"#64748b", marginTop:3, textTransform:"uppercase", letterSpacing:"0.05em" }}>{s.label}</div>
@@ -447,7 +469,21 @@ export default function App() {
                         <TD><span style={{ color:"#cbd5e1", fontWeight:500 }}>{c.mediaPartner.trim()}</span></TD>
 
                         <TD>
-                          <span style={{ color:"#f1f5f9", fontWeight:600 }}>{c.campaignName.trim()}</span>
+                          <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                            <span style={{ color:"#f1f5f9", fontWeight:600 }}>{c.campaignName.trim()}</span>
+                            {c.monthlyFlight && (
+                              <button onClick={()=>updateCampaign({...c,monthlyFlight:false})} title="Monthly flights — click to remove" style={{
+                                background:"none", border:"none", padding:0, cursor:"pointer",
+                                color:"#2dd4bf", fontSize:13, lineHeight:1, flexShrink:0
+                              }}>★</button>
+                            )}
+                            {!c.monthlyFlight && (
+                              <button onClick={()=>updateCampaign({...c,monthlyFlight:true})} title="Click to mark as monthly flights" style={{
+                                background:"none", border:"none", padding:0, cursor:"pointer",
+                                color:"#253650", fontSize:13, lineHeight:1, flexShrink:0, opacity:0
+                              }} className="star-toggle">★</button>
+                            )}
+                          </div>
                           {/* Inline metric pills when collapsed & has data */}
                           {!open && hasData && (
                             <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginTop:4 }}>
