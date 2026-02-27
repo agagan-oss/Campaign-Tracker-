@@ -484,6 +484,12 @@ export default function App() {
                               }} className="star-toggle">★</button>
                             )}
                           </div>
+                          {/* Note 1 subtitle */}
+                          {c.note1 && c.note1.trim() && (
+                            <div style={{ fontSize:10, color:"#4ade80", marginTop:2, fontFamily:"monospace", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:220 }} title={c.note1}>
+                              {c.note1.trim()}
+                            </div>
+                          )}
                           {/* Inline metric pills when collapsed & has data */}
                           {!open && hasData && (
                             <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginTop:4 }}>
