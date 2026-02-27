@@ -99,7 +99,7 @@ function PlatformTag({ p }) {
 function EndChip({ d }) {
   const days = getDaysLeft(d);
   const col = days<0?"#6b7280":days<=14?"#ef4444":days<=30?"#f59e0b":"#22c55e";
-  return <span style={{ color:col, fontSize:12, fontFamily:"monospace", fontWeight:600 }}>{d} <span style={{opacity:.6,fontWeight:400}}>({days<0?"Ended":days===0?"Today":`${days}d`})</span></span>;
+  return <span style={{ color:col, fontSize:12, fontFamily:"Inter,sans-serif", fontWeight:600, fontVariantNumeric:"tabular-nums" }}>{d} <span style={{opacity:.6,fontWeight:400}}>({days<0?"Ended":days===0?"Today":`${days}d`})</span></span>;
 }
 
 function MetricPill({ label, value, color, prefix="", suffix="" }) {
@@ -108,7 +108,7 @@ function MetricPill({ label, value, color, prefix="", suffix="" }) {
   return (
     <span style={{ display:"inline-flex", alignItems:"center", gap:3, background:color+"18", border:`1px solid ${color}35`, borderRadius:4, padding:"1px 7px", fontSize:10, color, whiteSpace:"nowrap" }}>
       <span style={{ opacity:.55, fontSize:9 }}>{label}</span>
-      <span style={{ fontFamily:"monospace", fontWeight:700 }}>{prefix}{disp}{suffix}</span>
+      <span style={{ fontFamily:"Inter,sans-serif", fontWeight:700, fontVariantNumeric:"tabular-nums" }}>{prefix}{disp}{suffix}</span>
     </span>
   );
 }
@@ -119,7 +119,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange }) {
   const set = (k,v) => { setLocal(p=>({...p,[k]:v})); setDirty(true); };
   const save = () => { onUpdate({...c,...local}); setDirty(false); };
 
-  const iS = { background:"#070e1c", border:"1px solid #1e293b", borderRadius:6, padding:"7px 10px", color:"#e2e8f0", fontSize:13, width:"100%", fontFamily:"monospace", boxSizing:"border-box" };
+  const iS = { background:"#070e1c", border:"1px solid #1e293b", borderRadius:6, padding:"7px 10px", color:"#e2e8f0", fontSize:13, width:"100%", fontFamily:"Inter,sans-serif", boxSizing:"border-box" };
   const metrics = [
     { key:"impressions", label:"Impressions", color:"#60a5fa", prefix:"",  suffix:"" },
     { key:"ctr",         label:"CTR",         color:"#4ade80", prefix:"",  suffix:"%" },
@@ -209,7 +209,7 @@ function DateBar({ range, setRange }) {
       {range.start && range.end && (
         <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:6 }}>
           <span style={{ fontSize:11, color:"#475569" }}>Showing:</span>
-          <span style={{ fontSize:11, color:"#60a5fa", fontFamily:"monospace", background:"#0f172a", border:"1px solid #1e293b", borderRadius:4, padding:"2px 8px" }}>
+          <span style={{ fontSize:11, color:"#60a5fa", fontFamily:"Inter,sans-serif", fontWeight:500, background:"#0f172a", border:"1px solid #1e293b", borderRadius:4, padding:"2px 8px" }}>
             {range.start===range.end ? range.start : `${range.start} → ${range.end}`}
           </span>
         </div>
@@ -349,8 +349,9 @@ export default function App() {
   const TD = ({children,style={}}) => <td style={{ padding:"10px 12px", borderBottom:"1px solid #060c18", verticalAlign:"middle", ...style }}>{children}</td>;
 
   return (
-    <div style={{ minHeight:"100vh", background:"#060c18", fontFamily:"'Segoe UI',system-ui,sans-serif", color:"#e2e8f0", fontSize:13 }}>
+    <div style={{ minHeight:"100vh", background:"#060c18", fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", color:"#e2e8f0", fontSize:13 }}>
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700&display=swap');
         *{box-sizing:border-box;}
         ::-webkit-scrollbar{width:5px;height:5px;}
         ::-webkit-scrollbar-track{background:#0f172a;}
@@ -362,6 +363,7 @@ export default function App() {
         .crow:hover .star-toggle{opacity:1!important;}
         button{font-family:inherit;}
         .xbtn{transition:transform .18s ease;}
+        td, th { font-variant-numeric: tabular-nums; }
       `}</style>
 
       {/* Header */}
@@ -486,7 +488,7 @@ export default function App() {
                           </div>
                           {/* Note 1 subtitle */}
                           {c.note1 && c.note1.trim() && (
-                            <div style={{ fontSize:10, color:"#4ade80", marginTop:2, fontFamily:"monospace", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:220 }} title={c.note1}>
+                            <div style={{ fontSize:10, color:"#4ade80", marginTop:2, fontFamily:"Inter,sans-serif", fontWeight:500, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:220 }} title={c.note1}>
                               {c.note1.trim()}
                             </div>
                           )}
@@ -514,14 +516,14 @@ export default function App() {
                         </TD>
 
                         <TD style={{maxWidth:170}}>
-                          <span style={{ color:"#94a3b8", fontFamily:"monospace", fontSize:11, display:"block", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:160 }} title={c.goal}>{c.goal}</span>
+                          <span style={{ color:"#94a3b8", fontFamily:"Inter,sans-serif", fontSize:11, display:"block", fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:160 }} title={c.goal}>{c.goal}</span>
                         </TD>
 
                         <TD><EndChip d={c.endDate}/></TD>
 
                         <TD>
                           <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                            <span style={{ fontFamily:"monospace", fontSize:11, color:stale?"#f59e0b":"#22c55e", fontWeight:stale?600:400 }}>{c.lastChecked}</span>
+                            <span style={{ fontFamily:"Inter,sans-serif", fontSize:11, color:stale?"#f59e0b":"#22c55e", fontWeight:stale?600:400 }}>{c.lastChecked}</span>
                             {stale && (
                               <button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{ background:"#1c2d1c", border:"1px solid #22c55e40", borderRadius:4, color:"#4ade80", fontSize:10, padding:"1px 6px", cursor:"pointer", fontWeight:700 }}>✓</button>
                             )}
