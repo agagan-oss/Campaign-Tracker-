@@ -289,6 +289,7 @@ export default function App() {
   const [search,     setSearch]     = useState("");
   const [fStatus,    setFStatus]    = useState("all");
   const [fPlatform,  setFPlatform]  = useState("all");
+  const [fMonthly,   setFMonthly]   = useState(false);
   const [sortKey,    setSortKey]    = useState("endDate");
   const [sortDir,    setSortDir]    = useState("asc");
   const [editTarget, setEditTarget] = useState(null);
@@ -317,14 +318,14 @@ export default function App() {
     let list = campaigns.filter(c=>{
       const q = search.toLowerCase();
       const ms = !q||c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||c.platform.toLowerCase().includes(q);
-      return ms && (fStatus==="all"||(c.status||"")===fStatus) && (fPlatform==="all"||c.platform===fPlatform);
+      return ms && (fStatus==="all"||(c.status||"")===fStatus) && (fPlatform==="all"||c.platform===fPlatform) && (!fMonthly || c.monthlyFlight);
     });
     return [...list].sort((a,b)=>{
       let va=a[sortKey]||"", vb=b[sortKey]||"";
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
     });
-  },[campaigns,search,fStatus,fPlatform,sortKey,sortDir]);
+  },[campaigns,search,fStatus,fPlatform,fMonthly,sortKey,sortDir]);
 
   const stats = useMemo(()=>({
     total:  campaigns.length,
@@ -428,6 +429,16 @@ export default function App() {
             <option value="all">All Platforms</option>
             {platforms.map(p=><option key={p}>{p}</option>)}
           </select>
+          <button onClick={()=>setFMonthly(f=>!f)} style={{
+            background: fMonthly?"#042220":"#0f172a",
+            border:`1px solid ${fMonthly?"#2dd4bf":"#1e293b"}`,
+            borderRadius:7, padding:"7px 13px",
+            color: fMonthly?"#2dd4bf":"#475569",
+            fontSize:12, fontWeight: fMonthly?700:500, cursor:"pointer",
+            display:"flex", alignItems:"center", gap:5
+          }}>
+            <span style={{ fontSize:13 }}>★</span> Monthly Flights {fMonthly && <span style={{ fontSize:10, opacity:.7 }}>✕</span>}
+          </button>
           <span style={{ fontSize:11, color:"#475569" }}>{filtered.length} result{filtered.length!==1?"s":""}</span>
         </div>
 
@@ -533,6 +544,7 @@ export default function App() {
                         <TD>
                           <div style={{ display:"flex", gap:5 }}>
                             <button onClick={()=>setEditTarget(c)} style={{ background:"#1e293b", border:"1px solid #334155", borderRadius:5, color:"#94a3b8", fontSize:11, padding:"4px 9px", cursor:"pointer", fontWeight:600 }}>Edit</button>
+                            <button onClick={()=>{ const copy={...c, id:Date.now(), campaignName:c.campaignName+" (copy)", impressions:"", ctr:"", cpm:"", spend:""}; setCampaigns(cs=>{const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n;}); }} title="Duplicate row" style={{ background:"#0f1f33", border:"1px solid #1e3a5f", borderRadius:5, color:"#60a5fa", fontSize:11, padding:"4px 8px", cursor:"pointer", fontWeight:600 }}>⧉</button>
                             <button onClick={()=>{ if(window.confirm("Delete this campaign?")) setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); }} style={{ background:"#1c0505", border:"1px solid #ef444440", borderRadius:5, color:"#ef4444", fontSize:11, padding:"4px 8px", cursor:"pointer", fontWeight:600 }}>✕</button>
                           </div>
                         </TD>
