@@ -421,24 +421,15 @@ export default function App() {
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:14 }}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…"
             style={{ background:"#0f172a", border:"1px solid #1e293b", borderRadius:7, padding:"7px 13px", color:"#e2e8f0", fontSize:13, width:270 }}/>
-          <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{ background:"#0f172a", border:"1px solid #1e293b", borderRadius:7, padding:"7px 11px", color:"#94a3b8", fontSize:13 }}>
+          <select value={fStatus !== "all" ? fStatus : (fMonthly ? "__monthly__" : "all")} onChange={e=>{ if(e.target.value==="__monthly__"){ setFMonthly(true); setFStatus("all"); } else { setFMonthly(false); setFStatus(e.target.value); } }} style={{ background:"#0f172a", border:`1px solid ${fMonthly?"#2dd4bf":"#1e293b"}`, borderRadius:7, padding:"7px 11px", color: fMonthly?"#2dd4bf":"#94a3b8", fontSize:13, fontWeight: fMonthly?700:400 }}>
             <option value="all">All Statuses</option>
             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+            <option value="__monthly__">★ Monthly Flights</option>
           </select>
           <select value={fPlatform} onChange={e=>setFPlatform(e.target.value)} style={{ background:"#0f172a", border:"1px solid #1e293b", borderRadius:7, padding:"7px 11px", color:"#94a3b8", fontSize:13 }}>
             <option value="all">All Platforms</option>
             {platforms.map(p=><option key={p}>{p}</option>)}
           </select>
-          <button onClick={()=>setFMonthly(f=>!f)} style={{
-            background: fMonthly?"#042220":"#0f172a",
-            border:`1px solid ${fMonthly?"#2dd4bf":"#1e293b"}`,
-            borderRadius:7, padding:"7px 13px",
-            color: fMonthly?"#2dd4bf":"#475569",
-            fontSize:12, fontWeight: fMonthly?700:500, cursor:"pointer",
-            display:"flex", alignItems:"center", gap:5
-          }}>
-            <span style={{ fontSize:13 }}>★</span> Monthly Flights {fMonthly && <span style={{ fontSize:10, opacity:.7 }}>✕</span>}
-          </button>
           <span style={{ fontSize:11, color:"#475569" }}>{filtered.length} result{filtered.length!==1?"s":""}</span>
         </div>
 
@@ -495,6 +486,14 @@ export default function App() {
                                 background:"none", border:"none", padding:0, cursor:"pointer",
                                 color:"#253650", fontSize:13, lineHeight:1, flexShrink:0, opacity:0
                               }} className="star-toggle">★</button>
+                            )}
+                            {c.note2 && c.note2.trim() && (
+                              <span title={c.note2.trim()} style={{
+                                background:"#2d0a0a", border:"1px solid #ef444460",
+                                borderRadius:3, padding:"1px 5px", fontSize:9,
+                                color:"#ef4444", fontWeight:700, letterSpacing:"0.05em",
+                                whiteSpace:"nowrap", flexShrink:0, cursor:"default"
+                              }}>⚠ {c.note2.trim().length > 18 ? c.note2.trim().slice(0,18)+"…" : c.note2.trim()}</span>
                             )}
                           </div>
                           {/* Note 1 subtitle */}
