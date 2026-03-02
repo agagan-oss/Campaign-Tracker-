@@ -543,7 +543,7 @@ export default function App() {
                         <TD>
                           <div style={{ display:"flex", gap:5 }}>
                             <button onClick={()=>setEditTarget(c)} style={{ background:"#1e293b", border:"1px solid #334155", borderRadius:5, color:"#94a3b8", fontSize:11, padding:"4px 9px", cursor:"pointer", fontWeight:600 }}>Edit</button>
-                            <button onClick={()=>{ const copy={...c, id:Date.now(), campaignName:c.campaignName+" (copy)", impressions:"", ctr:"", cpm:"", spend:""}; setCampaigns(cs=>{const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n;}); }} title="Duplicate row" style={{ background:"#0f1f33", border:"1px solid #1e3a5f", borderRadius:5, color:"#60a5fa", fontSize:11, padding:"4px 8px", cursor:"pointer", fontWeight:600 }}>⧉</button>
+                            <button onClick={()=>{ const copy={...c, id:Date.now(), campaignName:c.campaignName+" (copy)", impressions:"", ctr:"", cpm:"", spend:""}; setCampaigns(cs=>{const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n;}); setEditTarget(copy); }} title="Duplicate row" style={{ background:"#0f1f33", border:"1px solid #1e3a5f", borderRadius:5, color:"#60a5fa", fontSize:11, padding:"4px 8px", cursor:"pointer", fontWeight:600 }}>⧉</button>
                             <button onClick={()=>{ if(window.confirm("Delete this campaign?")) setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); }} style={{ background:"#1c0505", border:"1px solid #ef444440", borderRadius:5, color:"#ef4444", fontSize:11, padding:"4px 8px", cursor:"pointer", fontWeight:600 }}>✕</button>
                           </div>
                         </TD>
