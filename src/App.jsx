@@ -309,8 +309,6 @@ export default function App() {
   const [search,     setSearch]     = useState("");
   const [fStatus,    setFStatus]    = useState("all");
   const [fPlatform,  setFPlatform]  = useState("all");
-  const [fPartner,   setFPartner]   = useState("all");
-  const [endAlertOpen, setEndAlertOpen] = useState(true);
   const [fMonthly,   setFMonthly]   = useState(false);
   const [sortKey,    setSortKey]    = useState("endDate");
   const [sortDir,    setSortDir]    = useState("asc");
@@ -337,21 +335,19 @@ export default function App() {
   }, []);
 
   const platforms = useMemo(()=>[...new Set(campaigns.map(c=>c.platform))].sort(),[campaigns]);
-  const partners  = useMemo(()=>[...new Set(campaigns.map(c=>c.mediaPartner.trim()))].sort(),[campaigns]);
-  const endingSoon = useMemo(()=>campaigns.filter(c=>{ const d=getDaysLeft(c.endDate); return d>=0&&d<=14; }).sort((a,b)=>new Date(a.endDate)-new Date(b.endDate)),[campaigns]);
 
   const filtered = useMemo(()=>{
     let list = campaigns.filter(c=>{
       const q = search.toLowerCase();
       const ms = !q||c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||c.platform.toLowerCase().includes(q);
-      return ms && (fStatus==="all"||(c.status||"")===fStatus) && (fPlatform==="all"||c.platform===fPlatform) && (fPartner==="all"||c.mediaPartner===fPartner) && (!fMonthly || c.monthlyFlight);
+      return ms && (fStatus==="all"||(c.status||"")===fStatus) && (fPlatform==="all"||c.platform===fPlatform) && (!fMonthly || c.monthlyFlight);
     });
     return [...list].sort((a,b)=>{
       let va=a[sortKey]||"", vb=b[sortKey]||"";
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
     });
-  },[campaigns,search,fStatus,fPlatform,fPartner,fMonthly,sortKey,sortDir]);
+  },[campaigns,search,fStatus,fPlatform,fMonthly,sortKey,sortDir]);
 
   const stats = useMemo(()=>({
     total:  campaigns.length,
@@ -447,38 +443,6 @@ export default function App() {
           </div>
         )}
 
-        {/* End Date Alert Banner */}
-        {endingSoon.length > 0 && (
-          <div style={{ background:"#1a0a0a", border:"1px solid #ef444450", borderRadius:10, marginBottom:14, overflow:"hidden" }}>
-            <button onClick={()=>setEndAlertOpen(o=>!o)} style={{ width:"100%", background:"none", border:"none", padding:"11px 16px", display:"flex", alignItems:"center", gap:10, cursor:"pointer", textAlign:"left" }}>
-              <span style={{ fontSize:15 }}>🚨</span>
-              <span style={{ color:"#ef4444", fontWeight:700, fontSize:13 }}>
-                {endingSoon.length} campaign{endingSoon.length!==1?"s":""} ending within 14 days
-              </span>
-              <span style={{ marginLeft:"auto", color:"#ef4444", fontSize:11, opacity:.7 }}>{endAlertOpen?"▲ hide":"▼ show"}</span>
-            </button>
-            {endAlertOpen && (
-              <div style={{ borderTop:"1px solid #ef444430", padding:"4px 0 8px" }}>
-                {endingSoon.map(c=>{
-                  const days = getDaysLeft(c.endDate);
-                  return (
-                    <div key={c.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 16px", borderBottom:"1px solid #1a0a0a" }}>
-                      <span style={{ fontWeight:700, color: days<=7?"#ef4444":"#f87171", fontSize:12, minWidth:55, fontVariantNumeric:"tabular-nums" }}>
-                        {days===0?"Today":days===1?"1 day":`${days} days`}
-                      </span>
-                      <PlatformTag p={c.platform}/>
-                      <span style={{ color:"#f1f5f9", fontWeight:600, fontSize:12 }}>{c.campaignName.trim()}</span>
-                      <span style={{ color:"#64748b", fontSize:11 }}>{c.mediaPartner.trim()}</span>
-                      <span style={{ marginLeft:"auto", color:"#475569", fontSize:11, fontVariantNumeric:"tabular-nums" }}>{c.endDate}</span>
-                      <button onClick={()=>setEditTarget(c)} style={{ background:"#1e293b", border:"1px solid #334155", borderRadius:5, color:"#94a3b8", fontSize:11, padding:"3px 9px", cursor:"pointer", fontWeight:600 }}>Edit</button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Stats */}
         <div style={{ display:"flex", gap:9, flexWrap:"wrap", marginBottom:14 }}>
           {[{label:"Total",val:stats.total,color:"#94a3b8"},{label:"Active",val:stats.active,color:"#22c55e"},{label:"Ahead",val:stats.ahead,color:"#fb923c"},{label:"Behind",val:stats.behind,color:"#fde047"},{label:"Close to Goal",val:stats.closeToGoal,color:"#2dd4bf"},{label:"Off",val:stats.off,color:"#ef4444"},{label:"≤14d End",val:stats.soon,color:"#f87171"},{label:"★ Monthly",val:stats.monthlyFlights,color:"#2dd4bf"}].map(s=>(
@@ -505,10 +469,6 @@ export default function App() {
           <select value={fPlatform} onChange={e=>setFPlatform(e.target.value)} style={{ background:"#0f172a", border:"1px solid #1e293b", borderRadius:7, padding:"7px 11px", color:"#94a3b8", fontSize:13 }}>
             <option value="all">All Platforms</option>
             {platforms.map(p=><option key={p}>{p}</option>)}
-          </select>
-          <select value={fPartner} onChange={e=>setFPartner(e.target.value)} style={{ background:"#0f172a", border:`1px solid ${fPartner!=="all"?"#a78bfa":"#1e293b"}`, borderRadius:7, padding:"7px 11px", color:fPartner!=="all"?"#a78bfa":"#94a3b8", fontSize:13, fontWeight:fPartner!=="all"?700:400 }}>
-            <option value="all">All Partners</option>
-            {partners.map(p=><option key={p} value={p}>{p}</option>)}
           </select>
           <span style={{ fontSize:11, color:"#475569" }}>{filtered.length} result{filtered.length!==1?"s":""}</span>
         </div>
