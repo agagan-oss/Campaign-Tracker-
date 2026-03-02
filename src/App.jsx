@@ -187,25 +187,77 @@ function DateBar({ range, setRange }) {
   const presets = getPresets();
   const [cs, setCs] = useState(range.start||"");
   const [ce, setCe] = useState(range.end||"");
+  const [showCustom, setShowCustom] = useState(false);
+
+  const quickKeys = ["mtd", "yesterday"];
+  const dropdownKeys = ["today", "last7", "last30", "lastMonth", "custom"];
+  const isDropdownActive = dropdownKeys.includes(range.preset);
+
+  function handleDropdown(val) {
+    if (val === "custom") {
+      setShowCustom(true);
+      setRange({preset:"custom", start:cs, end:ce, label:"Custom"});
+    } else if (val !== "__none__") {
+      setShowCustom(false);
+      const p = presets[val];
+      setRange({preset:val, ...p});
+    }
+  }
+
   return (
     <div style={{ background:"#0a1628", border:"1px solid #1e293b", borderRadius:10, padding:"11px 16px", marginBottom:14, display:"flex", flexWrap:"wrap", alignItems:"center", gap:8 }}>
       <span style={{ fontSize:10, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700, marginRight:4 }}>📅 Date Range</span>
-      <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
-        {Object.entries(presets).map(([k,v])=>{
-          const on = range.preset===k;
-          return <button key={k} onClick={()=>{ if(k==="custom") setRange({preset:"custom",start:cs,end:ce,label:"Custom"}); else setRange({preset:k,...v}); }}
-            style={{ background:on?"#1e3a5f":"#0f172a", border:`1px solid ${on?"#3b82f6":"#1e293b"}`, borderRadius:6, padding:"4px 11px", color:on?"#60a5fa":"#64748b", fontSize:12, fontWeight:on?700:500, cursor:"pointer" }}>{v.label}</button>;
+
+      {/* Quick buttons: MTD + Yesterday */}
+      <div style={{ display:"flex", gap:5 }}>
+        {quickKeys.map(k => {
+          const on = range.preset === k;
+          return (
+            <button key={k} onClick={()=>{ setShowCustom(false); setRange({preset:k,...presets[k]}); }}
+              style={{ background:on?"#1e3a5f":"#0f172a", border:`1px solid ${on?"#3b82f6":"#1e293b"}`, borderRadius:6, padding:"4px 13px", color:on?"#60a5fa":"#64748b", fontSize:12, fontWeight:on?700:500, cursor:"pointer" }}>
+              {presets[k].label}
+            </button>
+          );
         })}
       </div>
-      {range.preset==="custom" && (
+
+      {/* Divider */}
+      <div style={{ width:1, height:20, background:"#1e293b" }}/>
+
+      {/* More dropdown */}
+      <select
+        value={isDropdownActive ? range.preset : "__none__"}
+        onChange={e => handleDropdown(e.target.value)}
+        style={{
+          background: isDropdownActive?"#1e3a5f":"#0f172a",
+          border:`1px solid ${isDropdownActive?"#3b82f6":"#1e293b"}`,
+          borderRadius:6, padding:"4px 11px",
+          color: isDropdownActive?"#60a5fa":"#64748b",
+          fontSize:12, fontWeight: isDropdownActive?700:500, cursor:"pointer"
+        }}
+      >
+        <option value="__none__" disabled>More…</option>
+        <option value="today">Today</option>
+        <option value="last7">Last 7 Days</option>
+        <option value="last30">Last 30 Days</option>
+        <option value="lastMonth">Last Month</option>
+        <option value="custom">Custom Range…</option>
+      </select>
+
+      {/* Custom date inputs */}
+      {(showCustom || range.preset==="custom") && (
         <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-          <input type="date" value={cs} onChange={e=>setCs(e.target.value)} style={{ background:"#0f172a", border:"1px solid #334155", borderRadius:6, padding:"4px 8px", color:"#e2e8f0", fontSize:12 }}/>
+          <input type="date" value={cs} onChange={e=>setCs(e.target.value)}
+            style={{ background:"#0f172a", border:"1px solid #334155", borderRadius:6, padding:"4px 8px", color:"#e2e8f0", fontSize:12 }}/>
           <span style={{color:"#475569",fontSize:11}}>to</span>
-          <input type="date" value={ce} onChange={e=>setCe(e.target.value)} style={{ background:"#0f172a", border:"1px solid #334155", borderRadius:6, padding:"4px 8px", color:"#e2e8f0", fontSize:12 }}/>
-          <button onClick={()=>cs&&ce&&setRange({preset:"custom",start:cs,end:ce,label:`${cs} → ${ce}`})} disabled={!cs||!ce}
+          <input type="date" value={ce} onChange={e=>setCe(e.target.value)}
+            style={{ background:"#0f172a", border:"1px solid #334155", borderRadius:6, padding:"4px 8px", color:"#e2e8f0", fontSize:12 }}/>
+          <button onClick={()=>{ if(cs&&ce){ setRange({preset:"custom",start:cs,end:ce,label:`${cs} → ${ce}`}); setShowCustom(false); }}} disabled={!cs||!ce}
             style={{ background:cs&&ce?"#3b82f6":"#1e293b", border:"none", borderRadius:6, padding:"4px 12px", color:cs&&ce?"#fff":"#475569", fontSize:12, fontWeight:700, cursor:cs&&ce?"pointer":"default" }}>Apply</button>
         </div>
       )}
+
+      {/* Active range display */}
       {range.start && range.end && (
         <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:6 }}>
           <span style={{ fontSize:11, color:"#475569" }}>Showing:</span>
