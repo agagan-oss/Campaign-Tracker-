@@ -239,7 +239,7 @@ function DateBar({ range, setRange }) {
 }
 
 function Modal({ campaign, onSave, onClose, isNew }) {
-  const blank = { mediaPartner:"", campaignName:"", platform:"FB", goal:"", endDate:"", status:"active", note1:"", note2:"", lastChecked:getToday(), impressions:"", ctr:"", cpm:"", spend:"", monthlyFlight:false };
+  const blank = { mediaPartner:"", campaignName:"", platform:"FB", goal:"", endDate:"", status:"active", note1:"", note2:"", lastChecked:getToday(), impressions:"", ctr:"", cpm:"", spend:"", monthlyFlight:false, projectionUrl:"", history:"" };
   const [f, setF] = useState(campaign ? {...campaign} : blank);
   const set = (k,v) => setF(p=>({...p,[k]:v}));
   const iS = { width:"100%", background:"#1e293b", border:"1px solid #334155", borderRadius:6, padding:"7px 10px", color:"#e2e8f0", fontSize:13, boxSizing:"border-box" };
@@ -289,6 +289,41 @@ function Modal({ campaign, onSave, onClose, isNew }) {
             </span>
           </button>
         </div>
+        {/* Projection URL */}
+        <div style={{ marginBottom:12 }}>
+          <label style={{ display:"block", fontSize:10, color:"#94a3b8", marginBottom:3, textTransform:"uppercase", letterSpacing:"0.06em" }}>
+            📎 Projection Sheet URL
+          </label>
+          <div style={{ display:"flex", gap:6 }}>
+            <input
+              type="url"
+              value={f.projectionUrl||""}
+              onChange={e=>set("projectionUrl",e.target.value)}
+              placeholder="https://docs.google.com/..."
+              style={{ flex:1, background:"#1e293b", border:"1px solid #334155", borderRadius:6, padding:"7px 10px", color:"#e2e8f0", fontSize:13, boxSizing:"border-box", fontFamily:"inherit" }}
+            />
+            {f.projectionUrl && f.projectionUrl.trim() && (
+              <a href={f.projectionUrl.trim()} target="_blank" rel="noopener noreferrer"
+                style={{ background:"#1e3a5f", border:"1px solid #3b82f640", borderRadius:6, padding:"7px 12px", color:"#60a5fa", fontSize:12, fontWeight:600, textDecoration:"none", whiteSpace:"nowrap", display:"flex", alignItems:"center" }}>
+                Open ↗
+              </a>
+            )}
+          </div>
+        </div>
+
+        {/* History / Change Log */}
+        <div style={{ marginBottom:16 }}>
+          <label style={{ display:"block", fontSize:10, color:"#94a3b8", marginBottom:3, textTransform:"uppercase", letterSpacing:"0.06em" }}>
+            📋 Change History
+          </label>
+          <textarea
+            value={f.history||""}
+            onChange={e=>set("history",e.target.value)}
+            placeholder={"3/2/26 — Increased budget from 50K to 75K\n3/1/26 — Changed targeting to 25-54 demo\n..."}
+            style={{ width:"100%", background:"#0f172a", border:"1px solid #334155", borderRadius:6, padding:"10px", color:"#e2e8f0", fontSize:12, fontFamily:"inherit", boxSizing:"border-box", resize:"vertical", minHeight:110, lineHeight:1.6 }}
+          />
+        </div>
+
         <div style={{ display:"flex", gap:8, marginTop:8 }}>
           <button onClick={submit} style={{ flex:1, background:isNew?"#22c55e":"#3b82f6", border:"none", borderRadius:7, padding:"10px 0", color:isNew?"#000":"#fff", fontWeight:700, fontSize:14, cursor:"pointer" }}>{isNew?"Add Campaign":"Save Changes"}</button>
           <button onClick={onClose} style={{ flex:1, background:"#1e293b", border:"1px solid #334155", borderRadius:7, padding:"10px 0", color:"#94a3b8", fontWeight:600, fontSize:14, cursor:"pointer" }}>Cancel</button>
