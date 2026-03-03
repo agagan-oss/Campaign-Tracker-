@@ -67,7 +67,7 @@ function PlatformTag({ p }) {
 function EndChip({ d }) {
   const days = getDaysLeft(d);
   const col = days<0?"#6b7280":days<=14?"#ef4444":days<=30?"#f59e0b":"#00d48a";
-  return <span style={{ color:col, fontSize:12, fontFamily:"Inter,sans-serif", fontWeight:600, fontVariantNumeric:"tabular-nums" }}>{d} <span style={{opacity:.6,fontWeight:400}}>({days<0?"Ended":days===0?"Today":`${days}d`})</span></span>;
+  return <span style={{ color:col, fontSize:13, fontFamily:"Inter,sans-serif", fontWeight:600, fontVariantNumeric:"tabular-nums" }}>{d} <span style={{opacity:.6,fontWeight:400}}>({days<0?"Ended":days===0?"Today":`${days}d`})</span></span>;
 }
 
 function MetricPill({ label, value, color, prefix="", suffix="" }) {
@@ -416,14 +416,14 @@ export default function App() {
   const sort = k=>{ if(sortKey===k)setSortDir(d=>d==="asc"?"desc":"asc"); else{setSortKey(k);setSortDir("asc");} };
 
   const TH = ({k,label,style={}}) => (
-    <th onClick={()=>k&&sort(k)} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, fontWeight:700, color:sortKey===k?"#00e5a0":"#4d6e8a", textTransform:"uppercase", letterSpacing:"0.07em", whiteSpace:"nowrap", cursor:k?"pointer":"default", userSelect:"none", borderBottom:"1px solid #1e293b", ...style }}>
+    <th onClick={()=>k&&sort(k)} style={{ padding:"11px 13px", textAlign:"left", fontSize:12, fontWeight:700, color:sortKey===k?"#00e5a0":"#4d6e8a", textTransform:"uppercase", letterSpacing:"0.07em", whiteSpace:"nowrap", cursor:k?"pointer":"default", userSelect:"none", borderBottom:"1px solid #1e293b", ...style }}>
       {label}{sortKey===k?(sortDir==="asc"?" ↑":" ↓"):""}
     </th>
   );
   const TD = ({children,style={}}) => <td style={{ padding:"14px 12px", borderBottom:"1px solid #060c18", verticalAlign:"middle", ...style }}>{children}</td>;
 
   return (
-    <div style={{ minHeight:"100vh", background:"#070d16", fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", color:"#d8eaf8", fontSize:13 }}>
+    <div style={{ minHeight:"100vh", background:"#070d16", fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", color:"#d8eaf8", fontSize:15 }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700&display=swap');
         *{box-sizing:border-box;}
@@ -446,13 +446,13 @@ export default function App() {
       <div style={{ background:"linear-gradient(180deg,#0e2038 0%,#0c1625 100%)", borderBottom:"1px solid #00c89628", borderTop:"2px solid #00c896", padding:"13px 20px", position:"sticky", top:0, zIndex:50 }}>
         <div style={{ maxWidth:1600, margin:"0 auto", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            <span style={{ fontSize:17, fontWeight:800, color:"#edf4ff", letterSpacing:"-0.03em" }}>Campaign <span style={{color:"#00e5a0"}}>Tracker</span></span>
+            <span style={{ fontSize:17, fontWeight:800, color:"#00e5a0", letterSpacing:"-0.03em" }}>Campaign Tracker</span>
             <span style={{ fontSize:11, padding:"2px 7px", borderRadius:4, background:saved?"#00200f":"transparent", color:saved?"#00d48a":"transparent", border:saved?"1px solid #22c55e40":"1px solid transparent", transition:"all .3s", fontWeight:600 }}>✓ Saved</span>
           </div>
           <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
-            <button onClick={()=>setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today})))} style={{ background:"#002e24", border:"1px solid #3b82f640", borderRadius:7, padding:"6px 13px", color:"#00e5a0", fontWeight:600, fontSize:12, cursor:"pointer" }}>✓ Mark All Checked</button>
-            <button onClick={()=>setShowAdd(true)} style={{ background:"#00200f", border:"1px solid #22c55e40", borderRadius:7, padding:"6px 13px", color:"#00d48a", fontWeight:600, fontSize:12, cursor:"pointer" }}>+ Add Campaign</button>
-            <button onClick={()=>{ const b=new Blob([JSON.stringify({campaigns,exportDate:new Date().toISOString()},null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=`campaign-tracker-${today}.json`; a.click(); localStorage.setItem(EXPORT_KEY, Date.now().toString()); setShowExportReminder(false); }} style={{ background:"#162236", border:"1px solid #334155", borderRadius:7, padding:"6px 13px", color:"#7a9bbf", fontWeight:600, fontSize:12, cursor:"pointer" }}>↓ Export</button>
+            <button onClick={()=>setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today})))} style={{ background:"#002e24", border:"1px solid #3b82f640", borderRadius:7, padding:"6px 13px", color:"#00e5a0", fontWeight:600, fontSize:13, cursor:"pointer" }}>✓ Mark All Checked</button>
+            <button onClick={()=>setShowAdd(true)} style={{ background:"#00200f", border:"1px solid #22c55e40", borderRadius:7, padding:"6px 13px", color:"#00d48a", fontWeight:600, fontSize:13, cursor:"pointer" }}>+ Add Campaign</button>
+            <button onClick={()=>{ const b=new Blob([JSON.stringify({campaigns,exportDate:new Date().toISOString()},null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=`campaign-tracker-${today}.json`; a.click(); localStorage.setItem(EXPORT_KEY, Date.now().toString()); setShowExportReminder(false); }} style={{ background:"#162236", border:"1px solid #334155", borderRadius:7, padding:"6px 13px", color:"#7a9bbf", fontWeight:600, fontSize:13, cursor:"pointer" }}>↓ Export</button>
           </div>
         </div>
       </div>
@@ -482,8 +482,8 @@ export default function App() {
         <div style={{ display:"flex", gap:9, flexWrap:"wrap", marginBottom:14 }}>
           {[{label:"Total",val:stats.total,color:"#7a9bbf"},{label:"Active",val:stats.active,color:"#00d48a"},{label:"Ahead",val:stats.ahead,color:"#fb923c"},{label:"Behind",val:stats.behind,color:"#fde047"},{label:"Close to Goal",val:stats.closeToGoal,color:"#00e5c0"},{label:"Off",val:stats.off,color:"#ef4444"},{label:"≤14d End",val:stats.soon,color:"#f87171"},{label:"★ Monthly",val:stats.monthlyFlights,color:"#00e5c0"}].map(s=>(
             <div key={s.label} style={{ background:"#0e1a2e", border:`1px solid ${s.color}30`, borderRadius:8, padding:"9px 15px", minWidth:75 }}>
-              <div style={{ fontSize:20, fontWeight:800, color:s.color, lineHeight:1, letterSpacing:"-0.02em" }}>{s.val}</div>
-              <div style={{ fontSize:10, color:"#4d6e8a", marginTop:3, textTransform:"uppercase", letterSpacing:"0.05em" }}>{s.label}</div>
+              <div style={{ fontSize:22, fontWeight:800, color:s.color, lineHeight:1, letterSpacing:"-0.02em" }}>{s.val}</div>
+              <div style={{ fontSize:11, color:"#4d6e8a", marginTop:3, textTransform:"uppercase", letterSpacing:"0.05em" }}>{s.label}</div>
             </div>
           ))}
           <div style={{ marginLeft:"auto", alignSelf:"center", fontSize:11, color:"#3d5a72" }}>Today: {today}</div>
@@ -495,7 +495,7 @@ export default function App() {
         {/* Filters */}
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:14 }}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…"
-            style={{ background:"#0e1a2e", border:"1px solid #1e293b", borderRadius:7, padding:"7px 13px", color:"#d8eaf8", fontSize:13, width:270 }}/>
+            style={{ background:"#0e1a2e", border:"1px solid #1e293b", borderRadius:7, padding:"8px 14px", color:"#d8eaf8", fontSize:14, width:280 }}/>
           <select value={fStatus !== "all" ? fStatus : (fMonthly ? "__monthly__" : "all")} onChange={e=>{ if(e.target.value==="__monthly__"){ setFMonthly(true); setFStatus("all"); } else { setFMonthly(false); setFStatus(e.target.value); } }} style={{ background:"#0e1a2e", border:`1px solid ${fMonthly?"#00e5c0":"#162236"}`, borderRadius:7, padding:"7px 11px", color: fMonthly?"#00e5c0":"#7a9bbf", fontSize:13, fontWeight: fMonthly?700:400 }}>
             <option value="all">All Statuses</option>
             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
@@ -612,14 +612,14 @@ export default function App() {
                         </TD>
 
                         <TD style={{maxWidth:170}}>
-                          <span style={{ color:"#7a9bbf", fontFamily:"Inter,sans-serif", fontSize:11, display:"block", fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:160 }} title={c.goal}>{c.goal}</span>
+                          <span style={{ color:"#7a9bbf", fontFamily:"Inter,sans-serif", fontSize:13, display:"block", fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:160 }} title={c.goal}>{c.goal}</span>
                         </TD>
 
                         <TD><EndChip d={c.endDate}/></TD>
 
                         <TD>
                           <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                            <span style={{ fontFamily:"Inter,sans-serif", fontSize:11, color:stale?"#f59e0b":"#00d48a", fontWeight:stale?600:400 }}>{c.lastChecked}</span>
+                            <span style={{ fontFamily:"Inter,sans-serif", fontSize:13, color:stale?"#f59e0b":"#00d48a", fontWeight:stale?600:400 }}>{c.lastChecked}</span>
                             {stale && (
                               <button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{ background:"#002018", border:"1px solid #22c55e40", borderRadius:4, color:"#00ffb3", fontSize:10, padding:"1px 6px", cursor:"pointer", fontWeight:700 }}>✓</button>
                             )}
