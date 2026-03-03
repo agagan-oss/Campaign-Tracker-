@@ -239,7 +239,7 @@ function DateBar({ range, setRange }) {
 }
 
 function Modal({ campaign, onSave, onClose, isNew }) {
-  const blank = { mediaPartner:"", campaignName:"", platform:"FB", goal:"", endDate:"", status:"active", note1:"", note2:"", lastChecked:getToday(), impressions:"", ctr:"", cpm:"", spend:"", monthlyFlight:false, projectionUrl:"", history:"" };
+  const blank = { mediaPartner:"", campaignName:"", platform:"FB", goal:"", endDate:"", status:"active", note1:"", note2:"", lastChecked:getToday(), impressions:"", ctr:"", cpm:"", spend:"", monthlyFlight:false, projectionUrl:"", history:"", folderPath:"" };
   const [f, setF] = useState(campaign ? {...campaign} : blank);
   const set = (k,v) => setF(p=>({...p,[k]:v}));
   const iS = { width:"100%", background:"#162236", border:"1px solid #334155", borderRadius:6, padding:"7px 10px", color:"#d8eaf8", fontSize:13, boxSizing:"border-box" };
@@ -311,6 +311,28 @@ function Modal({ campaign, onSave, onClose, isNew }) {
           </div>
         </div>
 
+
+        {/* Client Folder Path */}
+        <div style={{ marginBottom:12 }}>
+          <label style={{ display:'block', fontSize:10, color:'#7a9bbf', marginBottom:3, textTransform:'uppercase', letterSpacing:'0.06em' }}>📁 Client Folder Path</label>
+          <div style={{ display:'flex', gap:6 }}>
+            <input type='text' value={f.folderPath||''} onChange={e=>set('folderPath',e.target.value)}
+              placeholder={'\\\\192.168.3.2\\Data\\Recrue Media WhiteBoard Shared Drive\\Clients\\...'}
+              style={{ flex:1, background:'#162236', border:'1px solid #1e3350', borderRadius:6, padding:'7px 10px', color:'#d8eaf8', fontSize:12, boxSizing:'border-box', fontFamily:'Consolas,monospace' }}/>
+            {f.folderPath && f.folderPath.trim() && (
+              <button onClick={()=>{ navigator.clipboard.writeText(f.folderPath.trim()); }}
+                title='Copy path — paste into Windows Explorer address bar'
+                style={{ background:'#002e24', border:'1px solid #00c89640', borderRadius:6, padding:'7px 12px', color:'#00e5a0', fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
+                Copy 📋
+              </button>
+            )}
+          </div>
+          {f.folderPath && f.folderPath.trim() && (
+            <div style={{ marginTop:5, fontSize:10, color:'#3d5a72', fontStyle:'italic' }}>
+              💡 Click Copy, then paste into Windows Explorer address bar (Ctrl+L) to open
+            </div>
+          )}
+        </div>
         {/* History / Change Log */}
         <div style={{ marginBottom:16 }}>
           <label style={{ display:"block", fontSize:10, color:"#7a9bbf", marginBottom:3, textTransform:"uppercase", letterSpacing:"0.06em" }}>
