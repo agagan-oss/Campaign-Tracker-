@@ -606,7 +606,7 @@ export default function App() {
                           </div>
                           {/* Note 1 subtitle */}
                           {c.note1 && c.note1.trim() && (
-                            <div style={{ fontSize:10, color:"#00ffb3", marginTop:2, fontFamily:"Inter,sans-serif", fontWeight:500, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:220 }} title={c.note1}>
+                            <div style={{ fontSize:11, color:"#00ffb3", marginTop:3, fontFamily:"Inter,sans-serif", fontWeight:500, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:220 }} title={c.note1}>
                               {c.note1.trim()}
                             </div>
                           )}
