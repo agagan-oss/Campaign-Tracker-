@@ -63,7 +63,6 @@ function getPresets() {
   };
 }
 
-// ─── Reminder Modal ───────────────────────────────────────────────────────────
 function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
   const blank = { id:null, type:"ad-swap", campaignId:"", note:"", date:"", repeat:"none", dismissed:false };
   const [form, setForm] = useState(blank);
@@ -519,9 +518,46 @@ export default function App() {
   const sort = k=>{ if(sortKey===k) setSortDir(d=>d==="asc"?"desc":"asc"); else { setSortKey(k); setSortDir("asc"); } };
 
   const doExport = () => {
-    const b = new Blob([JSON.stringify({campaigns,reminders,exportDate:new Date().toISOString()},null,2)],{type:"application/json"});
-    const a = document.createElement("a"); a.href=URL.createObjectURL(b); a.download=`campaign-tracker-${today}.json`; a.click();
-    localStorage.setItem(EXPORT_KEY, Date.now().toString()); setShowExportReminder(false);
+    try {
+      const data = JSON.stringify({campaigns, reminders, exportDate: new Date().toISOString()}, null, 2);
+      const b = new Blob([data], {type:"application/json"});
+      const url = URL.createObjectURL(b);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `campaign-tracker-${today}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      localStorage.setItem(EXPORT_KEY, Date.now().toString());
+      setShowExportReminder(false);
+    } catch(e) {
+      alert("Export failed: " + e.message);
+    }
+  };
+
+  const doImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try {
+        const parsed = JSON.parse(evt.target.result);
+        if (parsed.campaigns && Array.isArray(parsed.campaigns)) {
+          if (window.confirm(`Import ${parsed.campaigns.length} campaigns${parsed.reminders ? ` and ${parsed.reminders.length} reminders` : ""}? This will replace your current data.`)) {
+            setCampaigns(parsed.campaigns);
+            if (parsed.reminders) setReminders(parsed.reminders);
+            alert("✅ Import successful!");
+          }
+        } else {
+          alert("❌ Invalid file — doesn't look like a Campaign Tracker export.");
+        }
+      } catch {
+        alert("❌ Couldn't read that file. Make sure it's a valid JSON export.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
   };
 
   const TH = ({k,label,style={}}) => (
@@ -566,6 +602,10 @@ export default function App() {
             <button onClick={()=>setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today})))} style={{ background:"#002e24", border:"1px solid #3b82f640", borderRadius:7, padding:"6px 13px", color:"#00e5a0", fontWeight:600, fontSize:13, cursor:"pointer" }}>✓ Mark All Checked</button>
             <button onClick={()=>setShowAdd(true)} style={{ background:"#00200f", border:"1px solid #22c55e40", borderRadius:7, padding:"6px 13px", color:"#00d48a", fontWeight:600, fontSize:13, cursor:"pointer" }}>+ Add Campaign</button>
             <button onClick={doExport} style={{ background:"#162236", border:"1px solid #334155", borderRadius:7, padding:"6px 13px", color:"#7a9bbf", fontWeight:600, fontSize:13, cursor:"pointer" }}>↓ Export</button>
+            <label style={{ background:"#162236", border:"1px solid #334155", borderRadius:7, padding:"6px 13px", color:"#7a9bbf", fontWeight:600, fontSize:13, cursor:"pointer", whiteSpace:"nowrap" }}>
+              ↑ Import
+              <input type="file" accept=".json" style={{ display:"none" }} onChange={doImport}/>
+            </label>
           </div>
         </div>
       </div>
