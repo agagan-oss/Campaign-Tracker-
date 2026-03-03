@@ -8,19 +8,19 @@ const initialCampaigns = [{"mediaPartner":"WVR","campaignName":"Harry Green CDJR
 const ALL_PLATFORMS = ["FB","DSP","CTV","OTT","SP","SEM","TD","OTTD","FBV","TT","IG","YT","EMAIL"];
 
 const STATUS_CFG = {
-  "active":        { label:"Active",        color:"#22c55e", bg:"#052e16" },
-  "pacing-ahead":  { label:"Pacing Ahead",  color:"#fb923c", bg:"#1c0f00" },
-  "pacing-behind": { label:"Pacing Behind", color:"#fde047", bg:"#1c1800" },
-  "off":           { label:"Off",           color:"#ef4444", bg:"#1c0505" },
-  "close-to-goal": { label:"Close to Goal",  color:"#2dd4bf", bg:"#042220" },
-  "":              { label:"Unknown",       color:"#a855f7", bg:"#1a0a2e" },
+  "active":        { label:"Active",        color:"#00d48a", bg:"#00200f" },
+  "pacing-ahead":  { label:"Pacing Ahead",  color:"#fb923c", bg:"#151000" },
+  "pacing-behind": { label:"Pacing Behind", color:"#fde047", bg:"#151a00" },
+  "off":           { label:"Off",           color:"#ef4444", bg:"#1a0808" },
+  "close-to-goal": { label:"Close to Goal",  color:"#00e5c0", bg:"#00201a" },
+  "":              { label:"Unknown",       color:"#a855f7", bg:"#071420" },
 };
 
 const PLT_COLORS = {
-  SEM:"#b91c1c", TD:"#4ade80", DSP:"#7dd3fc", FB:"#f472b6",
-  FBV:"#a855f7", CTV:"#cbd5e1", OTT:"#6b7280", OTTD:"#1e3a8a",
-  YT:"#93c5fd", SP:"#fde047", EMAIL:"#fb923c", TT:"#94a3b8",
-  IG:"#e1306c", default:"#64748b"
+  SEM:"#b91c1c", TD:"#00ffb3", DSP:"#7dd3fc", FB:"#f472b6",
+  FBV:"#a855f7", CTV:"#a8c4e0", OTT:"#6b7280", OTTD:"#003a5c",
+  YT:"#6effd8", SP:"#fde047", EMAIL:"#fb923c", TT:"#7a9bbf",
+  IG:"#e1306c", default:"#4d6e8a"
 };
 
 function getToday() { return new Date().toISOString().split("T")[0]; }
@@ -66,7 +66,7 @@ function PlatformTag({ p }) {
 }
 function EndChip({ d }) {
   const days = getDaysLeft(d);
-  const col = days<0?"#6b7280":days<=14?"#ef4444":days<=30?"#f59e0b":"#22c55e";
+  const col = days<0?"#6b7280":days<=14?"#ef4444":days<=30?"#f59e0b":"#00d48a";
   return <span style={{ color:col, fontSize:12, fontFamily:"Inter,sans-serif", fontWeight:600, fontVariantNumeric:"tabular-nums" }}>{d} <span style={{opacity:.6,fontWeight:400}}>({days<0?"Ended":days===0?"Today":`${days}d`})</span></span>;
 }
 
@@ -87,10 +87,10 @@ function MetricRow({ c, colSpan, onUpdate, dateRange }) {
   const set = (k,v) => { setLocal(p=>({...p,[k]:v})); setDirty(true); };
   const save = () => { onUpdate({...c,...local}); setDirty(false); };
 
-  const iS = { background:"#070e1c", border:"1px solid #1e293b", borderRadius:6, padding:"7px 10px", color:"#e2e8f0", fontSize:13, width:"100%", fontFamily:"Inter,sans-serif", boxSizing:"border-box" };
+  const iS = { background:"#08111f", border:"1px solid #1e293b", borderRadius:6, padding:"7px 10px", color:"#d8eaf8", fontSize:13, width:"100%", fontFamily:"Inter,sans-serif", boxSizing:"border-box" };
   const metrics = [
-    { key:"impressions", label:"Impressions", color:"#60a5fa", prefix:"",  suffix:"" },
-    { key:"ctr",         label:"CTR",         color:"#4ade80", prefix:"",  suffix:"%" },
+    { key:"impressions", label:"Impressions", color:"#00e5a0", prefix:"",  suffix:"" },
+    { key:"ctr",         label:"CTR",         color:"#00ffb3", prefix:"",  suffix:"%" },
     { key:"cpm",         label:"CPM",         color:"#fb923c", prefix:"$", suffix:"" },
     { key:"spend",       label:"Spend",       color:"#f472b6", prefix:"$", suffix:"" },
   ];
@@ -98,13 +98,13 @@ function MetricRow({ c, colSpan, onUpdate, dateRange }) {
   return (
     <tr>
       <td colSpan={colSpan} style={{ padding:0, borderBottom:"1px solid #0d1525" }}>
-        <div style={{ background:"#060d1a", borderTop:"1px solid #1a2744", padding:"16px 16px 16px 52px" }}>
+        <div style={{ background:"#07101c", borderTop:"1px solid #1a2744", padding:"16px 16px 16px 52px" }}>
 
           {/* Header */}
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
-            <span style={{ fontSize:11, color:"#3b82f6", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>📊 Metrics</span>
+            <span style={{ fontSize:11, color:"#00c896", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>📊 Metrics</span>
             {dateRange.start && (
-              <span style={{ background:"#0f172a", border:"1px solid #1e293b", borderRadius:4, padding:"1px 8px", fontSize:10, fontFamily:"monospace", color:"#64748b" }}>
+              <span style={{ background:"#0e1a2e", border:"1px solid #1e293b", borderRadius:4, padding:"1px 8px", fontSize:10, fontFamily:"monospace", color:"#4d6e8a" }}>
                 {dateRange.start === dateRange.end ? dateRange.start : `${dateRange.start} → ${dateRange.end}`}
               </span>
             )}
@@ -122,7 +122,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange }) {
                   value={local[key]}
                   onChange={e=>set(key,e.target.value)}
                   placeholder="—"
-                  style={{ ...iS, borderColor: local[key] ? color+"60" : "#1e293b" }}
+                  style={{ ...iS, borderColor: local[key] ? color+"60" : "#162236" }}
                 />
               </div>
             ))}
@@ -131,18 +131,18 @@ function MetricRow({ c, colSpan, onUpdate, dateRange }) {
           {/* Actions */}
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <button onClick={save} disabled={!dirty} style={{
-              background: dirty?"#3b82f6":"#1a2744", border:"none", borderRadius:6,
+              background: dirty?"#00c896":"#132140", border:"none", borderRadius:6,
               padding:"6px 18px", color: dirty?"#fff":"#3b5070",
               fontSize:12, fontWeight:700, cursor: dirty?"pointer":"default", transition:"all .15s"
             }}>Save Metrics</button>
             {!dirty && (c.impressions||c.ctr||c.cpm||c.spend) && (
-              <span style={{ fontSize:11, color:"#22c55e", display:"flex", alignItems:"center", gap:4 }}>
+              <span style={{ fontSize:11, color:"#00d48a", display:"flex", alignItems:"center", gap:4 }}>
                 <span>✓</span><span>Metrics saved</span>
               </span>
             )}
             {(local.impressions||local.ctr||local.cpm||local.spend) && (
               <button onClick={()=>{ setLocal({impressions:"",ctr:"",cpm:"",spend:""}); setDirty(true); }}
-                style={{ background:"none", border:"none", color:"#475569", fontSize:11, cursor:"pointer" }}>Clear all</button>
+                style={{ background:"none", border:"none", color:"#3d5a72", fontSize:11, cursor:"pointer" }}>Clear all</button>
             )}
           </div>
         </div>
@@ -173,8 +173,8 @@ function DateBar({ range, setRange }) {
   }
 
   return (
-    <div style={{ background:"#0a1628", border:"1px solid #1e293b", borderRadius:10, padding:"11px 16px", marginBottom:14, display:"flex", flexWrap:"wrap", alignItems:"center", gap:8 }}>
-      <span style={{ fontSize:10, color:"#64748b", textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700, marginRight:4 }}>📅 Date Range</span>
+    <div style={{ background:"#0c1625", border:"1px solid #1e293b", borderRadius:10, padding:"11px 16px", marginBottom:14, display:"flex", flexWrap:"wrap", alignItems:"center", gap:8 }}>
+      <span style={{ fontSize:10, color:"#4d6e8a", textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700, marginRight:4 }}>📅 Date Range</span>
 
       {/* Quick buttons: MTD + Yesterday */}
       <div style={{ display:"flex", gap:5 }}>
@@ -182,7 +182,7 @@ function DateBar({ range, setRange }) {
           const on = range.preset === k;
           return (
             <button key={k} onClick={()=>{ setShowCustom(false); setRange({preset:k,...presets[k]}); }}
-              style={{ background:on?"#1e3a5f":"#0f172a", border:`1px solid ${on?"#3b82f6":"#1e293b"}`, borderRadius:6, padding:"4px 13px", color:on?"#60a5fa":"#64748b", fontSize:12, fontWeight:on?700:500, cursor:"pointer" }}>
+              style={{ background:on?"#002e24":"#0e1a2e", border:`1px solid ${on?"#00c896":"#162236"}`, borderRadius:6, padding:"4px 13px", color:on?"#00e5a0":"#4d6e8a", fontSize:12, fontWeight:on?700:500, cursor:"pointer" }}>
               {presets[k].label}
             </button>
           );
@@ -190,17 +190,17 @@ function DateBar({ range, setRange }) {
       </div>
 
       {/* Divider */}
-      <div style={{ width:1, height:20, background:"#1e293b" }}/>
+      <div style={{ width:1, height:20, background:"#162236" }}/>
 
       {/* More dropdown */}
       <select
         value={isDropdownActive ? range.preset : "__none__"}
         onChange={e => handleDropdown(e.target.value)}
         style={{
-          background: isDropdownActive?"#1e3a5f":"#0f172a",
-          border:`1px solid ${isDropdownActive?"#3b82f6":"#1e293b"}`,
+          background: isDropdownActive?"#002e24":"#0e1a2e",
+          border:`1px solid ${isDropdownActive?"#00c896":"#162236"}`,
           borderRadius:6, padding:"4px 11px",
-          color: isDropdownActive?"#60a5fa":"#64748b",
+          color: isDropdownActive?"#00e5a0":"#4d6e8a",
           fontSize:12, fontWeight: isDropdownActive?700:500, cursor:"pointer"
         }}
       >
@@ -216,20 +216,20 @@ function DateBar({ range, setRange }) {
       {(showCustom || range.preset==="custom") && (
         <div style={{ display:"flex", gap:6, alignItems:"center" }}>
           <input type="date" value={cs} onChange={e=>setCs(e.target.value)}
-            style={{ background:"#0f172a", border:"1px solid #334155", borderRadius:6, padding:"4px 8px", color:"#e2e8f0", fontSize:12 }}/>
-          <span style={{color:"#475569",fontSize:11}}>to</span>
+            style={{ background:"#0e1a2e", border:"1px solid #334155", borderRadius:6, padding:"4px 8px", color:"#d8eaf8", fontSize:12 }}/>
+          <span style={{color:"#3d5a72",fontSize:11}}>to</span>
           <input type="date" value={ce} onChange={e=>setCe(e.target.value)}
-            style={{ background:"#0f172a", border:"1px solid #334155", borderRadius:6, padding:"4px 8px", color:"#e2e8f0", fontSize:12 }}/>
+            style={{ background:"#0e1a2e", border:"1px solid #334155", borderRadius:6, padding:"4px 8px", color:"#d8eaf8", fontSize:12 }}/>
           <button onClick={()=>{ if(cs&&ce){ setRange({preset:"custom",start:cs,end:ce,label:`${cs} → ${ce}`}); setShowCustom(false); }}} disabled={!cs||!ce}
-            style={{ background:cs&&ce?"#3b82f6":"#1e293b", border:"none", borderRadius:6, padding:"4px 12px", color:cs&&ce?"#fff":"#475569", fontSize:12, fontWeight:700, cursor:cs&&ce?"pointer":"default" }}>Apply</button>
+            style={{ background:cs&&ce?"#00c896":"#162236", border:"none", borderRadius:6, padding:"4px 12px", color:cs&&ce?"#fff":"#3d5a72", fontSize:12, fontWeight:700, cursor:cs&&ce?"pointer":"default" }}>Apply</button>
         </div>
       )}
 
       {/* Active range display */}
       {range.start && range.end && (
         <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:6 }}>
-          <span style={{ fontSize:11, color:"#475569" }}>Showing:</span>
-          <span style={{ fontSize:11, color:"#60a5fa", fontFamily:"Inter,sans-serif", fontWeight:500, background:"#0f172a", border:"1px solid #1e293b", borderRadius:4, padding:"2px 8px" }}>
+          <span style={{ fontSize:11, color:"#3d5a72" }}>Showing:</span>
+          <span style={{ fontSize:11, color:"#00e5a0", fontFamily:"Inter,sans-serif", fontWeight:500, background:"#0e1a2e", border:"1px solid #1e293b", borderRadius:4, padding:"2px 8px" }}>
             {range.start===range.end ? range.start : `${range.start} → ${range.end}`}
           </span>
         </div>
@@ -242,10 +242,10 @@ function Modal({ campaign, onSave, onClose, isNew }) {
   const blank = { mediaPartner:"", campaignName:"", platform:"FB", goal:"", endDate:"", status:"active", note1:"", note2:"", lastChecked:getToday(), impressions:"", ctr:"", cpm:"", spend:"", monthlyFlight:false, projectionUrl:"", history:"" };
   const [f, setF] = useState(campaign ? {...campaign} : blank);
   const set = (k,v) => setF(p=>({...p,[k]:v}));
-  const iS = { width:"100%", background:"#1e293b", border:"1px solid #334155", borderRadius:6, padding:"7px 10px", color:"#e2e8f0", fontSize:13, boxSizing:"border-box" };
+  const iS = { width:"100%", background:"#162236", border:"1px solid #334155", borderRadius:6, padding:"7px 10px", color:"#d8eaf8", fontSize:13, boxSizing:"border-box" };
   const row = (key,label,type="text") => (
     <div style={{ marginBottom:12 }}>
-      <label style={{ display:"block", fontSize:10, color:"#94a3b8", marginBottom:3, textTransform:"uppercase", letterSpacing:"0.06em" }}>{label}</label>
+      <label style={{ display:"block", fontSize:10, color:"#7a9bbf", marginBottom:3, textTransform:"uppercase", letterSpacing:"0.06em" }}>{label}</label>
       {key==="status"   ? <select value={f.status||""} onChange={e=>set("status",e.target.value)} style={iS}>{Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
       :key==="platform" ? <select value={f.platform} onChange={e=>set("platform",e.target.value)} style={iS}>{ALL_PLATFORMS.map(p=><option key={p}>{p}</option>)}</select>
       :<input type={type} value={f[key]||""} onChange={e=>set(key,e.target.value)} style={iS}/>}
@@ -257,10 +257,10 @@ function Modal({ campaign, onSave, onClose, isNew }) {
   }
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, backdropFilter:"blur(4px)" }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:"#0f172a", border:"1px solid #1e293b", borderRadius:12, padding:24, width:"min(500px,95vw)", maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.9)" }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:"#0e1a2e", border:"1px solid #1e293b", borderRadius:12, padding:24, width:"min(500px,95vw)", maxHeight:"90vh", overflowY:"auto", boxShadow:"0 30px 80px rgba(0,0,0,.9)" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
-          <h2 style={{ margin:0, color:"#f1f5f9", fontSize:15, fontWeight:700 }}>{isNew?"Add Campaign":"Edit Campaign"}</h2>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:"#64748b", cursor:"pointer", fontSize:22, lineHeight:1, padding:0 }}>×</button>
+          <h2 style={{ margin:0, color:"#edf4ff", fontSize:15, fontWeight:700 }}>{isNew?"Add Campaign":"Edit Campaign"}</h2>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:"#4d6e8a", cursor:"pointer", fontSize:22, lineHeight:1, padding:0 }}>×</button>
         </div>
         {row("mediaPartner","Media Partner")}
         {row("campaignName","Campaign Name")}
@@ -273,25 +273,25 @@ function Modal({ campaign, onSave, onClose, isNew }) {
         {row("lastChecked","Last Checked","date")}
         {/* Monthly Flight Toggle */}
         <div style={{ marginBottom:12 }}>
-          <label style={{ display:"block", fontSize:10, color:"#94a3b8", marginBottom:3, textTransform:"uppercase", letterSpacing:"0.06em" }}>Monthly Flights</label>
+          <label style={{ display:"block", fontSize:10, color:"#7a9bbf", marginBottom:3, textTransform:"uppercase", letterSpacing:"0.06em" }}>Monthly Flights</label>
           <button onClick={()=>set("monthlyFlight", !f.monthlyFlight)} style={{
             display:"flex", alignItems:"center", gap:8,
-            background: f.monthlyFlight ? "#042220" : "#1e293b",
-            border: `1px solid ${f.monthlyFlight ? "#2dd4bf60" : "#334155"}`,
+            background: f.monthlyFlight ? "#00201a" : "#162236",
+            border: `1px solid ${f.monthlyFlight ? "#2dd4bf60" : "#1e3350"}`,
             borderRadius:7, padding:"8px 14px", cursor:"pointer", width:"100%"
           }}>
-            <span style={{ fontSize:15, color: f.monthlyFlight ? "#2dd4bf" : "#475569", transition:"color .15s" }}>★</span>
-            <span style={{ fontSize:12, color: f.monthlyFlight ? "#2dd4bf" : "#64748b", fontWeight: f.monthlyFlight ? 700 : 400 }}>
+            <span style={{ fontSize:15, color: f.monthlyFlight ? "#00e5c0" : "#3d5a72", transition:"color .15s" }}>★</span>
+            <span style={{ fontSize:12, color: f.monthlyFlight ? "#00e5c0" : "#4d6e8a", fontWeight: f.monthlyFlight ? 700 : 400 }}>
               {f.monthlyFlight ? "Monthly flights enabled" : "No monthly flights"}
             </span>
-            <span style={{ marginLeft:"auto", fontSize:10, color: f.monthlyFlight ? "#2dd4bf" : "#334155" }}>
+            <span style={{ marginLeft:"auto", fontSize:10, color: f.monthlyFlight ? "#00e5c0" : "#1e3350" }}>
               {f.monthlyFlight ? "ON" : "OFF"}
             </span>
           </button>
         </div>
         {/* Projection URL */}
         <div style={{ marginBottom:12 }}>
-          <label style={{ display:"block", fontSize:10, color:"#94a3b8", marginBottom:3, textTransform:"uppercase", letterSpacing:"0.06em" }}>
+          <label style={{ display:"block", fontSize:10, color:"#7a9bbf", marginBottom:3, textTransform:"uppercase", letterSpacing:"0.06em" }}>
             📎 Projection Sheet URL
           </label>
           <div style={{ display:"flex", gap:6 }}>
@@ -300,11 +300,11 @@ function Modal({ campaign, onSave, onClose, isNew }) {
               value={f.projectionUrl||""}
               onChange={e=>set("projectionUrl",e.target.value)}
               placeholder="https://docs.google.com/..."
-              style={{ flex:1, background:"#1e293b", border:"1px solid #334155", borderRadius:6, padding:"7px 10px", color:"#e2e8f0", fontSize:13, boxSizing:"border-box", fontFamily:"inherit" }}
+              style={{ flex:1, background:"#162236", border:"1px solid #334155", borderRadius:6, padding:"7px 10px", color:"#d8eaf8", fontSize:13, boxSizing:"border-box", fontFamily:"inherit" }}
             />
             {f.projectionUrl && f.projectionUrl.trim() && (
               <a href={f.projectionUrl.trim()} target="_blank" rel="noopener noreferrer"
-                style={{ background:"#1e3a5f", border:"1px solid #3b82f640", borderRadius:6, padding:"7px 12px", color:"#60a5fa", fontSize:12, fontWeight:600, textDecoration:"none", whiteSpace:"nowrap", display:"flex", alignItems:"center" }}>
+                style={{ background:"#002e24", border:"1px solid #3b82f640", borderRadius:6, padding:"7px 12px", color:"#00e5a0", fontSize:12, fontWeight:600, textDecoration:"none", whiteSpace:"nowrap", display:"flex", alignItems:"center" }}>
                 Open ↗
               </a>
             )}
@@ -313,20 +313,20 @@ function Modal({ campaign, onSave, onClose, isNew }) {
 
         {/* History / Change Log */}
         <div style={{ marginBottom:16 }}>
-          <label style={{ display:"block", fontSize:10, color:"#94a3b8", marginBottom:3, textTransform:"uppercase", letterSpacing:"0.06em" }}>
+          <label style={{ display:"block", fontSize:10, color:"#7a9bbf", marginBottom:3, textTransform:"uppercase", letterSpacing:"0.06em" }}>
             📋 Change History
           </label>
           <textarea
             value={f.history||""}
             onChange={e=>set("history",e.target.value)}
             placeholder={"3/2/26 — Increased budget from 50K to 75K\n3/1/26 — Changed targeting to 25-54 demo\n..."}
-            style={{ width:"100%", background:"#0f172a", border:"1px solid #334155", borderRadius:6, padding:"10px", color:"#e2e8f0", fontSize:12, fontFamily:"inherit", boxSizing:"border-box", resize:"vertical", minHeight:110, lineHeight:1.6 }}
+            style={{ width:"100%", background:"#0e1a2e", border:"1px solid #334155", borderRadius:6, padding:"10px", color:"#d8eaf8", fontSize:12, fontFamily:"inherit", boxSizing:"border-box", resize:"vertical", minHeight:110, lineHeight:1.6 }}
           />
         </div>
 
         <div style={{ display:"flex", gap:8, marginTop:8 }}>
-          <button onClick={submit} style={{ flex:1, background:isNew?"#22c55e":"#3b82f6", border:"none", borderRadius:7, padding:"10px 0", color:isNew?"#000":"#fff", fontWeight:700, fontSize:14, cursor:"pointer" }}>{isNew?"Add Campaign":"Save Changes"}</button>
-          <button onClick={onClose} style={{ flex:1, background:"#1e293b", border:"1px solid #334155", borderRadius:7, padding:"10px 0", color:"#94a3b8", fontWeight:600, fontSize:14, cursor:"pointer" }}>Cancel</button>
+          <button onClick={submit} style={{ flex:1, background:isNew?"#00d48a":"#00c896", border:"none", borderRadius:7, padding:"10px 0", color:isNew?"#000":"#fff", fontWeight:700, fontSize:14, cursor:"pointer" }}>{isNew?"Add Campaign":"Save Changes"}</button>
+          <button onClick={onClose} style={{ flex:1, background:"#162236", border:"1px solid #334155", borderRadius:7, padding:"10px 0", color:"#7a9bbf", fontWeight:600, fontSize:14, cursor:"pointer" }}>Cancel</button>
         </div>
       </div>
     </div>
@@ -416,24 +416,24 @@ export default function App() {
   const sort = k=>{ if(sortKey===k)setSortDir(d=>d==="asc"?"desc":"asc"); else{setSortKey(k);setSortDir("asc");} };
 
   const TH = ({k,label,style={}}) => (
-    <th onClick={()=>k&&sort(k)} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, fontWeight:700, color:sortKey===k?"#60a5fa":"#64748b", textTransform:"uppercase", letterSpacing:"0.07em", whiteSpace:"nowrap", cursor:k?"pointer":"default", userSelect:"none", borderBottom:"1px solid #1e293b", ...style }}>
+    <th onClick={()=>k&&sort(k)} style={{ padding:"10px 12px", textAlign:"left", fontSize:11, fontWeight:700, color:sortKey===k?"#00e5a0":"#4d6e8a", textTransform:"uppercase", letterSpacing:"0.07em", whiteSpace:"nowrap", cursor:k?"pointer":"default", userSelect:"none", borderBottom:"1px solid #1e293b", ...style }}>
       {label}{sortKey===k?(sortDir==="asc"?" ↑":" ↓"):""}
     </th>
   );
   const TD = ({children,style={}}) => <td style={{ padding:"14px 12px", borderBottom:"1px solid #060c18", verticalAlign:"middle", ...style }}>{children}</td>;
 
   return (
-    <div style={{ minHeight:"100vh", background:"#060c18", fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", color:"#e2e8f0", fontSize:13 }}>
+    <div style={{ minHeight:"100vh", background:"#070d16", fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", color:"#d8eaf8", fontSize:13 }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700&display=swap');
         *{box-sizing:border-box;}
         ::-webkit-scrollbar{width:5px;height:5px;}
-        ::-webkit-scrollbar-track{background:#0f172a;}
-        ::-webkit-scrollbar-thumb{background:#334155;border-radius:3px;}
+        ::-webkit-scrollbar-track{background:#0b1624;}
+        ::-webkit-scrollbar-thumb{background:#1e3350;border-radius:3px;}
         input,select{outline:none;font-family:inherit;}
         input[type=number]::-webkit-inner-spin-button{opacity:.3;}
-        input::placeholder{color:#2d3f55;}
-        .crow:hover td{background:#0d1b2e!important;}
+        input::placeholder{color:#1e3a50;}
+        .crow:hover td{background:#0a1c32!important;}
         .crow:hover .star-toggle{opacity:1!important;}
         button{font-family:inherit;}
         .xbtn{transition:transform .18s ease;}
@@ -443,16 +443,16 @@ export default function App() {
       `}</style>
 
       {/* Header */}
-      <div style={{ background:"#0a1628", borderBottom:"1px solid #1e293b", padding:"13px 20px", position:"sticky", top:0, zIndex:50 }}>
+      <div style={{ background:"linear-gradient(180deg,#0e2038 0%,#0c1625 100%)", borderBottom:"1px solid #00c89628", borderTop:"2px solid #00c896", padding:"13px 20px", position:"sticky", top:0, zIndex:50 }}>
         <div style={{ maxWidth:1600, margin:"0 auto", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            <span style={{ fontSize:17, fontWeight:700, color:"#f1f5f9", letterSpacing:"-0.02em" }}>Campaign Tracker</span>
-            <span style={{ fontSize:11, padding:"2px 7px", borderRadius:4, background:saved?"#052e16":"transparent", color:saved?"#22c55e":"transparent", border:saved?"1px solid #22c55e40":"1px solid transparent", transition:"all .3s", fontWeight:600 }}>✓ Saved</span>
+            <span style={{ fontSize:17, fontWeight:800, color:"#edf4ff", letterSpacing:"-0.03em" }}>Campaign <span style={{color:"#00e5a0"}}>Tracker</span></span>
+            <span style={{ fontSize:11, padding:"2px 7px", borderRadius:4, background:saved?"#00200f":"transparent", color:saved?"#00d48a":"transparent", border:saved?"1px solid #22c55e40":"1px solid transparent", transition:"all .3s", fontWeight:600 }}>✓ Saved</span>
           </div>
           <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
-            <button onClick={()=>setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today})))} style={{ background:"#1e3a5f", border:"1px solid #3b82f640", borderRadius:7, padding:"6px 13px", color:"#60a5fa", fontWeight:600, fontSize:12, cursor:"pointer" }}>✓ Mark All Checked</button>
-            <button onClick={()=>setShowAdd(true)} style={{ background:"#052e16", border:"1px solid #22c55e40", borderRadius:7, padding:"6px 13px", color:"#22c55e", fontWeight:600, fontSize:12, cursor:"pointer" }}>+ Add Campaign</button>
-            <button onClick={()=>{ const b=new Blob([JSON.stringify({campaigns,exportDate:new Date().toISOString()},null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=`campaign-tracker-${today}.json`; a.click(); localStorage.setItem(EXPORT_KEY, Date.now().toString()); setShowExportReminder(false); }} style={{ background:"#1e293b", border:"1px solid #334155", borderRadius:7, padding:"6px 13px", color:"#94a3b8", fontWeight:600, fontSize:12, cursor:"pointer" }}>↓ Export</button>
+            <button onClick={()=>setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today})))} style={{ background:"#002e24", border:"1px solid #3b82f640", borderRadius:7, padding:"6px 13px", color:"#00e5a0", fontWeight:600, fontSize:12, cursor:"pointer" }}>✓ Mark All Checked</button>
+            <button onClick={()=>setShowAdd(true)} style={{ background:"#00200f", border:"1px solid #22c55e40", borderRadius:7, padding:"6px 13px", color:"#00d48a", fontWeight:600, fontSize:12, cursor:"pointer" }}>+ Add Campaign</button>
+            <button onClick={()=>{ const b=new Blob([JSON.stringify({campaigns,exportDate:new Date().toISOString()},null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=`campaign-tracker-${today}.json`; a.click(); localStorage.setItem(EXPORT_KEY, Date.now().toString()); setShowExportReminder(false); }} style={{ background:"#162236", border:"1px solid #334155", borderRadius:7, padding:"6px 13px", color:"#7a9bbf", fontWeight:600, fontSize:12, cursor:"pointer" }}>↓ Export</button>
           </div>
         </div>
       </div>
@@ -461,7 +461,7 @@ export default function App() {
 
         {/* Export Reminder Banner */}
         {showExportReminder && (
-          <div style={{ background:"#1c1200", border:"1px solid #f59e0b60", borderRadius:10, padding:"12px 18px", marginBottom:14, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10 }}>
+          <div style={{ background:"#0d1a0a", border:"1px solid #f59e0b60", borderRadius:10, padding:"12px 18px", marginBottom:14, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10 }}>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
               <span style={{ fontSize:18 }}>💾</span>
               <div>
@@ -480,13 +480,13 @@ export default function App() {
 
         {/* Stats */}
         <div style={{ display:"flex", gap:9, flexWrap:"wrap", marginBottom:14 }}>
-          {[{label:"Total",val:stats.total,color:"#94a3b8"},{label:"Active",val:stats.active,color:"#22c55e"},{label:"Ahead",val:stats.ahead,color:"#fb923c"},{label:"Behind",val:stats.behind,color:"#fde047"},{label:"Close to Goal",val:stats.closeToGoal,color:"#2dd4bf"},{label:"Off",val:stats.off,color:"#ef4444"},{label:"≤14d End",val:stats.soon,color:"#f87171"},{label:"★ Monthly",val:stats.monthlyFlights,color:"#2dd4bf"}].map(s=>(
-            <div key={s.label} style={{ background:"#0f172a", border:`1px solid ${s.color}30`, borderRadius:8, padding:"9px 15px", minWidth:75 }}>
-              <div style={{ fontSize:19, fontWeight:700, color:s.color, lineHeight:1 }}>{s.val}</div>
-              <div style={{ fontSize:10, color:"#64748b", marginTop:3, textTransform:"uppercase", letterSpacing:"0.05em" }}>{s.label}</div>
+          {[{label:"Total",val:stats.total,color:"#7a9bbf"},{label:"Active",val:stats.active,color:"#00d48a"},{label:"Ahead",val:stats.ahead,color:"#fb923c"},{label:"Behind",val:stats.behind,color:"#fde047"},{label:"Close to Goal",val:stats.closeToGoal,color:"#00e5c0"},{label:"Off",val:stats.off,color:"#ef4444"},{label:"≤14d End",val:stats.soon,color:"#f87171"},{label:"★ Monthly",val:stats.monthlyFlights,color:"#00e5c0"}].map(s=>(
+            <div key={s.label} style={{ background:"#0e1a2e", border:`1px solid ${s.color}30`, borderRadius:8, padding:"9px 15px", minWidth:75 }}>
+              <div style={{ fontSize:20, fontWeight:800, color:s.color, lineHeight:1, letterSpacing:"-0.02em" }}>{s.val}</div>
+              <div style={{ fontSize:10, color:"#4d6e8a", marginTop:3, textTransform:"uppercase", letterSpacing:"0.05em" }}>{s.label}</div>
             </div>
           ))}
-          <div style={{ marginLeft:"auto", alignSelf:"center", fontSize:11, color:"#475569" }}>Today: {today}</div>
+          <div style={{ marginLeft:"auto", alignSelf:"center", fontSize:11, color:"#3d5a72" }}>Today: {today}</div>
         </div>
 
         {/* Date Range */}
@@ -495,25 +495,25 @@ export default function App() {
         {/* Filters */}
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center", marginBottom:14 }}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…"
-            style={{ background:"#0f172a", border:"1px solid #1e293b", borderRadius:7, padding:"7px 13px", color:"#e2e8f0", fontSize:13, width:270 }}/>
-          <select value={fStatus !== "all" ? fStatus : (fMonthly ? "__monthly__" : "all")} onChange={e=>{ if(e.target.value==="__monthly__"){ setFMonthly(true); setFStatus("all"); } else { setFMonthly(false); setFStatus(e.target.value); } }} style={{ background:"#0f172a", border:`1px solid ${fMonthly?"#2dd4bf":"#1e293b"}`, borderRadius:7, padding:"7px 11px", color: fMonthly?"#2dd4bf":"#94a3b8", fontSize:13, fontWeight: fMonthly?700:400 }}>
+            style={{ background:"#0e1a2e", border:"1px solid #1e293b", borderRadius:7, padding:"7px 13px", color:"#d8eaf8", fontSize:13, width:270 }}/>
+          <select value={fStatus !== "all" ? fStatus : (fMonthly ? "__monthly__" : "all")} onChange={e=>{ if(e.target.value==="__monthly__"){ setFMonthly(true); setFStatus("all"); } else { setFMonthly(false); setFStatus(e.target.value); } }} style={{ background:"#0e1a2e", border:`1px solid ${fMonthly?"#00e5c0":"#162236"}`, borderRadius:7, padding:"7px 11px", color: fMonthly?"#00e5c0":"#7a9bbf", fontSize:13, fontWeight: fMonthly?700:400 }}>
             <option value="all">All Statuses</option>
             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
             <option value="__monthly__">★ Monthly Flights</option>
           </select>
-          <select value={fPlatform} onChange={e=>setFPlatform(e.target.value)} style={{ background:"#0f172a", border:"1px solid #1e293b", borderRadius:7, padding:"7px 11px", color:"#94a3b8", fontSize:13 }}>
+          <select value={fPlatform} onChange={e=>setFPlatform(e.target.value)} style={{ background:"#0e1a2e", border:"1px solid #1e293b", borderRadius:7, padding:"7px 11px", color:"#7a9bbf", fontSize:13 }}>
             <option value="all">All Platforms</option>
             {platforms.map(p=><option key={p}>{p}</option>)}
           </select>
-          <span style={{ fontSize:11, color:"#475569" }}>{filtered.length} result{filtered.length!==1?"s":""}</span>
+          <span style={{ fontSize:11, color:"#3d5a72" }}>{filtered.length} result{filtered.length!==1?"s":""}</span>
         </div>
 
         {/* Table */}
-        <div style={{ background:"#0a1628", border:"1px solid #1e293b", borderRadius:10, overflow:"hidden" }}>
+        <div style={{ background:"#0c1625", border:"1px solid #1e293b", borderRadius:10, overflow:"hidden" }}>
           <div style={{ overflowX:"auto" }}>
             <table style={{ width:"100%", borderCollapse:"collapse", minWidth:920 }}>
               <thead>
-                <tr style={{ background:"#060c18" }}>
+                <tr style={{ background:"#070d16" }}>
                   <th style={{ width:28, borderBottom:"1px solid #1e293b" }}/>
                   <th style={{ width:36, borderBottom:"1px solid #1e293b" }}/>
                   <TH k="mediaPartner" label="Partner"/>
@@ -523,7 +523,7 @@ export default function App() {
                   <TH k={null}         label="Goal"/>
                   <TH k="endDate"      label="End Date"/>
                   <TH k="lastChecked"  label="Last Checked"/>
-                  <th style={{ padding:"10px 12px", fontSize:11, color:"#64748b", borderBottom:"1px solid #1e293b", textTransform:"uppercase", letterSpacing:"0.07em" }}>Actions</th>
+                  <th style={{ padding:"10px 12px", fontSize:11, color:"#4d6e8a", borderBottom:"1px solid #1e293b", textTransform:"uppercase", letterSpacing:"0.07em" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -531,7 +531,7 @@ export default function App() {
                   const stale   = c.lastChecked !== today;
                   const open    = expanded.has(c.id);
                   const hasData = !!(c.impressions||c.ctr||c.cpm||c.spend);
-                  const rowBg   = i%2===0 ? "#0a1628" : "#080e1e";
+                  const rowBg   = i%2===0 ? "#0c1625" : "#090f1c";
                   return (
                     <>
                       <tr key={c.id} className="crow"
@@ -540,42 +540,42 @@ export default function App() {
                         onDragOver={e=>onDragOver(e,c.id)}
                         onDrop={e=>onDrop(e,c.id)}
                         onDragEnd={onDragEnd}
-                        style={{ background: dragOverId===c.id?"#0d1f38":rowBg, opacity: dragId===c.id?0.4:1, transition:"opacity .15s,background .1s", cursor:"default" }}>
+                        style={{ background: dragOverId===c.id?"#0a1c30":rowBg, opacity: dragId===c.id?0.4:1, transition:"opacity .15s,background .1s", cursor:"default" }}>
                         {/* drag handle */}
                         <td style={{ padding:"0 0 0 6px", borderBottom:"1px solid #060c18", textAlign:"center", verticalAlign:"middle", width:28, cursor:"grab" }}>
-                          <span style={{ color:"#253650", fontSize:12, userSelect:"none", display:"block", lineHeight:1 }}>⠿</span>
+                          <span style={{ color:"#1e3048", fontSize:12, userSelect:"none", display:"block", lineHeight:1 }}>⠿</span>
                         </td>
 
                         {/* ▶ expand button */}
                         <td style={{ padding:"0 0 0 8px", borderBottom:"1px solid #060c18", textAlign:"center", verticalAlign:"middle", width:36 }}>
                           <button onClick={()=>toggleExpand(c.id)} className="xbtn" title={open?"Collapse metrics":"Expand metrics"} style={{
                             background:"none", border:"none", cursor:"pointer", padding:"5px 6px",
-                            color: hasData?"#3b82f6":"#253650",
+                            color: hasData?"#00c896":"#1e3048",
                             transform: open?"rotate(90deg)":"rotate(0deg)",
                             fontSize:11, lineHeight:1, display:"block", margin:"0 auto"
                           }}>▶</button>
                         </td>
 
-                        <TD><span style={{ color:"#cbd5e1", fontWeight:500 }}>{c.mediaPartner.trim()}</span></TD>
+                        <TD><span style={{ color:"#a8c4e0", fontWeight:500 }}>{c.mediaPartner.trim()}</span></TD>
 
                         <TD>
                           <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-                            <span style={{ color:"#f1f5f9", fontWeight:600 }}>{c.campaignName.trim()}</span>
+                            <span style={{ color:"#edf4ff", fontWeight:600 }}>{c.campaignName.trim()}</span>
                             {c.monthlyFlight && (
                               <button onClick={()=>updateCampaign({...c,monthlyFlight:false})} title="Monthly flights — click to remove" style={{
                                 background:"none", border:"none", padding:0, cursor:"pointer",
-                                color:"#2dd4bf", fontSize:13, lineHeight:1, flexShrink:0
+                                color:"#00e5c0", fontSize:13, lineHeight:1, flexShrink:0
                               }}>★</button>
                             )}
                             {!c.monthlyFlight && (
                               <button onClick={()=>updateCampaign({...c,monthlyFlight:true})} title="Click to mark as monthly flights" style={{
                                 background:"none", border:"none", padding:0, cursor:"pointer",
-                                color:"#253650", fontSize:13, lineHeight:1, flexShrink:0, opacity:0
+                                color:"#1e3048", fontSize:13, lineHeight:1, flexShrink:0, opacity:0
                               }} className="star-toggle">★</button>
                             )}
                             {c.note2 && c.note2.trim() && (
                               <span title={c.note2.trim()} style={{
-                                background:"#2d0a0a", border:"1px solid #ef444460",
+                                background:"#200808", border:"1px solid #ef444460",
                                 borderRadius:3, padding:"1px 5px", fontSize:9,
                                 color:"#ef4444", fontWeight:700, letterSpacing:"0.05em",
                                 whiteSpace:"nowrap", flexShrink:0, cursor:"default"
@@ -584,15 +584,15 @@ export default function App() {
                           </div>
                           {/* Note 1 subtitle */}
                           {c.note1 && c.note1.trim() && (
-                            <div style={{ fontSize:10, color:"#4ade80", marginTop:2, fontFamily:"Inter,sans-serif", fontWeight:500, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:220 }} title={c.note1}>
+                            <div style={{ fontSize:10, color:"#00ffb3", marginTop:2, fontFamily:"Inter,sans-serif", fontWeight:500, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:220 }} title={c.note1}>
                               {c.note1.trim()}
                             </div>
                           )}
                           {/* Inline metric pills when collapsed & has data */}
                           {!open && hasData && (
                             <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginTop:4 }}>
-                              <MetricPill label="IMP"   value={c.impressions} color="#60a5fa"/>
-                              <MetricPill label="CTR"   value={c.ctr}         color="#4ade80" suffix="%"/>
+                              <MetricPill label="IMP"   value={c.impressions} color="#00e5a0"/>
+                              <MetricPill label="CTR"   value={c.ctr}         color="#00ffb3" suffix="%"/>
                               <MetricPill label="CPM"   value={c.cpm}         color="#fb923c" prefix="$"/>
                               <MetricPill label="SPEND" value={c.spend}       color="#f472b6" prefix="$"/>
                             </div>
@@ -605,32 +605,32 @@ export default function App() {
                           <div style={{ display:"flex", alignItems:"center", gap:5 }}>
                             <StatusBadge status={c.status}/>
                             <select value={c.status||""} onChange={e=>updateCampaign({...c,status:e.target.value})}
-                              style={{ background:"#0f172a", border:"1px solid #1e293b", borderRadius:4, color:"#64748b", fontSize:10, padding:"1px 4px", cursor:"pointer" }}>
+                              style={{ background:"#0e1a2e", border:"1px solid #1e293b", borderRadius:4, color:"#4d6e8a", fontSize:10, padding:"1px 4px", cursor:"pointer" }}>
                               {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
                             </select>
                           </div>
                         </TD>
 
                         <TD style={{maxWidth:170}}>
-                          <span style={{ color:"#94a3b8", fontFamily:"Inter,sans-serif", fontSize:11, display:"block", fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:160 }} title={c.goal}>{c.goal}</span>
+                          <span style={{ color:"#7a9bbf", fontFamily:"Inter,sans-serif", fontSize:11, display:"block", fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:160 }} title={c.goal}>{c.goal}</span>
                         </TD>
 
                         <TD><EndChip d={c.endDate}/></TD>
 
                         <TD>
                           <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                            <span style={{ fontFamily:"Inter,sans-serif", fontSize:11, color:stale?"#f59e0b":"#22c55e", fontWeight:stale?600:400 }}>{c.lastChecked}</span>
+                            <span style={{ fontFamily:"Inter,sans-serif", fontSize:11, color:stale?"#f59e0b":"#00d48a", fontWeight:stale?600:400 }}>{c.lastChecked}</span>
                             {stale && (
-                              <button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{ background:"#1c2d1c", border:"1px solid #22c55e40", borderRadius:4, color:"#4ade80", fontSize:10, padding:"1px 6px", cursor:"pointer", fontWeight:700 }}>✓</button>
+                              <button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{ background:"#002018", border:"1px solid #22c55e40", borderRadius:4, color:"#00ffb3", fontSize:10, padding:"1px 6px", cursor:"pointer", fontWeight:700 }}>✓</button>
                             )}
                           </div>
                         </TD>
 
                         <TD>
                           <div style={{ display:"flex", gap:5 }}>
-                            <button onClick={()=>setEditTarget(c)} style={{ background:"#1e293b", border:"1px solid #334155", borderRadius:5, color:"#94a3b8", fontSize:11, padding:"4px 9px", cursor:"pointer", fontWeight:600 }}>Edit</button>
-                            <button onClick={()=>{ const copy={...c, id:Date.now(), campaignName:c.campaignName+" (copy)", impressions:"", ctr:"", cpm:"", spend:""}; setCampaigns(cs=>{const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n;}); setEditTarget(copy); }} title="Duplicate row" style={{ background:"#0f1f33", border:"1px solid #1e3a5f", borderRadius:5, color:"#60a5fa", fontSize:11, padding:"4px 8px", cursor:"pointer", fontWeight:600 }}>⧉</button>
-                            <button onClick={()=>{ if(window.confirm("Delete this campaign?")) setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); }} style={{ background:"#1c0505", border:"1px solid #ef444440", borderRadius:5, color:"#ef4444", fontSize:11, padding:"4px 8px", cursor:"pointer", fontWeight:600 }}>✕</button>
+                            <button onClick={()=>setEditTarget(c)} style={{ background:"#162236", border:"1px solid #334155", borderRadius:5, color:"#7a9bbf", fontSize:11, padding:"4px 9px", cursor:"pointer", fontWeight:600 }}>Edit</button>
+                            <button onClick={()=>{ const copy={...c, id:Date.now(), campaignName:c.campaignName+" (copy)", impressions:"", ctr:"", cpm:"", spend:""}; setCampaigns(cs=>{const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n;}); setEditTarget(copy); }} title="Duplicate row" style={{ background:"#091a2a", border:"1px solid #1e3a5f", borderRadius:5, color:"#00e5a0", fontSize:11, padding:"4px 8px", cursor:"pointer", fontWeight:600 }}>⧉</button>
+                            <button onClick={()=>{ if(window.confirm("Delete this campaign?")) setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); }} style={{ background:"#1a0808", border:"1px solid #ef444440", borderRadius:5, color:"#ef4444", fontSize:11, padding:"4px 8px", cursor:"pointer", fontWeight:600 }}>✕</button>
                           </div>
                         </TD>
                       </tr>
@@ -643,11 +643,11 @@ export default function App() {
                 })}
               </tbody>
             </table>
-            {filtered.length===0 && <div style={{ textAlign:"center", padding:"50px 0", color:"#475569" }}>No campaigns match your filters.</div>}
+            {filtered.length===0 && <div style={{ textAlign:"center", padding:"50px 0", color:"#3d5a72" }}>No campaigns match your filters.</div>}
           </div>
         </div>
 
-        <div style={{ marginTop:8, fontSize:11, color:"#253650", textAlign:"right" }}>
+        <div style={{ marginTop:8, fontSize:11, color:"#1e3048", textAlign:"right" }}>
           ▶ click to expand metrics · blue arrow = data entered
         </div>
       </div>
