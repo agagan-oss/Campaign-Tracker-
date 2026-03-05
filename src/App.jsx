@@ -998,7 +998,7 @@ export default function App() {
   const TD = ({children,style={}}) => <td style={{padding:"9px 12px",borderBottom:"1px solid #060c18",verticalAlign:"middle",...style}}>{children}</td>;
 
   return (
-    <div style={{minHeight:"100vh",background:"#070d16",fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",color:"#d8eaf8",fontSize:13}}>
+    <div style={{minHeight:"100vh",background:"#070d16",fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",color:"#d8eaf8",fontSize:14}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         *{box-sizing:border-box;}
