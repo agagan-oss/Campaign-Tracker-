@@ -995,10 +995,10 @@ export default function App() {
       {label}{sortKey===k?(sortDir==="asc"?" ↑":" ↓"):""}
     </th>
   );
-  const TD = ({children,style={}}) => <td style={{padding:"14px 12px",borderBottom:"1px solid #060c18",verticalAlign:"middle",...style}}>{children}</td>;
+  const TD = ({children,style={}}) => <td style={{padding:"9px 12px",borderBottom:"1px solid #060c18",verticalAlign:"middle",...style}}>{children}</td>;
 
   return (
-    <div style={{minHeight:"100vh",background:"#070d16",fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",color:"#d8eaf8",fontSize:15}}>
+    <div style={{minHeight:"100vh",background:"#070d16",fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",color:"#d8eaf8",fontSize:13}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         *{box-sizing:border-box;}
@@ -1188,16 +1188,16 @@ export default function App() {
                         <TD><EndChip d={c.endDate}/></TD>
                         <TD>
                           <div style={{display:"flex",alignItems:"center",gap:6}}>
-                            <span style={{fontSize:13,color:stale?"#f59e0b":"#00d48a",fontWeight:stale?600:400}}>{c.lastChecked}</span>
+                            <span style={{fontSize:11,color:stale?"#f59e0b":"#00d48a",fontWeight:stale?600:400,whiteSpace:"nowrap"}}>{c.lastChecked}</span>
                             {stale&&<button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00ffb3",fontSize:10,padding:"1px 6px",cursor:"pointer",fontWeight:700}}>✓</button>}
                           </div>
                         </TD>
                         <TD>
                           <div style={{display:"flex",gap:5}}>
-                            <button onClick={()=>setEditTarget(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:11,padding:"4px 9px",cursor:"pointer",fontWeight:600}}>Edit</button>
-                            <button onClick={()=>{ const copy={...c,id:Date.now(),campaignName:c.campaignName+" (copy)",impressions:"",ctr:"",cpm:"",spend:""}; setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }} style={{background:"#091a2a",border:"1px solid #1e3a5f",borderRadius:5,color:"#00e5a0",fontSize:11,padding:"4px 8px",cursor:"pointer",fontWeight:600}}>⧉</button>
-                            <button onClick={()=>{ if(window.confirm("Delete this campaign?")) { addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:`Campaign deleted`,campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); } }} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,color:"#ef4444",fontSize:11,padding:"4px 8px",cursor:"pointer",fontWeight:600}}>✕</button>
-                            <button title="Send to Archive" onClick={()=>{ if(window.confirm(`Archive "${c.campaignName}"? It will move to the Campaign Archive tab.`)) { setArchive(prev=>[...prev,{...c,archivedDate:getToday()}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Manually sent to archive",campaignId:c.id,prevSnapshot:{...c}}); }}} style={{background:"#1a0828",border:"1px solid #a855f740",borderRadius:5,color:"#a855f7",fontSize:11,padding:"4px 8px",cursor:"pointer",fontWeight:700}}>🗄 →</button>
+                            <button onClick={()=>setEditTarget(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
+                            <button onClick={()=>{ const copy={...c,id:Date.now(),campaignName:c.campaignName+" (copy)",impressions:"",ctr:"",cpm:"",spend:""}; setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }} style={{background:"#091a2a",border:"1px solid #1e3a5f",borderRadius:5,color:"#00e5a0",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>⧉</button>
+                            <button onClick={()=>{ if(window.confirm("Delete this campaign?")) { addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:`Campaign deleted`,campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); } }} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,color:"#ef4444",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>✕</button>
+                            <button title="Send to Archive" onClick={()=>{ if(window.confirm(`Archive "${c.campaignName}"? It will move to the Campaign Archive tab.`)) { setArchive(prev=>[...prev,{...c,archivedDate:getToday()}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Manually sent to archive",campaignId:c.id,prevSnapshot:{...c}}); }}} style={{background:"#1a0828",border:"1px solid #a855f740",borderRadius:5,color:"#a855f7",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:700}}>🗄 →</button>
                           </div>
                         </TD>
                       </tr>
