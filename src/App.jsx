@@ -725,7 +725,9 @@ export default function App() {
                   const open  = expanded.has(c.id);
                   const hasData = !!(c.impressions||c.ctr||c.cpm||c.spend);
                   const rowBg = i%2===0?"#0c1625":"#090f1c";
+                  const soonDate = new Date(today); soonDate.setDate(soonDate.getDate()+3); const soonStr=soonDate.toISOString().slice(0,10);
                   const campReminders = reminders.filter(r=>!r.dismissed&&r.campaignId===c.id&&r.date<=today);
+                  const campUpcoming  = reminders.filter(r=>!r.dismissed&&r.campaignId===c.id&&r.date>today&&r.date<=soonStr);
                   return (
                     <Fragment key={c.id}>
                       <tr
@@ -750,7 +752,10 @@ export default function App() {
                             {c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:false})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#00e5c0",fontSize:13,lineHeight:1,flexShrink:0}}>★</button>}
                             {!c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:true})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#1e3048",fontSize:13,lineHeight:1,flexShrink:0,opacity:0}} className="star-toggle">★</button>}
                             {campReminders.length>0 && (
-                              <button onClick={()=>setShowReminderModal(true)} style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer",flexShrink:0}}>🔔 {campReminders.length}</button>
+                              <button onClick={()=>setShowReminderModal(true)} title="Reminder due!" style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer",flexShrink:0}}>🔔 {campReminders.length}</button>
+                            )}
+                            {campUpcoming.length>0 && campReminders.length===0 && (
+                              <button onClick={()=>setShowReminderModal(true)} title={`${campUpcoming.length} reminder${campUpcoming.length>1?"s":""} coming up soon`} style={{background:"#1e293b",border:"1px solid #475569",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#94a3b8",fontWeight:600,cursor:"pointer",flexShrink:0,opacity:0.75}}>🔔 {campUpcoming.length}</button>
                             )}
                             {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                           </div>
