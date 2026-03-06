@@ -47,6 +47,12 @@ function fmtNum(v) {
   if (n >= 1000) return (n/1000).toFixed(1).replace(/\.?0+$/,"")+"K";
   return n.toString();
 }
+function fmtDate(d) {
+  if (!d) return "";
+  const [y,m,day] = d.split("-");
+  return `${m}/${day}/${y}`;
+}
+
 function getPresets() {
   const now = new Date(); now.setHours(0,0,0,0);
   const yest = new Date(now); yest.setDate(now.getDate()-1);
@@ -360,7 +366,7 @@ function PlatformTag({ p }) {
 function EndChip({ d }) {
   const days = getDaysLeft(d);
   const col = days<0?"#6b7280":days<=14?"#ef4444":days<=30?"#f59e0b":"#00d48a";
-  return <span style={{color:col,fontSize:13,fontWeight:600,fontVariantNumeric:"tabular-nums"}}>{d} <span style={{opacity:.6,fontWeight:400}}>({days<0?"Ended":days===0?"Today":`${days}d`})</span></span>;
+  return <span style={{color:col,fontSize:13,fontWeight:600,fontVariantNumeric:"tabular-nums"}}>{fmtDate(d)} <span style={{opacity:.6,fontWeight:400}}>({days<0?"Ended":days===0?"Today":`${days}d`})</span></span>;
 }
 function MetricPill({ label, value, color, prefix="", suffix="" }) {
   const disp = fmtNum(value);
@@ -630,7 +636,7 @@ function CampaignArchive({ archive, onRestore, onClear }) {
                               <span style={{color:"#7a9bbf",fontSize:12,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={c.goal}>{c.goal||"—"}</span>
                             </td>
                             <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
-                              <span style={{color:"#6b7280",fontSize:13,fontWeight:600}}>{c.endDate}</span>
+                              <span style={{color:"#6b7280",fontSize:13,fontWeight:600}}>{fmtDate(c.endDate)}</span>
                               <span style={{color:"#3d5a72",fontSize:11,marginLeft:5}}>({Math.abs(getDaysLeft(c.endDate))}d ago)</span>
                             </td>
                             <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
@@ -1277,7 +1283,7 @@ export default function App() {
                         <TD>
                           {c.startDate ? (
                             <div>
-                              <span style={{color:"#7a9bbf",fontSize:12,fontVariantNumeric:"tabular-nums"}}>{c.startDate}</span>
+                              <span style={{color:"#7a9bbf",fontSize:12,fontVariantNumeric:"tabular-nums"}}>{fmtDate(c.startDate)}</span>
                               {(()=>{ const total=Math.ceil((new Date(c.endDate)-new Date(c.startDate))/86400000); const elapsed=Math.ceil((new Date()-new Date(c.startDate))/86400000); const pct=Math.min(100,Math.max(0,Math.round(elapsed/total*100))); const col=pct<33?"#00d48a":pct<66?"#f59e0b":"#ef4444"; return total>0?(<div style={{marginTop:3}}><div style={{background:"#0e1a2e",borderRadius:3,height:3,width:80,overflow:"hidden"}}><div style={{background:col,height:"100%",width:pct+"%",transition:"width .3s"}}/></div><span style={{fontSize:9,color:col,marginTop:1,display:"block"}}>{pct}% through</span></div>):null; })()}
                             </div>
                           ) : <span style={{color:"#2a4060",fontSize:11}}>—</span>}
@@ -1285,7 +1291,7 @@ export default function App() {
                         <TD><EndChip d={c.endDate}/></TD>
                         <TD>
                           <div style={{display:"flex",alignItems:"center",gap:6}}>
-                            <span style={{fontSize:11,color:stale?"#f59e0b":"#00d48a",fontWeight:stale?600:400,whiteSpace:"nowrap"}}>{c.lastChecked}</span>
+                            <span style={{fontSize:11,color:stale?"#f59e0b":"#00d48a",fontWeight:stale?600:400,whiteSpace:"nowrap"}}>{fmtDate(c.lastChecked)}</span>
                             {stale&&<button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00ffb3",fontSize:10,padding:"1px 6px",cursor:"pointer",fontWeight:700}}>✓</button>}
                           </div>
                         </TD>
