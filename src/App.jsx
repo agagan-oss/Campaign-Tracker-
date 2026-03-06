@@ -379,7 +379,7 @@ function MetricPill({ label, value, color, prefix="", suffix="" }) {
   );
 }
 
-function MetricRow({ c, colSpan, onUpdate, dateRange }) {
+function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders=()=>{} }) {
   const [local, setLocal] = useState({impressions:c.impressions||"",ctr:c.ctr||"",cpm:c.cpm||"",spend:c.spend||""});
   const [dirty, setDirty] = useState(false);
   const [historyDraft, setHistoryDraft] = useState(c.history||"");
@@ -417,6 +417,21 @@ function MetricRow({ c, colSpan, onUpdate, dateRange }) {
             {!dirty && (c.impressions||c.ctr||c.cpm||c.spend) && <span style={{fontSize:11,color:"#00d48a",display:"flex",alignItems:"center",gap:4}}>✓ Metrics saved</span>}
             {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
           </div>
+          {(()=>{ const cr=reminders.filter(r=>!r.dismissed&&r.campaignId===c.id); if(cr.length===0) return null; return (
+            <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
+              <div style={{fontSize:10,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:6}}>🔔 Reminders</div>
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {cr.map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5]; const isPast=r.date<=getToday(); return (
+                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,background:isPast?"#1a0808":"#0a1628",border:`1px solid ${isPast?"#ef444430":rt.color+"30"}`,borderRadius:5,padding:"5px 10px"}}>
+                    <span style={{fontSize:11,color:isPast?"#ef4444":rt.color,fontWeight:600}}>{rt.label}</span>
+                    {r.note&&<span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{r.note}</span>}
+                    <span style={{fontSize:11,color:"#3d5a72",fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
+                    <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:12,lineHeight:1,padding:"0 2px"}}>×</button>
+                  </div>
+                );})}
+              </div>
+            </div>
+          );})()}
           <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
               <span style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>📋 Change History</span>
@@ -688,9 +703,21 @@ function CampaignArchive({ archive, onRestore, onClear }) {
 }
 
 
-function Modal({ campaign, onSave, onClose, isNew, partners=[] }) {
+function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[] }) {
   const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
   const [f, setF] = useState(campaign?{...campaign}:blank);
+  const blankR = { type:"ad-swap", note:"", date:"", repeat:"none" };
+  const [newReminder, setNewReminder] = useState(blankR);
+  const [showAddReminder, setShowAddReminder] = useState(false);
+  const campaignReminders = campaign ? reminders.filter(r=>!r.dismissed&&r.campaignId===campaign.id) : [];
+  function addReminder() {
+    if (!newReminder.date) return;
+    const r = { ...newReminder, id: Date.now(), campaignId: campaign?.id||null, dismissed: false };
+    setReminders(prev=>[...prev, r]);
+    setNewReminder(blankR);
+    setShowAddReminder(false);
+  }
+  function removeReminder(id) { setReminders(prev=>prev.filter(r=>r.id!==id)); }
   const set = (k,v) => setF(p=>({...p,[k]:v}));
   const iS = {width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box"};
   const row = (key,label,type="text") => (
@@ -756,6 +783,51 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[] }) {
           <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History</label>
           <textarea value={f.history||""} onChange={e=>set("history",e.target.value)} placeholder={"3/2/26 — Increased budget\n..."} style={{width:"100%",background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:110,lineHeight:1.6}}/>
         </div>
+        {!isNew && campaign && (
+          <div style={{marginBottom:16,paddingTop:14,borderTop:"1px solid #1e293b"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+              <label style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>🔔 Reminders</label>
+              <button onClick={()=>setShowAddReminder(v=>!v)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:5,padding:"3px 10px",color:"#f59e0b",fontSize:11,fontWeight:600,cursor:"pointer"}}>+ Add</button>
+            </div>
+            {campaignReminders.length>0 && (
+              <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
+                {campaignReminders.map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5]; return (
+                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,background:"#0a1628",border:`1px solid ${rt.color}30`,borderRadius:5,padding:"5px 10px"}}>
+                    <span style={{fontSize:11,color:rt.color,fontWeight:600}}>{rt.label}</span>
+                    <span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{r.note||""}</span>
+                    <span style={{fontSize:11,color:"#3d5a72",fontFamily:"monospace"}}>{fmtDate(r.date)}</span>
+                    <button onClick={()=>removeReminder(r.id)} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13,lineHeight:1}}>×</button>
+                  </div>
+                );})}
+              </div>
+            )}
+            {campaignReminders.length===0 && !showAddReminder && <div style={{fontSize:11,color:"#2a4060",marginBottom:4}}>No active reminders for this campaign.</div>}
+            {showAddReminder && (
+              <div style={{background:"#0a1628",border:"1px solid #1e3350",borderRadius:7,padding:"12px",display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Type</label>
+                    <select value={newReminder.type} onChange={e=>setNewReminder(p=>({...p,type:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit"}}>
+                      {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
+                    <input type="date" value={newReminder.date} onChange={e=>setNewReminder(p=>({...p,date:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  </div>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Note (optional)</label>
+                  <input type="text" value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))} placeholder="e.g. Swap creatives" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={addReminder} disabled={!newReminder.date} style={{flex:1,background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"7px 0",color:newReminder.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:newReminder.date?"pointer":"default"}}>Save Reminder</button>
+                  <button onClick={()=>setShowAddReminder(false)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"7px 14px",color:"#7a9bbf",fontSize:12,cursor:"pointer"}}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <div style={{display:"flex",gap:8,marginTop:8}}>
           <button onClick={submit} style={{flex:1,background:isNew?"#00d48a":"#00c896",border:"none",borderRadius:7,padding:"10px 0",color:isNew?"#000":"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>{isNew?"Add Campaign":"Save Changes"}</button>
           <button onClick={onClose} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"10px 0",color:"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>Cancel</button>
@@ -1272,12 +1344,9 @@ export default function App() {
                         </TD>
                         <TD><PlatformTag p={c.platform}/></TD>
                         <TD>
-                          <div style={{display:"flex",alignItems:"center",gap:5}}>
-                            <StatusBadge status={c.status}/>
-                            <select value={c.status||""} onChange={e=>updateCampaign({...c,status:e.target.value})} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,color:"#4d6e8a",fontSize:10,padding:"1px 4px",cursor:"pointer"}}>
-                              {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-                            </select>
-                          </div>
+                          <select value={c.status||""} onChange={e=>updateCampaign({...c,status:e.target.value})} style={{background:STATUS_CFG[c.status||""]?.bg||"#0e1a2e",border:`1px solid ${STATUS_CFG[c.status||""]?.color||"#1e293b"}40`,borderRadius:5,color:STATUS_CFG[c.status||""]?.color||"#4d6e8a",fontSize:11,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>
+                            {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                          </select>
                         </TD>
                         <TD style={{maxWidth:170}}><span style={{color:"#7a9bbf",fontSize:13,display:"block",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}} title={c.goal}>{c.goal}</span></TD>
                         <TD>
@@ -1304,7 +1373,7 @@ export default function App() {
                           </div>
                         </TD>
                       </tr>
-                      {open && <MetricRow key={"m"+c.id} c={c} colSpan={COLS} onUpdate={updateCampaign} dateRange={dateRange}/>}
+                      {open && <MetricRow key={"m"+c.id} c={c} colSpan={COLS} onUpdate={updateCampaign} dateRange={dateRange} reminders={reminders} setReminders={setReminders}/>}
                     </Fragment>
                   );
                 })}
@@ -1318,7 +1387,7 @@ export default function App() {
       )}
       </div>
 
-      {editTarget && <Modal campaign={editTarget} onSave={u=>{ updateCampaign(u); setEditTarget(null); }} onClose={()=>setEditTarget(null)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
+      {editTarget && <Modal campaign={editTarget} onSave={u=>{ updateCampaign(u); setEditTarget(null); }} onClose={()=>setEditTarget(null)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()} reminders={reminders} setReminders={setReminders} campaigns={campaigns}/>}
       {showAdd    && <Modal isNew onSave={n=>{ setCampaigns(cs=>[...cs,n]); addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null}); setShowAdd(false); }} onClose={()=>setShowAdd(false)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
       {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} onClose={()=>setShowReminderModal(false)}/>}
     </div>
