@@ -408,23 +408,10 @@ function MetricRow({ c, colSpan, onUpdate, dateRange }) {
             {!dirty && (c.impressions||c.ctr||c.cpm||c.spend) && <span style={{fontSize:11,color:"#00d48a",display:"flex",alignItems:"center",gap:4}}>✓ Metrics saved</span>}
             {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
           </div>
-          {(c.note1||c.note2||c.history) && (
-            <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744",display:"flex",flexDirection:"column",gap:10}}>
-              {(c.note1||c.note2) && (
-                <div>
-                  <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:6}}>📝 Notes</div>
-                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                    {c.note1&&c.note1.trim()&&<div style={{fontSize:12,color:"#00ffb3",background:"#001a10",border:"1px solid #00ffb320",borderRadius:5,padding:"6px 10px"}}>{c.note1.trim()}</div>}
-                    {c.note2&&c.note2.trim()&&<div style={{fontSize:12,color:"#ef4444",background:"#1a0808",border:"1px solid #ef444430",borderRadius:5,padding:"6px 10px"}}>⚠ {c.note2.trim()}</div>}
-                  </div>
-                </div>
-              )}
-              {c.history&&c.history.trim()&&(
-                <div>
-                  <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:6}}>📋 Change History</div>
-                  <pre style={{margin:0,fontSize:11,color:"#4d6e8a",fontFamily:"inherit",whiteSpace:"pre-wrap",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"8px 10px",lineHeight:1.6}}>{c.history.trim()}</pre>
-                </div>
-              )}
+          {c.history&&c.history.trim()&&(
+            <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
+              <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:6}}>📋 Change History</div>
+              <pre style={{margin:0,fontSize:11,color:"#4d6e8a",fontFamily:"inherit",whiteSpace:"pre-wrap",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"8px 10px",lineHeight:1.6}}>{c.history.trim()}</pre>
             </div>
           )}
         </div>
