@@ -670,7 +670,7 @@ function CampaignArchive({ archive, onRestore, onClear }) {
 
 
 function Modal({ campaign, onSave, onClose, isNew }) {
-  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
+  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
   const [f, setF] = useState(campaign?{...campaign}:blank);
   const set = (k,v) => setF(p=>({...p,[k]:v}));
   const iS = {width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box"};
@@ -698,6 +698,7 @@ function Modal({ campaign, onSave, onClose, isNew }) {
         {row("campaignName","Campaign Name")}
         {row("platform","Platform")}
         {row("goal","Goal")}
+        {row("startDate","Start Date","date")}
         {row("endDate","End Date","date")}
         {row("status","Status")}
         {row("note1","Note 1")}
@@ -864,7 +865,7 @@ function ActivityLog({ log, campaigns, onClear, onUndo }) {
 
 export default function App() {
   const today = getToday();
-  const COLS = 10;
+  const COLS = 11;
 
   const [campaigns, setCampaigns] = useState(()=>{ try { const s=localStorage.getItem(STORAGE_KEY); return s?JSON.parse(s):initialCampaigns; } catch { return initialCampaigns; } });
   const [reminders, setReminders] = useState(()=>{ try { const s=localStorage.getItem(REMINDERS_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
@@ -1033,11 +1034,11 @@ export default function App() {
   };
   const doExportCSV = () => {
     try {
-      const headers = ["Media Partner","Campaign Name","Platform","Status","Goal","End Date","Last Checked","Monthly Flight","Impressions","CTR","CPM","Spend","Note 1","Note 2","Projection URL","Folder Path","Change History"];
+      const headers = ["Media Partner","Campaign Name","Platform","Status","Goal","Start Date","End Date","Last Checked","Monthly Flight","Impressions","CTR","CPM","Spend","Note 1","Note 2","Projection URL","Folder Path","Change History"];
       const rows = campaigns.map(c => [
         c.mediaPartner, c.campaignName, c.platform,
         STATUS_CFG[c.status]?.label||c.status||"",
-        c.goal, c.endDate, c.lastChecked,
+        c.goal, c.startDate||"", c.endDate, c.lastChecked,
         c.monthlyFlight?"Yes":"No",
         c.impressions||"", c.ctr||"", c.cpm||"", c.spend||"",
         c.note1||"", c.note2||"", c.projectionUrl||"", c.folderPath||"",
@@ -1188,6 +1189,7 @@ export default function App() {
                   <TH k="platform" label="Platform"/>
                   <TH k="status" label="Status"/>
                   <TH k={null} label="Goal"/>
+                  <TH k="startDate" label="Start Date"/>
                   <TH k="endDate" label="End Date"/>
                   <TH k="lastChecked" label="Last Checked"/>
                   <th style={{padding:"10px 12px",fontSize:11,color:"#4d6e8a",borderBottom:"1px solid #1e293b",textTransform:"uppercase",letterSpacing:"0.07em"}}>Actions</th>
@@ -1253,6 +1255,14 @@ export default function App() {
                           </div>
                         </TD>
                         <TD style={{maxWidth:170}}><span style={{color:"#7a9bbf",fontSize:13,display:"block",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}} title={c.goal}>{c.goal}</span></TD>
+                        <TD>
+                          {c.startDate ? (
+                            <div>
+                              <span style={{color:"#7a9bbf",fontSize:12,fontVariantNumeric:"tabular-nums"}}>{c.startDate}</span>
+                              {(()=>{ const total=Math.ceil((new Date(c.endDate)-new Date(c.startDate))/86400000); const elapsed=Math.ceil((new Date()-new Date(c.startDate))/86400000); const pct=Math.min(100,Math.max(0,Math.round(elapsed/total*100))); const col=pct<33?"#00d48a":pct<66?"#f59e0b":"#ef4444"; return total>0?(<div style={{marginTop:3}}><div style={{background:"#0e1a2e",borderRadius:3,height:3,width:80,overflow:"hidden"}}><div style={{background:col,height:"100%",width:pct+"%",transition:"width .3s"}}/></div><span style={{fontSize:9,color:col,marginTop:1,display:"block"}}>{pct}% through</span></div>):null; })()}
+                            </div>
+                          ) : <span style={{color:"#2a4060",fontSize:11}}>—</span>}
+                        </TD>
                         <TD><EndChip d={c.endDate}/></TD>
                         <TD>
                           <div style={{display:"flex",alignItems:"center",gap:6}}>
