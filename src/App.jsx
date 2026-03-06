@@ -682,7 +682,7 @@ function CampaignArchive({ archive, onRestore, onClear }) {
 }
 
 
-function Modal({ campaign, onSave, onClose, isNew }) {
+function Modal({ campaign, onSave, onClose, isNew, partners=[] }) {
   const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
   const [f, setF] = useState(campaign?{...campaign}:blank);
   const set = (k,v) => setF(p=>({...p,[k]:v}));
@@ -707,7 +707,13 @@ function Modal({ campaign, onSave, onClose, isNew }) {
           <button onClick={onClose} style={{background:"none",border:"none",color:"#4d6e8a",cursor:"pointer",fontSize:22,lineHeight:1,padding:0}}>×</button>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 20px"}}>
-        {row("mediaPartner","Media Partner")}
+        <div style={{marginBottom:12}}>
+          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Media Partner</label>
+          <input list="partner-suggestions" value={f.mediaPartner||""} onChange={e=>set("mediaPartner",e.target.value)} style={iS} placeholder="Start typing…"/>
+          <datalist id="partner-suggestions">
+            {partners.map(p=><option key={p} value={p}/>)}
+          </datalist>
+        </div>
         {row("campaignName","Campaign Name")}
         {row("platform","Platform")}
         {row("goal","Goal")}
@@ -1306,8 +1312,8 @@ export default function App() {
       )}
       </div>
 
-      {editTarget && <Modal campaign={editTarget} onSave={u=>{ updateCampaign(u); setEditTarget(null); }} onClose={()=>setEditTarget(null)}/>}
-      {showAdd    && <Modal isNew onSave={n=>{ setCampaigns(cs=>[...cs,n]); addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null}); setShowAdd(false); }} onClose={()=>setShowAdd(false)}/>}
+      {editTarget && <Modal campaign={editTarget} onSave={u=>{ updateCampaign(u); setEditTarget(null); }} onClose={()=>setEditTarget(null)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
+      {showAdd    && <Modal isNew onSave={n=>{ setCampaigns(cs=>[...cs,n]); addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null}); setShowAdd(false); }} onClose={()=>setShowAdd(false)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
       {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} onClose={()=>setShowReminderModal(false)}/>}
     </div>
   );
