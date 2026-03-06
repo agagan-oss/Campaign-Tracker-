@@ -376,8 +376,11 @@ function MetricPill({ label, value, color, prefix="", suffix="" }) {
 function MetricRow({ c, colSpan, onUpdate, dateRange }) {
   const [local, setLocal] = useState({impressions:c.impressions||"",ctr:c.ctr||"",cpm:c.cpm||"",spend:c.spend||""});
   const [dirty, setDirty] = useState(false);
+  const [historyDraft, setHistoryDraft] = useState(c.history||"");
+  const [historyDirty, setHistoryDirty] = useState(false);
   const set = (k,v) => { setLocal(p=>({...p,[k]:v})); setDirty(true); };
   const save = () => { onUpdate({...c,...local}); setDirty(false); };
+  const saveHistory = () => { onUpdate({...c, history:historyDraft}); setHistoryDirty(false); };
   const iS = {background:"#08111f",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,width:"100%",fontFamily:"Inter,sans-serif",boxSizing:"border-box"};
   const metrics = [
     {key:"impressions",label:"Impressions",color:"#00e5a0",prefix:"",suffix:""},
@@ -408,12 +411,22 @@ function MetricRow({ c, colSpan, onUpdate, dateRange }) {
             {!dirty && (c.impressions||c.ctr||c.cpm||c.spend) && <span style={{fontSize:11,color:"#00d48a",display:"flex",alignItems:"center",gap:4}}>✓ Metrics saved</span>}
             {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
           </div>
-          {c.history&&c.history.trim()&&(
-            <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
-              <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:6}}>📋 Change History</div>
-              <pre style={{margin:0,fontSize:11,color:"#4d6e8a",fontFamily:"inherit",whiteSpace:"pre-wrap",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"8px 10px",lineHeight:1.6}}>{c.history.trim()}</pre>
+          <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <span style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>📋 Change History</span>
+              {historyDirty && <button onClick={saveHistory} style={{background:"#00c896",border:"none",borderRadius:5,padding:"2px 10px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>Save</button>}
+              {!historyDirty && c.history&&c.history.trim() && <span style={{fontSize:10,color:"#00d48a"}}>✓ Saved</span>}
             </div>
-          )}
+            <textarea
+              value={historyDraft}
+              onChange={e=>{ setHistoryDraft(e.target.value); setHistoryDirty(e.target.value!==( c.history||"")); }}
+              placeholder={"3/6/26 — Increased budget\n3/1/26 — Swapped creatives\n..."}
+              style={{width:"100%",background:"#060d18",border:`1px solid ${historyDirty?"#00c89660":"#1a2744"}`,borderRadius:5,
+                padding:"8px 10px",color:"#4d6e8a",fontSize:11,fontFamily:"inherit",
+                whiteSpace:"pre-wrap",lineHeight:1.6,resize:"vertical",minHeight:80,
+                boxSizing:"border-box",outline:"none",transition:"border-color .15s"}}
+            />
+          </div>
         </div>
       </td>
     </tr>
