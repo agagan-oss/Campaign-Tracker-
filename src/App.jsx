@@ -408,6 +408,25 @@ function MetricRow({ c, colSpan, onUpdate, dateRange }) {
             {!dirty && (c.impressions||c.ctr||c.cpm||c.spend) && <span style={{fontSize:11,color:"#00d48a",display:"flex",alignItems:"center",gap:4}}>✓ Metrics saved</span>}
             {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
           </div>
+          {(c.note1||c.note2||c.history) && (
+            <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744",display:"flex",flexDirection:"column",gap:10}}>
+              {(c.note1||c.note2) && (
+                <div>
+                  <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:6}}>📝 Notes</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {c.note1&&c.note1.trim()&&<div style={{fontSize:12,color:"#00ffb3",background:"#001a10",border:"1px solid #00ffb320",borderRadius:5,padding:"6px 10px"}}>{c.note1.trim()}</div>}
+                    {c.note2&&c.note2.trim()&&<div style={{fontSize:12,color:"#ef4444",background:"#1a0808",border:"1px solid #ef444430",borderRadius:5,padding:"6px 10px"}}>⚠ {c.note2.trim()}</div>}
+                  </div>
+                </div>
+              )}
+              {c.history&&c.history.trim()&&(
+                <div>
+                  <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:6}}>📋 Change History</div>
+                  <pre style={{margin:0,fontSize:11,color:"#4d6e8a",fontFamily:"inherit",whiteSpace:"pre-wrap",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"8px 10px",lineHeight:1.6}}>{c.history.trim()}</pre>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </td>
     </tr>
@@ -463,15 +482,39 @@ function CampaignArchive({ archive, onRestore, onClear }) {
   const [search, setSearch] = useState("");
   const [fPartner, setFPartner] = useState("all");
   const [fPlatform, setFPlatform] = useState("all");
+  const [fStatus, setFStatus] = useState("all");
+  const [fEnded, setFEnded] = useState("all");
   const [expanded, setExpanded] = useState(new Set());
 
   const partners  = [...new Set(archive.map(c=>c.mediaPartner))].sort();
   const platforms = [...new Set(archive.map(c=>c.platform))].sort();
 
+  const today = getToday();
+  function endedCutoff(preset) {
+    const d = new Date(); d.setHours(0,0,0,0);
+    if (preset==="30") { d.setDate(d.getDate()-30); return d.toISOString().slice(0,10); }
+    if (preset==="60") { d.setDate(d.getDate()-60); return d.toISOString().slice(0,10); }
+    if (preset==="90") { d.setDate(d.getDate()-90); return d.toISOString().slice(0,10); }
+    return null;
+  }
+
   const filtered = archive.filter(c => {
     const q = search.toLowerCase();
-    const ms = !q || c.campaignName.toLowerCase().includes(q) || c.mediaPartner.toLowerCase().includes(q);
-    return ms && (fPartner==="all"||c.mediaPartner===fPartner) && (fPlatform==="all"||c.platform===fPlatform);
+    const ms = !q || c.campaignName.toLowerCase().includes(q)
+      || c.mediaPartner.toLowerCase().includes(q)
+      || (c.platform||"").toLowerCase().includes(q)
+      || (c.goal||"").toLowerCase().includes(q)
+      || (c.note1||"").toLowerCase().includes(q)
+      || (c.note2||"").toLowerCase().includes(q)
+      || (c.endDate||"").includes(q)
+      || (c.history||"").toLowerCase().includes(q);
+    const cutoff = endedCutoff(fEnded);
+    const inRange = !cutoff || c.endDate >= cutoff;
+    return ms
+      && (fPartner==="all"||c.mediaPartner===fPartner)
+      && (fPlatform==="all"||c.platform===fPlatform)
+      && (fStatus==="all"||(c.status||"")===fStatus)
+      && inRange;
   });
 
   // Group by media partner
@@ -489,8 +532,8 @@ function CampaignArchive({ archive, onRestore, onClear }) {
     <div style={{padding:"0 0 40px"}}>
       {/* Toolbar */}
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:16}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search archived campaigns…"
-          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 13px",color:"#d8eaf8",fontSize:13,width:240}}/>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, partner, goal, notes…"
+          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 13px",color:"#d8eaf8",fontSize:13,width:260}}/>
         <select value={fPartner} onChange={e=>setFPartner(e.target.value)}
           style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 11px",color:"#7a9bbf",fontSize:13}}>
           <option value="all">All Partners</option>
@@ -501,7 +544,25 @@ function CampaignArchive({ archive, onRestore, onClear }) {
           <option value="all">All Platforms</option>
           {platforms.map(p=><option key={p}>{p}</option>)}
         </select>
-        <span style={{fontSize:11,color:"#3d5a72",marginLeft:4}}>{filtered.length} archived campaign{filtered.length!==1?"s":""}</span>
+        <select value={fStatus} onChange={e=>setFStatus(e.target.value)}
+          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 11px",color:"#7a9bbf",fontSize:13}}>
+          <option value="all">All Statuses</option>
+          {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+        </select>
+        <select value={fEnded} onChange={e=>setFEnded(e.target.value)}
+          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 11px",color:"#7a9bbf",fontSize:13}}>
+          <option value="all">Any End Date</option>
+          <option value="30">Ended within 30 days</option>
+          <option value="60">Ended within 60 days</option>
+          <option value="90">Ended within 90 days</option>
+        </select>
+        {(search||fPartner!=="all"||fPlatform!=="all"||fStatus!=="all"||fEnded!=="all") && (
+          <button onClick={()=>{setSearch("");setFPartner("all");setFPlatform("all");setFStatus("all");setFEnded("all");}}
+            style={{background:"none",border:"1px solid #334155",borderRadius:6,padding:"4px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
+            Clear filters
+          </button>
+        )}
+        <span style={{fontSize:11,color:"#3d5a72",marginLeft:4}}>{filtered.length} of {archive.length} archived campaign{archive.length!==1?"s":""}</span>
         {archive.length>0 && (
           <button onClick={()=>{ if(window.confirm("Clear the entire archive? This cannot be undone.")) onClear(); }}
             style={{marginLeft:"auto",background:"#1a0808",border:"1px solid #ef444440",borderRadius:6,padding:"4px 11px",color:"#ef4444",fontSize:11,cursor:"pointer"}}>
@@ -983,6 +1044,25 @@ export default function App() {
       localStorage.setItem(EXPORT_KEY,Date.now().toString()); setShowExportReminder(false);
     } catch(e){ alert("Export failed: "+e.message); }
   };
+  const doExportCSV = () => {
+    try {
+      const headers = ["Media Partner","Campaign Name","Platform","Status","Goal","End Date","Last Checked","Monthly Flight","Impressions","CTR","CPM","Spend","Note 1","Note 2","Projection URL","Folder Path","Change History"];
+      const rows = campaigns.map(c => [
+        c.mediaPartner, c.campaignName, c.platform,
+        STATUS_CFG[c.status]?.label||c.status||"",
+        c.goal, c.endDate, c.lastChecked,
+        c.monthlyFlight?"Yes":"No",
+        c.impressions||"", c.ctr||"", c.cpm||"", c.spend||"",
+        c.note1||"", c.note2||"", c.projectionUrl||"", c.folderPath||"",
+        (c.history||"").replace(/\n/g," | ")
+      ].map(v => `"${String(v).replace(/"/g,'""')}"`));
+      const csv = [headers.map(h=>`"${h}"`).join(","), ...rows.map(r=>r.join(","))].join("\n");
+      const b = new Blob([csv], {type:"text/csv"});
+      const url = URL.createObjectURL(b); const a = document.createElement("a");
+      a.href=url; a.download=`campaigns-${today}.csv`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch(e){ alert("CSV export failed: "+e.message); }
+  };
   const doImport = (e) => {
     const file=e.target.files[0]; if(!file) return;
     const reader=new FileReader();
@@ -1029,7 +1109,8 @@ export default function App() {
             </button>
             <button onClick={()=>{ setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today}))); addLog({type:"checked",campaignName:"All campaigns",partner:"",platform:"",detail:`Bulk marked all checked on ${today}`}); }} style={{background:"#002e24",border:"1px solid #3b82f640",borderRadius:7,padding:"6px 13px",color:"#00e5a0",fontWeight:600,fontSize:13,cursor:"pointer"}}>✓ Mark All Checked</button>
             <button onClick={()=>setShowAdd(true)} style={{background:"#00200f",border:"1px solid #22c55e40",borderRadius:7,padding:"6px 13px",color:"#00d48a",fontWeight:600,fontSize:13,cursor:"pointer"}}>+ Add Campaign</button>
-            <button onClick={doExport} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"6px 13px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ Export</button>
+            <button onClick={doExport} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"6px 13px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ JSON</button>
+            <button onClick={doExportCSV} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"6px 13px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ CSV</button>
             <label style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"6px 13px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>
               ↑ Import<input type="file" accept=".json" style={{display:"none"}} onChange={doImport}/>
             </label>
