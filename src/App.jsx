@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, Fragment } from "react";
+import React, { useState, useMemo, useEffect, useRef, Fragment } from "react";
 
 const STORAGE_KEY = "campaign-tracker-v3";
 const EXPORT_KEY = "campaign-tracker-last-export";
@@ -496,6 +496,7 @@ function DateBar({ range, setRange }) {
         </div>
       )}
     </div>
+
   );
 }
 
@@ -960,6 +961,50 @@ function ActivityLog({ log, campaigns, onClear, onUndo }) {
 }
 
 
+function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+  const toggle = p => setFPlatforms(prev => { const n = new Set(prev); n.has(p) ? n.delete(p) : n.add(p); return n; });
+  const label = fPlatforms.size === 0 ? "All Platforms" : fPlatforms.size === 1 ? [...fPlatforms][0] : `${fPlatforms.size} Platforms`;
+  const active = fPlatforms.size > 0;
+  return (
+    <div ref={ref} style={{position:"relative",userSelect:"none",display:"flex",alignItems:"center"}}>
+      <button onClick={()=>setOpen(v=>!v)} style={{background:active?"#0e2818":"#0e1a2e",border:`1px solid ${active?"#00c896":"#1e293b"}`,borderRadius:7,padding:"7px 13px",color:active?"#00e5a0":"#7a9bbf",fontSize:13,fontWeight:active?600:400,cursor:"pointer",display:"flex",alignItems:"center",gap:7,minWidth:145,justifyContent:"space-between"}}>
+        <span>{label}</span>
+        <span style={{fontSize:9,opacity:0.5}}>{open?"▲":"▼"}</span>
+      </button>
+      {active && <span onClick={()=>{ setFPlatforms(new Set()); setOpen(false); }} style={{fontSize:11,color:"#4d6e8a",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
+      {open && (
+        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:8,zIndex:100,minWidth:160,boxShadow:"0 8px 32px rgba(0,0,0,.6)",overflow:"hidden"}}>
+          <div style={{padding:"7px 10px",borderBottom:"1px solid #162236"}}>
+            <span style={{fontSize:10,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Filter Platforms</span>
+          </div>
+          {platforms.map(p => {
+            const on = fPlatforms.has(p);
+            const col = PLT_COLORS[p] || PLT_COLORS.default;
+            return (
+              <div key={p} onClick={()=>toggle(p)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",cursor:"pointer",background:on?col+"12":"transparent",transition:"background .1s"}}
+                onMouseEnter={e=>{ if(!on) e.currentTarget.style.background="#162236"; }}
+                onMouseLeave={e=>{ if(!on) e.currentTarget.style.background="transparent"; }}>
+                <div style={{width:13,height:13,borderRadius:3,border:`2px solid ${on?col:"#334155"}`,background:on?col:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .1s"}}>
+                  {on && <span style={{color:"#000",fontSize:9,fontWeight:900,lineHeight:1}}>✓</span>}
+                </div>
+                <span style={{fontSize:12,color:on?col:"#a8c4e0",fontWeight:on?700:400}}>{p}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export default function App() {
   const today = getToday();
   const COLS = 11;
@@ -968,7 +1013,7 @@ export default function App() {
   const [reminders, setReminders] = useState(()=>{ try { const s=localStorage.getItem(REMINDERS_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
   const [search, setSearch]       = useState("");
   const [fStatus, setFStatus]     = useState("all");
-  const [fPlatform, setFPlatform] = useState("all");
+  const [fPlatforms, setFPlatforms] = useState(new Set());
   const [fMonthly, setFMonthly]   = useState(false);
   const [sortKey, setSortKey]     = useState("endDate");
   const [sortDir, setSortDir]     = useState("asc");
@@ -1050,14 +1095,14 @@ export default function App() {
     let list = campaigns.filter(c=>{
       const q=search.toLowerCase();
       const ms=!q||c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||c.platform.toLowerCase().includes(q);
-      return ms&&(fStatus==="all"||(c.status||"")===fStatus)&&(fPlatform==="all"||c.platform===fPlatform)&&(!fMonthly||c.monthlyFlight);
+      return ms&&(fStatus==="all"||(c.status||"")===fStatus)&&(fPlatforms.size===0||fPlatforms.has(c.platform))&&(!fMonthly||c.monthlyFlight);
     });
     return [...list].sort((a,b)=>{
       let va=a[sortKey]||"",vb=b[sortKey]||"";
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
     });
-  },[campaigns,search,fStatus,fPlatform,fMonthly,sortKey,sortDir]);
+  },[campaigns,search,fStatus,fPlatforms,fMonthly,sortKey,sortDir]);
 
   const stats = useMemo(()=>({
     total: campaigns.length,
@@ -1266,10 +1311,7 @@ export default function App() {
             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
             <option value="__monthly__">★ Monthly Flights</option>
           </select>
-          <select value={fPlatform} onChange={e=>setFPlatform(e.target.value)} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 11px",color:"#7a9bbf",fontSize:13}}>
-            <option value="all">All Platforms</option>
-            {platforms.map(p=><option key={p}>{p}</option>)}
-          </select>
+          <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
           <span style={{fontSize:11,color:"#3d5a72"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
         </div>
 
