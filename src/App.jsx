@@ -211,7 +211,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
             <span style={{fontSize:12,color:rt.color,fontWeight:700}}>{rt.label}</span>
             {camp && <span style={{fontSize:11,background:pCol+"18",border:`1px solid ${pCol}30`,borderRadius:4,padding:"1px 7px",display:"inline-flex",alignItems:"center",gap:5}}><span style={{color:pCol,fontWeight:700,fontSize:11}}>{camp.campaignName.trim()}</span><span style={{color:pCol,opacity:0.6,fontSize:10}}>· {camp.platform}</span></span>}
             <span style={{fontSize:11,fontWeight:600,color:isPast?"#ef4444":dLeft<=3?"#f59e0b":"#00d48a",marginLeft:"auto"}}>
-              {isPast?`${Math.abs(dLeft)}d overdue`:dLeft===0?"Today!":`in ${dLeft}d`} · {r.date}
+              {isPast?`${Math.abs(dLeft)}d overdue`:dLeft===0?"Today!":`in ${dLeft}d`} · {fmtDate(r.date)}
             </span>
           </div>
           {r.note && <div style={{fontSize:12,color:"#7a9bbf",lineHeight:1.4}}>{r.note}</div>}
