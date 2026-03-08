@@ -203,12 +203,13 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
     const camp = campaigns.find(c=>c.id===r.campaignId);
     const dLeft = getDaysLeft(r.date);
     const isPast = r.date<today;
+    const pCol = camp ? (PLT_COLORS[camp.platform]||PLT_COLORS.default) : "#4d6e8a";
     return (
       <div style={{background:isPast?"#1a0808":"#0e1a2e",border:`1px solid ${isPast?"#ef444440":rt.color+"30"}`,borderRadius:8,padding:"10px 13px",marginBottom:7,display:"flex",gap:10,alignItems:"flex-start"}}>
         <div style={{flex:1,minWidth:0}}>
           <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:3}}>
             <span style={{fontSize:12,color:rt.color,fontWeight:700}}>{rt.label}</span>
-            {camp && <span style={{fontSize:11,color:"#4d6e8a",background:"#0c1625",borderRadius:3,padding:"1px 6px"}}>{camp.campaignName.trim()} · {camp.platform}</span>}
+            {camp && <span style={{fontSize:11,background:pCol+"18",border:`1px solid ${pCol}30`,borderRadius:4,padding:"1px 7px",display:"inline-flex",alignItems:"center",gap:5}}><span style={{color:pCol,fontWeight:700,fontSize:11}}>{camp.campaignName.trim()}</span><span style={{color:pCol,opacity:0.6,fontSize:10}}>· {camp.platform}</span></span>}
             <span style={{fontSize:11,fontWeight:600,color:isPast?"#ef4444":dLeft<=3?"#f59e0b":"#00d48a",marginLeft:"auto"}}>
               {isPast?`${Math.abs(dLeft)}d overdue`:dLeft===0?"Today!":`in ${dLeft}d`} · {r.date}
             </span>
@@ -384,6 +385,8 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
   const [dirty, setDirty] = useState(false);
   const [historyDraft, setHistoryDraft] = useState(c.history||"");
   const [historyDirty, setHistoryDirty] = useState(false);
+  const [showAddReminder, setShowAddReminder] = useState(false);
+  const [newReminder, setNewReminder] = useState({type:"ad-swap",note:"",date:""});
   const set = (k,v) => { setLocal(p=>({...p,[k]:v})); setDirty(true); };
   const save = () => { onUpdate({...c,...local}); setDirty(false); };
   const saveHistory = () => { onUpdate({...c, history:historyDraft}); setHistoryDirty(false); };
@@ -417,21 +420,38 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
             {!dirty && (c.impressions||c.ctr||c.cpm||c.spend) && <span style={{fontSize:11,color:"#00d48a",display:"flex",alignItems:"center",gap:4}}>✓ Metrics saved</span>}
             {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
           </div>
-          {(()=>{ const cr=reminders.filter(r=>!r.dismissed&&r.campaignId===c.id); if(cr.length===0) return null; return (
-            <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
-              <div style={{fontSize:10,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:6}}>🔔 Reminders</div>
-              <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                {cr.map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5]; const isPast=r.date<=getToday(); return (
-                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,background:isPast?"#1a0808":"#0a1628",border:`1px solid ${isPast?"#ef444430":rt.color+"30"}`,borderRadius:5,padding:"5px 10px"}}>
-                    <span style={{fontSize:11,color:isPast?"#ef4444":rt.color,fontWeight:600}}>{rt.label}</span>
-                    {r.note&&<span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{r.note}</span>}
-                    <span style={{fontSize:11,color:"#3d5a72",fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
-                    <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:12,lineHeight:1,padding:"0 2px"}}>×</button>
-                  </div>
-                );})}
-              </div>
+          <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <span style={{fontSize:10,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>🔔 Reminders</span>
+              <button onClick={()=>setShowAddReminder(v=>!v)} style={{background:showAddReminder?"#130a00":"#f59e0b18",border:`1px solid ${showAddReminder?"#f59e0b80":"#f59e0b50"}`,borderRadius:6,padding:"2px 8px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer"}}>{showAddReminder?"✕":"+"}</button>
             </div>
-          );})()}
+            {reminders.filter(r=>!r.dismissed&&r.campaignId===c.id).map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5]; const isPast=r.date<=getToday(); return (
+              <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,background:isPast?"#1a0808":"#0a1628",border:`1px solid ${isPast?"#ef444430":rt.color+"30"}`,borderRadius:5,padding:"5px 10px",marginBottom:4}}>
+                <span style={{fontSize:11,color:isPast?"#ef4444":rt.color,fontWeight:600}}>{rt.label}</span>
+                {r.note&&<span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{r.note}</span>}
+                <span style={{fontSize:11,color:"#3d5a72",fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
+                <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:12,lineHeight:1,padding:"0 2px"}}>×</button>
+              </div>
+            );})}
+            {showAddReminder && (
+              <div style={{background:"#0a1628",border:"1px solid #1e3350",borderRadius:7,padding:"10px 12px",marginTop:4,display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Type</label>
+                    <select value={newReminder.type} onChange={e=>setNewReminder(p=>({...p,type:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit"}}>
+                      {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
+                    <input type="date" value={newReminder.date} onChange={e=>setNewReminder(p=>({...p,date:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  </div>
+                </div>
+                <input type="text" value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))} placeholder="Note (optional)" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
+                <button onClick={()=>{ if(!newReminder.date) return; setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"ad-swap",note:"",date:""}); setShowAddReminder(false); }} disabled={!newReminder.date} style={{background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"7px 0",color:newReminder.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:newReminder.date?"pointer":"default"}}>Save Reminder</button>
+              </div>
+            )}
+          </div>
           <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
               <span style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>📋 Change History</span>
@@ -1095,14 +1115,20 @@ export default function App() {
     let list = campaigns.filter(c=>{
       const q=search.toLowerCase();
       const ms=!q||c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||c.platform.toLowerCase().includes(q);
+      const hasReminder = reminders.some(r=>!r.dismissed&&r.campaignId===c.id);
+      if(sortKey==="reminder" && !hasReminder) return false;
       return ms&&(fStatus==="all"||(c.status||"")===fStatus)&&(fPlatforms.size===0||fPlatforms.has(c.platform))&&(!fMonthly||c.monthlyFlight);
     });
     return [...list].sort((a,b)=>{
+      if(sortKey==="reminder"){
+        const getNext = c => { const rs=reminders.filter(r=>!r.dismissed&&r.campaignId===c.id).map(r=>r.date).sort(); return rs[0]||""; };
+        const va=getNext(a),vb=getNext(b); return va<vb?-1:va>vb?1:0;
+      }
       let va=a[sortKey]||"",vb=b[sortKey]||"";
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
     });
-  },[campaigns,search,fStatus,fPlatforms,fMonthly,sortKey,sortDir]);
+  },[campaigns,reminders,search,fStatus,fPlatforms,fMonthly,sortKey,sortDir]);
 
   const stats = useMemo(()=>({
     total: campaigns.length,
@@ -1306,10 +1332,11 @@ export default function App() {
         {/* Filters */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…" style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"8px 14px",color:"#d8eaf8",fontSize:14,width:280}}/>
-          <select value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":"all")} onChange={e=>{ if(e.target.value==="__monthly__"){setFMonthly(true);setFStatus("all");}else{setFMonthly(false);setFStatus(e.target.value);} }} style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":"#7a9bbf",fontSize:13,fontWeight:fMonthly?700:400}}>
+          <select value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":"all")} onChange={e=>{ if(e.target.value==="__monthly__"){setFMonthly(true);setFStatus("all");setSortKey("endDate");}else if(e.target.value==="__reminder__"){setFMonthly(false);setFStatus("all");setSortKey("reminder");}else{setFMonthly(false);setFStatus(e.target.value);if(sortKey==="reminder")setSortKey("endDate");} }} style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder")?700:400}}>
             <option value="all">All Statuses</option>
             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
             <option value="__monthly__">★ Monthly Flights</option>
+            <option value="__reminder__">🔔 Has Reminder</option>
           </select>
           <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
           <span style={{fontSize:11,color:"#3d5a72"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
@@ -1372,7 +1399,7 @@ export default function App() {
                             {campUpcoming.length>0 && campReminders.length===0 && (
                               <button onClick={()=>setShowReminderModal(true)} title={`${campUpcoming.length} reminder${campUpcoming.length>1?"s":""} coming up soon`} style={{background:"#1e293b",border:"1px solid #475569",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#94a3b8",fontWeight:600,cursor:"pointer",flexShrink:0,opacity:0.75}}>🔔 {campUpcoming.length}</button>
                             )}
-                            {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
+{c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                           </div>
                           {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:3,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}} title={c.note1}>{c.note1.trim()}</div>}
                           {!open&&hasData&&(
