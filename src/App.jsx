@@ -1062,6 +1062,48 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("campaigns");
   const [activityLog, setActivityLog] = useState(()=>{ try { const s=localStorage.getItem(ACTIVITY_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
   const [archive, setArchive] = useState(()=>{ try { const s=localStorage.getItem(ARCHIVE_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
+  const [metaSyncStatus, setMetaSyncStatus] = useState(null); // null | "syncing" | "done" | "error"
+  const [metaSyncInfo, setMetaSyncInfo] = useState(null);     // { last_updated, fetched_count }
+
+  // Auto-sync Meta metrics on load
+  useEffect(()=>{
+    const CAMPAIGNS_JSON_URL = "campaigns.json"; // served from same GitHub Pages root
+    async function syncMeta() {
+      setMetaSyncStatus("syncing");
+      try {
+        const resp = await fetch(CAMPAIGNS_JSON_URL + "?t=" + Date.now());
+        if (!resp.ok) throw new Error("campaigns.json not found (run GitHub Action first)");
+        const data = await resp.json();
+        if (!data.campaigns || data.campaigns.length === 0) {
+          setMetaSyncStatus("done");
+          setMetaSyncInfo({ last_updated: data.last_updated, fetched_count: 0 });
+          return;
+        }
+        // Build a lookup map: tracker_id → metrics
+        const metaMap = {};
+        data.campaigns.forEach(c => { metaMap[c.tracker_id] = c; });
+        // Merge into campaigns state
+        setCampaigns(cs => cs.map(campaign => {
+          const meta = metaMap[campaign.id];
+          if (!meta) return campaign;
+          return {
+            ...campaign,
+            impressions: meta.impressions ? String(meta.impressions) : campaign.impressions,
+            spend:       meta.spend       ? String(meta.spend)       : campaign.spend,
+            ctr:         meta.ctr         ? String(meta.ctr)         : campaign.ctr,
+            cpm:         meta.cpm         ? String(meta.cpm)         : campaign.cpm,
+          };
+        }));
+        setMetaSyncStatus("done");
+        setMetaSyncInfo({ last_updated: data.last_updated, fetched_count: data.fetched_count });
+      } catch(e) {
+        console.warn("Meta sync skipped:", e.message);
+        setMetaSyncStatus("error");
+        setMetaSyncInfo({ error: e.message });
+      }
+    }
+    syncMeta();
+  }, []);
 
   function addLog(entry) {
     setActivityLog(prev => {
@@ -1267,9 +1309,24 @@ export default function App() {
       {/* Header */}
       <div style={{background:"linear-gradient(180deg,#0e2038 0%,#0c1625 100%)",borderBottom:"1px solid #00c89628",borderTop:"2px solid #00c896",padding:"13px 20px",position:"sticky",top:0,zIndex:50}}>
         <div style={{maxWidth:1600,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <span style={{fontSize:17,fontWeight:800,color:"#00e5a0",letterSpacing:"-0.03em"}}>Campaign Tracker</span>
             <span style={{fontSize:11,padding:"2px 7px",borderRadius:4,background:saved?"#00200f":"transparent",color:saved?"#00d48a":"transparent",border:saved?"1px solid #22c55e40":"1px solid transparent",transition:"all .3s",fontWeight:600}}>✓ Saved</span>
+            {metaSyncStatus==="syncing" && (
+              <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>
+                <span>⟳</span> Syncing Meta…
+              </span>
+            )}
+            {metaSyncStatus==="done" && metaSyncInfo?.fetched_count > 0 && (
+              <span title={`Last updated: ${metaSyncInfo.last_updated}`} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#002018",border:"1px solid #00c89640",color:"#00d48a",fontWeight:600,cursor:"default"}}>
+                ⬡ Meta: {metaSyncInfo.fetched_count} synced
+              </span>
+            )}
+            {metaSyncStatus==="error" && (
+              <span title={metaSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>
+                ⚠ Meta sync —
+              </span>
+            )}
           </div>
           <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
             <button onClick={()=>setShowReminderModal(true)} style={{position:"relative",background:pendingReminders>0?"#130a00":"#0e1a2e",border:`1px solid ${pendingReminders>0?"#f59e0b60":"#1e293b"}`,borderRadius:7,padding:"6px 13px",color:pendingReminders>0?"#f59e0b":"#4d6e8a",fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
