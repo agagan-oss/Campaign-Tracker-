@@ -72,6 +72,21 @@ function getPresets() {
   };
 }
 
+function getSnapshotKey(preset) {
+  if (preset === "mtd")                             return "mtd";
+  if (["last30","last7","today"].includes(preset))  return "last30";
+  if (preset === "yesterday")                       return "yesterday";
+  return null;
+}
+function resolveMetrics(c, preset) {
+  const key = getSnapshotKey(preset);
+  if (key && c.metaSnapshots && c.metaSnapshots[key]) {
+    const s = c.metaSnapshots[key];
+    return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", source:"meta", snapshotKey:key };
+  }
+  return { impressions:c.impressions||"", ctr:c.ctr||"", cpm:c.cpm||"", spend:c.spend||"", source:key?"manual-no-snapshot":"manual", snapshotKey:key };
+}
+
 function ReminderCalendar({ reminders, setReminders, onAdd }) {
   const today = getToday();
   const [cur, setCur] = useState(() => { const n = new Date(); return { y:n.getFullYear(), m:n.getMonth() }; });
@@ -381,8 +396,19 @@ function MetricPill({ label, value, color, prefix="", suffix="" }) {
 }
 
 function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders=()=>{} }) {
-  const [local, setLocal] = useState({impressions:c.impressions||"",ctr:c.ctr||"",cpm:c.cpm||"",spend:c.spend||"",completionRate:c.completionRate||""});
+  const resolved = resolveMetrics(c, dateRange.preset);
+  const [local, setLocal] = useState({impressions:resolved.impressions,ctr:resolved.ctr,cpm:resolved.cpm,spend:resolved.spend,completionRate:c.completionRate||""});
   const [dirty, setDirty] = useState(false);
+  const prevPreset = useRef(dateRange.preset);
+  useEffect(()=>{
+    if (prevPreset.current !== dateRange.preset) {
+      prevPreset.current = dateRange.preset;
+      if (!dirty) {
+        const r = resolveMetrics(c, dateRange.preset);
+        setLocal(p=>({...p, impressions:r.impressions, ctr:r.ctr, cpm:r.cpm, spend:r.spend}));
+      }
+    }
+  }, [dateRange.preset]);
   const [historyDraft, setHistoryDraft] = useState(c.history||"");
   const [historyDirty, setHistoryDirty] = useState(false);
   const [showAddReminder, setShowAddReminder] = useState(false);
@@ -401,9 +427,11 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
     <tr>
       <td colSpan={colSpan} style={{padding:0,borderBottom:"1px solid #0d1525"}}>
         <div style={{background:"#07101c",borderTop:"1px solid #1a2744",padding:"16px 16px 16px 52px"}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
             <span style={{fontSize:11,color:"#00c896",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>📊 Metrics</span>
             {dateRange.start && <span style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"1px 8px",fontSize:10,fontFamily:"monospace",color:"#4d6e8a"}}>{dateRange.start===dateRange.end?dateRange.start:`${dateRange.start} → ${dateRange.end}`}</span>}
+            {resolved.source==="meta" && <span style={{fontSize:10,color:"#60a5fa",background:"#0c1e38",border:"1px solid #3b82f640",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Meta snapshot</span>}
+            {resolved.source==="manual-no-snapshot" && <span title="No Meta snapshot for this date range — showing manually saved values" style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⚠ No snapshot · manual data</span>}
           </div>
           {(()=>{
             const isCTV = c.platform==="CTV"||c.platform==="OTT";
@@ -1062,48 +1090,34 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("campaigns");
   const [activityLog, setActivityLog] = useState(()=>{ try { const s=localStorage.getItem(ACTIVITY_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
   const [archive, setArchive] = useState(()=>{ try { const s=localStorage.getItem(ARCHIVE_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
-  const [metaSyncStatus, setMetaSyncStatus] = useState(null); // null | "syncing" | "done" | "error"
-  const [metaSyncInfo, setMetaSyncInfo] = useState(null);     // { last_updated, fetched_count }
-
-  // Auto-sync Meta metrics on load
+  const [metaSyncStatus, setMetaSyncStatus] = useState(null);
+  const [metaSyncInfo,   setMetaSyncInfo]   = useState(null);
   useEffect(()=>{
-    const CAMPAIGNS_JSON_URL = "campaigns.json"; // served from same GitHub Pages root
     async function syncMeta() {
       setMetaSyncStatus("syncing");
       try {
-        const resp = await fetch(CAMPAIGNS_JSON_URL + "?t=" + Date.now());
-        if (!resp.ok) throw new Error("campaigns.json not found (run GitHub Action first)");
+        const resp = await fetch("campaigns.json?t="+Date.now());
+        if (!resp.ok) throw new Error("campaigns.json not found");
         const data = await resp.json();
-        if (!data.campaigns || data.campaigns.length === 0) {
-          setMetaSyncStatus("done");
-          setMetaSyncInfo({ last_updated: data.last_updated, fetched_count: 0 });
-          return;
-        }
-        // Build a lookup map: tracker_id → metrics
-        const metaMap = {};
-        data.campaigns.forEach(c => { metaMap[c.tracker_id] = c; });
-        // Merge into campaigns state
-        setCampaigns(cs => cs.map(campaign => {
-          const meta = metaMap[campaign.id];
-          if (!meta) return campaign;
-          return {
-            ...campaign,
-            impressions: meta.impressions ? String(meta.impressions) : campaign.impressions,
-            spend:       meta.spend       ? String(meta.spend)       : campaign.spend,
-            ctr:         meta.ctr         ? String(meta.ctr)         : campaign.ctr,
-            cpm:         meta.cpm         ? String(meta.cpm)         : campaign.cpm,
-          };
+        if (!data.campaigns||data.campaigns.length===0) { setMetaSyncStatus("done"); setMetaSyncInfo({last_updated:data.last_updated,fetched_count:0}); return; }
+        const metaMap={};
+        data.campaigns.forEach(c=>{ metaMap[c.tracker_id]=c; });
+        const syncedAt=data.last_updated||new Date().toISOString();
+        setCampaigns(cs=>cs.map(campaign=>{
+          const meta=metaMap[campaign.id];
+          if (!meta||!meta.snapshots) return campaign;
+          return {...campaign, metaSnapshots:meta.snapshots, metaSyncedAt:syncedAt};
         }));
         setMetaSyncStatus("done");
-        setMetaSyncInfo({ last_updated: data.last_updated, fetched_count: data.fetched_count });
+        setMetaSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count});
       } catch(e) {
-        console.warn("Meta sync skipped:", e.message);
+        console.warn("Meta sync skipped:",e.message);
         setMetaSyncStatus("error");
-        setMetaSyncInfo({ error: e.message });
+        setMetaSyncInfo({error:e.message});
       }
     }
     syncMeta();
-  }, []);
+  },[]);
 
   function addLog(entry) {
     setActivityLog(prev => {
@@ -1309,24 +1323,12 @@ export default function App() {
       {/* Header */}
       <div style={{background:"linear-gradient(180deg,#0e2038 0%,#0c1625 100%)",borderBottom:"1px solid #00c89628",borderTop:"2px solid #00c896",padding:"13px 20px",position:"sticky",top:0,zIndex:50}}>
         <div style={{maxWidth:1600,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:17,fontWeight:800,color:"#00e5a0",letterSpacing:"-0.03em"}}>Campaign Tracker</span>
             <span style={{fontSize:11,padding:"2px 7px",borderRadius:4,background:saved?"#00200f":"transparent",color:saved?"#00d48a":"transparent",border:saved?"1px solid #22c55e40":"1px solid transparent",transition:"all .3s",fontWeight:600}}>✓ Saved</span>
-            {metaSyncStatus==="syncing" && (
-              <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>
-                <span>⟳</span> Syncing Meta…
-              </span>
-            )}
-            {metaSyncStatus==="done" && metaSyncInfo?.fetched_count > 0 && (
-              <span title={`Last updated: ${metaSyncInfo.last_updated}`} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#002018",border:"1px solid #00c89640",color:"#00d48a",fontWeight:600,cursor:"default"}}>
-                ⬡ Meta: {metaSyncInfo.fetched_count} synced
-              </span>
-            )}
-            {metaSyncStatus==="error" && (
-              <span title={metaSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>
-                ⚠ Meta sync —
-              </span>
-            )}
+            {metaSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing Meta…</span>}
+            {metaSyncStatus==="done" && metaSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(metaSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#002018",border:"1px solid #00c89640",color:"#00d48a",fontWeight:600,cursor:"default"}}>⬡ Meta: {metaSyncInfo.fetched_count} synced</span>}
+            {metaSyncStatus==="error" && <span title={metaSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Meta sync —</span>}
           </div>
           <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
             <button onClick={()=>setShowReminderModal(true)} style={{position:"relative",background:pendingReminders>0?"#130a00":"#0e1a2e",border:`1px solid ${pendingReminders>0?"#f59e0b60":"#1e293b"}`,borderRadius:7,padding:"6px 13px",color:pendingReminders>0?"#f59e0b":"#4d6e8a",fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
@@ -1472,14 +1474,18 @@ export default function App() {
 {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                           </div>
                           {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:3,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}} title={c.note1}>{c.note1.trim()}</div>}
-                          {!open&&hasData&&(
-                            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>
-                              <MetricPill label="IMP" value={c.impressions} color="#00e5a0"/>
-                              <MetricPill label="CTR" value={c.ctr} color="#00ffb3" suffix="%"/>
-                              <MetricPill label="CPM" value={c.cpm} color="#fb923c" prefix="$"/>
-                              <MetricPill label="SPEND" value={c.spend} color="#f472b6" prefix="$"/>
-                            </div>
-                          )}
+                          {!open&&hasData&&(()=>{
+                            const disp=resolveMetrics(c,dateRange.preset);
+                            return (
+                              <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>
+                                <MetricPill label="IMP" value={disp.impressions} color="#00e5a0"/>
+                                <MetricPill label="CTR" value={disp.ctr} color="#00ffb3" suffix="%"/>
+                                <MetricPill label="CPM" value={disp.cpm} color="#fb923c" prefix="$"/>
+                                <MetricPill label="SPEND" value={disp.spend} color="#f472b6" prefix="$"/>
+                                {disp.source==="meta"&&<span style={{fontSize:9,color:"#3b82f6",alignSelf:"center",opacity:0.7}}>⬡</span>}
+                              </div>
+                            );
+                          })()}
                         </TD>
                         <TD><PlatformTag p={c.platform}/></TD>
                         <TD>
