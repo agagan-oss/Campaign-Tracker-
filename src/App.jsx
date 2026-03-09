@@ -386,7 +386,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
   const [historyDraft, setHistoryDraft] = useState(c.history||"");
   const [historyDirty, setHistoryDirty] = useState(false);
   const [showAddReminder, setShowAddReminder] = useState(false);
-  const [newReminder, setNewReminder] = useState({type:"ad-swap",note:"",date:""});
+  const [newReminder, setNewReminder] = useState({type:"ad-swap",note:"",date:"",repeat:"none"});
   const set = (k,v) => { setLocal(p=>({...p,[k]:v})); setDirty(true); };
   const save = () => { onUpdate({...c,...local}); setDirty(false); };
   const saveHistory = () => { onUpdate({...c, history:historyDraft}); setHistoryDirty(false); };
@@ -448,7 +448,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                   </div>
                 </div>
                 <input type="text" value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))} placeholder="Note (optional)" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
-                <button onClick={()=>{ if(!newReminder.date) return; setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"ad-swap",note:"",date:""}); setShowAddReminder(false); }} disabled={!newReminder.date} style={{background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"7px 0",color:newReminder.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:newReminder.date?"pointer":"default"}}>Save Reminder</button>
+                <button onClick={()=>{ if(!newReminder.date) return; setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); setShowAddReminder(false); }} disabled={!newReminder.date} style={{background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"7px 0",color:newReminder.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:newReminder.date?"pointer":"default"}}>Save Reminder</button>
               </div>
             )}
           </div>
