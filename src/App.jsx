@@ -381,7 +381,7 @@ function MetricPill({ label, value, color, prefix="", suffix="" }) {
 }
 
 function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders=()=>{} }) {
-  const [local, setLocal] = useState({impressions:c.impressions||"",ctr:c.ctr||"",cpm:c.cpm||"",spend:c.spend||""});
+  const [local, setLocal] = useState({impressions:c.impressions||"",ctr:c.ctr||"",cpm:c.cpm||"",spend:c.spend||"",completionRate:c.completionRate||""});
   const [dirty, setDirty] = useState(false);
   const [historyDraft, setHistoryDraft] = useState(c.history||"");
   const [historyDirty, setHistoryDirty] = useState(false);
@@ -405,20 +405,33 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
             <span style={{fontSize:11,color:"#00c896",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>📊 Metrics</span>
             {dateRange.start && <span style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"1px 8px",fontSize:10,fontFamily:"monospace",color:"#4d6e8a"}}>{dateRange.start===dateRange.end?dateRange.start:`${dateRange.start} → ${dateRange.end}`}</span>}
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4, minmax(130px, 200px))",gap:12,marginBottom:14}}>
-            {metrics.map(({key,label,color,prefix,suffix})=>(
-              <div key={key}>
-                <label style={{display:"block",fontSize:10,color,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>
-                  {prefix && <span style={{opacity:.5,marginRight:1}}>{prefix}</span>}{label}{suffix && <span style={{opacity:.5,marginLeft:1}}>{suffix}</span>}
-                </label>
-                <input type="number" value={local[key]} onChange={e=>set(key,e.target.value)} placeholder="—" style={{...iS,borderColor:local[key]?color+"60":"#162236"}}/>
+          {(()=>{
+            const isCTV = c.platform==="CTV"||c.platform==="OTT";
+            const cols = isCTV ? "repeat(5, minmax(120px, 200px))" : "repeat(4, minmax(130px, 200px))";
+            const completionField = (<div key="completionRate">
+              <label style={{display:"block",fontSize:10,color:"#a78bfa",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>Completion Rate<span style={{opacity:.5,marginLeft:4}}>%</span></label>
+              <input type="number" value={local.completionRate} onChange={e=>set("completionRate",e.target.value)} placeholder="—" style={{...iS,borderColor:local.completionRate?"#a78bfa60":"#162236"}}/>
+            </div>);
+            return (
+              <div style={{display:"grid",gridTemplateColumns:cols,gap:12,marginBottom:14}}>
+                {metrics.map(({key,label,color,prefix,suffix},i)=>(
+                  <Fragment key={key}>
+                    <div>
+                      <label style={{display:"block",fontSize:10,color,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>
+                        {prefix && <span style={{opacity:.5,marginRight:1}}>{prefix}</span>}{label}{suffix && <span style={{opacity:.5,marginLeft:1}}>{suffix}</span>}
+                      </label>
+                      <input type="number" value={local[key]} onChange={e=>set(key,e.target.value)} placeholder="—" style={{...iS,borderColor:local[key]?color+"60":"#162236"}}/>
+                    </div>
+                    {isCTV && i===0 && completionField}
+                  </Fragment>
+                ))}
               </div>
-            ))}
-          </div>
+            );
+          })()}
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <button onClick={save} disabled={!dirty} style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"6px 18px",color:dirty?"#fff":"#3b5070",fontSize:12,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>Save Metrics</button>
             {!dirty && (c.impressions||c.ctr||c.cpm||c.spend) && <span style={{fontSize:11,color:"#00d48a",display:"flex",alignItems:"center",gap:4}}>✓ Metrics saved</span>}
-            {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
+            {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:"",completionRate:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
           </div>
           <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
@@ -725,7 +738,7 @@ function CampaignArchive({ archive, onRestore, onClear }) {
 
 
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[] }) {
-  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
+  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
   const [f, setF] = useState(campaign?{...campaign}:blank);
   const blankR = { type:"ad-swap", note:"", date:"", repeat:"none" };
   const [newReminder, setNewReminder] = useState(blankR);
@@ -1202,7 +1215,7 @@ export default function App() {
   };
   const doExportCSV = () => {
     try {
-      const headers = ["Media Partner","Campaign Name","Platform","Status","Goal","Start Date","End Date","Last Checked","Monthly Flight","Impressions","CTR","CPM","Spend","Note 1","Note 2","Projection URL","Folder Path","Change History"];
+      const headers = ["Media Partner","Campaign Name","Platform","Status","Goal","Start Date","End Date","Last Checked","Monthly Flight","Impressions","CTR","CPM","Spend","Completion Rate","Note 1","Note 2","Projection URL","Folder Path","Change History"];
       const rows = campaigns.map(c => [
         c.mediaPartner, c.campaignName, c.platform,
         STATUS_CFG[c.status]?.label||c.status||"",
