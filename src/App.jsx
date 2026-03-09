@@ -206,10 +206,22 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
   function addOnDate(date) { setForm({...blank,date}); setView("add"); }
 
   const today = getToday();
+  const [search, setSearch] = useState("");
   const sorted = [...reminders].sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
-  const overdue  = sorted.filter(r=>!r.dismissed && r.date<today);
-  const upcoming = sorted.filter(r=>!r.dismissed && r.date>=today);
-  const done     = sorted.filter(r=>r.dismissed);
+  function matchesSearch(r) {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    const camp = campaigns.find(c=>c.id===r.campaignId);
+    const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
+    return (r.note||"").toLowerCase().includes(q)
+      || rt.label.toLowerCase().includes(q)
+      || (camp&&camp.campaignName.toLowerCase().includes(q))
+      || (camp&&camp.mediaPartner.toLowerCase().includes(q))
+      || (r.date||"").includes(q);
+  }
+  const overdue  = sorted.filter(r=>!r.dismissed && r.date<today  && matchesSearch(r));
+  const upcoming = sorted.filter(r=>!r.dismissed && r.date>=today && matchesSearch(r));
+  const done     = sorted.filter(r=>r.dismissed                   && matchesSearch(r));
 
   const iS = { width:"100%", background:"#162236", border:"1px solid #334155", borderRadius:6, padding:"7px 10px", color:"#d8eaf8", fontSize:13, boxSizing:"border-box", fontFamily:"inherit" };
 
@@ -268,6 +280,16 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
           </div>
         </div>
 
+        {view==="list" && (
+          <div style={{marginBottom:14}}>
+            <input
+              value={search}
+              onChange={e=>setSearch(e.target.value)}
+              placeholder="Search by campaign, type, note, date…"
+              style={{width:"100%",background:"#0a1525",border:"1px solid #1e293b",borderRadius:7,padding:"7px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",outline:"none"}}
+            />
+          </div>
+        )}
         {view==="add" ? (
           <div>
             <div style={{marginBottom:12}}>
@@ -413,6 +435,11 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
   const [historyDirty, setHistoryDirty] = useState(false);
   const [showAddReminder, setShowAddReminder] = useState(false);
   const [newReminder, setNewReminder] = useState({type:"ad-swap",note:"",date:"",repeat:"none"});
+  const [editingReminderId, setEditingReminderId] = useState(null);
+  const [editReminderDraft, setEditReminderDraft] = useState({});
+  function startEditReminder(r) { setEditingReminderId(r.id); setEditReminderDraft({type:r.type,date:r.date,note:r.note||"",repeat:r.repeat||"none"}); }
+  function saveEditReminder(id) { setReminders(prev=>prev.map(r=>r.id===id?{...r,...editReminderDraft}:r)); setEditingReminderId(null); }
+  function cancelEditReminder() { setEditingReminderId(null); }
   const set = (k,v) => { setLocal(p=>({...p,[k]:v})); setDirty(true); };
   const save = () => { onUpdate({...c,...local}); setDirty(false); };
   const saveHistory = () => { onUpdate({...c, history:historyDraft}); setHistoryDirty(false); };
@@ -466,12 +493,37 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
               <span style={{fontSize:10,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>🔔 Reminders</span>
               <button onClick={()=>setShowAddReminder(v=>!v)} style={{background:showAddReminder?"#130a00":"#f59e0b18",border:`1px solid ${showAddReminder?"#f59e0b80":"#f59e0b50"}`,borderRadius:6,padding:"2px 8px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer"}}>{showAddReminder?"✕":"+"}</button>
             </div>
-            {reminders.filter(r=>!r.dismissed&&r.campaignId===c.id).map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5]; const isPast=r.date<=getToday(); return (
-              <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,background:isPast?"#1a0808":"#0a1628",border:`1px solid ${isPast?"#ef444430":rt.color+"30"}`,borderRadius:5,padding:"5px 10px",marginBottom:4}}>
-                <span style={{fontSize:11,color:isPast?"#ef4444":rt.color,fontWeight:600}}>{rt.label}</span>
-                {r.note&&<span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{r.note}</span>}
-                <span style={{fontSize:11,color:"#3d5a72",fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
-                <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:12,lineHeight:1,padding:"0 2px"}}>×</button>
+            {reminders.filter(r=>!r.dismissed&&r.campaignId===c.id).map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5]; const isPast=r.date<=getToday(); const isEditing=editingReminderId===r.id; return (
+              <div key={r.id} style={{marginBottom:4}}>
+                {isEditing ? (
+                  <div style={{background:"#0a1628",border:"1px solid #f59e0b60",borderRadius:7,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div>
+                        <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Type</label>
+                        <select value={editReminderDraft.type} onChange={e=>setEditReminderDraft(p=>({...p,type:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit"}}>
+                          {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
+                        <input type="date" value={editReminderDraft.date} onChange={e=>setEditReminderDraft(p=>({...p,date:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
+                      </div>
+                    </div>
+                    <input type="text" value={editReminderDraft.note} onChange={e=>setEditReminderDraft(p=>({...p,note:e.target.value}))} placeholder="Note (optional)" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={()=>saveEditReminder(r.id)} disabled={!editReminderDraft.date} style={{flex:1,background:editReminderDraft.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"6px 0",color:editReminderDraft.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:editReminderDraft.date?"pointer":"default"}}>Save</button>
+                      <button onClick={cancelEditReminder} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 0",color:"#7a9bbf",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{display:"flex",alignItems:"center",gap:8,background:isPast?"#1a0808":"#0a1628",border:`1px solid ${isPast?"#ef444430":rt.color+"30"}`,borderRadius:5,padding:"5px 10px"}}>
+                    <span style={{fontSize:11,color:isPast?"#ef4444":rt.color,fontWeight:600}}>{rt.label}</span>
+                    {r.note&&<span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{r.note}</span>}
+                    <span style={{fontSize:11,color:"#3d5a72",fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
+                    <button onClick={()=>startEditReminder(r)} style={{background:"none",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",cursor:"pointer",fontSize:10,padding:"1px 6px"}}>Edit</button>
+                    <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:12,lineHeight:1,padding:"0 2px"}}>×</button>
+                  </div>
+                )}
               </div>
             );})}
             {showAddReminder && (
