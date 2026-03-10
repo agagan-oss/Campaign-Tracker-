@@ -87,6 +87,71 @@ function resolveMetrics(c, preset) {
   return { impressions:c.impressions||"", ctr:c.ctr||"", cpm:c.cpm||"", spend:c.spend||"", source:key?"manual-no-snapshot":"manual", snapshotKey:key };
 }
 
+
+// Parse monthly goal from note1: "125K/Mo", "100K Monthly", "72K/Mo", "41K/Mo (15-20% Oregon)"
+// "40K Feb/March" = total for 2 months = 20K/Mo, "95K March" = 95K this month
+// Returns number or null
+function parseMonthlyGoal(note1) {
+  if (!note1) return null;
+  const s = note1.trim();
+  function parseNum(str) {
+    const m = str.replace(/,/g,"").match(/^([\d.]+)\s*([KkMm])?/);
+    if (!m) return null;
+    let n = parseFloat(m[1]);
+    if (m[2] && m[2].toLowerCase()==="k") n *= 1000;
+    if (m[2] && m[2].toLowerCase()==="m") n *= 1000000;
+    return isNaN(n) ? null : Math.round(n);
+  }
+  // "125K/Mo", "100K Monthly", "72K/Mo (extra notes)"
+  const moMatch = s.match(/^([\d.,]+\s*[KkMm]?)\s*(?:\/Mo|Monthly|\/month)/i);
+  if (moMatch) return parseNum(moMatch[1]);
+  // "40K Feb/March" = two months, divide by 2
+  const twoMonthMatch = s.match(/^([\d.,]+\s*[KkMm]?)\s+\w+\/\w+$/i);
+  if (twoMonthMatch) { const total = parseNum(twoMonthMatch[1]); return total ? Math.round(total/2) : null; }
+  // "95K March" = single named month
+  const oneMonthMatch = s.match(/^([\d.,]+\s*[KkMm]?)\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)$/i);
+  if (oneMonthMatch) return parseNum(oneMonthMatch[1]);
+  return null;
+}
+
+// Compute monthly pacing: impressions delivered this month vs monthly goal vs days elapsed this month
+// Returns { pct, color, label, delivered, goal } or null
+function computeMonthlyPacing(impressions, note1) {
+  const goal = parseMonthlyGoal(note1);
+  const delivered = parseInt(impressions) || 0;
+  if (!goal || goal <= 0 || !delivered) return null;
+
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  const dayOfMonth  = now.getDate();
+  const timeElapsed = dayOfMonth / daysInMonth;         // 0→1
+  const expected    = Math.round(goal * timeElapsed);   // how many expected by today
+  const pct         = delivered / goal;                 // fraction of monthly goal delivered
+
+  // Pacing ratio: how delivered compares to expected
+  const ratio = expected > 0 ? delivered / expected : null;
+
+  let color, label;
+  if (ratio === null)       { color="#4d6e8a"; label="No data";  }
+  else if (ratio < 0.80)    { color="#fde047"; label="Behind";   }
+  else if (ratio < 1.05)    { color="#00d48a"; label="On Track"; }
+  else                      { color="#fb923c"; label="Ahead";    }
+
+  return { pct: Math.min(1, pct), expectedPct: timeElapsed, ratio, color, label, delivered, goal, expected };
+}
+
+
+// Flag a campaign as potentially stopped serving:
+// active status + within flight dates + zero/blank impressions
+function isStoppedServing(c) {
+  if ((c.status||"") !== "active") return false;
+  const today = getToday();
+  if (c.endDate && c.endDate < today) return false;   // flight ended, not our problem
+  if (c.startDate && c.startDate > today) return false; // hasn't started yet
+  const impr = parseFloat(c.impressions||"") || 0;
+  return impr === 0;
+}
+
 function ReminderCalendar({ reminders, setReminders, onAdd }) {
   const today = getToday();
   const [cur, setCur] = useState(() => { const n = new Date(); return { y:n.getFullYear(), m:n.getMonth() }; });
@@ -454,6 +519,15 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
     <tr>
       <td colSpan={colSpan} style={{padding:0,borderBottom:"1px solid #0d1525"}}>
         <div style={{background:"#07101c",borderTop:"1px solid #1a2744",padding:"16px 16px 16px 52px"}}>
+          {isStoppedServing(c) && (
+            <div style={{background:"#1a0808",border:"1px solid #ef444460",borderRadius:7,padding:"9px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:14}}>⚑</span>
+              <div>
+                <div style={{fontSize:12,color:"#ef4444",fontWeight:700}}>Not Serving</div>
+                <div style={{fontSize:11,color:"#7a3030"}}>Campaign is active and within flight dates but has no recorded impressions. Check the platform.</div>
+              </div>
+            </div>
+          )}
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
             <span style={{fontSize:11,color:"#00c896",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>📊 Metrics</span>
             {dateRange.start && <span style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"1px 8px",fontSize:10,fontFamily:"monospace",color:"#4d6e8a"}}>{dateRange.start===dateRange.end?dateRange.start:`${dateRange.start} → ${dateRange.end}`}</span>}
@@ -1526,15 +1600,22 @@ export default function App() {
 {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                           </div>
                           {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:3,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}} title={c.note1}>{c.note1.trim()}</div>}
-                          {!open&&hasData&&(()=>{
+                          {isStoppedServing(c)&&!open&&(
+                            <div style={{display:"inline-flex",alignItems:"center",gap:4,marginTop:3,background:"#1a0808",border:"1px solid #ef444460",borderRadius:4,padding:"2px 7px"}}>
+                              <span style={{fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em"}}>⚑ NOT SERVING</span>
+                            </div>
+                          )}
+                          {!open&&(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
+                            const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+                            if(!pacing) return null;
                             return (
-                              <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>
-                                <MetricPill label="IMP" value={disp.impressions} color="#00e5a0"/>
-                                <MetricPill label="CTR" value={disp.ctr} color="#00ffb3" suffix="%"/>
-                                <MetricPill label="CPM" value={disp.cpm} color="#fb923c" prefix="$"/>
-                                <MetricPill label="SPEND" value={disp.spend} color="#f472b6" prefix="$"/>
-                                {disp.source==="meta"&&<span style={{fontSize:9,color:"#3b82f6",alignSelf:"center",opacity:0.7}}>⬡</span>}
+                              <div style={{marginTop:4,width:140}} title={`${pacing.label}: ${pacing.delivered.toLocaleString()} of ${pacing.goal.toLocaleString()} goal`}>
+                                <div style={{position:"relative",background:"#0e1a2e",borderRadius:3,height:5,width:"100%",overflow:"visible",marginBottom:2}}>
+                                  <div style={{position:"absolute",top:-2,left:`${Math.min(97,pacing.expectedPct*100)}%`,width:2,height:9,background:"#334155",borderRadius:1,zIndex:2}}/>
+                                  <div style={{background:pacing.color,height:"100%",width:`${Math.min(100,pacing.pct*100)}%`,borderRadius:3,transition:"width .3s"}}/>
+                                </div>
+                                <span style={{fontSize:9,color:pacing.color,fontWeight:700,letterSpacing:"0.03em"}}>{(pacing.pct*100).toFixed(0)}% of mo. goal</span>
                               </div>
                             );
                           })()}
