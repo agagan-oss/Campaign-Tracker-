@@ -947,39 +947,44 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
         {row("note1","Note 1")}
         {row("note2","Note 2")}
         {row("lastChecked","Last Checked","date")}
-        </div>
+        {/* Contract Value */}
         <div style={{marginBottom:12}}>
-          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Flights</label>
-          <button onClick={()=>set("monthlyFlight",!f.monthlyFlight)} style={{display:"flex",alignItems:"center",gap:8,background:f.monthlyFlight?"#00201a":"#162236",border:`1px solid ${f.monthlyFlight?"#2dd4bf60":"#1e3350"}`,borderRadius:7,padding:"8px 14px",cursor:"pointer",width:"100%"}}>
-            <span style={{fontSize:15,color:f.monthlyFlight?"#00e5c0":"#3d5a72"}}>★</span>
-            <span style={{fontSize:12,color:f.monthlyFlight?"#00e5c0":"#4d6e8a",fontWeight:f.monthlyFlight?700:400}}>{f.monthlyFlight?"Monthly flights enabled":"No monthly flights"}</span>
-            <span style={{marginLeft:"auto",fontSize:10,color:f.monthlyFlight?"#00e5c0":"#1e3350"}}>{f.monthlyFlight?"ON":"OFF"}</span>
-          </button>
-        </div>
-        <div style={{marginBottom:12}}>
-          <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 Contract Value (total flight)</label>
+          <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 Contract Value</label>
           <div style={{display:"flex",alignItems:"center",gap:0,background:"#162236",border:"1px solid #334155",borderRadius:6,overflow:"hidden"}}>
             <span style={{padding:"7px 10px",color:"#34d399",fontWeight:700,fontSize:13,background:"#0e1a2e",borderRight:"1px solid #334155"}}>$</span>
             <input type="number" value={f.contractValue||""} onChange={e=>set("contractValue",e.target.value)} placeholder="e.g. 5000" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:"#d8eaf8",fontSize:13,outline:"none"}}/>
           </div>
         </div>
+        {/* Monthly Flights */}
         <div style={{marginBottom:12}}>
+          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Flights</label>
+          <button onClick={()=>set("monthlyFlight",!f.monthlyFlight)} style={{display:"flex",alignItems:"center",gap:8,background:f.monthlyFlight?"#00201a":"#162236",border:`1px solid ${f.monthlyFlight?"#2dd4bf60":"#1e3350"}`,borderRadius:7,padding:"8px 14px",cursor:"pointer",width:"100%",boxSizing:"border-box"}}>
+            <span style={{fontSize:15,color:f.monthlyFlight?"#00e5c0":"#3d5a72"}}>★</span>
+            <span style={{fontSize:12,color:f.monthlyFlight?"#00e5c0":"#4d6e8a",fontWeight:f.monthlyFlight?700:400}}>{f.monthlyFlight?"Monthly flights enabled":"No monthly flights"}</span>
+            <span style={{marginLeft:"auto",fontSize:10,color:f.monthlyFlight?"#00e5c0":"#1e3350"}}>{f.monthlyFlight?"ON":"OFF"}</span>
+          </button>
+        </div>
+        {/* Projection URL — full width */}
+        <div style={{marginBottom:12,gridColumn:"1 / -1"}}>
           <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📎 Projection Sheet URL</label>
           <div style={{display:"flex",gap:6}}>
             <input type="url" value={f.projectionUrl||""} onChange={e=>set("projectionUrl",e.target.value)} placeholder="https://docs.google.com/..." style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
             {f.projectionUrl&&f.projectionUrl.trim()&&<a href={f.projectionUrl.trim()} target="_blank" rel="noopener noreferrer" style={{background:"#002e24",border:"1px solid #3b82f640",borderRadius:6,padding:"7px 12px",color:"#00e5a0",fontSize:12,fontWeight:600,textDecoration:"none",whiteSpace:"nowrap",display:"flex",alignItems:"center"}}>Open ↗</a>}
           </div>
         </div>
-        <div style={{marginBottom:12}}>
+        {/* Folder Path — full width */}
+        <div style={{marginBottom:12,gridColumn:"1 / -1"}}>
           <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📁 Client Folder Path</label>
           <div style={{display:"flex",gap:6}}>
             <input type="text" value={f.folderPath||""} onChange={e=>set("folderPath",e.target.value)} placeholder="\\192.168.3.2\Data\..." style={{flex:1,background:"#162236",border:"1px solid #1e3350",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"Consolas,monospace"}}/>
             {f.folderPath&&f.folderPath.trim()&&<button onClick={()=>navigator.clipboard.writeText(f.folderPath.trim())} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"7px 12px",color:"#00e5a0",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Copy 📋</button>}
           </div>
         </div>
-        <div style={{marginBottom:16}}>
+        {/* History — full width */}
+        <div style={{marginBottom:16,gridColumn:"1 / -1"}}>
           <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History</label>
-          <textarea value={f.history||""} onChange={e=>set("history",e.target.value)} placeholder={"3/2/26 — Increased budget\n..."} style={{width:"100%",background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:110,lineHeight:1.6}}/>
+          <textarea value={f.history||""} onChange={e=>set("history",e.target.value)} placeholder={"3/2/26 — Increased budget\n..."} style={{width:"100%",background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:80,lineHeight:1.6}}/>
+        </div>
         </div>
         {!isNew && campaign && (
           <div style={{marginBottom:16,paddingTop:14,borderTop:"1px solid #1e293b"}}>
