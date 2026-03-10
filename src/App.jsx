@@ -519,15 +519,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
     <tr>
       <td colSpan={colSpan} style={{padding:0,borderBottom:"1px solid #0d1525"}}>
         <div style={{background:"#07101c",borderTop:"1px solid #1a2744",padding:"16px 16px 16px 52px"}}>
-          {isStoppedServing(c) && (
-            <div style={{background:"#1a0808",border:"1px solid #ef444460",borderRadius:7,padding:"9px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
-              <span style={{fontSize:14}}>⚑</span>
-              <div>
-                <div style={{fontSize:12,color:"#ef4444",fontWeight:700}}>Not Serving</div>
-                <div style={{fontSize:11,color:"#7a3030"}}>Campaign is active and within flight dates but has no recorded impressions. Check the platform.</div>
-              </div>
-            </div>
-          )}
+
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
             <span style={{fontSize:11,color:"#00c896",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>📊 Metrics</span>
             {dateRange.start && <span style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"1px 8px",fontSize:10,fontFamily:"monospace",color:"#4d6e8a"}}>{dateRange.start===dateRange.end?dateRange.start:`${dateRange.start} → ${dateRange.end}`}</span>}
@@ -1600,11 +1592,7 @@ export default function App() {
 {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                           </div>
                           {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:3,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}} title={c.note1}>{c.note1.trim()}</div>}
-                          {isStoppedServing(c)&&!open&&(
-                            <div style={{display:"inline-flex",alignItems:"center",gap:4,marginTop:3,background:"#1a0808",border:"1px solid #ef444460",borderRadius:4,padding:"2px 7px"}}>
-                              <span style={{fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em"}}>⚑ NOT SERVING</span>
-                            </div>
-                          )}
+
                           {!open&&(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
                             const pacing=computeMonthlyPacing(disp.impressions,c.note1);
