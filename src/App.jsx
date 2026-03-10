@@ -484,7 +484,7 @@ function MetricPill({ label, value, color, prefix="", suffix="" }) {
 
 function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders=()=>{} }) {
   const resolved = resolveMetrics(c, dateRange.preset);
-  const [local, setLocal] = useState({impressions:resolved.impressions,ctr:resolved.ctr,cpm:resolved.cpm,spend:resolved.spend,completionRate:c.completionRate||""});
+  const [local, setLocal] = useState({impressions:resolved.impressions,ctr:resolved.ctr,cpm:resolved.cpm,spend:resolved.spend,completionRate:c.completionRate||"",conversions:c.conversions||""});
   const [dirty, setDirty] = useState(false);
   const prevPreset = useRef(dateRange.preset);
   useEffect(()=>{
@@ -519,7 +519,15 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
     <tr>
       <td colSpan={colSpan} style={{padding:0,borderBottom:"1px solid #0d1525"}}>
         <div style={{background:"#07101c",borderTop:"1px solid #1a2744",padding:"16px 16px 16px 52px"}}>
-
+          {isStoppedServing(c) && (
+            <div style={{background:"#1a0808",border:"1px solid #ef444460",borderRadius:7,padding:"9px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:14}}>⚑</span>
+              <div>
+                <div style={{fontSize:12,color:"#ef4444",fontWeight:700}}>Not Serving</div>
+                <div style={{fontSize:11,color:"#7a3030"}}>Campaign is active and within flight dates but has no recorded impressions. Check the platform.</div>
+              </div>
+            </div>
+          )}
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
             <span style={{fontSize:11,color:"#00c896",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>📊 Metrics</span>
             {dateRange.start && <span style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"1px 8px",fontSize:10,fontFamily:"monospace",color:"#4d6e8a"}}>{dateRange.start===dateRange.end?dateRange.start:`${dateRange.start} → ${dateRange.end}`}</span>}
@@ -528,10 +536,14 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
           </div>
           {(()=>{
             const isCTV = c.platform==="CTV"||c.platform==="OTT";
-            const cols = isCTV ? "repeat(5, minmax(120px, 200px))" : "repeat(4, minmax(130px, 200px))";
+            const cols = isCTV ? "repeat(6, minmax(110px, 200px))" : "repeat(4, minmax(130px, 200px))";
             const completionField = (<div key="completionRate">
               <label style={{display:"block",fontSize:10,color:"#a78bfa",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>Completion Rate<span style={{opacity:.5,marginLeft:4}}>%</span></label>
               <input type="number" value={local.completionRate} onChange={e=>set("completionRate",e.target.value)} placeholder="—" style={{...iS,borderColor:local.completionRate?"#a78bfa60":"#162236"}}/>
+            </div>);
+            const conversionsField = (<div key="conversions">
+              <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>Conversions</label>
+              <input type="number" value={local.conversions} onChange={e=>set("conversions",e.target.value)} placeholder="—" style={{...iS,borderColor:local.conversions?"#34d39960":"#162236"}}/>
             </div>);
             return (
               <div style={{display:"grid",gridTemplateColumns:cols,gap:12,marginBottom:14}}>
@@ -544,6 +556,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                       <input type="number" value={local[key]} onChange={e=>set(key,e.target.value)} placeholder="—" style={{...iS,borderColor:local[key]?color+"60":"#162236"}}/>
                     </div>
                     {isCTV && i===0 && completionField}
+                    {isCTV && i===0 && conversionsField}
                   </Fragment>
                 ))}
               </div>
@@ -552,7 +565,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <button onClick={save} disabled={!dirty} style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"6px 18px",color:dirty?"#fff":"#3b5070",fontSize:12,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>Save Metrics</button>
             {!dirty && (c.impressions||c.ctr||c.cpm||c.spend) && <span style={{fontSize:11,color:"#00d48a",display:"flex",alignItems:"center",gap:4}}>✓ Metrics saved</span>}
-            {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:"",completionRate:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
+            {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
           </div>
           <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
@@ -884,7 +897,7 @@ function CampaignArchive({ archive, onRestore, onClear }) {
 
 
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[] }) {
-  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
+  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",contractValue:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
   const [f, setF] = useState(campaign?{...campaign}:blank);
   const blankR = { type:"ad-swap", note:"", date:"", repeat:"none" };
   const [newReminder, setNewReminder] = useState(blankR);
@@ -944,6 +957,13 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             <span style={{fontSize:12,color:f.monthlyFlight?"#00e5c0":"#4d6e8a",fontWeight:f.monthlyFlight?700:400}}>{f.monthlyFlight?"Monthly flights enabled":"No monthly flights"}</span>
             <span style={{marginLeft:"auto",fontSize:10,color:f.monthlyFlight?"#00e5c0":"#1e3350"}}>{f.monthlyFlight?"ON":"OFF"}</span>
           </button>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 Contract Value (total flight)</label>
+          <div style={{display:"flex",alignItems:"center",gap:0,background:"#162236",border:"1px solid #334155",borderRadius:6,overflow:"hidden"}}>
+            <span style={{padding:"7px 10px",color:"#34d399",fontWeight:700,fontSize:13,background:"#0e1a2e",borderRight:"1px solid #334155"}}>$</span>
+            <input type="number" value={f.contractValue||""} onChange={e=>set("contractValue",e.target.value)} placeholder="e.g. 5000" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:"#d8eaf8",fontSize:13,outline:"none"}}/>
+          </div>
         </div>
         <div style={{marginBottom:12}}>
           <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📎 Projection Sheet URL</label>
@@ -1184,6 +1204,348 @@ function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms }) {
 }
 
 
+
+// ─── Platform KPI benchmarks ──────────────────────────────────────────────
+const PLT_KPI = {
+  FB:    { primary:"CTR", good:0.0025, ok:0.001,  label:"CTR",        tip:"Good >0.25% · OK >0.10%" },
+  IG:    { primary:"CTR", good:0.0025, ok:0.001,  label:"CTR",        tip:"Good >0.25% · OK >0.10%" },
+  TT:    { primary:"CTR", good:0.01,   ok:0.005,  label:"CTR",        tip:"Good >1% · OK >0.5%"     },
+  FBV:   { primary:"VCR", good:0.70,   ok:0.50,   label:"Completion", tip:"Good >70% · OK >50%"     },
+  DSP:   { primary:"CTR", good:0.0008, ok:0.0003, label:"CTR",        tip:"Good >0.08% · OK >0.03%" },
+  TD:    { primary:"CTR", good:0.0008, ok:0.0003, label:"CTR",        tip:"Good >0.08% · OK >0.03%" },
+  SP:    { primary:"CTR", good:0.0008, ok:0.0003, label:"CTR",        tip:"Good >0.08% · OK >0.03%" },
+  CTV:   { primary:"VCR", good:0.95,   ok:0.85,   label:"Completion", tip:"Good >95% · OK >85%"     },
+  OTT:   { primary:"VCR", good:0.95,   ok:0.85,   label:"Completion", tip:"Good >95% · OK >85%"     },
+  SEM:   { primary:"CTR", good:0.05,   ok:0.02,   label:"CTR",        tip:"Good >5% · OK >2%"       },
+  YT:    { primary:"VCR", good:0.35,   ok:0.20,   label:"View Rate",  tip:"Good >35% · OK >20%"     },
+  EMAIL: { primary:"CTR", good:0.03,   ok:0.01,   label:"Click Rate", tip:"Good >3% · OK >1%"       },
+};
+
+// ─── Pacing date bar ──────────────────────────────────────────────────────
+function PacingDateBar({ range, setRange }) {
+  const presets = getPresets();
+  const [cs, setCs] = useState(range.start||"");
+  const [ce, setCe] = useState(range.end||"");
+  const [showCustom, setShowCustom] = useState(false);
+  const quickKeys = ["mtd","yesterday","last30"];
+  const isCustom = range.preset==="custom";
+  return (
+    <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:7}}>
+      {quickKeys.map(k=>{
+        const on=range.preset===k;
+        return <button key={k} onClick={()=>{setShowCustom(false);setRange({preset:k,...presets[k]});}}
+          style={{background:on?"#002e24":"#0e1a2e",border:"1px solid "+(on?"#00c896":"#162236"),borderRadius:6,padding:"4px 12px",color:on?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:on?700:500,cursor:"pointer"}}>
+          {presets[k].label}
+        </button>;
+      })}
+      <div style={{width:1,height:18,background:"#162236"}}/>
+      <button onClick={()=>setShowCustom(v=>!v)}
+        style={{background:isCustom||showCustom?"#002e24":"#0e1a2e",border:"1px solid "+(isCustom||showCustom?"#00c896":"#162236"),borderRadius:6,padding:"4px 12px",color:isCustom||showCustom?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:isCustom||showCustom?700:500,cursor:"pointer"}}>
+        {isCustom?range.label:"Custom…"}
+      </button>
+      {(showCustom||isCustom)&&(
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <input type="date" value={cs} onChange={e=>setCs(e.target.value)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"4px 8px",color:"#d8eaf8",fontSize:12}}/>
+          <span style={{color:"#3d5a72",fontSize:11}}>to</span>
+          <input type="date" value={ce} onChange={e=>setCe(e.target.value)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"4px 8px",color:"#d8eaf8",fontSize:12}}/>
+          <button onClick={()=>{if(cs&&ce){setRange({preset:"custom",start:cs,end:ce,label:cs===ce?cs:cs+" → "+ce});setShowCustom(false);}}} disabled={!cs||!ce}
+            style={{background:cs&&ce?"#00c896":"#162236",border:"none",borderRadius:6,padding:"4px 12px",color:cs&&ce?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:cs&&ce?"pointer":"default"}}>Apply</button>
+          {isCustom&&<button onClick={()=>{setShowCustom(false);setRange({preset:"mtd",...getPresets().mtd});}}
+            style={{background:"none",border:"1px solid #334155",borderRadius:6,padding:"4px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>Clear</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Pacing Dashboard ─────────────────────────────────────────────────────
+function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, onEdit=()=>{} }) {
+  const [showNoGoal, setShowNoGoal] = useState(false);
+  const allActive = campaigns.filter(c=>c.status==="active");
+  const withGoal  = allActive.map(c=>{
+    const disp=resolveMetrics(c,dateRange.preset);
+    const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+    const monthlyGoal=parseMonthlyGoal(c.note1);
+    return {c,disp,pacing,monthlyGoal};
+  });
+  const hasGoalRows = withGoal.filter(r=>r.monthlyGoal);
+  const noGoalRows  = withGoal.filter(r=>!r.monthlyGoal);
+  const orderMap={"Behind":0,"No data":1,"On Track":2,"Ahead":3};
+  hasGoalRows.sort((a,b)=>{
+    const oa=orderMap[a.pacing?.label??"No data"],ob=orderMap[b.pacing?.label??"No data"];
+    return oa!==ob?oa-ob:(a.pacing?.ratio??0)-(b.pacing?.ratio??0);
+  });
+  const behind=hasGoalRows.filter(r=>r.pacing?.label==="Behind");
+  const onTrack=hasGoalRows.filter(r=>r.pacing?.label==="On Track");
+  const ahead=hasGoalRows.filter(r=>r.pacing?.label==="Ahead");
+  const noPace=hasGoalRows.filter(r=>!r.pacing);
+
+  function KpiBox({c,disp}){
+    const kpi=PLT_KPI[c.platform]; if(!kpi) return null;
+    const isCTV=c.platform==="CTV"||c.platform==="OTT";
+    const rawVcr=(parseFloat(c.completionRate)||0)/100, rawCtr=(parseFloat(disp.ctr)||0)/100;
+    const val=kpi.primary==="VCR"?rawVcr:rawCtr; if(!val) return null;
+    const color=val>=kpi.good?"#00d48a":val>=kpi.ok?"#f59e0b":"#ef4444";
+    return <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:4}}>
+      <span title={kpi.tip} style={{cursor:"help",fontSize:10,fontWeight:700,color,background:color+"18",border:"1px solid "+color+"40",borderRadius:4,padding:"1px 7px"}}>
+        {kpi.label}: {kpi.primary==="VCR"?(rawVcr*100).toFixed(0)+"%":(rawCtr*100).toFixed(2)+"%"} · {val>=kpi.good?"Good":val>=kpi.ok?"OK":"Low"}
+      </span>
+      {isCTV&&(parseFloat(c.conversions)||0)>0&&<span style={{fontSize:10,fontWeight:700,color:"#34d399",background:"#34d39918",border:"1px solid #34d39940",borderRadius:4,padding:"1px 7px"}}>{parseInt(c.conversions).toLocaleString()} conv</span>}
+    </div>;
+  }
+
+  function PacingCard({c,disp,pacing,monthlyGoal}){
+    const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
+    const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null, del=parseInt(disp.impressions)||0;
+    const rem=Math.max(0,monthlyGoal-del), npd=(dim-dom)>0&&del>0?Math.round(rem/(dim-dom)):null;
+    const col=pacing?.color??"#4d6e8a", pCol=PLT_COLORS[c.platform]||PLT_COLORS.default;
+    return <div style={{background:"#0c1625",border:"1px solid "+(pacing?col+"40":"#1e293b"),borderRadius:9,padding:"13px 16px",marginBottom:7,display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap"}}>
+      <div style={{flex:"1 1 200px",minWidth:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:2}}>
+          <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{c.campaignName.trim()}</span>
+          <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>
+          {pacing&&<span style={{fontSize:10,fontWeight:700,color:col,background:col+"18",border:"1px solid "+col+"40",borderRadius:4,padding:"1px 6px"}}>{pacing.label}</span>}
+        </div>
+        <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>{c.mediaPartner}</div>
+        <KpiBox c={c} disp={disp}/>
+        {pacing&&<div style={{marginTop:6}}>
+          <div style={{position:"relative",background:"#07101c",borderRadius:3,height:6,marginBottom:3,overflow:"visible"}}>
+            <div title={"Expected: "+(exp?.toLocaleString()??"")} style={{position:"absolute",top:-3,left:Math.min(97,pacing.expectedPct*100)+"%",width:2,height:12,background:"#334155",borderRadius:1,zIndex:2}}/>
+            <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:3}}/>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#4d6e8a"}}>
+            <span style={{color:col,fontWeight:700}}>{(pacing.pct*100).toFixed(1)}% of goal</span>
+            <span>Goal: {monthlyGoal.toLocaleString()}</span>
+          </div>
+        </div>}
+        {!pacing&&monthlyGoal&&<div style={{fontSize:10,color:"#3d5a72",fontStyle:"italic",marginTop:4}}>No impressions yet</div>}
+      </div>
+      <div style={{display:"flex",gap:6,flexShrink:0,flexWrap:"wrap",alignItems:"center"}}>
+        {monthlyGoal?[
+          {label:"Delivered",val:del>0?del.toLocaleString():"—",color:"#00e5a0"},
+          {label:"Expected", val:exp?exp.toLocaleString():"—",  color:"#7a9bbf"},
+          {label:"Remaining",val:del>0?rem.toLocaleString():"—",color:rem>0?"#f59e0b":"#00d48a"},
+          {label:"Need/Day", val:npd?npd.toLocaleString():"—",  color:"#fb923c"},
+        ].map(({label,val,color})=><div key={label} style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:5,padding:"6px 10px",minWidth:68,textAlign:"center"}}>
+          <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>{label}</div>
+          <div style={{fontSize:11,fontWeight:700,color}}>{val}</div>
+        </div>):<div style={{fontSize:11,color:"#3d5a72",fontStyle:"italic",padding:"4px 0"}}>No goal in Note 1</div>}
+        {disp.cpm&&<div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:5,padding:"6px 10px",minWidth:58,textAlign:"center"}}><div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>CPM</div><div style={{fontSize:11,fontWeight:700,color:"#a8c4e0"}}>${parseFloat(disp.cpm).toFixed(2)}</div></div>}
+        <button onClick={()=>onEdit(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:11,padding:"4px 9px",cursor:"pointer",fontWeight:600}}>Edit</button>
+      </div>
+    </div>;
+  }
+
+  function Section({label,color,items,defaultOpen=true}){
+    const [open,setOpen]=useState(defaultOpen); if(!items.length) return null;
+    return <div style={{marginBottom:18}}>
+      <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:open?8:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
+        <span style={{fontSize:11,color,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>{label} ({items.length})</span>
+        <span style={{color:"#3d5a72",fontSize:10,display:"inline-block",transform:open?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
+      </div>
+      {open&&items.map(r=><PacingCard key={r.c.id} {...r}/>)}
+    </div>;
+  }
+
+  return <div style={{color:"#d8eaf8"}}>
+    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:14}}>
+      <div>
+        <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:2}}>📈 Pacing Dashboard</div>
+        <div style={{fontSize:11,color:"#4d6e8a"}}>{allActive.length} active · {hasGoalRows.length} with goals · worst first</div>
+      </div>
+    </div>
+    <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:9,padding:"10px 14px",marginBottom:14}}>
+      <PacingDateBar range={dateRange} setRange={setDateRange}/>
+    </div>
+    <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16,alignItems:"center"}}>
+      {[{label:"Behind",val:behind.length,color:"#fde047"},{label:"On Track",val:onTrack.length,color:"#00d48a"},{label:"Ahead",val:ahead.length,color:"#fb923c"},{label:"No Impr",val:noPace.length,color:"#4d6e8a"},{label:"No Goal",val:noGoalRows.length,color:"#334155"}].map(s=>(
+        <div key={s.label} style={{background:"#0e1a2e",border:"1px solid "+s.color+"30",borderRadius:7,padding:"8px 13px",minWidth:68,textAlign:"center"}}>
+          <div style={{fontSize:20,fontWeight:800,color:s.color,lineHeight:1}}>{s.val}</div>
+          <div style={{fontSize:10,color:"#4d6e8a",marginTop:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>{s.label}</div>
+        </div>
+      ))}
+      <div style={{marginLeft:"auto",fontSize:10,color:"#3d5a72",display:"flex",gap:10}}>
+        <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> Good</span>
+        <span><span style={{color:"#f59e0b",fontWeight:700}}>●</span> OK</span>
+        <span><span style={{color:"#ef4444",fontWeight:700}}>●</span> Low</span>
+      </div>
+    </div>
+    <Section label="Behind"         color="#fde047" items={behind}/>
+    <Section label="On Track"       color="#00d48a" items={onTrack}/>
+    <Section label="Ahead"          color="#fb923c" items={ahead}/>
+    <Section label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>
+    {noGoalRows.length>0&&<div style={{marginTop:4}}>
+      <div onClick={()=>setShowNoGoal(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:showNoGoal?8:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
+        <span style={{fontSize:11,color:"#334155",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>No Goal Set ({noGoalRows.length})</span>
+        <span style={{color:"#3d5a72",fontSize:10,display:"inline-block",transform:showNoGoal?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
+      </div>
+      {showNoGoal&&noGoalRows.map(r=><PacingCard key={r.c.id} {...r}/>)}
+    </div>}
+  </div>;
+}
+
+// ─── Revenue Dashboard ────────────────────────────────────────────────────
+function RevenueDashboard({ campaigns=[] }) {
+  const [filterPartner, setFilterPartner] = useState("all");
+  const now = new Date();
+  const thisMonth = now.toISOString().slice(0,7); // "YYYY-MM"
+
+  // Only campaigns with contractValue set
+  const rows = campaigns
+    .filter(c => parseFloat(c.contractValue) > 0)
+    .map(c => {
+      const contract  = parseFloat(c.contractValue) || 0;
+      const spend     = parseFloat(c.spend) || 0;
+      const profit    = contract - spend;
+      const margin    = contract > 0 ? (profit / contract) * 100 : 0;
+      const pCol      = PLT_COLORS[c.platform] || PLT_COLORS.default;
+      return { c, contract, spend, profit, margin, pCol };
+    })
+    .sort((a,b) => b.contract - a.contract);
+
+  const partners = ["all", ...new Set(rows.map(r => r.c.mediaPartner))].sort();
+  const filtered = filterPartner === "all" ? rows : rows.filter(r => r.c.mediaPartner === filterPartner);
+
+  // Totals
+  const totContract = filtered.reduce((s,r)=>s+r.contract,0);
+  const totSpend    = filtered.reduce((s,r)=>s+r.spend,0);
+  const totProfit   = totContract - totSpend;
+  const totMargin   = totContract > 0 ? (totProfit/totContract)*100 : 0;
+
+  // Monthly chart: group by endDate month (as proxy for billing month)
+  // Build last 6 months
+  const months = [];
+  for (let i=5; i>=0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    months.push(d.toISOString().slice(0,7));
+  }
+  const monthlyData = months.map(mo => {
+    const inMonth = rows.filter(r => {
+      const ed = (r.c.endDate||"").slice(0,7);
+      return ed === mo;
+    });
+    return {
+      mo,
+      label: new Date(mo+"-01").toLocaleDateString("en-US",{month:"short",year:"2-digit"}),
+      contract: inMonth.reduce((s,r)=>s+r.contract,0),
+      spend:    inMonth.reduce((s,r)=>s+r.spend,0),
+      profit:   inMonth.reduce((s,r)=>s+r.profit,0),
+    };
+  });
+  const maxBar = Math.max(...monthlyData.map(m=>m.contract), 1);
+
+  const $f = v => v===0?"—":"$"+Math.round(v).toLocaleString();
+  const profitColor = p => p > 0 ? "#00d48a" : p < 0 ? "#ef4444" : "#4d6e8a";
+  const marginColor = m => m >= 30 ? "#00d48a" : m >= 15 ? "#f59e0b" : m >= 0 ? "#ef4444" : "#ef4444";
+
+  return (
+    <div style={{color:"#d8eaf8"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:18}}>
+        <div>
+          <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:2}}>💰 Revenue Dashboard</div>
+          <div style={{fontSize:11,color:"#4d6e8a"}}>{rows.length} campaigns with contract values · enter contract value in campaign edit to track</div>
+        </div>
+        <select value={filterPartner} onChange={e=>setFilterPartner(e.target.value)}
+          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"6px 12px",color:"#d8eaf8",fontSize:12,cursor:"pointer"}}>
+          {partners.map(p=><option key={p} value={p}>{p==="all"?"All Partners":p}</option>)}
+        </select>
+      </div>
+
+      {/* Summary pills */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:22}}>
+        {[
+          {label:"Total Contract",  val:$f(totContract), color:"#7a9bbf", sub:"client paid"},
+          {label:"Total Spend",     val:$f(totSpend),    color:"#f59e0b", sub:"to platform"},
+          {label:"Total Profit",    val:$f(totProfit),   color:profitColor(totProfit), sub:"contract − spend"},
+          {label:"Avg Margin",      val:totContract>0?totMargin.toFixed(1)+"%":"—", color:marginColor(totMargin), sub:"across selection"},
+        ].map(s=>(
+          <div key={s.label} style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:10,padding:"14px 18px"}}>
+            <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>{s.label}</div>
+            <div style={{fontSize:22,fontWeight:800,color:s.color,lineHeight:1,marginBottom:4}}>{s.val}</div>
+            <div style={{fontSize:10,color:"#3d5a72"}}>{s.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Monthly bar chart */}
+      <div style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:10,padding:"18px 20px",marginBottom:22}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#7a9bbf",marginBottom:14,textTransform:"uppercase",letterSpacing:"0.07em"}}>Monthly by Flight End Date</div>
+        <div style={{display:"flex",gap:8,alignItems:"flex-end",height:120}}>
+          {monthlyData.map(m=>{
+            const contH = m.contract>0?Math.max(6,(m.contract/maxBar)*110):0;
+            const spendH= m.spend>0?Math.max(3,(m.spend/maxBar)*110):0;
+            const hasData = m.contract > 0;
+            return (
+              <div key={m.mo} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                <div style={{width:"100%",display:"flex",gap:2,alignItems:"flex-end",justifyContent:"center",height:115}}>
+                  {hasData?(
+                    <>
+                      <div title={"Contract: "+$f(m.contract)} style={{flex:1,background:"#3b82f6",borderRadius:"3px 3px 0 0",height:contH,cursor:"default",maxWidth:20}}/>
+                      <div title={"Spend: "+$f(m.spend)} style={{flex:1,background:"#f59e0b",borderRadius:"3px 3px 0 0",height:spendH,cursor:"default",maxWidth:20}}/>
+                    </>
+                  ):<div style={{flex:1,background:"#162236",borderRadius:"3px 3px 0 0",height:6,maxWidth:42}}/>}
+                </div>
+                <div style={{fontSize:9,color:"#3d5a72",textAlign:"center",whiteSpace:"nowrap"}}>{m.label}</div>
+                {hasData&&<div style={{fontSize:9,fontWeight:700,color:profitColor(m.profit),textAlign:"center"}}>
+                  {m.profit>=0?"+":""}{$f(m.profit)}
+                </div>}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{display:"flex",gap:14,marginTop:10,fontSize:10,color:"#4d6e8a"}}>
+          <span><span style={{display:"inline-block",width:10,height:10,background:"#3b82f6",borderRadius:2,marginRight:4,verticalAlign:"middle"}}/>Contract</span>
+          <span><span style={{display:"inline-block",width:10,height:10,background:"#f59e0b",borderRadius:2,marginRight:4,verticalAlign:"middle"}}/>Spend</span>
+          <span style={{marginLeft:"auto"}}>Profit shown below each month</span>
+        </div>
+      </div>
+
+      {/* Per-campaign table */}
+      {filtered.length === 0 ? (
+        <div style={{textAlign:"center",padding:"40px 0",color:"#3d5a72"}}>
+          <div style={{fontSize:28,marginBottom:8}}>💰</div>
+          <div style={{fontSize:13}}>No campaigns with contract values yet.</div>
+          <div style={{fontSize:11,marginTop:5}}>Edit a campaign and fill in the Contract Value field to start tracking revenue.</div>
+        </div>
+      ) : (
+        <div>
+          <div style={{fontSize:11,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Campaign Breakdown</div>
+          {/* Table header */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 90px 70px",gap:8,padding:"6px 12px",fontSize:10,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #1a2744",marginBottom:4}}>
+            <span>Campaign</span><span style={{textAlign:"right"}}>Contract</span><span style={{textAlign:"right"}}>Spend</span><span style={{textAlign:"right"}}>Profit</span><span style={{textAlign:"right"}}>Margin</span><span style={{textAlign:"right"}}>Status</span>
+          </div>
+          {filtered.map(({c,contract,spend,profit,margin,pCol})=>(
+            <div key={c.id} style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 90px 70px",gap:8,padding:"9px 12px",borderBottom:"1px solid #0e1828",alignItems:"center",
+              background:"#0c1625",borderRadius:7,marginBottom:3}}>
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                  <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"0px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>
+                  <span style={{fontSize:12,fontWeight:600,color:"#d8eaf8"}}>{c.campaignName.trim()}</span>
+                </div>
+                <div style={{fontSize:10,color:"#3d5a72"}}>{c.mediaPartner}</div>
+              </div>
+              <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:"#7a9bbf"}}>{$f(contract)}</div>
+              <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:"#f59e0b"}}>{spend>0?$f(spend):"—"}</div>
+              <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:profitColor(profit)}}>{spend>0?(profit>=0?"+":"")+$f(profit):"—"}</div>
+              <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:marginColor(margin)}}>{spend>0?margin.toFixed(1)+"%":"—"}</div>
+              <div style={{textAlign:"right"}}>
+                <span style={{fontSize:10,fontWeight:700,
+                  color:c.status==="active"?"#00d48a":c.status==="off"?"#f59e0b":"#4d6e8a",
+                  background:(c.status==="active"?"#00d48a":c.status==="off"?"#f59e0b":"#4d6e8a")+"18",
+                  border:"1px solid "+(c.status==="active"?"#00d48a":c.status==="off"?"#f59e0b":"#4d6e8a")+"40",
+                  borderRadius:4,padding:"1px 6px"}}>
+                  {c.status}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const today = getToday();
   const COLS = 11;
@@ -1421,7 +1783,7 @@ export default function App() {
   const TD = ({children,style={}}) => <td style={{padding:"9px 12px",borderBottom:"1px solid #060c18",verticalAlign:"middle",...style}}>{children}</td>;
 
   return (
-    <div style={{minHeight:"100vh",background:"#070d16",fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",color:"#d8eaf8",fontSize:14}}>
+    <div style={{minHeight:"100vh",background:"#070d16",fontFamily:"'Inter','Segoe UI',sans-serif",color:"#d8eaf8",fontSize:14}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         *{box-sizing:border-box;}
@@ -1469,6 +1831,8 @@ export default function App() {
         <div style={{maxWidth:1600,margin:"0 auto",padding:"0 20px",display:"flex",gap:0}}>
           {[
             {key:"campaigns", label:"📋 Campaigns"},
+            {key:"pacing",    label:"📈 Pacing"},
+            {key:"revenue",   label:"💰 Revenue"},
             {key:"activity",  label:"📜 Activity Log"},
             {key:"archive",   label:"🗄️ Campaign Archive"},
           ].map(t=>(
@@ -1487,6 +1851,10 @@ export default function App() {
           <CampaignArchive archive={archive} onRestore={handleRestore} onClear={()=>setArchive([])}/>
         ) : activeTab==="activity" ? (
           <ActivityLog log={activityLog} campaigns={campaigns} onUndo={handleUndo} onClear={()=>{ if(window.confirm("Clear the entire activity log?")){ setActivityLog([]); try{localStorage.removeItem(ACTIVITY_KEY);}catch(e){} }}} />
+        ) : activeTab==="pacing" ? (
+          <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} onEdit={(camp)=>setEditTarget(camp)}/>
+        ) : activeTab==="revenue" ? (
+          <RevenueDashboard campaigns={[...campaigns,...archive]}/>
         ) : (<>
         <ReminderAlertBanner reminders={reminders} onOpen={()=>setShowReminderModal(true)} onDismissAll={()=>setReminders(prev=>prev.map(r=>r.date<=today?{...r,dismissed:true}:r))}/>
 
@@ -1592,7 +1960,11 @@ export default function App() {
 {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                           </div>
                           {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:3,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}} title={c.note1}>{c.note1.trim()}</div>}
-
+                          {isStoppedServing(c)&&!open&&(
+                            <div style={{display:"inline-flex",alignItems:"center",gap:4,marginTop:3,background:"#1a0808",border:"1px solid #ef444460",borderRadius:4,padding:"2px 7px"}}>
+                              <span style={{fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em"}}>⚑ NOT SERVING</span>
+                            </div>
+                          )}
                           {!open&&(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
                             const pacing=computeMonthlyPacing(disp.impressions,c.note1);
