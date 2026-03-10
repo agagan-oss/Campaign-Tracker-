@@ -310,7 +310,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
           {r.repeat!=="none" && <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>↻ Repeats {r.repeat}</div>}
         </div>
         <div style={{display:"flex",gap:5,flexShrink:0}}>
-          {showEdit && <button onClick={()=>edit(r)} style={{background:"#162236",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>Edit</button>}
+          {showEdit && <button onClick={()=>edit(r)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:4,color:"#00e5a0",fontSize:11,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>}
           {!r.dismissed && <button onClick={()=>dismiss(r.id)} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00d48a",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✓ Done</button>}
           <button onClick={()=>del(r.id)} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,color:"#ef4444",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✕</button>
         </div>
@@ -484,7 +484,7 @@ function MetricPill({ label, value, color, prefix="", suffix="" }) {
 
 function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders=()=>{} }) {
   const resolved = resolveMetrics(c, dateRange.preset);
-  const [local, setLocal] = useState({impressions:resolved.impressions,ctr:resolved.ctr,cpm:resolved.cpm,spend:resolved.spend,completionRate:c.completionRate||"",conversions:c.conversions||""});
+  const [local, setLocal] = useState({impressions:resolved.impressions,ctr:resolved.ctr,cpm:resolved.cpm,spend:resolved.spend,completionRate:c.completionRate||"",conversions:c.conversions||"",clicks:c.clicks||"",reach:c.reach||"",frequency:c.frequency||"",videoViews:c.videoViews||""});
   const [dirty, setDirty] = useState(false);
   const prevPreset = useRef(dateRange.preset);
   useEffect(()=>{
@@ -519,15 +519,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
     <tr>
       <td colSpan={colSpan} style={{padding:0,borderBottom:"1px solid #0d1525"}}>
         <div style={{background:"#07101c",borderTop:"1px solid #1a2744",padding:"16px 16px 16px 52px"}}>
-          {isStoppedServing(c) && (
-            <div style={{background:"#1a0808",border:"1px solid #ef444460",borderRadius:7,padding:"9px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
-              <span style={{fontSize:14}}>⚑</span>
-              <div>
-                <div style={{fontSize:12,color:"#ef4444",fontWeight:700}}>Not Serving</div>
-                <div style={{fontSize:11,color:"#7a3030"}}>Campaign is active and within flight dates but has no recorded impressions. Check the platform.</div>
-              </div>
-            </div>
-          )}
+
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
             <span style={{fontSize:11,color:"#00c896",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>📊 Metrics</span>
             {dateRange.start && <span style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"1px 8px",fontSize:10,fontFamily:"monospace",color:"#4d6e8a"}}>{dateRange.start===dateRange.end?dateRange.start:`${dateRange.start} → ${dateRange.end}`}</span>}
@@ -535,37 +527,43 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
             {resolved.source==="manual-no-snapshot" && <span title="No Meta snapshot for this date range — showing manually saved values" style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⚠ No snapshot · manual data</span>}
           </div>
           {(()=>{
-            const isCTV = c.platform==="CTV"||c.platform==="OTT";
-            const cols = isCTV ? "repeat(6, minmax(110px, 200px))" : "repeat(4, minmax(130px, 200px))";
-            const completionField = (<div key="completionRate">
-              <label style={{display:"block",fontSize:10,color:"#a78bfa",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>Completion Rate<span style={{opacity:.5,marginLeft:4}}>%</span></label>
-              <input type="number" value={local.completionRate} onChange={e=>set("completionRate",e.target.value)} placeholder="—" style={{...iS,borderColor:local.completionRate?"#a78bfa60":"#162236"}}/>
-            </div>);
-            const conversionsField = (<div key="conversions">
-              <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>Conversions</label>
-              <input type="number" value={local.conversions} onChange={e=>set("conversions",e.target.value)} placeholder="—" style={{...iS,borderColor:local.conversions?"#34d39960":"#162236"}}/>
-            </div>);
+            const isCTV    = c.platform==="CTV"||c.platform==="OTT";
+            const isVideo  = ["FBV","YT","TT"].includes(c.platform)||isCTV;
+            const isSocial = ["FB","IG","TT","FBV"].includes(c.platform);
+            const isSEM    = c.platform==="SEM";
+            // Build ordered field list for this platform
+            const allFields = [
+              {key:"impressions",label:"Impressions",   color:"#00e5a0",prefix:"",  suffix:""},
+              {key:"ctr",        label:"CTR",           color:"#00ffb3",prefix:"",  suffix:"%"},
+              {key:"cpm",        label:"CPM",           color:"#fb923c",prefix:"$", suffix:""},
+              {key:"spend",      label:"Spend",         color:"#f472b6",prefix:"$", suffix:""},
+              ...(isSocial||isSEM||["DSP","SP","TD"].includes(c.platform) ? [{key:"clicks",label:"Clicks",color:"#38bdf8",prefix:"",suffix:""}] : []),
+              ...(isSocial        ? [{key:"reach",     label:"Reach",      color:"#e879f9",prefix:"",suffix:""}]   : []),
+              ...(isSocial        ? [{key:"frequency", label:"Frequency",  color:"#fb923c",prefix:"",suffix:"x"}]  : []),
+              ...(isVideo&&!isCTV ? [{key:"videoViews",label:"Video Views",color:"#a78bfa",prefix:"",suffix:""}]   : []),
+              ...(isVideo         ? [{key:"completionRate",label:isCTV?"Completion %":"VCR %",color:"#818cf8",prefix:"",suffix:"%"}] : []),
+              ...(isCTV||isSEM    ? [{key:"conversions",label:"Conversions",color:"#34d399",prefix:"",suffix:""}]  : []),
+            ];
+            const colCount = Math.min(6, allFields.length);
             return (
-              <div style={{display:"grid",gridTemplateColumns:cols,gap:12,marginBottom:14}}>
-                {metrics.map(({key,label,color,prefix,suffix},i)=>(
-                  <Fragment key={key}>
-                    <div>
+              <div style={{marginBottom:14}}>
+                <div style={{display:"grid",gridTemplateColumns:`repeat(${colCount}, minmax(95px, 1fr))`,gap:10}}>
+                  {allFields.map(({key,label,color,prefix,suffix})=>(
+                    <div key={key}>
                       <label style={{display:"block",fontSize:10,color,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>
-                        {prefix && <span style={{opacity:.5,marginRight:1}}>{prefix}</span>}{label}{suffix && <span style={{opacity:.5,marginLeft:1}}>{suffix}</span>}
+                        {prefix&&<span style={{opacity:.5,marginRight:1}}>{prefix}</span>}{label}{suffix&&<span style={{opacity:.5,marginLeft:1}}>{suffix}</span>}
                       </label>
-                      <input type="number" value={local[key]} onChange={e=>set(key,e.target.value)} placeholder="—" style={{...iS,borderColor:local[key]?color+"60":"#162236"}}/>
+                      <input type="number" value={local[key]||""} onChange={e=>set(key,e.target.value)} placeholder="—" style={{...iS,borderColor:local[key]?color+"60":"#162236"}}/>
                     </div>
-                    {isCTV && i===0 && completionField}
-                    {isCTV && i===0 && conversionsField}
-                  </Fragment>
-                ))}
+                  ))}
+                </div>
               </div>
             );
           })()}
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <button onClick={save} disabled={!dirty} style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"6px 18px",color:dirty?"#fff":"#3b5070",fontSize:12,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>Save Metrics</button>
             {!dirty && (c.impressions||c.ctr||c.cpm||c.spend) && <span style={{fontSize:11,color:"#00d48a",display:"flex",alignItems:"center",gap:4}}>✓ Metrics saved</span>}
-            {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
+            {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
           </div>
           <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
@@ -599,7 +597,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                     <span style={{fontSize:11,color:isPast?"#ef4444":rt.color,fontWeight:600}}>{rt.label}</span>
                     {r.note&&<span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{r.note}</span>}
                     <span style={{fontSize:11,color:"#3d5a72",fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
-                    <button onClick={()=>startEditReminder(r)} style={{background:"none",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",cursor:"pointer",fontSize:10,padding:"1px 6px"}}>Edit</button>
+                    <button onClick={()=>startEditReminder(r)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:4,color:"#00e5a0",cursor:"pointer",fontSize:10,padding:"1px 6px",fontWeight:600}}>Edit</button>
                     <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:12,lineHeight:1,padding:"0 2px"}}>×</button>
                   </div>
                 )}
@@ -897,7 +895,7 @@ function CampaignArchive({ archive, onRestore, onClear }) {
 
 
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[] }) {
-  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",contractValue:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
+  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
   const [f, setF] = useState(campaign?{...campaign}:blank);
   const blankR = { type:"ad-swap", note:"", date:"", repeat:"none" };
   const [newReminder, setNewReminder] = useState(blankR);
@@ -1260,25 +1258,78 @@ function PacingDateBar({ range, setRange }) {
 
 // ─── Pacing Dashboard ─────────────────────────────────────────────────────
 function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, onEdit=()=>{} }) {
-  const [showNoGoal, setShowNoGoal] = useState(false);
+  const [showNoGoal,   setShowNoGoal]   = useState(false);
+  const [search,       setSearch]       = useState("");
+  const [fPartner,     setFPartner]     = useState("all");
+  const [fPlatforms,   setFPlatforms]   = useState(new Set());
+  const [sortKey,      setSortKey]      = useState("pacing"); // pacing | name | partner | platform
+  const [viewMode,     setViewMode]     = useState("cards");  // cards | table
+
+  // Flight progress helpers
+  function flightPct(c) {
+    if(!c.startDate||!c.endDate) return null;
+    const s=new Date(c.startDate+"T00:00:00"), e=new Date(c.endDate+"T00:00:00"), now=new Date();
+    const total=Math.max(1,(e-s)/86400000), elapsed=(now-s)/86400000;
+    return Math.min(1,Math.max(0,elapsed/total));
+  }
+  function daysRemaining(c) {
+    if(!c.endDate) return null;
+    const e=new Date(c.endDate+"T00:00:00"), now=new Date();
+    now.setHours(0,0,0,0);
+    return Math.ceil((e-now)/86400000);
+  }
+  function daysRemainingColor(d) {
+    if(d===null) return "#3d5a72";
+    if(d<=7)  return "#ef4444";
+    if(d<=14) return "#f59e0b";
+    return "#4d6e8a";
+  }
+
   const allActive = campaigns.filter(c=>c.status==="active");
-  const withGoal  = allActive.map(c=>{
+  const partners  = ["all", ...new Set(allActive.map(c=>c.mediaPartner).filter(Boolean))].sort();
+  const platforms = [...new Set(allActive.map(c=>c.platform).filter(Boolean))].sort();
+
+  // Build rows for ALL active
+  const allRows = allActive.map(c=>{
     const disp=resolveMetrics(c,dateRange.preset);
     const pacing=computeMonthlyPacing(disp.impressions,c.note1);
     const monthlyGoal=parseMonthlyGoal(c.note1);
     return {c,disp,pacing,monthlyGoal};
   });
-  const hasGoalRows = withGoal.filter(r=>r.monthlyGoal);
-  const noGoalRows  = withGoal.filter(r=>!r.monthlyGoal);
+
+  // Apply search + filters
+  const q = search.trim().toLowerCase();
+  const filtered = allRows.filter(({c})=>{
+    if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
+    if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
+    if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
+    return true;
+  });
+
+  const withGoal  = filtered.filter(r=>r.monthlyGoal);
+  const noGoalRows= filtered.filter(r=>!r.monthlyGoal);
+
+  // Sort
   const orderMap={"Behind":0,"No data":1,"On Track":2,"Ahead":3};
-  hasGoalRows.sort((a,b)=>{
+  withGoal.sort((a,b)=>{
+    if(sortKey==="name")     return a.c.campaignName.localeCompare(b.c.campaignName);
+    if(sortKey==="partner")  return a.c.mediaPartner.localeCompare(b.c.mediaPartner);
+    if(sortKey==="platform") return a.c.platform.localeCompare(b.c.platform);
+    // default: pacing (worst first)
     const oa=orderMap[a.pacing?.label??"No data"],ob=orderMap[b.pacing?.label??"No data"];
     return oa!==ob?oa-ob:(a.pacing?.ratio??0)-(b.pacing?.ratio??0);
   });
-  const behind=hasGoalRows.filter(r=>r.pacing?.label==="Behind");
-  const onTrack=hasGoalRows.filter(r=>r.pacing?.label==="On Track");
-  const ahead=hasGoalRows.filter(r=>r.pacing?.label==="Ahead");
-  const noPace=hasGoalRows.filter(r=>!r.pacing);
+  noGoalRows.sort((a,b)=>{
+    if(sortKey==="name")     return a.c.campaignName.localeCompare(b.c.campaignName);
+    if(sortKey==="partner")  return a.c.mediaPartner.localeCompare(b.c.mediaPartner);
+    if(sortKey==="platform") return a.c.platform.localeCompare(b.c.platform);
+    return 0;
+  });
+  const behind  = withGoal.filter(r=>r.pacing?.label==="Behind");
+  const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
+  const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
+  const noPace  = withGoal.filter(r=>!r.pacing);
+  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0;
 
   function KpiBox({c,disp}){
     const kpi=PLT_KPI[c.platform]; if(!kpi) return null;
@@ -1299,64 +1350,211 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null, del=parseInt(disp.impressions)||0;
     const rem=Math.max(0,monthlyGoal-del), npd=(dim-dom)>0&&del>0?Math.round(rem/(dim-dom)):null;
     const col=pacing?.color??"#4d6e8a", pCol=PLT_COLORS[c.platform]||PLT_COLORS.default;
-    return <div style={{background:"#0c1625",border:"1px solid "+(pacing?col+"40":"#1e293b"),borderRadius:9,padding:"13px 16px",marginBottom:7,display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap"}}>
-      <div style={{flex:"1 1 200px",minWidth:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:2}}>
-          <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{c.campaignName.trim()}</span>
-          <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>
-          {pacing&&<span style={{fontSize:10,fontWeight:700,color:col,background:col+"18",border:"1px solid "+col+"40",borderRadius:4,padding:"1px 6px"}}>{pacing.label}</span>}
-        </div>
-        <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>{c.mediaPartner}</div>
-        <KpiBox c={c} disp={disp}/>
-        {pacing&&<div style={{marginTop:6}}>
-          <div style={{position:"relative",background:"#07101c",borderRadius:3,height:6,marginBottom:3,overflow:"visible"}}>
-            <div title={"Expected: "+(exp?.toLocaleString()??"")} style={{position:"absolute",top:-3,left:Math.min(97,pacing.expectedPct*100)+"%",width:2,height:12,background:"#334155",borderRadius:1,zIndex:2}}/>
-            <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:3}}/>
-          </div>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#4d6e8a"}}>
-            <span style={{color:col,fontWeight:700}}>{(pacing.pct*100).toFixed(1)}% of goal</span>
-            <span>Goal: {monthlyGoal.toLocaleString()}</span>
-          </div>
-        </div>}
-        {!pacing&&monthlyGoal&&<div style={{fontSize:10,color:"#3d5a72",fontStyle:"italic",marginTop:4}}>No impressions yet</div>}
+    const isCTV=c.platform==="CTV"||c.platform==="OTT";
+    const fp=flightPct(c), dr=daysRemaining(c), drc=daysRemainingColor(dr);
+    // Build perf metric boxes
+    const perfBoxes=[];
+    if(disp.ctr)         perfBoxes.push({label:"CTR",    val:parseFloat(disp.ctr).toFixed(2)+"%",                     color:"#00ffb3"});
+    if(disp.cpm)         perfBoxes.push({label:"CPM",    val:"$"+parseFloat(disp.cpm).toFixed(2),                     color:"#fb923c"});
+    if(disp.spend)       perfBoxes.push({label:"Spend",  val:"$"+Math.round(parseFloat(disp.spend)).toLocaleString(), color:"#f472b6"});
+    if(c.clicks)         perfBoxes.push({label:"Clicks", val:parseInt(c.clicks).toLocaleString(),                     color:"#38bdf8"});
+    if(c.reach)          perfBoxes.push({label:"Reach",  val:parseInt(c.reach).toLocaleString(),                      color:"#e879f9"});
+    if(c.frequency)      perfBoxes.push({label:"Freq",   val:parseFloat(c.frequency).toFixed(2)+"x",                  color:"#fb923c"});
+    if(c.videoViews)     perfBoxes.push({label:"Views",  val:parseInt(c.videoViews).toLocaleString(),                 color:"#a78bfa"});
+    if(c.completionRate) perfBoxes.push({label:isCTV?"Compl%":"VCR", val:parseFloat(c.completionRate).toFixed(1)+"%", color:"#818cf8"});
+    if(c.conversions)    perfBoxes.push({label:"Conv",   val:parseInt(c.conversions).toLocaleString(),                color:"#34d399"});
+
+    return <div style={{background:"#0c1625",border:"1px solid "+(pacing?col+"40":"#1e293b"),borderRadius:9,padding:"13px 16px",marginBottom:7}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:2}}>
+        <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{c.campaignName.trim()}</span>
+        <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>
+        {pacing&&<span style={{fontSize:10,fontWeight:700,color:col,background:col+"18",border:"1px solid "+col+"40",borderRadius:4,padding:"1px 6px"}}>{pacing.label}</span>}
+        {dr!==null&&<span style={{fontSize:10,fontWeight:700,color:drc,background:drc+"15",border:"1px solid "+drc+"40",borderRadius:4,padding:"1px 6px",marginLeft:2}}>
+          {dr<=0?"Ended":dr===1?"Last day":dr+"d left"}
+        </span>}
+        <button onClick={()=>onEdit(c)} style={{marginLeft:"auto",background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:11,padding:"3px 8px",cursor:"pointer",fontWeight:600,flexShrink:0}}>Edit</button>
       </div>
-      <div style={{display:"flex",gap:6,flexShrink:0,flexWrap:"wrap",alignItems:"center"}}>
-        {monthlyGoal?[
+      <div style={{fontSize:11,color:"#4d6e8a",marginBottom:6}}>{c.mediaPartner}</div>
+
+      {/* Monthly pacing bar */}
+      {pacing&&<div style={{marginBottom:6}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#3d5a72",marginBottom:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+          <span>Monthly Pacing</span><span>Goal: {monthlyGoal.toLocaleString()}</span>
+        </div>
+        <div style={{position:"relative",background:"#07101c",borderRadius:3,height:6,marginBottom:2,overflow:"visible"}}>
+          <div title={"Expected: "+(exp?.toLocaleString()??"")} style={{position:"absolute",top:-3,left:Math.min(97,pacing.expectedPct*100)+"%",width:2,height:12,background:"#334155",borderRadius:1,zIndex:2}}/>
+          <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:3}}/>
+        </div>
+        <span style={{fontSize:10,color:col,fontWeight:700}}>{(pacing.pct*100).toFixed(1)}% of monthly goal</span>
+      </div>}
+      {!pacing&&monthlyGoal&&<div style={{fontSize:10,color:"#3d5a72",fontStyle:"italic",marginBottom:6}}>No impressions yet</div>}
+
+      {/* Flight progress bar */}
+      {fp!==null&&<div style={{marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#3d5a72",marginBottom:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+          <span>Flight Progress</span>
+          <span>{c.startDate} → {c.endDate}</span>
+        </div>
+        <div style={{background:"#07101c",borderRadius:3,height:4}}>
+          <div style={{background:"#334155",height:"100%",width:Math.min(100,fp*100)+"%",borderRadius:3}}/>
+        </div>
+        <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>{(fp*100).toFixed(0)}% through flight</div>
+      </div>}
+
+      {/* All metric boxes */}
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:2}}>
+        {monthlyGoal&&[
           {label:"Delivered",val:del>0?del.toLocaleString():"—",color:"#00e5a0"},
           {label:"Expected", val:exp?exp.toLocaleString():"—",  color:"#7a9bbf"},
           {label:"Remaining",val:del>0?rem.toLocaleString():"—",color:rem>0?"#f59e0b":"#00d48a"},
           {label:"Need/Day", val:npd?npd.toLocaleString():"—",  color:"#fb923c"},
-        ].map(({label,val,color})=><div key={label} style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:5,padding:"6px 10px",minWidth:68,textAlign:"center"}}>
-          <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>{label}</div>
+        ].map(({label,val,color})=><div key={label} style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:5,padding:"5px 9px",minWidth:60,textAlign:"center"}}>
+          <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
           <div style={{fontSize:11,fontWeight:700,color}}>{val}</div>
-        </div>):<div style={{fontSize:11,color:"#3d5a72",fontStyle:"italic",padding:"4px 0"}}>No goal in Note 1</div>}
-        {disp.cpm&&<div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:5,padding:"6px 10px",minWidth:58,textAlign:"center"}}><div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>CPM</div><div style={{fontSize:11,fontWeight:700,color:"#a8c4e0"}}>${parseFloat(disp.cpm).toFixed(2)}</div></div>}
-        <button onClick={()=>onEdit(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:11,padding:"4px 9px",cursor:"pointer",fontWeight:600}}>Edit</button>
+        </div>)}
+        {monthlyGoal&&perfBoxes.length>0&&<div style={{width:1,background:"#1a2744",alignSelf:"stretch",margin:"0 3px"}}/>}
+        {perfBoxes.map(({label,val,color})=>(
+          <div key={label} style={{background:"#07101c",border:"1px solid "+color+"28",borderRadius:5,padding:"5px 9px",minWidth:54,textAlign:"center"}}>
+            <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
+            <div style={{fontSize:11,fontWeight:700,color}}>{val}</div>
+          </div>
+        ))}
+        {!monthlyGoal&&!perfBoxes.length&&<div style={{fontSize:11,color:"#3d5a72",fontStyle:"italic"}}>No goal or metrics yet</div>}
       </div>
+    </div>;
+  }
+
+  function TableRow({c,disp,pacing,monthlyGoal}){
+    const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
+    const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null, del=parseInt(disp.impressions)||0;
+    const rem=Math.max(0,monthlyGoal-del), npd=(dim-dom)>0&&del>0?Math.round(rem/(dim-dom)):null;
+    const col=pacing?.color??"#3d5a72", pCol=PLT_COLORS[c.platform]||PLT_COLORS.default;
+    const isCTV=c.platform==="CTV"||c.platform==="OTT";
+    const fp=flightPct(c), dr=daysRemaining(c), drc=daysRemainingColor(dr);
+    const kpi=PLT_KPI[c.platform];
+    const rawKpi=kpi?.primary==="VCR"?(parseFloat(c.completionRate)||0)/100:(parseFloat(disp.ctr)||0)/100;
+    const kpiColor=kpi&&rawKpi?rawKpi>=kpi.good?"#00d48a":rawKpi>=kpi.ok?"#f59e0b":"#ef4444":null;
+
+    return <div style={{display:"grid",gridTemplateColumns:"minmax(160px,2fr) 70px 80px 100px 110px 110px 80px 60px",gap:8,padding:"8px 12px",borderBottom:"1px solid #0d1525",alignItems:"center",background:"#0c1625",borderLeft:"3px solid "+col}}>
+      {/* Campaign + partner */}
+      <div style={{minWidth:0}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
+        <div style={{fontSize:10,color:"#4d6e8a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
+      </div>
+      {/* Platform */}
+      <div><span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span></div>
+      {/* Pacing status */}
+      <div>
+        {pacing?<span style={{fontSize:10,fontWeight:700,color:col}}>{pacing.label}</span>
+        :monthlyGoal?<span style={{fontSize:10,color:"#3d5a72"}}>No impr</span>
+        :<span style={{fontSize:10,color:"#334155"}}>No goal</span>}
+      </div>
+      {/* Monthly pacing bar */}
+      <div>
+        {pacing?<>
+          <div style={{position:"relative",background:"#07101c",borderRadius:2,height:5,overflow:"visible",marginBottom:2}}>
+            <div title={"Expected: "+(exp?.toLocaleString()??"")} style={{position:"absolute",top:-2,left:Math.min(97,pacing.expectedPct*100)+"%",width:2,height:9,background:"#334155",borderRadius:1,zIndex:2}}/>
+            <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:2}}/>
+          </div>
+          <div style={{fontSize:9,color:col,fontWeight:700}}>{(pacing.pct*100).toFixed(1)}%</div>
+        </>:<div style={{fontSize:10,color:"#3d5a72"}}>—</div>}
+      </div>
+      {/* Flight progress bar */}
+      <div>
+        {fp!==null?<>
+          <div style={{background:"#07101c",borderRadius:2,height:5,marginBottom:2}}>
+            <div style={{background:"#334155",height:"100%",width:Math.min(100,fp*100)+"%",borderRadius:2}}/>
+          </div>
+          <div style={{fontSize:9,color:"#3d5a72"}}>{(fp*100).toFixed(0)}% of flight</div>
+        </>:<div style={{fontSize:10,color:"#3d5a72"}}>—</div>}
+      </div>
+      {/* Key metric (CTR or VCR) */}
+      <div>
+        {kpi&&rawKpi?<span style={{fontSize:10,fontWeight:700,color:kpiColor}}>{kpi.label}: {kpi.primary==="VCR"?(rawKpi*100).toFixed(0)+"%":(rawKpi*100).toFixed(2)+"%"}</span>
+        :disp.cpm?<span style={{fontSize:10,color:"#fb923c"}}>${parseFloat(disp.cpm).toFixed(2)} CPM</span>
+        :<span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+      </div>
+      {/* Days remaining */}
+      <div>
+        {dr!==null?<span style={{fontSize:10,fontWeight:700,color:drc}}>{dr<=0?"Done":dr+"d"}</span>
+        :<span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+      </div>
+      {/* Edit */}
+      <div><button onClick={()=>onEdit(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button></div>
+    </div>;
+  }
+
+  function TableHeader(){
+    return <div style={{display:"grid",gridTemplateColumns:"minmax(160px,2fr) 70px 80px 100px 110px 110px 80px 60px",gap:8,padding:"6px 12px",borderBottom:"1px solid #1a2744",marginBottom:2}}>
+      {["Campaign","Platform","Status","Mo. Pacing","Flight","KPI","Days Left",""].map((h,i)=>(
+        <div key={i} style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
+      ))}
     </div>;
   }
 
   function Section({label,color,items,defaultOpen=true}){
     const [open,setOpen]=useState(defaultOpen); if(!items.length) return null;
-    return <div style={{marginBottom:18}}>
-      <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:open?8:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
+    return <div style={{marginBottom:viewMode==="table"?2:18}}>
+      <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:open?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
         <span style={{fontSize:11,color,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>{label} ({items.length})</span>
         <span style={{color:"#3d5a72",fontSize:10,display:"inline-block",transform:open?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
       </div>
-      {open&&items.map(r=><PacingCard key={r.c.id} {...r}/>)}
+      {open&&viewMode==="table"&&<TableHeader/>}
+      {open&&items.map(r=>viewMode==="table"
+        ?<TableRow key={r.c.id} {...r}/>
+        :<PacingCard key={r.c.id} {...r}/>
+      )}
     </div>;
   }
 
   return <div style={{color:"#d8eaf8"}}>
-    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:14}}>
-      <div>
-        <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:2}}>📈 Pacing Dashboard</div>
-        <div style={{fontSize:11,color:"#4d6e8a"}}>{allActive.length} active · {hasGoalRows.length} with goals · worst first</div>
-      </div>
+    {/* Header */}
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:2}}>📈 Pacing Dashboard</div>
+      <div style={{fontSize:11,color:"#4d6e8a"}}>{allActive.length} active · {withGoal.length} with goals{anyFilter?" · filtered":""}</div>
     </div>
-    <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:9,padding:"10px 14px",marginBottom:14}}>
+
+    {/* Date bar */}
+    <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:9,padding:"10px 14px",marginBottom:10}}>
       <PacingDateBar range={dateRange} setRange={setDateRange}/>
     </div>
+
+    {/* Search + filters + sort */}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
+      <input
+        value={search} onChange={e=>setSearch(e.target.value)}
+        placeholder="Search campaigns, partners…"
+        style={{background:"#0e1a2e",border:"1px solid "+(search?"#00c896":"#1e293b"),borderRadius:7,padding:"7px 12px",color:"#d8eaf8",fontSize:12,width:220,outline:"none"}}
+      />
+      <select value={fPartner} onChange={e=>setFPartner(e.target.value)}
+        style={{background:"#0e1a2e",border:"1px solid "+(fPartner!=="all"?"#00c896":"#1e293b"),borderRadius:7,padding:"7px 10px",color:fPartner!=="all"?"#00e5a0":"#7a9bbf",fontSize:12,cursor:"pointer"}}>
+        {partners.map(p=><option key={p} value={p}>{p==="all"?"All Partners":p}</option>)}
+      </select>
+      <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
+      <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
+        <span style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
+        {[["pacing","Pacing"],["name","Name"],["partner","Partner"],["platform","Platform"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setSortKey(k)}
+            style={{background:sortKey===k?"#002e24":"#0e1a2e",border:"1px solid "+(sortKey===k?"#00c896":"#1e293b"),borderRadius:6,padding:"4px 10px",color:sortKey===k?"#00e5a0":"#4d6e8a",fontSize:11,fontWeight:sortKey===k?700:400,cursor:"pointer"}}>
+            {l}
+          </button>
+        ))}
+        <div style={{width:1,height:18,background:"#162236",margin:"0 2px"}}/>
+        {[["cards","⊞"],["table","☰"]].map(([m,icon])=>(
+          <button key={m} onClick={()=>setViewMode(m)} title={m==="cards"?"Card view":"Table view"}
+            style={{background:viewMode===m?"#002e24":"#0e1a2e",border:"1px solid "+(viewMode===m?"#00c896":"#1e293b"),borderRadius:6,padding:"4px 9px",color:viewMode===m?"#00e5a0":"#4d6e8a",fontSize:14,cursor:"pointer",lineHeight:1}}>
+            {icon}
+          </button>
+        ))}
+      </div>
+    </div>
+    {anyFilter&&<div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
+      <span style={{fontSize:11,color:"#4d6e8a"}}>Showing {filtered.length} of {allActive.length}</span>
+      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());}} style={{background:"none",border:"1px solid #334155",borderRadius:5,padding:"2px 8px",color:"#7a9bbf",fontSize:11,cursor:"pointer"}}>Clear filters</button>
+    </div>}
+
+    {/* Summary pills */}
     <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16,alignItems:"center"}}>
       {[{label:"Behind",val:behind.length,color:"#fde047"},{label:"On Track",val:onTrack.length,color:"#00d48a"},{label:"Ahead",val:ahead.length,color:"#fb923c"},{label:"No Impr",val:noPace.length,color:"#4d6e8a"},{label:"No Goal",val:noGoalRows.length,color:"#334155"}].map(s=>(
         <div key={s.label} style={{background:"#0e1a2e",border:"1px solid "+s.color+"30",borderRadius:7,padding:"8px 13px",minWidth:68,textAlign:"center"}}>
@@ -1375,68 +1573,109 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     <Section label="Ahead"          color="#fb923c" items={ahead}/>
     <Section label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>
     {noGoalRows.length>0&&<div style={{marginTop:4}}>
-      <div onClick={()=>setShowNoGoal(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:showNoGoal?8:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
+      <div onClick={()=>setShowNoGoal(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:showNoGoal?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
         <span style={{fontSize:11,color:"#334155",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>No Goal Set ({noGoalRows.length})</span>
         <span style={{color:"#3d5a72",fontSize:10,display:"inline-block",transform:showNoGoal?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
       </div>
-      {showNoGoal&&noGoalRows.map(r=><PacingCard key={r.c.id} {...r}/>)}
+      {showNoGoal&&viewMode==="table"&&<TableHeader/>}
+      {showNoGoal&&noGoalRows.map(r=>viewMode==="table"
+        ?<TableRow key={r.c.id} {...r}/>
+        :<PacingCard key={r.c.id} {...r}/>
+      )}
     </div>}
   </div>;
 }
 
 // ─── Revenue Dashboard ────────────────────────────────────────────────────
+// Helper: given a campaign with contractValue + startDate + endDate,
+// spread revenue evenly across each calendar month it is active.
+function spreadRevenue(c) {
+  const contract = parseFloat(c.contractValue);
+  if (!contract || !c.startDate || !c.endDate) return {};
+  const start = new Date(c.startDate + "T00:00:00");
+  const end   = new Date(c.endDate   + "T00:00:00");
+  if (isNaN(start)||isNaN(end)||end<start) return {};
+
+  // Count total days in flight
+  const totalDays = Math.max(1, Math.round((end - start) / 86400000) + 1);
+
+  // Build list of months spanned
+  const months = {};
+  let cur = new Date(start.getFullYear(), start.getMonth(), 1);
+  const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
+  while (cur <= endMonth) {
+    const mo = cur.toISOString().slice(0,7);
+    // Days active in this month
+    const mStart = new Date(Math.max(start, new Date(cur.getFullYear(), cur.getMonth(), 1)));
+    const mEnd   = new Date(Math.min(end,   new Date(cur.getFullYear(), cur.getMonth()+1, 0)));
+    const days   = Math.max(0, Math.round((mEnd - mStart) / 86400000) + 1);
+    months[mo]   = (months[mo] || 0) + (contract * days / totalDays);
+    cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1);
+  }
+  return months;
+}
+
 function RevenueDashboard({ campaigns=[] }) {
   const [filterPartner, setFilterPartner] = useState("all");
   const now = new Date();
-  const thisMonth = now.toISOString().slice(0,7); // "YYYY-MM"
 
-  // Only campaigns with contractValue set
-  const rows = campaigns
-    .filter(c => parseFloat(c.contractValue) > 0)
-    .map(c => {
-      const contract  = parseFloat(c.contractValue) || 0;
-      const spend     = parseFloat(c.spend) || 0;
-      const profit    = contract - spend;
-      const margin    = contract > 0 ? (profit / contract) * 100 : 0;
-      const pCol      = PLT_COLORS[c.platform] || PLT_COLORS.default;
-      return { c, contract, spend, profit, margin, pCol };
-    })
-    .sort((a,b) => b.contract - a.contract);
+  const withContract = campaigns.filter(c => parseFloat(c.contractValue) > 0);
+  const partners = ["all", ...new Set(withContract.map(c=>c.mediaPartner))].sort();
+  const filtered  = filterPartner==="all" ? withContract : withContract.filter(c=>c.mediaPartner===filterPartner);
 
-  const partners = ["all", ...new Set(rows.map(r => r.c.mediaPartner))].sort();
-  const filtered = filterPartner === "all" ? rows : rows.filter(r => r.c.mediaPartner === filterPartner);
-
-  // Totals
-  const totContract = filtered.reduce((s,r)=>s+r.contract,0);
-  const totSpend    = filtered.reduce((s,r)=>s+r.spend,0);
-  const totProfit   = totContract - totSpend;
-  const totMargin   = totContract > 0 ? (totProfit/totContract)*100 : 0;
-
-  // Monthly chart: group by endDate month (as proxy for billing month)
-  // Build last 6 months
+  // Build 12-month window: 6 past + current + 5 future
   const months = [];
-  for (let i=5; i>=0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+  for (let i=-6; i<=5; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth()+i, 1);
     months.push(d.toISOString().slice(0,7));
   }
-  const monthlyData = months.map(mo => {
-    const inMonth = rows.filter(r => {
-      const ed = (r.c.endDate||"").slice(0,7);
-      return ed === mo;
-    });
-    return {
-      mo,
-      label: new Date(mo+"-01").toLocaleDateString("en-US",{month:"short",year:"2-digit"}),
-      contract: inMonth.reduce((s,r)=>s+r.contract,0),
-      spend:    inMonth.reduce((s,r)=>s+r.spend,0),
-      profit:   inMonth.reduce((s,r)=>s+r.profit,0),
-    };
-  });
-  const maxBar = Math.max(...monthlyData.map(m=>m.contract), 1);
+  const thisMonth = now.toISOString().slice(0,7);
 
-  const $f = v => v===0?"—":"$"+Math.round(v).toLocaleString();
-  const profitColor = p => p > 0 ? "#00d48a" : p < 0 ? "#ef4444" : "#4d6e8a";
-  const marginColor = m => m >= 30 ? "#00d48a" : m >= 15 ? "#f59e0b" : m >= 0 ? "#ef4444" : "#ef4444";
+  // Aggregate revenue + spend per month
+  const monthRevenue = {};
+  months.forEach(mo => { monthRevenue[mo] = { revenue:0, spend:0 }; });
+
+  filtered.forEach(c => {
+    const spread = spreadRevenue(c);
+    Object.entries(spread).forEach(([mo, rev]) => {
+      if (monthRevenue[mo]) monthRevenue[mo].revenue += rev;
+    });
+    // Spread spend evenly too (same logic) — but only if spend entered
+    const spend = parseFloat(c.spend);
+    if (spend > 0 && c.startDate && c.endDate) {
+      const spendSpread = spreadRevenue({...c, contractValue: spend});
+      Object.entries(spendSpread).forEach(([mo, s]) => {
+        if (monthRevenue[mo]) monthRevenue[mo].spend += s;
+      });
+    }
+  });
+
+  const maxBar = Math.max(...months.map(mo=>monthRevenue[mo].revenue), 1);
+  const $f = v => v>0?"$"+Math.round(v).toLocaleString():"—";
+  const profitColor = p => p>0?"#00d48a":p<0?"#ef4444":"#4d6e8a";
+  const marginColor = m => m>=30?"#00d48a":m>=15?"#f59e0b":"#ef4444";
+
+  // Totals for this month
+  const tmRev   = monthRevenue[thisMonth]?.revenue || 0;
+  const tmSpend = monthRevenue[thisMonth]?.spend   || 0;
+  const tmProfit= tmRev - tmSpend;
+  const tmMargin= tmRev>0?(tmProfit/tmRev)*100:0;
+
+  // All-time totals across filtered
+  const totRev   = filtered.reduce((s,c)=>s+(parseFloat(c.contractValue)||0),0);
+  const totSpend = filtered.reduce((s,c)=>s+(parseFloat(c.spend)||0),0);
+  const totProfit= totRev - totSpend;
+
+  // Per-campaign rows sorted by contract desc
+  const rows = filtered.map(c=>({
+    c,
+    contract: parseFloat(c.contractValue)||0,
+    spend:    parseFloat(c.spend)||0,
+    profit:   (parseFloat(c.contractValue)||0)-(parseFloat(c.spend)||0),
+    margin:   (parseFloat(c.contractValue)||0)>0?((parseFloat(c.contractValue)||0)-(parseFloat(c.spend)||0))/(parseFloat(c.contractValue)||0)*100:0,
+    pCol:     PLT_COLORS[c.platform]||PLT_COLORS.default,
+    moRevenue: spreadRevenue(c)[thisMonth]||0,
+  })).sort((a,b)=>b.contract-a.contract);
 
   return (
     <div style={{color:"#d8eaf8"}}>
@@ -1444,7 +1683,7 @@ function RevenueDashboard({ campaigns=[] }) {
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:18}}>
         <div>
           <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:2}}>💰 Revenue Dashboard</div>
-          <div style={{fontSize:11,color:"#4d6e8a"}}>{rows.length} campaigns with contract values · enter contract value in campaign edit to track</div>
+          <div style={{fontSize:11,color:"#4d6e8a"}}>{withContract.length} campaigns with contract values · revenue spread by flight dates</div>
         </div>
         <select value={filterPartner} onChange={e=>setFilterPartner(e.target.value)}
           style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"6px 12px",color:"#d8eaf8",fontSize:12,cursor:"pointer"}}>
@@ -1452,92 +1691,105 @@ function RevenueDashboard({ campaigns=[] }) {
         </select>
       </div>
 
-      {/* Summary pills */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:22}}>
-        {[
-          {label:"Total Contract",  val:$f(totContract), color:"#7a9bbf", sub:"client paid"},
-          {label:"Total Spend",     val:$f(totSpend),    color:"#f59e0b", sub:"to platform"},
-          {label:"Total Profit",    val:$f(totProfit),   color:profitColor(totProfit), sub:"contract − spend"},
-          {label:"Avg Margin",      val:totContract>0?totMargin.toFixed(1)+"%":"—", color:marginColor(totMargin), sub:"across selection"},
-        ].map(s=>(
-          <div key={s.label} style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:10,padding:"14px 18px"}}>
-            <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>{s.label}</div>
-            <div style={{fontSize:22,fontWeight:800,color:s.color,lineHeight:1,marginBottom:4}}>{s.val}</div>
-            <div style={{fontSize:10,color:"#3d5a72"}}>{s.sub}</div>
-          </div>
-        ))}
+      {/* This month highlights */}
+      <div style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:10,padding:"16px 20px",marginBottom:18}}>
+        <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:12}}>
+          {new Date(thisMonth+"-01").toLocaleDateString("en-US",{month:"long",year:"numeric"})} (This Month)
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
+          {[
+            {label:"Revenue",  val:$f(tmRev),    color:"#7a9bbf",   sub:"client billed"},
+            {label:"Spend",    val:$f(tmSpend),  color:"#f59e0b",   sub:"to platform"},
+            {label:"Profit",   val:tmRev>0?(tmProfit>=0?"+":"")+$f(tmProfit):"—", color:profitColor(tmProfit), sub:"rev − spend"},
+            {label:"Margin",   val:tmRev>0?tmMargin.toFixed(1)+"%":"—", color:marginColor(tmMargin), sub:"this month"},
+          ].map(s=>(
+            <div key={s.label}>
+              <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>{s.label}</div>
+              <div style={{fontSize:24,fontWeight:800,color:s.color,lineHeight:1,marginBottom:3}}>{s.val}</div>
+              <div style={{fontSize:10,color:"#3d5a72"}}>{s.sub}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Monthly bar chart */}
-      <div style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:10,padding:"18px 20px",marginBottom:22}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#7a9bbf",marginBottom:14,textTransform:"uppercase",letterSpacing:"0.07em"}}>Monthly by Flight End Date</div>
-        <div style={{display:"flex",gap:8,alignItems:"flex-end",height:120}}>
-          {monthlyData.map(m=>{
-            const contH = m.contract>0?Math.max(6,(m.contract/maxBar)*110):0;
-            const spendH= m.spend>0?Math.max(3,(m.spend/maxBar)*110):0;
-            const hasData = m.contract > 0;
+      {/* Monthly bar chart — 12 months */}
+      <div style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:10,padding:"18px 20px",marginBottom:18}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#7a9bbf",marginBottom:14,textTransform:"uppercase",letterSpacing:"0.07em"}}>Monthly Revenue (pro-rated by flight dates)</div>
+        <div style={{display:"flex",gap:5,alignItems:"flex-end",height:130,overflowX:"auto"}}>
+          {months.map(mo=>{
+            const {revenue,spend} = monthRevenue[mo];
+            const revH  = revenue>0?Math.max(5,(revenue/maxBar)*118):0;
+            const spendH= spend>0?Math.max(3,(spend/maxBar)*118):0;
+            const profit= revenue-spend;
+            const isCurrent = mo===thisMonth;
+            const label = new Date(mo+"-01").toLocaleDateString("en-US",{month:"short"});
+            const yr = mo.slice(2,4);
             return (
-              <div key={m.mo} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                <div style={{width:"100%",display:"flex",gap:2,alignItems:"flex-end",justifyContent:"center",height:115}}>
-                  {hasData?(
+              <div key={mo} style={{flex:"1 0 44px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                <div style={{width:"100%",display:"flex",gap:2,alignItems:"flex-end",justifyContent:"center",height:120}}>
+                  {revenue>0?(
                     <>
-                      <div title={"Contract: "+$f(m.contract)} style={{flex:1,background:"#3b82f6",borderRadius:"3px 3px 0 0",height:contH,cursor:"default",maxWidth:20}}/>
-                      <div title={"Spend: "+$f(m.spend)} style={{flex:1,background:"#f59e0b",borderRadius:"3px 3px 0 0",height:spendH,cursor:"default",maxWidth:20}}/>
+                      <div title={"Revenue: "+$f(revenue)} style={{flex:1,background:isCurrent?"#3b82f6":"#3b82f680",borderRadius:"3px 3px 0 0",height:revH,cursor:"default",maxWidth:18,border:isCurrent?"1px solid #60a5fa40":"none"}}/>
+                      {spend>0&&<div title={"Spend: "+$f(spend)} style={{flex:1,background:isCurrent?"#f59e0b":"#f59e0b80",borderRadius:"3px 3px 0 0",height:spendH,cursor:"default",maxWidth:18}}/>}
                     </>
-                  ):<div style={{flex:1,background:"#162236",borderRadius:"3px 3px 0 0",height:6,maxWidth:42}}/>}
+                  ):<div style={{flex:1,background:"#162236",borderRadius:"3px 3px 0 0",height:4,maxWidth:38}}/>}
                 </div>
-                <div style={{fontSize:9,color:"#3d5a72",textAlign:"center",whiteSpace:"nowrap"}}>{m.label}</div>
-                {hasData&&<div style={{fontSize:9,fontWeight:700,color:profitColor(m.profit),textAlign:"center"}}>
-                  {m.profit>=0?"+":""}{$f(m.profit)}
-                </div>}
+                <div style={{fontSize:9,color:isCurrent?"#00e5a0":"#3d5a72",textAlign:"center",fontWeight:isCurrent?700:400}}>{label}</div>
+                <div style={{fontSize:8,color:"#3d5a72"}}>{yr}</div>
+                {revenue>0&&<div style={{fontSize:8,fontWeight:700,color:profitColor(profit),textAlign:"center",whiteSpace:"nowrap"}}>{profit>=0?"+":""}{$f(profit)}</div>}
               </div>
             );
           })}
         </div>
         <div style={{display:"flex",gap:14,marginTop:10,fontSize:10,color:"#4d6e8a"}}>
-          <span><span style={{display:"inline-block",width:10,height:10,background:"#3b82f6",borderRadius:2,marginRight:4,verticalAlign:"middle"}}/>Contract</span>
-          <span><span style={{display:"inline-block",width:10,height:10,background:"#f59e0b",borderRadius:2,marginRight:4,verticalAlign:"middle"}}/>Spend</span>
-          <span style={{marginLeft:"auto"}}>Profit shown below each month</span>
+          <span><span style={{display:"inline-block",width:9,height:9,background:"#3b82f6",borderRadius:2,marginRight:4,verticalAlign:"middle"}}/>Revenue</span>
+          <span><span style={{display:"inline-block",width:9,height:9,background:"#f59e0b",borderRadius:2,marginRight:4,verticalAlign:"middle"}}/>Spend</span>
+          <span style={{marginLeft:"auto",color:"#3d5a72"}}>Profit shown below each bar · current month highlighted</span>
         </div>
       </div>
 
+      {/* All-time totals */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:18}}>
+        {[
+          {label:"Total Contract", val:$f(totRev),    color:"#7a9bbf", sub:"all flights"},
+          {label:"Total Spend",    val:$f(totSpend),  color:"#f59e0b", sub:"all platforms"},
+          {label:"Total Profit",   val:totRev>0?(totProfit>=0?"+":"")+$f(totProfit):"—", color:profitColor(totProfit), sub:"all time"},
+        ].map(s=>(
+          <div key={s.label} style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:9,padding:"12px 16px"}}>
+            <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>{s.label}</div>
+            <div style={{fontSize:20,fontWeight:800,color:s.color,lineHeight:1,marginBottom:3}}>{s.val}</div>
+            <div style={{fontSize:10,color:"#3d5a72"}}>{s.sub}</div>
+          </div>
+        ))}
+      </div>
+
       {/* Per-campaign table */}
-      {filtered.length === 0 ? (
+      {rows.length===0?(
         <div style={{textAlign:"center",padding:"40px 0",color:"#3d5a72"}}>
           <div style={{fontSize:28,marginBottom:8}}>💰</div>
           <div style={{fontSize:13}}>No campaigns with contract values yet.</div>
-          <div style={{fontSize:11,marginTop:5}}>Edit a campaign and fill in the Contract Value field to start tracking revenue.</div>
+          <div style={{fontSize:11,marginTop:5}}>Edit a campaign and fill in the Contract Value field to start tracking.</div>
         </div>
-      ) : (
+      ):(
         <div>
           <div style={{fontSize:11,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Campaign Breakdown</div>
-          {/* Table header */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 90px 70px",gap:8,padding:"6px 12px",fontSize:10,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #1a2744",marginBottom:4}}>
-            <span>Campaign</span><span style={{textAlign:"right"}}>Contract</span><span style={{textAlign:"right"}}>Spend</span><span style={{textAlign:"right"}}>Profit</span><span style={{textAlign:"right"}}>Margin</span><span style={{textAlign:"right"}}>Status</span>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 70px 80px",gap:6,padding:"5px 10px",fontSize:9,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #1a2744",marginBottom:3}}>
+            <span>Campaign</span><span style={{textAlign:"right"}}>Contract</span><span style={{textAlign:"right"}}>Spend</span><span style={{textAlign:"right"}}>Profit</span><span style={{textAlign:"right"}}>Margin</span><span style={{textAlign:"right"}}>This Mo.</span>
           </div>
-          {filtered.map(({c,contract,spend,profit,margin,pCol})=>(
-            <div key={c.id} style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 90px 70px",gap:8,padding:"9px 12px",borderBottom:"1px solid #0e1828",alignItems:"center",
-              background:"#0c1625",borderRadius:7,marginBottom:3}}>
+          {rows.map(({c,contract,spend,profit,margin,pCol,moRevenue})=>(
+            <div key={c.id} style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 70px 80px",gap:6,padding:"8px 10px",borderBottom:"1px solid #0e1828",alignItems:"center",background:"#0c1625",borderRadius:6,marginBottom:2}}>
               <div>
-                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-                  <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"0px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>
-                  <span style={{fontSize:12,fontWeight:600,color:"#d8eaf8"}}>{c.campaignName.trim()}</span>
+                <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
+                  <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"0 4px",fontSize:9,fontWeight:700}}>{c.platform}</span>
+                  <span style={{fontSize:11,fontWeight:600,color:"#d8eaf8"}}>{c.campaignName.trim()}</span>
                 </div>
-                <div style={{fontSize:10,color:"#3d5a72"}}>{c.mediaPartner}</div>
+                <div style={{fontSize:10,color:"#3d5a72"}}>{c.mediaPartner}{c.startDate&&c.endDate?` · ${c.startDate} → ${c.endDate}`:""}</div>
               </div>
-              <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:"#7a9bbf"}}>{$f(contract)}</div>
-              <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:"#f59e0b"}}>{spend>0?$f(spend):"—"}</div>
-              <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:profitColor(profit)}}>{spend>0?(profit>=0?"+":"")+$f(profit):"—"}</div>
-              <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:marginColor(margin)}}>{spend>0?margin.toFixed(1)+"%":"—"}</div>
-              <div style={{textAlign:"right"}}>
-                <span style={{fontSize:10,fontWeight:700,
-                  color:c.status==="active"?"#00d48a":c.status==="off"?"#f59e0b":"#4d6e8a",
-                  background:(c.status==="active"?"#00d48a":c.status==="off"?"#f59e0b":"#4d6e8a")+"18",
-                  border:"1px solid "+(c.status==="active"?"#00d48a":c.status==="off"?"#f59e0b":"#4d6e8a")+"40",
-                  borderRadius:4,padding:"1px 6px"}}>
-                  {c.status}
-                </span>
-              </div>
+              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:"#7a9bbf"}}>{$f(contract)}</div>
+              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:"#f59e0b"}}>{spend>0?$f(spend):"—"}</div>
+              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:profitColor(profit)}}>{spend>0?(profit>=0?"+":"")+$f(profit):"—"}</div>
+              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:marginColor(margin)}}>{spend>0?margin.toFixed(1)+"%":"—"}</div>
+              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:"#7a9bbf"}}>{moRevenue>0?$f(moRevenue):"—"}</div>
             </div>
           ))}
         </div>
@@ -1568,6 +1820,16 @@ export default function App() {
   const [dragOverId, setDragOverId] = useState(null);
   const [dateRange, setDateRange] = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
   const [activeTab, setActiveTab] = useState("campaigns");
+
+  // Count "behind" campaigns for the tab badge
+  const behindCount = useMemo(()=>
+    campaigns.filter(c=>{
+      if(c.status!=="active") return false;
+      const disp=resolveMetrics(c,dateRange.preset);
+      const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+      return pacing?.label==="Behind";
+    }).length
+  ,[campaigns,dateRange.preset]);
   const [activityLog, setActivityLog] = useState(()=>{ try { const s=localStorage.getItem(ACTIVITY_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
   const [archive, setArchive] = useState(()=>{ try { const s=localStorage.getItem(ARCHIVE_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
   const [metaSyncStatus, setMetaSyncStatus] = useState(null);
@@ -1831,7 +2093,7 @@ export default function App() {
         <div style={{maxWidth:1600,margin:"0 auto",padding:"0 20px",display:"flex",gap:0}}>
           {[
             {key:"campaigns", label:"📋 Campaigns"},
-            {key:"pacing",    label:"📈 Pacing"},
+            {key:"pacing",    label:"📈 Pacing", badge: behindCount},
             {key:"revenue",   label:"💰 Revenue"},
             {key:"activity",  label:"📜 Activity Log"},
             {key:"archive",   label:"🗄️ Campaign Archive"},
@@ -1839,8 +2101,9 @@ export default function App() {
             <button key={t.key} onClick={()=>setActiveTab(t.key)}
               style={{background:"none",border:"none",borderBottom:activeTab===t.key?"2px solid #00e5a0":"2px solid transparent",
                 padding:"11px 20px",color:activeTab===t.key?"#00e5a0":"#4d6e8a",fontSize:13,fontWeight:activeTab===t.key?700:400,
-                cursor:"pointer",transition:"all .15s",marginBottom:-1}}>
+                cursor:"pointer",transition:"all .15s",marginBottom:-1,display:"flex",alignItems:"center",gap:6}}>
               {t.label}
+              {t.badge>0&&<span style={{background:"#fde04722",border:"1px solid #fde04760",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,color:"#fde047",lineHeight:1.4}}>{t.badge}</span>}
             </button>
           ))}
         </div>
@@ -1960,11 +2223,7 @@ export default function App() {
 {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                           </div>
                           {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:3,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}} title={c.note1}>{c.note1.trim()}</div>}
-                          {isStoppedServing(c)&&!open&&(
-                            <div style={{display:"inline-flex",alignItems:"center",gap:4,marginTop:3,background:"#1a0808",border:"1px solid #ef444460",borderRadius:4,padding:"2px 7px"}}>
-                              <span style={{fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em"}}>⚑ NOT SERVING</span>
-                            </div>
-                          )}
+
                           {!open&&(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
                             const pacing=computeMonthlyPacing(disp.impressions,c.note1);
