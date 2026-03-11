@@ -2094,7 +2094,7 @@ function PlatformConfig({ campaigns=[] }) {
       </div>
 
       {/* Section switcher + search + download */}
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20,flexWrap:"nowrap",overflowX:"auto"}}>
         {sectionBtn("meta","Meta (FB / FBV / IG)","📘")}
         {sectionBtn("ttd","The Trade Desk (TD)","📡")}
         {sectionBtn("dsp","DSP","🖥️")}
@@ -2102,32 +2102,32 @@ function PlatformConfig({ campaigns=[] }) {
         {sectionBtn("setup","GitHub Setup Guide","🛠️")}
         {/* Download button — sits right next to Setup Guide, only on non-setup sections */}
         {activeSection==="meta" && metaActive.length>0 && (
-          <button onClick={()=>downloadJSON("meta_config.json", buildMetaConfig())}
-            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
-            <span style={{fontSize:16}}>⬇</span>meta_config.json
+          <button title="Download meta_config.json" onClick={()=>downloadJSON("meta_config.json", buildMetaConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            <span style={{fontSize:16}}>⬇</span>Config
           </button>
         )}
         {activeSection==="ttd" && ttdActive.length>0 && (
-          <button onClick={()=>downloadJSON("ttd_config.json", buildTTDConfig())}
-            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
-            <span style={{fontSize:16}}>⬇</span>ttd_config.json
+          <button title="Download ttd_config.json" onClick={()=>downloadJSON("ttd_config.json", buildTTDConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            <span style={{fontSize:16}}>⬇</span>Config
           </button>
         )}
         {activeSection==="dsp" && dspActive.length>0 && (
-          <button onClick={()=>downloadJSON("dsp_config.json", buildDSPConfig())}
-            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
-            <span style={{fontSize:16}}>⬇</span>dsp_config.json
+          <button title="Download dsp_config.json" onClick={()=>downloadJSON("dsp_config.json", buildDSPConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            <span style={{fontSize:16}}>⬇</span>Config
           </button>
         )}
         {activeSection==="google" && googleActive.length>0 && (
-          <button onClick={()=>downloadJSON("google_ads_config.json", buildGoogleConfig())}
-            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
-            <span style={{fontSize:16}}>⬇</span>google_ads_config.json
+          <button title="Download google_ads_config.json" onClick={()=>downloadJSON("google_ads_config.json", buildGoogleConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            <span style={{fontSize:16}}>⬇</span>Config
           </button>
         )}
         {/* Search — left side after download button, hidden on Setup Guide */}
         {activeSection!=="setup" && (
-          <div style={{position:"relative",marginLeft:4}}>
+          <div style={{position:"relative",marginLeft:4,flexShrink:0}}>
             <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#3d5a72",fontSize:13,pointerEvents:"none"}}>🔍</span>
             <input value={search} onChange={e=>setSearch(e.target.value)}
               placeholder="Search campaigns…"
