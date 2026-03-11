@@ -2002,8 +2002,9 @@ function PlatformConfig({ campaigns=[] }) {
   const sectionBtn = (key,label,icon) => (
     <button key={key} onClick={()=>setActiveSection(key)}
       style={{background:activeSection===key?"#002e24":"#0e1a2e",border:"1px solid "+(activeSection===key?"#00c896":"#1e293b"),
-        borderRadius:8,padding:"10px 18px",color:activeSection===key?"#00e5a0":"#4d6e8a",
-        fontSize:13,fontWeight:activeSection===key?700:400,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
+        borderRadius:8,padding:"10px 0",color:activeSection===key?"#00e5a0":"#4d6e8a",
+        fontSize:13,fontWeight:activeSection===key?700:400,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7,
+        minWidth:200,flexShrink:0}}>
       <span style={{fontSize:16}}>{icon}</span>{label}
     </button>
   );
@@ -2093,8 +2094,8 @@ function PlatformConfig({ campaigns=[] }) {
         <div style={{fontSize:11,color:"#4d6e8a"}}>Connect your ad platforms so campaign metrics sync automatically via GitHub Actions. Fill in credentials and IDs below, then download the config files to drop into your repo.</div>
       </div>
 
-      {/* Section switcher + search + download */}
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20,flexWrap:"nowrap",overflowX:"auto"}}>
+      {/* Section switcher + download */}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"nowrap"}}>
         {sectionBtn("meta","Meta (FB / FBV / IG)","📘")}
         {sectionBtn("ttd","The Trade Desk (TD)","📡")}
         {sectionBtn("dsp","DSP","🖥️")}
@@ -2125,18 +2126,18 @@ function PlatformConfig({ campaigns=[] }) {
             <span style={{fontSize:16}}>⬇</span>Config
           </button>
         )}
-        {/* Search — left side after download button, hidden on Setup Guide */}
-        {activeSection!=="setup" && (
-          <div style={{position:"relative",marginLeft:4,flexShrink:0}}>
-            <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#3d5a72",fontSize:13,pointerEvents:"none"}}>🔍</span>
-            <input value={search} onChange={e=>setSearch(e.target.value)}
-              placeholder="Search campaigns…"
-              style={{...iS,width:200,paddingLeft:30,background:"#0a1422"}}/>
-            {search && <button onClick={()=>setSearch("")}
-              style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}
-          </div>
-        )}
       </div>
+      {/* Search — second row, hidden on Setup Guide */}
+      {activeSection!=="setup" && (
+        <div style={{marginBottom:16,position:"relative",display:"inline-block"}}>
+          <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#3d5a72",fontSize:13,pointerEvents:"none"}}>🔍</span>
+          <input value={search} onChange={e=>setSearch(e.target.value)}
+            placeholder="Search campaigns…"
+            style={{...iS,width:240,paddingLeft:30,background:"#0a1422"}}/>
+          {search && <button onClick={()=>setSearch("")}
+            style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}
+        </div>
+      )}
 
       {/* ── META ── */}
       {activeSection==="meta"&&<div>
@@ -2800,7 +2801,7 @@ export default function App() {
 
       {/* Header */}
       <div style={{background:"linear-gradient(180deg,#0e2038 0%,#0c1625 100%)",borderBottom:"1px solid #00c89628",borderTop:"2px solid #00c896",padding:"13px 20px",position:"sticky",top:0,zIndex:50}}>
-        <div style={{maxWidth:1600,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+        <div style={{maxWidth:1920,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:17,fontWeight:800,color:"#00e5a0",letterSpacing:"-0.03em"}}>Campaign Tracker</span>
             <span style={{fontSize:11,padding:"2px 7px",borderRadius:4,background:saved?"#00200f":"transparent",color:saved?"#00d48a":"transparent",border:saved?"1px solid #22c55e40":"1px solid transparent",transition:"all .3s",fontWeight:600}}>✓ Saved</span>
@@ -2835,7 +2836,7 @@ export default function App() {
 
       {/* Tab Bar */}
       <div style={{background:"#0a1220",borderBottom:"1px solid #1e293b"}}>
-        <div style={{maxWidth:1600,margin:"0 auto",padding:"0 20px",display:"flex",gap:0}}>
+        <div style={{maxWidth:1920,margin:"0 auto",padding:"0 20px",display:"flex",gap:0}}>
           {[
             {key:"campaigns", label:"📋 Campaigns"},
             {key:"pacing",    label:"📈 Pacing", badge: behindCount},
@@ -2855,7 +2856,7 @@ export default function App() {
         </div>
       </div>
 
-      <div style={{maxWidth:1600,margin:"0 auto",padding:"18px 20px 40px"}}>
+      <div style={{maxWidth:1920,margin:"0 auto",padding:"18px 20px 40px"}}>
         {activeTab==="archive" ? (
           <CampaignArchive archive={archive} onRestore={handleRestore} onClear={()=>setArchive([])}/>
         ) : activeTab==="config" ? (
