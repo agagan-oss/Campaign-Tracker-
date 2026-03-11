@@ -82,9 +82,21 @@ function resolveMetrics(c, preset) {
   const key = getSnapshotKey(preset);
   if (key && c.metaSnapshots && c.metaSnapshots[key]) {
     const s = c.metaSnapshots[key];
-    return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", source:"meta", snapshotKey:key };
+    return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", clicks:s.clicks!=null?String(s.clicks):"", source:"meta", snapshotKey:key };
   }
-  return { impressions:c.impressions||"", ctr:c.ctr||"", cpm:c.cpm||"", spend:c.spend||"", source:key?"manual-no-snapshot":"manual", snapshotKey:key };
+  if (key && c.ttdSnapshots && c.ttdSnapshots[key]) {
+    const s = c.ttdSnapshots[key];
+    return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", clicks:s.clicks!=null?String(s.clicks):"", source:"ttd", snapshotKey:key };
+  }
+  if (key && c.dspSnapshots && c.dspSnapshots[key]) {
+    const s = c.dspSnapshots[key];
+    return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", clicks:s.clicks!=null?String(s.clicks):"", source:"dsp", snapshotKey:key };
+  }
+  if (key && c.googleSnapshots && c.googleSnapshots[key]) {
+    const s = c.googleSnapshots[key];
+    return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", clicks:s.clicks!=null?String(s.clicks):"", videoViews:s.video_views!=null?String(s.video_views):"", completionRate:s.vcr!=null?String(s.vcr):"", source:"google", snapshotKey:key };
+  }
+  return { impressions:c.impressions||"", ctr:c.ctr||"", cpm:c.cpm||"", spend:c.spend||"", clicks:c.clicks||"", source:key?"manual-no-snapshot":"manual", snapshotKey:key };
 }
 
 
@@ -523,7 +535,10 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
             <span style={{fontSize:11,color:"#00c896",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>📊 Metrics</span>
             {dateRange.start && <span style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"1px 8px",fontSize:10,fontFamily:"monospace",color:"#4d6e8a"}}>{dateRange.start===dateRange.end?dateRange.start:`${dateRange.start} → ${dateRange.end}`}</span>}
-            {resolved.source==="meta" && <span style={{fontSize:10,color:"#60a5fa",background:"#0c1e38",border:"1px solid #3b82f640",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Meta snapshot</span>}
+            {resolved.source==="meta" && <span style={{fontSize:10,color:"#60a5fa",background:"#0c1e38",border:"1px solid #3b82f640",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Meta</span>}
+            {resolved.source==="ttd" && <span style={{fontSize:10,color:"#a78bfa",background:"#1a0e38",border:"1px solid #7c3aed40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ TTD</span>}
+            {resolved.source==="dsp" && <span style={{fontSize:10,color:"#34d399",background:"#001a10",border:"1px solid #34d39940",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ DSP</span>}
+            {resolved.source==="google" && <span style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Google</span>}
             {resolved.source==="manual-no-snapshot" && <span title="No Meta snapshot for this date range — showing manually saved values" style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⚠ No snapshot · manual data</span>}
           </div>
           {(()=>{
@@ -1362,7 +1377,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(disp.ctr)         perfBoxes.push({label:"CTR",    val:parseFloat(disp.ctr).toFixed(2)+"%",                     color:"#00ffb3"});
     if(disp.cpm)         perfBoxes.push({label:"CPM",    val:"$"+parseFloat(disp.cpm).toFixed(2),                     color:"#fb923c"});
     if(disp.spend)       perfBoxes.push({label:"Spend",  val:"$"+Math.round(parseFloat(disp.spend)).toLocaleString(), color:"#f472b6"});
-    if(c.clicks)         perfBoxes.push({label:"Clicks", val:parseInt(c.clicks).toLocaleString(),                     color:"#38bdf8"});
+    if(disp.clicks)      perfBoxes.push({label:"Clicks", val:parseInt(disp.clicks).toLocaleString(),                  color:"#38bdf8"});
     if(c.reach)          perfBoxes.push({label:"Reach",  val:parseInt(c.reach).toLocaleString(),                      color:"#e879f9"});
     if(c.frequency)      perfBoxes.push({label:"Freq",   val:parseFloat(c.frequency).toFixed(2)+"x",                  color:"#fb923c"});
     if(c.videoViews)     perfBoxes.push({label:"Views",  val:parseInt(c.videoViews).toLocaleString(),                 color:"#a78bfa"});
@@ -1624,6 +1639,13 @@ function RevenueDashboard({ campaigns=[] }) {
   const [filterPartner, setFilterPartner] = useState("all");
   const now = new Date();
 
+  // Use synced MTD spend if available, otherwise fall back to manually entered spend
+  function resolveSpend(c) {
+    const mtd = c.metaSnapshots?.mtd?.spend ?? c.ttdSnapshots?.mtd?.spend ?? c.dspSnapshots?.mtd?.spend ?? c.googleSnapshots?.mtd?.spend;
+    if (mtd != null) return mtd;
+    return parseFloat(c.spend) || 0;
+  }
+
   const withContract = campaigns.filter(c => parseFloat(c.contractValue) > 0);
   const partners = ["all", ...new Set(withContract.map(c=>c.mediaPartner))].sort();
   const filtered  = filterPartner==="all" ? withContract : withContract.filter(c=>c.mediaPartner===filterPartner);
@@ -1645,8 +1667,8 @@ function RevenueDashboard({ campaigns=[] }) {
     Object.entries(spread).forEach(([mo, rev]) => {
       if (monthRevenue[mo]) monthRevenue[mo].revenue += rev;
     });
-    // Spread spend evenly too (same logic) — but only if spend entered
-    const spend = parseFloat(c.spend);
+    // Spread spend evenly too (same logic) — prefer synced MTD, fall back to manual
+    const spend = resolveSpend(c);
     if (spend > 0 && c.startDate && c.endDate) {
       const spendSpread = spreadRevenue({...c, contractValue: spend});
       Object.entries(spendSpread).forEach(([mo, s]) => {
@@ -1668,16 +1690,16 @@ function RevenueDashboard({ campaigns=[] }) {
 
   // All-time totals across filtered
   const totRev   = filtered.reduce((s,c)=>s+(parseFloat(c.contractValue)||0),0);
-  const totSpend = filtered.reduce((s,c)=>s+(parseFloat(c.spend)||0),0);
+  const totSpend = filtered.reduce((s,c)=>s+resolveSpend(c),0);
   const totProfit= totRev - totSpend;
 
   // Per-campaign rows sorted by contract desc
   const rows = filtered.map(c=>({
     c,
     contract: parseFloat(c.contractValue)||0,
-    spend:    parseFloat(c.spend)||0,
-    profit:   (parseFloat(c.contractValue)||0)-(parseFloat(c.spend)||0),
-    margin:   (parseFloat(c.contractValue)||0)>0?((parseFloat(c.contractValue)||0)-(parseFloat(c.spend)||0))/(parseFloat(c.contractValue)||0)*100:0,
+    spend:    resolveSpend(c),
+    profit:   (parseFloat(c.contractValue)||0)-resolveSpend(c),
+    margin:   (parseFloat(c.contractValue)||0)>0?((parseFloat(c.contractValue)||0)-resolveSpend(c))/(parseFloat(c.contractValue)||0)*100:0,
     pCol:     PLT_COLORS[c.platform]||PLT_COLORS.default,
     moRevenue: spreadRevenue(c)[thisMonth]||0,
   })).sort((a,b)=>b.contract-a.contract);
@@ -1803,6 +1825,626 @@ function RevenueDashboard({ campaigns=[] }) {
   );
 }
 
+const CONFIG_KEY = "campaign-tracker-platform-config";
+
+// ─── Platform Config Tab ───────────────────────────────────────────────────
+function PlatformConfig({ campaigns=[] }) {
+  const [cfg, setCfg] = useState(()=>{
+    try { const s=localStorage.getItem(CONFIG_KEY); return s?JSON.parse(s):{}; } catch { return {}; }
+  });
+  const [activeSection, setActiveSection] = useState("meta");
+  const [copied, setCopied]   = useState("");
+  const [search, setSearch]   = useState("");
+
+  useEffect(()=>{
+    try { localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg)); } catch(e){}
+  },[cfg]);
+
+  // Deep get/set on dot-path
+  const setVal = (path, val) => setCfg(prev=>{
+    const next = JSON.parse(JSON.stringify(prev));
+    const parts = path.split(".");
+    let obj = next;
+    for(let i=0;i<parts.length-1;i++){ if(!obj[parts[i]]) obj[parts[i]]={};  obj=obj[parts[i]]; }
+    obj[parts[parts.length-1]] = val;
+    return next;
+  });
+  const getVal = (path, fallback="") => {
+    const parts = path.split(".");
+    let obj = cfg;
+    for(const p of parts){ if(obj==null) return fallback; obj=obj[p]; }
+    return obj??fallback;
+  };
+
+  // Campaigns filtered by platform + search
+  const q = search.trim().toLowerCase();
+  const metaActive = campaigns.filter(c=>["FB","FBV","IG"].includes(c.platform) && c.status==="active");
+  const ttdActive  = campaigns.filter(c=>c.platform==="TD"  && c.status==="active");
+  const dspActive    = campaigns.filter(c=>c.platform==="DSP" && c.status==="active");
+  const googleActive = campaigns.filter(c=>["SEM","YT"].includes(c.platform) && c.status==="active");
+  const metaFiltered = q ? metaActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)) : metaActive;
+  const ttdFiltered  = q ? ttdActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q))  : ttdActive;
+  const dspFiltered    = q ? dspActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q))    : dspActive;
+  const googleFiltered = q ? googleActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)) : googleActive;
+
+  // Group by partner
+  function groupByPartner(list) {
+    const map = {};
+    list.forEach(c=>{ if(!map[c.mediaPartner]) map[c.mediaPartner]=[]; map[c.mediaPartner].push(c); });
+    return Object.entries(map).sort(([a],[b])=>a.localeCompare(b));
+  }
+
+  // Download JSON
+  function downloadJSON(filename, data){
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href=url; a.download=filename; a.click();
+    URL.revokeObjectURL(url);
+  }
+  function copyText(text, key){
+    navigator.clipboard.writeText(text).catch(()=>{});
+    setCopied(key); setTimeout(()=>setCopied(""),1800);
+  }
+
+  // "Apply to all in partner" — propagate account/advertiser ID down to siblings
+  function applyToPartner(platform, partnerId, field, val) {
+    const siblings = (platform==="ttd" ? ttdActive : metaActive).filter(c=>c.mediaPartner===partnerId);
+    setCfg(prev=>{
+      const next = JSON.parse(JSON.stringify(prev));
+      siblings.forEach(c=>{
+        const parts = `${platform}.campaigns.${c.id}.${field}`.split(".");
+        let obj = next;
+        for(let i=0;i<parts.length-1;i++){ if(!obj[parts[i]]) obj[parts[i]]={};  obj=obj[parts[i]]; }
+        obj[parts[parts.length-1]] = val;
+      });
+      return next;
+    });
+  }
+
+  // Build JSON outputs
+  function buildMetaConfig(){
+    return {
+      _comment: "Each tracker row lists its own meta_campaign_ids array. spend/impressions are summed; CTR and CPM are recalculated from totals.",
+      campaigns: metaActive.map(c=>({
+        tracker_id: c.id,
+        tracker_name: `${c.campaignName.trim()} (${c.platform})`,
+        meta_account_id: getVal(`meta.campaigns.${c.id}.account_id`) || "act_REPLACE_ME",
+        meta_campaign_ids: (getVal(`meta.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean).length>0
+          ? (getVal(`meta.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean)
+          : ["REPLACE_ME"],
+      }))
+    };
+  }
+  function buildGoogleConfig(){
+    return {
+      _comment: "google_customer_id: your Google Ads account ID without dashes (e.g. 1234567890). google_campaign_ids: numeric campaign IDs from the Campaigns table in Google Ads UI.",
+      campaigns: googleActive.map(c=>({
+        tracker_id: c.id,
+        tracker_name: `${c.campaignName.trim()} (${c.platform})`,
+        platform: c.platform,
+        google_customer_id: getVal(`google.campaigns.${c.id}.customer_id`) || "REPLACE_ME",
+        google_campaign_ids: (getVal(`google.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean).length>0
+          ? (getVal(`google.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean)
+          : ["REPLACE_ME"],
+      }))
+    };
+  }
+  function buildDSPConfig(){
+    return {
+      _comment: "One entry per tracker row. dsp_advertiser_uuid is the advertiser UUID provided by your DSP rep. List campaign UUIDs in dsp_campaign_uuids — metrics are summed and CTR/CPM recalculated.",
+      campaigns: dspActive.map(c=>({
+        tracker_id: c.id,
+        tracker_name: `${c.campaignName.trim()} (DSP)`,
+        dsp_advertiser_uuid: getVal(`dsp.campaigns.${c.id}.advertiser_uuid`) || "REPLACE_ME",
+        dsp_campaign_uuids: (getVal(`dsp.campaigns.${c.id}.campaign_uuids`)||"").split("\n").map(s=>s.trim()).filter(Boolean).length>0
+          ? (getVal(`dsp.campaigns.${c.id}.campaign_uuids`)||"").split("\n").map(s=>s.trim()).filter(Boolean)
+          : ["REPLACE_ME"],
+      }))
+    };
+  }
+  function buildTTDConfig(){
+    return {
+      _comment: "One entry per tracker row. Each client has one ttd_advertiser_id. List campaign IDs in ttd_campaign_ids — metrics are summed and CTR/CPM recalculated.",
+      campaigns: ttdActive.map(c=>({
+        tracker_id: c.id,
+        tracker_name: `${c.campaignName.trim()} (TD)`,
+        ttd_advertiser_id: getVal(`ttd.campaigns.${c.id}.advertiser_id`) || "REPLACE_ME",
+        ttd_campaign_ids: (getVal(`ttd.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean).length>0
+          ? (getVal(`ttd.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean)
+          : ["REPLACE_ME"],
+      }))
+    };
+  }
+
+  // Completeness
+  function metaComplete(c){
+    const aid = getVal(`meta.campaigns.${c.id}.account_id`);
+    const ids  = (getVal(`meta.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean);
+    return !!(aid && !aid.includes("REPLACE") && ids.length>0);
+  }
+  function ttdComplete(c){
+    const aid = getVal(`ttd.campaigns.${c.id}.advertiser_id`);
+    const ids  = (getVal(`ttd.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean);
+    return !!(aid && !aid.includes("REPLACE") && ids.length>0);
+  }
+  function dspComplete(c){
+    const aid = getVal(`dsp.campaigns.${c.id}.advertiser_uuid`);
+    const ids  = (getVal(`dsp.campaigns.${c.id}.campaign_uuids`)||"").split("\n").map(s=>s.trim()).filter(Boolean);
+    return !!(aid && !aid.includes("REPLACE") && ids.length>0);
+  }
+  function googleComplete(c){
+    const cid = getVal(`google.campaigns.${c.id}.customer_id`);
+    const ids  = (getVal(`google.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean);
+    return !!(cid && !cid.includes("REPLACE") && ids.length>0);
+  }
+
+  const metaDone = metaActive.filter(metaComplete).length;
+  const ttdDone  = ttdActive.filter(ttdComplete).length;
+  const dspDone    = dspActive.filter(dspComplete).length;
+  const googleDone = googleActive.filter(googleComplete).length;
+  const metaToken    = getVal("meta.credentials.token");
+  const ttdLogin     = getVal("ttd.credentials.login");
+  const ttdPass      = getVal("ttd.credentials.password");
+  const dspAccessKey    = getVal("dsp.credentials.access_key");
+  const dspSecretKey    = getVal("dsp.credentials.secret_key");
+  const dspSession      = getVal("dsp.credentials.session_token");
+  const dspApiKey       = getVal("dsp.credentials.api_key");
+  const googleDevToken  = getVal("google.credentials.developer_token");
+  const googleClientId  = getVal("google.credentials.client_id");
+  const googleClientSec = getVal("google.credentials.client_secret");
+  const googleRefresh   = getVal("google.credentials.refresh_token");
+
+  // Shared styles
+  const iS = {background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,width:"100%",boxSizing:"border-box",fontFamily:"inherit",outline:"none"};
+  const labelS = {display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700};
+
+  const sectionBtn = (key,label,icon) => (
+    <button key={key} onClick={()=>setActiveSection(key)}
+      style={{background:activeSection===key?"#002e24":"#0e1a2e",border:"1px solid "+(activeSection===key?"#00c896":"#1e293b"),
+        borderRadius:8,padding:"10px 18px",color:activeSection===key?"#00e5a0":"#4d6e8a",
+        fontSize:13,fontWeight:activeSection===key?700:400,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
+      <span style={{fontSize:16}}>{icon}</span>{label}
+    </button>
+  );
+
+  // Reusable campaign card renderer
+  function CampaignCard({ c, platform, completeCheck, accountLabel, accountPlaceholder, accountHint, idHint }) {
+    const done   = completeCheck(c);
+    const pCol   = PLT_COLORS[c.platform]||PLT_COLORS.default;
+    const pfx    = platform; // "meta" or "ttd"
+    const accKey = pfx==="meta" ? "account_id" : "advertiser_id";
+    const accVal = getVal(`${pfx}.campaigns.${c.id}.${accKey}`);
+    const idsKey = pfx==="dsp" ? "campaign_uuids" : "campaign_ids";  // google and others all use campaign_ids
+    const idsVal = getVal(`${pfx}.campaigns.${c.id}.${idsKey}`);
+
+    // Highlight search match
+    const name = c.campaignName.trim();
+
+    return (
+      <div key={c.id} style={{background:"#0a1422",border:"1px solid "+(done?"#00d48a30":"#162236"),borderRadius:8,padding:"12px 14px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
+          <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>
+          <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{name}</span>
+          <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:done?"#00d48a":"#3d5a72"}}>{done?"✓ Ready":"Incomplete"}</span>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>
+            <label style={labelS}>{accountLabel}</label>
+            <input value={accVal} onChange={e=>setVal(`${pfx}.campaigns.${c.id}.${accKey}`,e.target.value)}
+              placeholder={accountPlaceholder} style={{...iS,fontFamily:"monospace"}}/>
+            <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>{accountHint}</div>
+          </div>
+          <div>
+            <label style={labelS}>Campaign ID(s) <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>— one per line</span></label>
+            <textarea value={idsVal} onChange={e=>setVal(`${pfx}.campaigns.${c.id}.${idsKey}`,e.target.value)}
+              placeholder={pfx==="meta"?"23456789012345\n23456789098765":"abc123def\nxyz456ghi"} rows={3}
+              style={{...iS,resize:"vertical",fontFamily:"monospace",minHeight:58}}/>
+            <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>{idHint}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Partner group renderer
+  function PartnerGroup({ partner, campaigns: pCampaigns, platform, completeCheck, accountLabel, accountPlaceholder, accountHint, idHint, accountFieldKey }) {
+    const allDone = pCampaigns.every(completeCheck);
+    const anyDone = pCampaigns.some(completeCheck);
+    // Representative account value (first configured, or first)
+    const repId   = pCampaigns[0]?.id;
+    const repAccKey = platform==="meta" ? "account_id" : platform==="dsp" ? "advertiser_uuid" : platform==="google" ? "customer_id" : "advertiser_id";
+    const repAccVal = getVal(`${platform}.campaigns.${repId}.${repAccKey}`);
+
+    return (
+      <div style={{marginBottom:16}}>
+        {/* Partner header */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,paddingBottom:6,borderBottom:"1px solid #1a2744"}}>
+          <span style={{fontSize:12,fontWeight:800,color:"#edf4ff"}}>{partner}</span>
+          <span style={{fontSize:10,color:"#3d5a72"}}>{pCampaigns.length} campaign{pCampaigns.length!==1?"s":""}</span>
+          <span style={{fontSize:10,fontWeight:700,color:allDone?"#00d48a":anyDone?"#f59e0b":"#3d5a72",marginLeft:"auto"}}>
+            {allDone?"✓ All ready":anyDone?"Partial":"Not configured"}
+          </span>
+          {/* Apply-to-all button: show when there are 2+ campaigns and an account ID is set */}
+          {pCampaigns.length>1 && repAccVal && (
+            <button
+              onClick={()=>applyToPartner(platform, partner, repAccKey, repAccVal)}
+              title={`Copy "${repAccVal}" to all ${partner} campaigns`}
+              style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:5,padding:"2px 9px",color:"#00e5a0",fontSize:10,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+              Apply ID to all ↓
+            </button>
+          )}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {pCampaigns.map(c=>(
+            <CampaignCard key={c.id} c={c} platform={platform} completeCheck={completeCheck}
+              accountLabel={accountLabel} accountPlaceholder={accountPlaceholder}
+              accountHint={accountHint} idHint={idHint}/>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{color:"#d8eaf8",maxWidth:1100}}>
+      <div style={{marginBottom:20}}>
+        <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:4}}>⚙️ Platform Config</div>
+        <div style={{fontSize:11,color:"#4d6e8a"}}>Connect your ad platforms so campaign metrics sync automatically via GitHub Actions. Fill in credentials and IDs below, then download the config files to drop into your repo.</div>
+      </div>
+
+      {/* Section switcher + search + download */}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:20,flexWrap:"wrap"}}>
+        {sectionBtn("meta","Meta (FB / FBV / IG)","📘")}
+        {sectionBtn("ttd","The Trade Desk (TD)","📡")}
+        {sectionBtn("dsp","DSP","🖥️")}
+        {sectionBtn("google","Google Ads (SEM / YT)","🔍")}
+        {sectionBtn("setup","GitHub Setup Guide","🛠️")}
+        {activeSection!=="setup" && (
+          <>
+            <div style={{marginLeft:"auto",position:"relative"}}>
+              <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#3d5a72",fontSize:13,pointerEvents:"none"}}>🔍</span>
+              <input
+                value={search} onChange={e=>setSearch(e.target.value)}
+                placeholder="Search campaigns…"
+                style={{...iS,width:200,paddingLeft:30,background:"#0a1422"}}/>
+              {search && <button onClick={()=>setSearch("")}
+                style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}
+            </div>
+            {activeSection==="meta" && metaActive.length>0 && (
+              <button onClick={()=>downloadJSON("meta_config.json", buildMetaConfig())}
+                style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"8px 16px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+                ⬇ meta_config.json
+              </button>
+            )}
+            {activeSection==="ttd" && ttdActive.length>0 && (
+              <button onClick={()=>downloadJSON("ttd_config.json", buildTTDConfig())}
+                style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"8px 16px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+                ⬇ ttd_config.json
+              </button>
+            )}
+            {activeSection==="dsp" && dspActive.length>0 && (
+              <button onClick={()=>downloadJSON("dsp_config.json", buildDSPConfig())}
+                style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"8px 16px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+                ⬇ dsp_config.json
+              </button>
+            )}
+            {activeSection==="google" && googleActive.length>0 && (
+              <button onClick={()=>downloadJSON("google_ads_config.json", buildGoogleConfig())}
+                style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"8px 16px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+                ⬇ google_ads_config.json
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── META ── */}
+      {activeSection==="meta"&&<div>
+        {/* Credentials */}
+        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+            🔑 Meta Credentials
+            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally in your browser — never sent anywhere</span>
+          </div>
+          <div style={{maxWidth:580}}>
+            <label style={labelS}>Access Token <span style={{color:"#3d5a72",textTransform:"none",fontSize:10,fontWeight:400}}>— System User token with ads_read + read_insights</span></label>
+            <div style={{display:"flex",gap:6}}>
+              <input type="password" value={metaToken} onChange={e=>setVal("meta.credentials.token",e.target.value)}
+                placeholder="EAAxxxxxxxx..." style={{...iS,flex:1,fontFamily:"monospace"}}/>
+              {metaToken&&<button onClick={()=>copyText(metaToken,"meta-token")}
+                style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"7px 12px",color:"#00e5a0",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                {copied==="meta-token"?"✓ Copied":"Copy"}
+              </button>}
+            </div>
+            <div style={{fontSize:10,color:"#3d5a72",marginTop:4}}>Meta Business Suite → Business Settings → System Users → Add Token</div>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+            <div style={{background:metaDone===metaActive.length&&metaActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:metaActive.length>0?(metaDone/metaActive.length*100)+"%":"0%",transition:"width .3s"}}/>
+          </div>
+          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{metaDone} / {metaActive.length} campaigns configured</span>
+          {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {metaFiltered.length} match{metaFiltered.length!==1?"es":""}</span>}
+        </div>
+
+        {/* Grouped campaigns */}
+        {metaFiltered.length===0
+          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active FB/FBV/IG campaigns found."}</div>
+          : groupByPartner(metaFiltered).map(([partner, pCampaigns])=>(
+            <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="meta"
+              completeCheck={metaComplete}
+              accountLabel="Ad Account ID"
+              accountPlaceholder="act_123456789"
+              accountHint="Ads Manager URL → account_id= in the URL"
+              idHint="Ads Manager → click campaign → ID in URL or Columns"
+              accountFieldKey="account_id"/>
+          ))
+        }
+      </div>}
+
+      {/* ── TTD ── */}
+      {activeSection==="ttd"&&<div>
+        {/* Credentials */}
+        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+            🔑 TTD API Credentials
+            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,maxWidth:700}}>
+            <div>
+              <label style={labelS}>API Login</label>
+              <input value={ttdLogin} onChange={e=>setVal("ttd.credentials.login",e.target.value)}
+                placeholder="your@email.com" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>TTD UI → Accounts → API Access → create credential</div>
+            </div>
+            <div>
+              <label style={labelS}>API Password</label>
+              <input type="password" value={ttdPass} onChange={e=>setVal("ttd.credentials.password",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Use an API-only credential, not your UI login password</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+            <div style={{background:ttdDone===ttdActive.length&&ttdActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:ttdActive.length>0?(ttdDone/ttdActive.length*100)+"%":"0%",transition:"width .3s"}}/>
+          </div>
+          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{ttdDone} / {ttdActive.length} campaigns configured</span>
+          {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {ttdFiltered.length} match{ttdFiltered.length!==1?"es":""}</span>}
+        </div>
+
+        {/* Grouped campaigns */}
+        {ttdFiltered.length===0
+          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active TD campaigns found."}</div>
+          : groupByPartner(ttdFiltered).map(([partner, pCampaigns])=>(
+            <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="ttd"
+              completeCheck={ttdComplete}
+              accountLabel="Advertiser ID"
+              accountPlaceholder="abc123de"
+              accountHint="TTD UI → /advertiser/XXXXXXX/ in the URL"
+              idHint="TTD UI → Campaigns → click campaign → ID in URL"
+              accountFieldKey="advertiser_id"/>
+          ))
+        }
+      </div>}
+
+      {/* ── DSP ── */}
+      {activeSection==="dsp"&&<div>
+        {/* Credentials */}
+        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+            🔑 DSP API Credentials
+            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <label style={labelS}>AWS Access Key ID</label>
+              <input value={dspAccessKey} onChange={e=>setVal("dsp.credentials.access_key",e.target.value)}
+                placeholder="AKIAXXXXXXXXXXXXXXXX" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Provided by your DSP rep</div>
+            </div>
+            <div>
+              <label style={labelS}>AWS Secret Access Key</label>
+              <input type="password" value={dspSecretKey} onChange={e=>setVal("dsp.credentials.secret_key",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Provided by your DSP rep</div>
+            </div>
+            <div>
+              <label style={labelS}>x-api-key</label>
+              <input type="password" value={dspApiKey} onChange={e=>setVal("dsp.credentials.api_key",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Provided by your DSP rep alongside AWS credentials</div>
+            </div>
+            <div>
+              <label style={labelS}>AWS Session Token <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>— optional</span></label>
+              <input type="password" value={dspSession} onChange={e=>setVal("dsp.credentials.session_token",e.target.value)}
+                placeholder="Leave blank if not using temporary credentials" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Only needed if your rep issued temporary IAM credentials</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+            <div style={{background:dspDone===dspActive.length&&dspActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:dspActive.length>0?(dspDone/dspActive.length*100)+"%":"0%",transition:"width .3s"}}/>
+          </div>
+          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{dspDone} / {dspActive.length} campaigns configured</span>
+          {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {dspFiltered.length} match{dspFiltered.length!==1?"es":""}</span>}
+        </div>
+
+        {/* Grouped campaigns */}
+        {dspFiltered.length===0
+          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active DSP campaigns found."}</div>
+          : groupByPartner(dspFiltered).map(([partner, pCampaigns])=>(
+            <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="dsp"
+              completeCheck={dspComplete}
+              accountLabel="Advertiser UUID"
+              accountPlaceholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              accountHint="DSP platform → advertiser UUID in the URL or provided by rep"
+              idHint="DSP platform → Campaigns → click campaign → UUID in URL"
+              accountFieldKey="advertiser_uuid"/>
+          ))
+        }
+      </div>}
+
+      {/* ── GOOGLE ADS ── */}
+      {activeSection==="google"&&<div>
+        {/* Credentials */}
+        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:4,display:"flex",alignItems:"center",gap:8}}>
+            🔑 Google Ads API Credentials
+            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
+          </div>
+          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:12}}>
+            Requires a Google Ads developer token + OAuth2 credentials.{" "}
+            <a href="https://developers.google.com/google-ads/api/docs/get-started/oauth-cloud" target="_blank" rel="noreferrer"
+              style={{color:"#60a5fa",textDecoration:"none"}}>Setup guide →</a>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <label style={labelS}>Developer Token</label>
+              <input type="password" value={googleDevToken} onChange={e=>setVal("google.credentials.developer_token",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Google Ads UI → Tools → API Center</div>
+            </div>
+            <div>
+              <label style={labelS}>OAuth2 Client ID</label>
+              <input value={googleClientId} onChange={e=>setVal("google.credentials.client_id",e.target.value)}
+                placeholder="xxxxxxxxxxxx.apps.googleusercontent.com" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Google Cloud Console → APIs & Services → Credentials</div>
+            </div>
+            <div>
+              <label style={labelS}>OAuth2 Client Secret</label>
+              <input type="password" value={googleClientSec} onChange={e=>setVal("google.credentials.client_secret",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Same credentials screen as Client ID</div>
+            </div>
+            <div>
+              <label style={labelS}>Refresh Token</label>
+              <input type="password" value={googleRefresh} onChange={e=>setVal("google.credentials.refresh_token",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Generated once via OAuth flow — does not expire</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+            <div style={{background:googleDone===googleActive.length&&googleActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:googleActive.length>0?(googleDone/googleActive.length*100)+"%":"0%",transition:"width .3s"}}/>
+          </div>
+          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{googleDone} / {googleActive.length} campaigns configured</span>
+          {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {googleFiltered.length} match{googleFiltered.length!==1?"es":""}</span>}
+        </div>
+
+        {/* Grouped campaigns */}
+        {googleFiltered.length===0
+          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active SEM or YT campaigns found."}</div>
+          : groupByPartner(googleFiltered).map(([partner, pCampaigns])=>(
+            <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="google"
+              completeCheck={googleComplete}
+              accountLabel="Google Ads Customer ID"
+              accountPlaceholder="1234567890  (no dashes)"
+              accountHint="Google Ads UI → top account selector shows your Customer ID"
+              idHint="Google Ads UI → Campaigns table → hover campaign name to see numeric ID, or check URL"
+              accountFieldKey="customer_id"/>
+          ))
+        }
+      </div>}
+
+      {/* ── SETUP GUIDE ── */}
+      {activeSection==="setup"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {[
+          {
+            step:1, title:"TTD: Request API access from your rep first",
+            color:"#f59e0b",
+            lines:[
+              "Before anything else — contact your Trade Desk rep and ask them to enable 'My Reports API access' for your login",
+              "This is not on by default for all accounts; without it the TTD fetch script will get a 403 error",
+              "Meta has no equivalent requirement — you can set that up yourself without asking anyone",
+            ]
+          },
+          {
+            step:2, title:"Add your repo Secrets",
+            color:"#3b82f6",
+            lines:[
+              "Go to your GitHub repo → Settings → Secrets and variables → Actions",
+              "Add: META_ACCESS_TOKEN — your Meta System User token (from the Meta tab above)",
+              "Add: TTD_LOGIN and TTD_PASSWORD — your TTD API credentials (from the TTD tab above)",
+              "Add: DSP_AWS_ACCESS_KEY_ID, DSP_AWS_SECRET_ACCESS_KEY, DSP_API_KEY — from your DSP rep (from the DSP tab above)",
+              "Add: DSP_AWS_SESSION_TOKEN only if your rep issued temporary IAM credentials",
+              "Add: GOOGLE_ADS_DEVELOPER_TOKEN, GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN — from the Google Ads tab above",
+              "These are encrypted and only visible to GitHub Actions — never to anyone else",
+            ]
+          },
+          {
+            step:3, title:"Upload the config files",
+            color:"#a78bfa",
+            lines:[
+              "Download meta_config.json, ttd_config.json, dsp_config.json, and google_ads_config.json from their respective tabs",
+              "Upload both files to the root of your GitHub repo (same folder as your tracker .jsx file)",
+              "The fetch scripts read these files to know which campaigns to pull data for",
+            ]
+          },
+          {
+            step:4, title:"Upload the workflow files",
+            color:"#fb923c",
+            lines:[
+              "In your repo, create the folder: .github/workflows/ (if it doesn't exist)",
+              "Upload fetch-meta.yml, fetch-ttd.yml, fetch-dsp.yml, and fetch-google-ads.yml into that folder",
+              "These tell GitHub Actions when to run the fetch scripts (daily at 8am ET)",
+            ]
+          },
+          {
+            step:5, title:"Test it manually",
+            color:"#00d48a",
+            lines:[
+              "Go to your GitHub repo → Actions tab",
+              "Start with Meta: click \"Fetch Meta Campaign Metrics\" → \"Run workflow\" → Run",
+              "If it passes, campaigns.json will appear in your repo — the tracker loads it automatically on open",
+              "Once your TTD rep confirms API access, test \"Fetch TTD Campaign Metrics\" the same way",
+              "For DSP: test \"Fetch DSP Campaign Metrics\" — runs at 9:00am ET (after Meta and TTD)",
+              "For Google Ads: test \"Fetch Google Ads Metrics\" — runs at 9:30am ET (last in sequence)",
+            ]
+          },
+          {
+            step:6, title:"After that — fully automatic",
+            color:"#00e5a0",
+            lines:[
+              "Meta runs daily at 8:00am ET, TTD at 8:30am ET",
+              "Each run pulls MTD, Last 30 days, and Yesterday windows",
+              "The tracker picks up the latest data every time you open it — both Meta and TTD badges show in the header",
+              "You only need to re-download and re-upload config files when you add new campaigns",
+            ]
+          },
+        ].map(({step,title,color,lines})=>(
+          <div key={step} style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",display:"flex",gap:16}}>
+            <div style={{width:32,height:32,borderRadius:"50%",background:color+"22",border:"2px solid "+color+"60",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}>
+              <span style={{fontSize:13,fontWeight:800,color}}>{step}</span>
+            </div>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:"#edf4ff",marginBottom:8}}>{title}</div>
+              {lines.map((l,i)=>(
+                <div key={i} style={{display:"flex",gap:8,marginBottom:5,alignItems:"flex-start"}}>
+                  <span style={{color,fontSize:11,marginTop:1,flexShrink:0}}>›</span>
+                  <span style={{fontSize:12,color:"#7a9bbf",lineHeight:1.5}}>{l}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>}
+    </div>
+  );
+}
+
+
+
 export default function App() {
   const today = getToday();
   const COLS = 11;
@@ -1839,6 +2481,12 @@ export default function App() {
   const [archive, setArchive] = useState(()=>{ try { const s=localStorage.getItem(ARCHIVE_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
   const [metaSyncStatus, setMetaSyncStatus] = useState(null);
   const [metaSyncInfo,   setMetaSyncInfo]   = useState(null);
+  const [ttdSyncStatus,  setTtdSyncStatus]  = useState(null);
+  const [ttdSyncInfo,    setTtdSyncInfo]    = useState(null);
+  const [dspSyncStatus,    setDspSyncStatus]    = useState(null);
+  const [dspSyncInfo,      setDspSyncInfo]      = useState(null);
+  const [googleSyncStatus, setGoogleSyncStatus] = useState(null);
+  const [googleSyncInfo,   setGoogleSyncInfo]   = useState(null);
   useEffect(()=>{
     async function syncMeta() {
       setMetaSyncStatus("syncing");
@@ -1863,7 +2511,79 @@ export default function App() {
         setMetaSyncInfo({error:e.message});
       }
     }
+    async function syncTTD() {
+      setTtdSyncStatus("syncing");
+      try {
+        const resp = await fetch("ttd_campaigns.json?t="+Date.now());
+        if (!resp.ok) throw new Error("ttd_campaigns.json not found");
+        const data = await resp.json();
+        if (!data.campaigns||data.campaigns.length===0) { setTtdSyncStatus("done"); setTtdSyncInfo({last_updated:data.last_updated,fetched_count:0}); return; }
+        const ttdMap={};
+        data.campaigns.forEach(c=>{ ttdMap[c.tracker_id]=c; });
+        const syncedAt=data.last_updated||new Date().toISOString();
+        setCampaigns(cs=>cs.map(campaign=>{
+          const ttd=ttdMap[campaign.id];
+          if (!ttd||!ttd.snapshots) return campaign;
+          return {...campaign, ttdSnapshots:ttd.snapshots, ttdSyncedAt:syncedAt};
+        }));
+        setTtdSyncStatus("done");
+        setTtdSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count});
+      } catch(e) {
+        console.warn("TTD sync skipped:",e.message);
+        setTtdSyncStatus("error");
+        setTtdSyncInfo({error:e.message});
+      }
+    }
+    async function syncDSP() {
+      setDspSyncStatus("syncing");
+      try {
+        const resp = await fetch("dsp_campaigns.json?t="+Date.now());
+        if (!resp.ok) throw new Error("dsp_campaigns.json not found");
+        const data = await resp.json();
+        if (!data.campaigns||data.campaigns.length===0) { setDspSyncStatus("done"); setDspSyncInfo({last_updated:data.last_updated,fetched_count:0}); return; }
+        const dspMap={};
+        data.campaigns.forEach(c=>{ dspMap[c.tracker_id]=c; });
+        const syncedAt=data.last_updated||new Date().toISOString();
+        setCampaigns(cs=>cs.map(campaign=>{
+          const dsp=dspMap[campaign.id];
+          if (!dsp||!dsp.snapshots) return campaign;
+          return {...campaign, dspSnapshots:dsp.snapshots, dspSyncedAt:syncedAt};
+        }));
+        setDspSyncStatus("done");
+        setDspSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count});
+      } catch(e) {
+        console.warn("DSP sync skipped:",e.message);
+        setDspSyncStatus("error");
+        setDspSyncInfo({error:e.message});
+      }
+    }
+    async function syncGoogle() {
+      setGoogleSyncStatus("syncing");
+      try {
+        const resp = await fetch("google_ads_campaigns.json?t="+Date.now());
+        if (!resp.ok) throw new Error("google_ads_campaigns.json not found");
+        const data = await resp.json();
+        if (!data.campaigns||data.campaigns.length===0) { setGoogleSyncStatus("done"); setGoogleSyncInfo({last_updated:data.last_updated,fetched_count:0}); return; }
+        const googleMap={};
+        data.campaigns.forEach(c=>{ googleMap[c.tracker_id]=c; });
+        const syncedAt=data.last_updated||new Date().toISOString();
+        setCampaigns(cs=>cs.map(campaign=>{
+          const g=googleMap[campaign.id];
+          if (!g||!g.snapshots) return campaign;
+          return {...campaign, googleSnapshots:g.snapshots, googleSyncedAt:syncedAt};
+        }));
+        setGoogleSyncStatus("done");
+        setGoogleSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count});
+      } catch(e) {
+        console.warn("Google Ads sync skipped:",e.message);
+        setGoogleSyncStatus("error");
+        setGoogleSyncInfo({error:e.message});
+      }
+    }
     syncMeta();
+    syncTTD();
+    syncDSP();
+    syncGoogle();
   },[]);
 
   function addLog(entry) {
@@ -2076,6 +2796,15 @@ export default function App() {
             {metaSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing Meta…</span>}
             {metaSyncStatus==="done" && metaSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(metaSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#002018",border:"1px solid #00c89640",color:"#00d48a",fontWeight:600,cursor:"default"}}>⬡ Meta: {metaSyncInfo.fetched_count} synced</span>}
             {metaSyncStatus==="error" && <span title={metaSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Meta sync —</span>}
+            {ttdSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing TTD…</span>}
+            {ttdSyncStatus==="done" && ttdSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(ttdSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#002018",border:"1px solid #00c89640",color:"#00d48a",fontWeight:600,cursor:"default"}}>⬡ TTD: {ttdSyncInfo.fetched_count} synced</span>}
+            {ttdSyncStatus==="error" && <span title={ttdSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ TTD sync —</span>}
+            {dspSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing DSP…</span>}
+            {dspSyncStatus==="done" && dspSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(dspSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#001a10",border:"1px solid #34d39940",color:"#34d399",fontWeight:600,cursor:"default"}}>⬡ DSP: {dspSyncInfo.fetched_count} synced</span>}
+            {dspSyncStatus==="error" && <span title={dspSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ DSP sync —</span>}
+            {googleSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing Google…</span>}
+            {googleSyncStatus==="done" && googleSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(googleSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a1000",border:"1px solid #f59e0b40",color:"#f59e0b",fontWeight:600,cursor:"default"}}>⬡ Google: {googleSyncInfo.fetched_count} synced</span>}
+            {googleSyncStatus==="error" && <span title={googleSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Google sync —</span>}
           </div>
           <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
             <button onClick={()=>setShowReminderModal(true)} style={{position:"relative",background:pendingReminders>0?"#130a00":"#0e1a2e",border:`1px solid ${pendingReminders>0?"#f59e0b60":"#1e293b"}`,borderRadius:7,padding:"6px 13px",color:pendingReminders>0?"#f59e0b":"#4d6e8a",fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
@@ -2102,6 +2831,7 @@ export default function App() {
             {key:"revenue",   label:"💰 Revenue"},
             {key:"activity",  label:"📜 Activity Log"},
             {key:"archive",   label:"🗄️ Campaign Archive"},
+            {key:"config",    label:"⚙️ Platform Config"},
           ].map(t=>(
             <button key={t.key} onClick={()=>setActiveTab(t.key)}
               style={{background:"none",border:"none",borderBottom:activeTab===t.key?"2px solid #00e5a0":"2px solid transparent",
@@ -2117,6 +2847,8 @@ export default function App() {
       <div style={{maxWidth:1600,margin:"0 auto",padding:"18px 20px 40px"}}>
         {activeTab==="archive" ? (
           <CampaignArchive archive={archive} onRestore={handleRestore} onClear={()=>setArchive([])}/>
+        ) : activeTab==="config" ? (
+          <PlatformConfig campaigns={campaigns}/>
         ) : activeTab==="activity" ? (
           <ActivityLog log={activityLog} campaigns={campaigns} onUndo={handleUndo} onClear={()=>{ if(window.confirm("Clear the entire activity log?")){ setActivityLog([]); try{localStorage.removeItem(ACTIVITY_KEY);}catch(e){} }}} />
         ) : activeTab==="pacing" ? (
