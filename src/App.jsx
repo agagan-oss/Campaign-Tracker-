@@ -96,6 +96,10 @@ function resolveMetrics(c, preset) {
     const s = c.googleSnapshots[key];
     return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", clicks:s.clicks!=null?String(s.clicks):"", videoViews:s.video_views!=null?String(s.video_views):"", completionRate:s.vcr!=null?String(s.vcr):"", source:"google", snapshotKey:key };
   }
+  if (key && c.snapSnapshots && c.snapSnapshots[key]) {
+    const s = c.snapSnapshots[key];
+    return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", clicks:s.clicks!=null?String(s.clicks):"", source:"snap", snapshotKey:key };
+  }
   return { impressions:c.impressions||"", ctr:c.ctr||"", cpm:c.cpm||"", spend:c.spend||"", clicks:c.clicks||"", source:key?"manual-no-snapshot":"manual", snapshotKey:key };
 }
 
@@ -539,6 +543,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
             {resolved.source==="ttd" && <span style={{fontSize:10,color:"#a78bfa",background:"#1a0e38",border:"1px solid #7c3aed40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ TTD</span>}
             {resolved.source==="dsp" && <span style={{fontSize:10,color:"#34d399",background:"#001a10",border:"1px solid #34d39940",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ DSP</span>}
             {resolved.source==="google" && <span style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Google</span>}
+            {resolved.source==="snap" && <span style={{fontSize:10,color:"#f9a8d4",background:"#1a0010",border:"1px solid #f9a8d440",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Snap</span>}
             {resolved.source==="manual-no-snapshot" && <span title="No Meta snapshot for this date range — showing manually saved values" style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⚠ No snapshot · manual data</span>}
           </div>
           {(()=>{
@@ -1641,7 +1646,7 @@ function RevenueDashboard({ campaigns=[] }) {
 
   // Use synced MTD spend if available, otherwise fall back to manually entered spend
   function resolveSpend(c) {
-    const mtd = c.metaSnapshots?.mtd?.spend ?? c.ttdSnapshots?.mtd?.spend ?? c.dspSnapshots?.mtd?.spend ?? c.googleSnapshots?.mtd?.spend;
+    const mtd = c.metaSnapshots?.mtd?.spend ?? c.ttdSnapshots?.mtd?.spend ?? c.dspSnapshots?.mtd?.spend ?? c.googleSnapshots?.mtd?.spend ?? c.snapSnapshots?.mtd?.spend;
     if (mtd != null) return mtd;
     return parseFloat(c.spend) || 0;
   }
@@ -1862,10 +1867,12 @@ function PlatformConfig({ campaigns=[] }) {
   const ttdActive  = campaigns.filter(c=>c.platform==="TD"  && c.status==="active");
   const dspActive    = campaigns.filter(c=>c.platform==="DSP" && c.status==="active");
   const googleActive = campaigns.filter(c=>["SEM","YT"].includes(c.platform) && c.status==="active");
+  const snapActive   = campaigns.filter(c=>c.platform==="SP" && c.status==="active");
   const metaFiltered = q ? metaActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)) : metaActive;
   const ttdFiltered  = q ? ttdActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q))  : ttdActive;
   const dspFiltered    = q ? dspActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q))    : dspActive;
   const googleFiltered = q ? googleActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)) : googleActive;
+  const snapFiltered   = q ? snapActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q))   : snapActive;
 
   // Group by partner
   function groupByPartner(list) {
@@ -1911,6 +1918,19 @@ function PlatformConfig({ campaigns=[] }) {
         meta_account_id: getVal(`meta.campaigns.${c.id}.account_id`) || "act_REPLACE_ME",
         meta_campaign_ids: (getVal(`meta.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean).length>0
           ? (getVal(`meta.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean)
+          : ["REPLACE_ME"],
+      }))
+    };
+  }
+  function buildSnapConfig(){
+    return {
+      _comment: "One entry per tracker row. snap_ad_account_id is the ad account UUID from Snap Ads Manager URL. snap_campaign_ids are campaign UUIDs — one per line.",
+      campaigns: snapActive.map(c=>({
+        tracker_id: c.id,
+        tracker_name: `${c.campaignName.trim()} (SP)`,
+        snap_ad_account_id: getVal(`snap.campaigns.${c.id}.ad_account_id`) || "REPLACE_ME",
+        snap_campaign_ids: (getVal(`snap.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean).length>0
+          ? (getVal(`snap.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean)
           : ["REPLACE_ME"],
       }))
     };
@@ -1977,11 +1997,17 @@ function PlatformConfig({ campaigns=[] }) {
     const ids  = (getVal(`google.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean);
     return !!(cid && !cid.includes("REPLACE") && ids.length>0);
   }
+  function snapComplete(c){
+    const aid = getVal(`snap.campaigns.${c.id}.ad_account_id`);
+    const ids  = (getVal(`snap.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean);
+    return !!(aid && !aid.includes("REPLACE") && ids.length>0);
+  }
 
   const metaDone = metaActive.filter(metaComplete).length;
   const ttdDone  = ttdActive.filter(ttdComplete).length;
   const dspDone    = dspActive.filter(dspComplete).length;
   const googleDone = googleActive.filter(googleComplete).length;
+  const snapDone   = snapActive.filter(snapComplete).length;
   const metaToken    = getVal("meta.credentials.token");
   const ttdLogin     = getVal("ttd.credentials.login");
   const ttdPass      = getVal("ttd.credentials.password");
@@ -1993,7 +2019,10 @@ function PlatformConfig({ campaigns=[] }) {
   const googleDevToken  = getVal("google.credentials.developer_token");
   const googleClientId  = getVal("google.credentials.client_id");
   const googleClientSec = getVal("google.credentials.client_secret");
-  const googleRefresh   = getVal("google.credentials.refresh_token");
+  const googleRefresh    = getVal("google.credentials.refresh_token");
+  const snapClientId    = getVal("snap.credentials.client_id");
+  const snapClientSec   = getVal("snap.credentials.client_secret");
+  const snapRefresh     = getVal("snap.credentials.refresh_token");
 
   // Shared styles
   const iS = {background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,width:"100%",boxSizing:"border-box",fontFamily:"inherit",outline:"none"};
@@ -2054,7 +2083,7 @@ function PlatformConfig({ campaigns=[] }) {
     const anyDone = pCampaigns.some(completeCheck);
     // Representative account value (first configured, or first)
     const repId   = pCampaigns[0]?.id;
-    const repAccKey = platform==="meta" ? "account_id" : platform==="dsp" ? "advertiser_uuid" : platform==="google" ? "customer_id" : "advertiser_id";
+    const repAccKey = platform==="meta" ? "account_id" : platform==="dsp" ? "advertiser_uuid" : platform==="google" ? "customer_id" : platform==="snap" ? "ad_account_id" : "advertiser_id";
     const repAccVal = getVal(`${platform}.campaigns.${repId}.${repAccKey}`);
 
     return (
@@ -2100,6 +2129,7 @@ function PlatformConfig({ campaigns=[] }) {
         {sectionBtn("ttd","The Trade Desk (TD)","📡")}
         {sectionBtn("dsp","DSP","🖥️")}
         {sectionBtn("google","Google Ads (SEM / YT)","🔍")}
+        {sectionBtn("snap","Snapchat (SP)","👻")}
         {sectionBtn("setup","GitHub Setup Guide","🛠️")}
         {/* Download button — sits right next to Setup Guide, only on non-setup sections */}
         {activeSection==="meta" && metaActive.length>0 && (
@@ -2122,6 +2152,12 @@ function PlatformConfig({ campaigns=[] }) {
         )}
         {activeSection==="google" && googleActive.length>0 && (
           <button title="Download google_ads_config.json" onClick={()=>downloadJSON("google_ads_config.json", buildGoogleConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            <span style={{fontSize:16}}>⬇</span>Config
+          </button>
+        )}
+        {activeSection==="snap" && snapActive.length>0 && (
+          <button title="Download snap_config.json" onClick={()=>downloadJSON("snap_config.json", buildSnapConfig())}
             style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
             <span style={{fontSize:16}}>⬇</span>Config
           </button>
@@ -2369,6 +2405,69 @@ function PlatformConfig({ campaigns=[] }) {
         }
       </div>}
 
+      {/* ── SNAPCHAT ── */}
+      {activeSection==="snap"&&<div>
+        {/* Approval warning */}
+        <div style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:8,padding:"12px 16px",marginBottom:16,display:"flex",gap:10,alignItems:"flex-start"}}>
+          <span style={{fontSize:18,flexShrink:0}}>⚠️</span>
+          <div>
+            <div style={{fontSize:12,fontWeight:700,color:"#f59e0b",marginBottom:3}}>Snapchat API approval required before this will work</div>
+            <div style={{fontSize:11,color:"#92400e",lineHeight:1.5}}>Submit your app for review at <span style={{color:"#fbbf24"}}>developers.snap.com</span> → My Apps → New App. Request <strong>snapchat-marketing-api</strong> scope. Approval takes 2–5 business days. See the Snapchat API Setup Guide for full instructions.</div>
+          </div>
+        </div>
+
+        {/* Credentials */}
+        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+            🔑 Snapchat API Credentials
+            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+            <div>
+              <label style={labelS}>OAuth2 Client ID</label>
+              <input value={snapClientId} onChange={e=>setVal("snap.credentials.client_id",e.target.value)}
+                placeholder="From developers.snap.com → My Apps" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Snap Developer Portal → your app → Client ID</div>
+            </div>
+            <div>
+              <label style={labelS}>OAuth2 Client Secret</label>
+              <input type="password" value={snapClientSec} onChange={e=>setVal("snap.credentials.client_secret",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Same app page as Client ID</div>
+            </div>
+            <div>
+              <label style={labelS}>Refresh Token</label>
+              <input type="password" value={snapRefresh} onChange={e=>setVal("snap.credentials.refresh_token",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Generated via OAuth flow — see setup guide. Expires after 12 months.</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+            <div style={{background:snapDone===snapActive.length&&snapActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:snapActive.length>0?(snapDone/snapActive.length*100)+"%":"0%",transition:"width .3s"}}/>
+          </div>
+          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{snapDone} / {snapActive.length} campaigns configured</span>
+          {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {snapFiltered.length} match{snapFiltered.length!==1?"es":""}</span>}
+        </div>
+
+        {/* Grouped campaigns */}
+        {snapFiltered.length===0
+          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active SP campaigns found."}</div>
+          : groupByPartner(snapFiltered).map(([partner, pCampaigns])=>(
+            <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="snap"
+              completeCheck={snapComplete}
+              accountLabel="Ad Account ID"
+              accountPlaceholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              accountHint="Snap Ads Manager URL → ads.snapchat.com/v2/accounts/YOUR-ID/..."
+              idHint="Snap Ads Manager → click a campaign → UUID in the URL"
+              accountFieldKey="ad_account_id"/>
+          ))
+        }
+      </div>}
+
       {/* ── SETUP GUIDE ── */}
       {activeSection==="setup"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
         {[
@@ -2391,6 +2490,7 @@ function PlatformConfig({ campaigns=[] }) {
               "Add: DSP_AWS_ACCESS_KEY_ID, DSP_AWS_SECRET_ACCESS_KEY, DSP_API_KEY — from your DSP rep (from the DSP tab above)",
               "Add: DSP_AWS_SESSION_TOKEN only if your rep issued temporary IAM credentials",
               "Add: GOOGLE_ADS_DEVELOPER_TOKEN, GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN, GOOGLE_ADS_LOGIN_CUSTOMER_ID (your MCC ID) — from the Google Ads tab above",
+              "Add: SNAP_CLIENT_ID, SNAP_CLIENT_SECRET, SNAP_REFRESH_TOKEN — from the Snapchat tab above (requires API approval first)",
               "These are encrypted and only visible to GitHub Actions — never to anyone else",
             ]
           },
@@ -2499,6 +2599,8 @@ export default function App() {
   const [dspSyncInfo,      setDspSyncInfo]      = useState(null);
   const [googleSyncStatus, setGoogleSyncStatus] = useState(null);
   const [googleSyncInfo,   setGoogleSyncInfo]   = useState(null);
+  const [snapSyncStatus,   setSnapSyncStatus]   = useState(null);
+  const [snapSyncInfo,     setSnapSyncInfo]     = useState(null);
   useEffect(()=>{
     async function syncMeta() {
       setMetaSyncStatus("syncing");
@@ -2592,10 +2694,34 @@ export default function App() {
         setGoogleSyncInfo({error:e.message});
       }
     }
+    async function syncSnap() {
+      setSnapSyncStatus("syncing");
+      try {
+        const resp = await fetch("snap_campaigns.json?t="+Date.now());
+        if (!resp.ok) throw new Error("snap_campaigns.json not found");
+        const data = await resp.json();
+        if (!data.campaigns||data.campaigns.length===0) { setSnapSyncStatus("done"); setSnapSyncInfo({last_updated:data.last_updated,fetched_count:0}); return; }
+        const snapMap={};
+        data.campaigns.forEach(c=>{ snapMap[c.tracker_id]=c; });
+        const syncedAt=data.last_updated||new Date().toISOString();
+        setCampaigns(cs=>cs.map(campaign=>{
+          const s=snapMap[campaign.id];
+          if (!s||!s.snapshots) return campaign;
+          return {...campaign, snapSnapshots:s.snapshots, snapSyncedAt:syncedAt};
+        }));
+        setSnapSyncStatus("done");
+        setSnapSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count});
+      } catch(e) {
+        console.warn("Snap sync skipped:",e.message);
+        setSnapSyncStatus("error");
+        setSnapSyncInfo({error:e.message});
+      }
+    }
     syncMeta();
     syncTTD();
     syncDSP();
     syncGoogle();
+    syncSnap();
   },[]);
 
   function addLog(entry) {
@@ -2817,6 +2943,9 @@ export default function App() {
             {googleSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing Google…</span>}
             {googleSyncStatus==="done" && googleSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(googleSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a1000",border:"1px solid #f59e0b40",color:"#f59e0b",fontWeight:600,cursor:"default"}}>⬡ Google: {googleSyncInfo.fetched_count} synced</span>}
             {googleSyncStatus==="error" && <span title={googleSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Google sync —</span>}
+            {snapSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing Snap…</span>}
+            {snapSyncStatus==="done" && snapSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(snapSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0010",border:"1px solid #f9a8d440",color:"#f9a8d4",fontWeight:600,cursor:"default"}}>⬡ Snap: {snapSyncInfo.fetched_count} synced</span>}
+            {snapSyncStatus==="error" && <span title={snapSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Snap sync —</span>}
           </div>
           <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
             <button onClick={()=>setShowReminderModal(true)} style={{position:"relative",background:pendingReminders>0?"#130a00":"#0e1a2e",border:`1px solid ${pendingReminders>0?"#f59e0b60":"#1e293b"}`,borderRadius:7,padding:"6px 13px",color:pendingReminders>0?"#f59e0b":"#4d6e8a",fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
