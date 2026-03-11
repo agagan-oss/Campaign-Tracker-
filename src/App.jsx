@@ -2100,42 +2100,41 @@ function PlatformConfig({ campaigns=[] }) {
         {sectionBtn("dsp","DSP","🖥️")}
         {sectionBtn("google","Google Ads (SEM / YT)","🔍")}
         {sectionBtn("setup","GitHub Setup Guide","🛠️")}
+        {/* Download button — sits right next to Setup Guide, only on non-setup sections */}
+        {activeSection==="meta" && metaActive.length>0 && (
+          <button onClick={()=>downloadJSON("meta_config.json", buildMetaConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
+            <span style={{fontSize:16}}>⬇</span>meta_config.json
+          </button>
+        )}
+        {activeSection==="ttd" && ttdActive.length>0 && (
+          <button onClick={()=>downloadJSON("ttd_config.json", buildTTDConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
+            <span style={{fontSize:16}}>⬇</span>ttd_config.json
+          </button>
+        )}
+        {activeSection==="dsp" && dspActive.length>0 && (
+          <button onClick={()=>downloadJSON("dsp_config.json", buildDSPConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
+            <span style={{fontSize:16}}>⬇</span>dsp_config.json
+          </button>
+        )}
+        {activeSection==="google" && googleActive.length>0 && (
+          <button onClick={()=>downloadJSON("google_ads_config.json", buildGoogleConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
+            <span style={{fontSize:16}}>⬇</span>google_ads_config.json
+          </button>
+        )}
+        {/* Search — left side after download button, hidden on Setup Guide */}
         {activeSection!=="setup" && (
-          <>
-            <div style={{marginLeft:"auto",position:"relative"}}>
-              <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#3d5a72",fontSize:13,pointerEvents:"none"}}>🔍</span>
-              <input
-                value={search} onChange={e=>setSearch(e.target.value)}
-                placeholder="Search campaigns…"
-                style={{...iS,width:200,paddingLeft:30,background:"#0a1422"}}/>
-              {search && <button onClick={()=>setSearch("")}
-                style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}
-            </div>
-            {activeSection==="meta" && metaActive.length>0 && (
-              <button onClick={()=>downloadJSON("meta_config.json", buildMetaConfig())}
-                style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"8px 16px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
-                ⬇ meta_config.json
-              </button>
-            )}
-            {activeSection==="ttd" && ttdActive.length>0 && (
-              <button onClick={()=>downloadJSON("ttd_config.json", buildTTDConfig())}
-                style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"8px 16px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
-                ⬇ ttd_config.json
-              </button>
-            )}
-            {activeSection==="dsp" && dspActive.length>0 && (
-              <button onClick={()=>downloadJSON("dsp_config.json", buildDSPConfig())}
-                style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"8px 16px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
-                ⬇ dsp_config.json
-              </button>
-            )}
-            {activeSection==="google" && googleActive.length>0 && (
-              <button onClick={()=>downloadJSON("google_ads_config.json", buildGoogleConfig())}
-                style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"8px 16px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
-                ⬇ google_ads_config.json
-              </button>
-            )}
-          </>
+          <div style={{position:"relative",marginLeft:4}}>
+            <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#3d5a72",fontSize:13,pointerEvents:"none"}}>🔍</span>
+            <input value={search} onChange={e=>setSearch(e.target.value)}
+              placeholder="Search campaigns…"
+              style={{...iS,width:200,paddingLeft:30,background:"#0a1422"}}/>
+            {search && <button onClick={()=>setSearch("")}
+              style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}
+          </div>
         )}
       </div>
 
