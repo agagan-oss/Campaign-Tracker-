@@ -1989,6 +1989,7 @@ function PlatformConfig({ campaigns=[] }) {
   const dspSecretKey    = getVal("dsp.credentials.secret_key");
   const dspSession      = getVal("dsp.credentials.session_token");
   const dspApiKey       = getVal("dsp.credentials.api_key");
+  const googleMccId     = getVal("google.credentials.mcc_id");
   const googleDevToken  = getVal("google.credentials.developer_token");
   const googleClientId  = getVal("google.credentials.client_id");
   const googleClientSec = getVal("google.credentials.client_secret");
@@ -2306,6 +2307,17 @@ function PlatformConfig({ campaigns=[] }) {
               style={{color:"#60a5fa",textDecoration:"none"}}>Setup guide →</a>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div style={{gridColumn:"1 / -1",background:"#07101c",borderRadius:7,padding:"10px 14px",display:"flex",alignItems:"center",gap:12}}>
+              <div style={{flex:1}}>
+                <label style={labelS}>MCC Manager Account ID</label>
+                <input value={googleMccId} onChange={e=>setVal("google.credentials.mcc_id",e.target.value)}
+                  placeholder="1234567890  (no dashes)" style={{...iS,fontFamily:"monospace"}}/>
+                <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Your top-level manager account ID — Google Ads UI → account switcher → MCC account number</div>
+              </div>
+              <div style={{fontSize:11,color:"#4d6e8a",maxWidth:220,lineHeight:1.4}}>
+                Since you have an MCC, one set of credentials covers all client accounts. Each campaign card below just needs the client's customer ID.
+              </div>
+            </div>
             <div>
               <label style={labelS}>Developer Token</label>
               <input type="password" value={googleDevToken} onChange={e=>setVal("google.credentials.developer_token",e.target.value)}
@@ -2378,7 +2390,7 @@ function PlatformConfig({ campaigns=[] }) {
               "Add: TTD_LOGIN and TTD_PASSWORD — your TTD API credentials (from the TTD tab above)",
               "Add: DSP_AWS_ACCESS_KEY_ID, DSP_AWS_SECRET_ACCESS_KEY, DSP_API_KEY — from your DSP rep (from the DSP tab above)",
               "Add: DSP_AWS_SESSION_TOKEN only if your rep issued temporary IAM credentials",
-              "Add: GOOGLE_ADS_DEVELOPER_TOKEN, GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN — from the Google Ads tab above",
+              "Add: GOOGLE_ADS_DEVELOPER_TOKEN, GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN, GOOGLE_ADS_LOGIN_CUSTOMER_ID (your MCC ID) — from the Google Ads tab above",
               "These are encrypted and only visible to GitHub Actions — never to anyone else",
             ]
           },
