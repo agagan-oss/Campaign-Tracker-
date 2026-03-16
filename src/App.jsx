@@ -215,7 +215,7 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
       {/* Calendar grid */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
         {cells.map((d,i) => {
-          if (!d) return <div key={"e"+i} style={{minHeight:110,background:"#06090f",borderRadius:7,border:"1px solid #0d1525"}}/>;
+          if (!d) return <div key={"e"+i} style={{height:110,background:"#06090f",borderRadius:7,border:"1px solid #0d1525"}}/>;
           const ds = dateStr(d);
           const isToday = ds===today;
           const isPast = ds<today;
@@ -225,8 +225,8 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
             <div key={d} onClick={()=>setSelected(selected===d?null:d)}
               style={{background:selected===d?"#002e24":isToday?"#0c1e30":"#0a1525",
                 border:`1px solid ${selected===d?"#00c896":isToday?"#00c89650":hasOverdue?"#ef444430":"#1e293b"}`,
-                borderRadius:7,padding:"8px 7px",minHeight:110,
-                display:"flex",flexDirection:"column",gap:3,cursor:"pointer"}}>
+                borderRadius:7,padding:"8px 7px",height:110,
+                display:"flex",flexDirection:"column",gap:3,cursor:"pointer",overflow:"hidden"}}>
               {/* Date number + add button */}
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
                 <span style={{fontSize:13,fontWeight:isToday?700:500,
