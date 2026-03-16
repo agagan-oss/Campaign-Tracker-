@@ -241,33 +241,32 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
                     fontSize:14,lineHeight:1,padding:"0 2px",opacity:0,transition:"opacity .15s"}}
                   className="cal-add-btn">+</button>
               </div>
-              {/* Reminder chips */}
+              {/* Reminder chips — compact single-line with campaign name */}
               <div style={{display:"flex",flexDirection:"column",gap:2,flex:1}}>
                 {dayRems.slice(0,3).map(r => {
                   const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
-                  const camp = r.campaignId ? null : null; // campaign name lookup not needed here
+                  const camp = campaigns.find(c=>c.id===r.campaignId);
                   return (
-                    <div key={r.id}
+                    <div key={r.id} title={[rt.label, camp?.campaignName?.trim(), r.note].filter(Boolean).join(' · ')}
                       style={{background:isPast?"#1a0808":(rt.color+"15"),
                         border:`1px solid ${isPast?"#ef444430":(rt.color+"40")}`,
                         borderRadius:4,padding:"2px 5px",
-                        display:"flex",alignItems:"flex-start",gap:4}}>
-                      <div style={{width:6,height:6,borderRadius:"50%",
-                        background:isPast?"#ef4444":rt.color,
-                        flexShrink:0,marginTop:3}}/>
-                      <div style={{minWidth:0,flex:1}}>
-                        <div style={{fontSize:10,fontWeight:700,
-                          color:isPast?"#ef4444":rt.color,
-                          lineHeight:1.3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-                          {rt.label.replace(/^\S+\s/,"")}
-                        </div>
-                        {r.note&&<div style={{fontSize:9,color:"#4d6e8a",lineHeight:1.3,
-                          whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",
-                          maxWidth:"100%"}}>{r.note}</div>}
-                      </div>
-                      <button onClick={e=>{e.stopPropagation();setReminders(prev=>prev.filter(x=>x.id!==r.id));}}
-                        style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",
-                          fontSize:10,lineHeight:1,padding:0,flexShrink:0,opacity:0.6}}>×</button>
+                        display:"flex",alignItems:"center",gap:3,overflow:"hidden"}}>
+                      <div style={{width:5,height:5,borderRadius:"50%",
+                        background:isPast?"#ef4444":rt.color,flexShrink:0}}/>
+                      <span style={{fontSize:9,fontWeight:700,
+                        color:isPast?"#ef4444":rt.color,
+                        whiteSpace:"nowrap",flexShrink:0}}>
+                        {rt.label.replace(/^\S+\s/,"")}
+                      </span>
+                      {camp && <span style={{fontSize:9,color:"#00e5a0",
+                        whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:1}}>
+                        · {camp.campaignName.trim()}
+                      </span>}
+                      {!camp && r.note && <span style={{fontSize:9,color:"#4d6e8a",
+                        whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:1}}>
+                        {r.note}
+                      </span>}
                     </div>
                   );
                 })}
