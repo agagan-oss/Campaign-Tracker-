@@ -614,11 +614,11 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                   </div>
                 ) : (
                   <div style={{display:"flex",alignItems:"center",gap:8,background:isPast?"#1a0808":"#0a1628",border:`1px solid ${isPast?"#ef444430":rt.color+"30"}`,borderRadius:5,padding:"5px 10px"}}>
+                    <button onClick={()=>startEditReminder(r)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:4,color:"#00e5a0",cursor:"pointer",fontSize:10,padding:"1px 6px",fontWeight:600,flexShrink:0}}>Edit</button>
+                    <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:12,lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>
                     <span style={{fontSize:11,color:isPast?"#ef4444":rt.color,fontWeight:600}}>{rt.label}</span>
                     {r.note&&<span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{r.note}</span>}
-                    <span style={{fontSize:11,color:"#3d5a72",fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
-                    <button onClick={()=>startEditReminder(r)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:4,color:"#00e5a0",cursor:"pointer",fontSize:10,padding:"1px 6px",fontWeight:600}}>Edit</button>
-                    <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:12,lineHeight:1,padding:"0 2px"}}>×</button>
+                    <span style={{fontSize:11,color:"#3d5a72",fontFamily:"monospace",whiteSpace:"nowrap",marginLeft:"auto"}}>{fmtDate(r.date)}</span>
                   </div>
                 )}
               </div>
@@ -712,22 +712,22 @@ function DateBar({ range, setRange }) {
 
 function CampaignArchive({ archive, onRestore, onClear }) {
   const [search, setSearch] = useState("");
-  const [fPartner, setFPartner] = useState("all");
-  const [fPlatform, setFPlatform] = useState("all");
-  const [fStatus, setFStatus] = useState("all");
-  const [fEnded, setFEnded] = useState("all");
   const [expanded, setExpanded] = useState(new Set());
 
-  const partners  = [...new Set(archive.map(c=>c.mediaPartner))].sort();
-  const platforms = [...new Set(archive.map(c=>c.platform))].sort();
+  // Build month tabs from endDate, most recent first
+  const monthKeys = [...new Set(
+    archive.map(c => (c.endDate||"").slice(0,7)).filter(Boolean)
+  )].sort().reverse();
 
-  const today = getToday();
-  function endedCutoff(preset) {
-    const d = new Date(); d.setHours(0,0,0,0);
-    if (preset==="30") { d.setDate(d.getDate()-30); return d.toISOString().slice(0,10); }
-    if (preset==="60") { d.setDate(d.getDate()-60); return d.toISOString().slice(0,10); }
-    if (preset==="90") { d.setDate(d.getDate()-90); return d.toISOString().slice(0,10); }
-    return null;
+  const [activeMonth, setActiveMonth] = useState(() => monthKeys[0] || "");
+
+  // Keep activeMonth in sync if archive changes
+  const effectiveMonth = monthKeys.includes(activeMonth) ? activeMonth : (monthKeys[0]||"");
+
+  function monthLabel(ym) {
+    if (!ym) return "";
+    const [y,m] = ym.split("-");
+    return new Date(parseInt(y), parseInt(m)-1, 1).toLocaleDateString("en-US",{month:"long",year:"numeric"});
   }
 
   const filtered = archive.filter(c => {
@@ -740,16 +740,11 @@ function CampaignArchive({ archive, onRestore, onClear }) {
       || (c.note2||"").toLowerCase().includes(q)
       || (c.endDate||"").includes(q)
       || (c.history||"").toLowerCase().includes(q);
-    const cutoff = endedCutoff(fEnded);
-    const inRange = !cutoff || c.endDate >= cutoff;
-    return ms
-      && (fPartner==="all"||c.mediaPartner===fPartner)
-      && (fPlatform==="all"||c.platform===fPlatform)
-      && (fStatus==="all"||(c.status||"")===fStatus)
-      && inRange;
+    const inMonth = (c.endDate||"").slice(0,7) === effectiveMonth;
+    return ms && inMonth;
   });
 
-  // Group by media partner
+  // Group by media partner within the active month
   const groups = {};
   filtered.forEach(c => {
     if (!groups[c.mediaPartner]) groups[c.mediaPartner] = [];
@@ -762,57 +757,46 @@ function CampaignArchive({ archive, onRestore, onClear }) {
 
   return (
     <div style={{padding:"0 0 40px"}}>
-      {/* Toolbar */}
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:16}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, partner, goal, notes…"
-          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 13px",color:"#d8eaf8",fontSize:13,width:260}}/>
-        <select value={fPartner} onChange={e=>setFPartner(e.target.value)}
-          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 11px",color:"#7a9bbf",fontSize:13}}>
-          <option value="all">All Partners</option>
-          {partners.map(p=><option key={p}>{p}</option>)}
-        </select>
-        <select value={fPlatform} onChange={e=>setFPlatform(e.target.value)}
-          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 11px",color:"#7a9bbf",fontSize:13}}>
-          <option value="all">All Platforms</option>
-          {platforms.map(p=><option key={p}>{p}</option>)}
-        </select>
-        <select value={fStatus} onChange={e=>setFStatus(e.target.value)}
-          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 11px",color:"#7a9bbf",fontSize:13}}>
-          <option value="all">All Statuses</option>
-          {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-        </select>
-        <select value={fEnded} onChange={e=>setFEnded(e.target.value)}
-          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 11px",color:"#7a9bbf",fontSize:13}}>
-          <option value="all">Any End Date</option>
-          <option value="30">Ended within 30 days</option>
-          <option value="60">Ended within 60 days</option>
-          <option value="90">Ended within 90 days</option>
-        </select>
-        {(search||fPartner!=="all"||fPlatform!=="all"||fStatus!=="all"||fEnded!=="all") && (
-          <button onClick={()=>{setSearch("");setFPartner("all");setFPlatform("all");setFStatus("all");setFEnded("all");}}
-            style={{background:"none",border:"1px solid #334155",borderRadius:6,padding:"4px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
-            Clear filters
-          </button>
-        )}
-        <span style={{fontSize:11,color:"#3d5a72",marginLeft:4}}>{filtered.length} of {archive.length} archived campaign{archive.length!==1?"s":""}</span>
-        {archive.length>0 && (
-          <button onClick={()=>{ if(window.confirm("Clear the entire archive? This cannot be undone.")) onClear(); }}
-            style={{marginLeft:"auto",background:"#1a0808",border:"1px solid #ef444440",borderRadius:6,padding:"4px 11px",color:"#ef4444",fontSize:11,cursor:"pointer"}}>
-            Clear Archive
-          </button>
-        )}
-      </div>
-
-      {filtered.length === 0 ? (
+      {archive.length === 0 ? (
         <div style={{textAlign:"center",padding:"60px 0",color:"#3d5a72"}}>
           <div style={{fontSize:32,marginBottom:10}}>🗄️</div>
-          <div style={{fontSize:13}}>{archive.length===0
-            ? "No archived campaigns yet. Campaigns that ended 60+ days ago will move here automatically."
-            : "No campaigns match your filters."}</div>
+          <div style={{fontSize:13}}>No archived campaigns yet. Campaigns that ended 60+ days ago will move here automatically.</div>
         </div>
-      ) : (
-        <div>
-          {Object.entries(groups).map(([partner, camps]) => (
+      ) : (<>
+        {/* Month tabs + search + clear */}
+        <div style={{display:"flex",alignItems:"center",gap:0,marginBottom:16,borderBottom:"1px solid #1e293b",flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:0,flexWrap:"wrap",flex:1}}>
+            {monthKeys.map(mk => {
+              const count = archive.filter(c=>(c.endDate||"").slice(0,7)===mk).length;
+              const active = mk===effectiveMonth;
+              return (
+                <button key={mk} onClick={()=>setActiveMonth(mk)}
+                  style={{background:"none",border:"none",borderBottom:active?"2px solid #00e5a0":"2px solid transparent",
+                    padding:"9px 18px",color:active?"#00e5a0":"#4d6e8a",fontSize:13,fontWeight:active?700:400,
+                    cursor:"pointer",marginBottom:-1,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
+                  {monthLabel(mk)}
+                  <span style={{background:active?"#00e5a020":"#0e1a2e",border:`1px solid ${active?"#00e5a040":"#1e293b"}`,
+                    borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700,color:active?"#00e5a0":"#3d5a72"}}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center",padding:"0 0 8px 8px"}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…"
+              style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"6px 12px",color:"#d8eaf8",fontSize:12,width:180}}/>
+            {search && <button onClick={()=>setSearch("")} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13}}>×</button>}
+            <button onClick={()=>{ if(window.confirm("Clear the entire archive? This cannot be undone.")) onClear(); }}
+              style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:6,padding:"5px 11px",color:"#ef4444",fontSize:11,cursor:"pointer"}}>
+              Clear Archive
+            </button>
+          </div>
+        </div>
+
+        {filtered.length === 0 ? (
+          <div style={{textAlign:"center",padding:"40px 0",color:"#3d5a72",fontSize:13}}>No campaigns match your search.</div>
+        ) : (
+          <div>
+            {Object.entries(groups).map(([partner, camps]) => (
             <div key={partner} style={{marginBottom:20}}>
               <div style={{fontSize:11,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",
                 marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
@@ -907,8 +891,9 @@ function CampaignArchive({ archive, onRestore, onClear }) {
               </div>
             </div>
           ))}
-        </div>
-      )}
+          </div>
+        )}
+      </>)}
     </div>
   );
 }
@@ -1176,9 +1161,9 @@ function ActivityLog({ log, campaigns, onClear, onUndo }) {
               </div>
             </div>
           ))}
-        </div>
-      )}
-    </div>
+          </div>
+        )}
+      </div>
   );
 }
 
@@ -1824,9 +1809,9 @@ function RevenueDashboard({ campaigns=[] }) {
               <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:"#7a9bbf"}}>{moRevenue>0?$f(moRevenue):"—"}</div>
             </div>
           ))}
-        </div>
-      )}
-    </div>
+          </div>
+        )}
+      </div>
   );
 }
 
@@ -2575,6 +2560,8 @@ export default function App() {
   const [showReminderModal, setShowReminderModal]   = useState(false);
   const [saved, setSaved]         = useState(false);
   const [expanded, setExpanded]   = useState(new Set());
+  const [groupByClient, setGroupByClient]       = useState(false);
+  const [collapsedClients, setCollapsedClients] = useState(new Set());
   const [dragId, setDragId]       = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
   const [dateRange, setDateRange] = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
@@ -2818,6 +2805,7 @@ export default function App() {
   const pendingReminders = reminders.filter(r=>!r.dismissed&&r.date<=today).length;
 
   function toggleExpand(id){ setExpanded(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; }); }
+  function toggleClient(name){ setCollapsedClients(prev=>{ const n=new Set(prev); n.has(name)?n.delete(name):n.add(name); return n; }); }
   function onDragStart(id){ setDragId(id); }
   function onDragOver(e,id){ e.preventDefault(); setDragOverId(id); }
   function onDrop(e,targetId){
@@ -3031,11 +3019,12 @@ export default function App() {
         {/* Filters */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…" style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"8px 14px",color:"#d8eaf8",fontSize:14,width:280}}/>
-          <select value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":"all")} onChange={e=>{ if(e.target.value==="__monthly__"){setFMonthly(true);setFStatus("all");setSortKey("endDate");}else if(e.target.value==="__reminder__"){setFMonthly(false);setFStatus("all");setSortKey("reminder");}else{setFMonthly(false);setFStatus(e.target.value);if(sortKey==="reminder")setSortKey("endDate");} }} style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder")?700:400}}>
+          <select value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":"all")} onChange={e=>{ if(e.target.value==="__monthly__"){setFMonthly(true);setFStatus("all");setSortKey("endDate");setGroupByClient(false);}else if(e.target.value==="__reminder__"){setFMonthly(false);setFStatus("all");setSortKey("reminder");setGroupByClient(false);}else if(e.target.value==="__grouped__"){setFMonthly(false);setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(true);}else{setFMonthly(false);setFStatus(e.target.value);if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(false);} }} style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient)?700:400}}>
             <option value="all">All Statuses</option>
             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
             <option value="__monthly__">★ Monthly Flights</option>
             <option value="__reminder__">🔔 Has Reminder</option>
+            <option value="__grouped__">👥 Group by Client</option>
           </select>
           <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
           <span style={{fontSize:11,color:"#3d5a72"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
@@ -3061,7 +3050,115 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((c,i) => {
+                {groupByClient ? (() => {
+                  // ── GROUPED MODE ──────────────────────────────────────────
+                  const clientMap = new Map();
+                  filtered.forEach(c => {
+                    const key = c.campaignName.trim();
+                    if (!clientMap.has(key)) clientMap.set(key, []);
+                    clientMap.get(key).push(c);
+                  });
+                  const rows = [];
+                  clientMap.forEach((camps, clientName) => {
+                    const isCollapsed = collapsedClients.has(clientName);
+                    const partner     = camps[0].mediaPartner;
+                    const platforms   = [...new Set(camps.map(c => c.platform))];
+                    const endDates    = camps.map(c => c.endDate).filter(Boolean).sort();
+                    const earliestEnd = endDates[0] || "";
+                    const dLeft       = earliestEnd ? getDaysLeft(earliestEnd) : null;
+                    const drc         = dLeft==null?"#4d6e8a":dLeft<0?"#6b7280":dLeft<=14?"#ef4444":dLeft<=30?"#f59e0b":"#00d48a";
+                    const hasReminder = camps.some(c => reminders.some(r => !r.dismissed && r.campaignId===c.id && r.date<=today));
+                    const statuses    = camps.map(c => c.status||"active");
+                    const groupStatus = statuses.every(s=>s==="off")?"off":statuses.some(s=>s==="pacing-behind")?"pacing-behind":statuses.some(s=>s==="pacing-ahead")?"pacing-ahead":"active";
+                    const scfg        = STATUS_CFG[groupStatus]||STATUS_CFG.active;
+                    const totalContract = camps.reduce((s,c) => s+(parseFloat(c.contractValue)||0), 0);
+                    const PLT = {FB:"#1877f2",FBV:"#1877f2",IG:"#e1306c",TT:"#ff0050",CTV:"#00b4d8",OTT:"#0096c7",DSP:"#7c3aed",TD:"#a78bfa",SP:"#fffc00",SEM:"#4285f4",YT:"#ff0000",EMAIL:"#0ea5e9",default:"#4d6e8a"};
+                    // Client header row
+                    rows.push(
+                      <tr key={`grp-${clientName}`} onClick={()=>toggleClient(clientName)}
+                        style={{background:"#07101c",cursor:"pointer",borderTop:"2px solid #1e3a5f"}}>
+                        <td colSpan={2} style={{padding:"0 0 0 12px",borderBottom:"1px solid #1e293b"}}>
+                          <span style={{color:"#3d5a72",fontSize:11,userSelect:"none"}}>{isCollapsed?"▶":"▼"}</span>
+                        </td>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
+                          <span style={{color:"#a8c4e0",fontWeight:600,fontSize:13}}>{partner}</span>
+                        </td>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+                            <span style={{color:"#edf4ff",fontWeight:700,fontSize:13}}>{clientName}</span>
+                            {hasReminder && <span style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700}}>🔔</span>}
+                            {platforms.map(p=>(
+                              <span key={p} style={{fontSize:10,background:(PLT[p]||PLT.default)+"22",border:`1px solid ${(PLT[p]||PLT.default)}40`,borderRadius:4,padding:"1px 6px",color:PLT[p]||PLT.default,fontWeight:600}}>{p}</span>
+                            ))}
+                          </div>
+                        </td>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}/>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
+                          <span style={{background:scfg.bg,color:scfg.color,border:`1px solid ${scfg.color}40`,borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:600}}>{scfg.label}</span>
+                        </td>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
+                          <span style={{fontSize:11,color:"#4d6e8a"}}>{camps.length} platform{camps.length!==1?"s":""}</span>
+                          {totalContract>0 && <span style={{fontSize:11,color:"#34d399",marginLeft:8}}>${Math.round(totalContract).toLocaleString()}</span>}
+                        </td>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}/>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
+                          {earliestEnd && <span style={{fontSize:12,color:drc,fontWeight:600}}>
+                            {dLeft==null?"":dLeft<0?"Ended":dLeft===0?"Today":`${dLeft}d`}{" "}
+                            <span style={{fontWeight:400,opacity:0.7,fontSize:11}}>{earliestEnd}</span>
+                          </span>}
+                        </td>
+                        <td colSpan={2} style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}/>
+                      </tr>
+                    );
+                    // Platform rows — indented, hidden when collapsed
+                    if (!isCollapsed) {
+                      camps.forEach((c, i) => {
+                        const stale = c.lastChecked!==today;
+                        const open  = expanded.has(c.id);
+                        const hasData = !!(c.impressions||c.ctr||c.cpm||c.spend);
+                        const rowBg = i%2===0?"#0c1828":"#080f1a";
+                        const soonDate = new Date(today); soonDate.setDate(soonDate.getDate()+3); const soonStr=soonDate.toISOString().slice(0,10);
+                        const campReminders = reminders.filter(r=>!r.dismissed&&r.campaignId===c.id&&r.date<=today);
+                        const campUpcoming  = reminders.filter(r=>!r.dismissed&&r.campaignId===c.id&&r.date>today&&r.date<=soonStr);
+                        rows.push(
+                          <Fragment key={c.id}>
+                            <tr style={{background:rowBg}}>
+                              <td style={{padding:"0 0 0 6px",borderBottom:"1px solid #060c18",width:28}}/>
+                              <td style={{padding:"0 0 0 8px",borderBottom:"1px solid #060c18",width:36,textAlign:"center",verticalAlign:"middle"}}>
+                                <button onClick={()=>toggleExpand(c.id)} className="xbtn" style={{background:"none",border:"none",cursor:"pointer",padding:"5px 6px",color:hasData?"#00c896":"#1e3048",transform:open?"rotate(90deg)":"rotate(0deg)",fontSize:11,lineHeight:1,display:"block",margin:"0 auto"}}>▶</button>
+                              </td>
+                              <TD><span style={{color:"#4d6e8a",fontSize:11,paddingLeft:8}}>↳</span></TD>
+                              <TD>
+                                <div style={{display:"flex",alignItems:"center",gap:5,paddingLeft:12}}>
+                                  <span style={{color:"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
+                                  {campReminders.length>0 && <button onClick={()=>setShowReminderModal(true)} style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>🔔 {campReminders.length}</button>}
+                                  {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,whiteSpace:"nowrap"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
+                                </div>
+                                {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:2,paddingLeft:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{c.note1.trim()}</div>}
+                              </TD>
+                              <TD><StatusBadge status={c.status}/></TD>
+                              <TD><span style={{fontSize:12,color:(PLT[c.platform]||PLT.default),fontWeight:700}}>{c.platform}</span></TD>
+                              <TD><span style={{fontSize:11,color:"#7a9bbf"}}>{c.note1||"—"}</span></TD>
+                              <TD><span style={{fontSize:11,color:"#4d6e8a"}}>{c.startDate||"—"}</span></TD>
+                              <TD><EndChip d={c.endDate}/></TD>
+                              <TD><span style={{fontSize:11,color:stale?"#f59e0b":"#00d48a",fontWeight:stale?600:400}}>{fmtDate(c.lastChecked)}</span>
+                                {stale&&<button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00ffb3",fontSize:10,padding:"1px 6px",cursor:"pointer",fontWeight:700,marginLeft:4}}>✓</button>}
+                              </TD>
+                              <TD>
+                                <div style={{display:"flex",gap:5}}>
+                                  <button onClick={()=>setEditTarget(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
+                                  <button onClick={()=>{ if(window.confirm("Delete this campaign?")){ addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Campaign deleted",campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); }}} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,color:"#ef4444",fontSize:10,padding:"3px 6px",cursor:"pointer"}}>✕</button>
+                                </div>
+                              </TD>
+                            </tr>
+                            {open && <MetricRow key={"m"+c.id} c={c} colSpan={COLS} onUpdate={updateCampaign} dateRange={dateRange} reminders={reminders} setReminders={setReminders}/>}
+                          </Fragment>
+                        );
+                      });
+                    }
+                  });
+                  return rows;
+                })() : filtered.map((c,i) => {
                   const stale = c.lastChecked!==today;
                   const open  = expanded.has(c.id);
                   const hasData = !!(c.impressions||c.ctr||c.cpm||c.spend);
@@ -3160,11 +3257,11 @@ export default function App() {
         <div style={{marginTop:8,fontSize:11,color:"#1e3048",textAlign:"right"}}>▶ click to expand metrics · blue arrow = data entered</div>
       </>
       )}
-      </div>
 
       {editTarget && <Modal campaign={editTarget} onSave={u=>{ updateCampaign(u); setEditTarget(null); }} onClose={()=>setEditTarget(null)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()} reminders={reminders} setReminders={setReminders} campaigns={campaigns}/>}
       {showAdd    && <Modal isNew onSave={n=>{ setCampaigns(cs=>[...cs,n]); addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null}); setShowAdd(false); }} onClose={()=>setShowAdd(false)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
       {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} onClose={()=>setShowReminderModal(false)}/>}
     </div>
+  </div>
   );
 }
