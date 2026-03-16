@@ -212,7 +212,8 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
         ))}
       </div>
 
-      {/* Calendar grid */}
+      {/* Calendar grid — relative container so popover can anchor to it */}
+      <div style={{position:"relative"}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
         {cells.map((d,i) => {
           if (!d) return <div key={"e"+i} style={{height:110,background:"#06090f",borderRadius:7,border:"1px solid #0d1525"}}/>;
@@ -281,14 +282,27 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
         })}
       </div>
 
-      {/* Expanded day detail panel */}
+      {/* Floating popover — overlays the calendar, no scrolling needed */}
       {selected && (() => {
         const selRems = byDay[selected]||[];
         const selDateStr = dateStr(selected);
         const selLabel = new Date(cur.y,cur.m,selected).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
         const isPast = selDateStr < today;
+        // Position: figure out which row the day is in (0-indexed)
+        const cellIndex = cells.indexOf(selected);
+        const row = Math.floor(cellIndex / 7);
+        const totalRows = Math.ceil(cells.length / 7);
+        // Show below if in top half, above if in bottom half
+        const showBelow = row < totalRows / 2;
+        const topOffset = showBelow ? (row + 1) * 113 + 3 : undefined;
+        const bottomOffset = !showBelow ? (totalRows - row) * 113 + 3 : undefined;
         return (
-          <div style={{marginTop:10,background:"#07101c",border:"1px solid #1a2744",borderRadius:10,padding:"14px 18px"}}>
+          <div style={{
+            position:"absolute", left:0, right:0, zIndex:50,
+            top: showBelow ? topOffset : undefined,
+            bottom: !showBelow ? bottomOffset : undefined,
+            background:"#07101c",border:"1px solid #00c89640",borderRadius:10,
+            padding:"14px 18px",boxShadow:"0 8px 40px rgba(0,0,0,0.8)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <span style={{fontSize:13,color:"#00e5a0",fontWeight:700}}>{selLabel}</span>
               <div style={{display:"flex",gap:8}}>
@@ -321,6 +335,7 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
           </div>
         );
       })()}
+      </div>
 
       {/* Legend */}
       <div style={{display:"flex",flexWrap:"wrap",gap:12,marginTop:14,padding:"8px 0",borderTop:"1px solid #1e293b"}}>
