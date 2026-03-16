@@ -2116,6 +2116,7 @@ function PlatformConfig({ campaigns=[] }) {
         {sectionBtn("google","Google Ads (SEM / YT)","🔍")}
         {sectionBtn("snap","Snapchat (SP)","👻")}
         {sectionBtn("setup","GitHub Setup Guide","🛠️")}
+        {sectionBtn("health","Sync Health","🩺")}
         {/* Download button — sits right next to Setup Guide, only on non-setup sections */}
         {activeSection==="meta" && metaActive.length>0 && (
           <button title="Download meta_config.json" onClick={()=>downloadJSON("meta_config.json", buildMetaConfig())}
@@ -2454,6 +2455,122 @@ function PlatformConfig({ campaigns=[] }) {
       </div>}
 
       {/* ── SETUP GUIDE ── */}
+      {activeSection==="health"&&<div>
+        <div style={{fontSize:14,fontWeight:700,color:"#edf4ff",marginBottom:16}}>🩺 Sync Health Dashboard</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {[
+            {key:"meta",   label:"Meta (FB / FBV / IG)", icon:"📘", color:"#60a5fa",  status:metaSyncStatus,   info:metaSyncInfo,   active:metaActive},
+            {key:"ttd",    label:"The Trade Desk (TD)",  icon:"📡", color:"#a78bfa",  status:ttdSyncStatus,    info:ttdSyncInfo,    active:ttdActive},
+            {key:"dsp",    label:"DSP",                  icon:"🖥️", color:"#34d399",  status:dspSyncStatus,    info:dspSyncInfo,    active:dspActive},
+            {key:"google", label:"Google Ads (SEM / YT)",icon:"🔍", color:"#f59e0b",  status:googleSyncStatus, info:googleSyncInfo, active:googleActive},
+            {key:"snap",   label:"Snapchat (SP)",         icon:"👻", color:"#f9a8d4",  status:snapSyncStatus,   info:snapSyncInfo,   active:snapActive},
+          ].map(({key,label,icon,color,status,info,active})=>{
+            const isConfigured = active.length > 0;
+            const hasErrors = info?.errors?.length > 0;
+            const lastSync = info?.last_updated;
+            const fetched = info?.fetched_count ?? 0;
+            const total = active.length;
+
+            // How long ago was last sync
+            let syncAge = null;
+            if (lastSync) {
+              const ms = Date.now() - new Date(lastSync).getTime();
+              const hrs = Math.floor(ms / 3600000);
+              const mins = Math.floor((ms % 3600000) / 60000);
+              syncAge = hrs > 0 ? `${hrs}h ${mins}m ago` : `${mins}m ago`;
+            }
+
+            // Status indicator
+            const dot = status==="syncing" ? {c:"#60a5fa",label:"Syncing…"}
+                      : status==="error"   ? {c:"#ef4444",label:"Error"}
+                      : status==="done" && fetched>0 ? {c:"#00d48a",label:"OK"}
+                      : status==="done" && fetched===0 ? {c:"#f59e0b",label:"No data"}
+                      : {c:"#3d5a72",label:"Not set up"};
+
+            return (
+              <div key={key} style={{background:"#0c1625",border:`1px solid ${dot.c}30`,borderRadius:10,padding:"14px 18px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom: hasErrors||lastSync ? 10 : 0}}>
+                  {/* Status dot */}
+                  <div style={{width:10,height:10,borderRadius:"50%",background:dot.c,flexShrink:0,
+                    boxShadow: status==="syncing"?`0 0 6px ${dot.c}`:"none"}}/>
+                  {/* Platform name */}
+                  <span style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>{icon} {label}</span>
+                  {/* Status badge */}
+                  <span style={{fontSize:11,background:dot.c+"22",border:`1px solid ${dot.c}40`,
+                    borderRadius:4,padding:"1px 8px",color:dot.c,fontWeight:600}}>{dot.label}</span>
+                  <div style={{flex:1}}/>
+                  {/* Campaign count */}
+                  {isConfigured && (
+                    <span style={{fontSize:11,color:"#4d6e8a"}}>
+                      {fetched}/{total} campaigns synced
+                    </span>
+                  )}
+                  {!isConfigured && (
+                    <span style={{fontSize:11,color:"#3d5a72"}}>Not configured</span>
+                  )}
+                </div>
+
+                {/* Last sync time row */}
+                {lastSync && (
+                  <div style={{display:"flex",alignItems:"center",gap:16,fontSize:11,color:"#4d6e8a",paddingLeft:20}}>
+                    <span>⏱ Last sync: <span style={{color:"#7a9bbf",fontWeight:500}}>{syncAge}</span>
+                      <span style={{opacity:0.5,marginLeft:6}}>{new Date(lastSync).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</span>
+                    </span>
+                    {/* Staleness warning */}
+                    {(()=>{
+                      const ms = Date.now() - new Date(lastSync).getTime();
+                      const hrs = ms / 3600000;
+                      if (hrs > 26) return <span style={{color:"#ef4444",fontWeight:600}}>⚠ Overdue — last sync was {Math.floor(hrs)}h ago</span>;
+                      if (hrs > 13) return <span style={{color:"#f59e0b",fontWeight:600}}>⚠ Running late</span>;
+                      return null;
+                    })()}
+                  </div>
+                )}
+
+                {/* Errors */}
+                {hasErrors && (
+                  <div style={{marginTop:8,paddingLeft:20}}>
+                    <div style={{fontSize:11,color:"#ef4444",fontWeight:600,marginBottom:4}}>
+                      ⚠ {info.errors.length} error{info.errors.length!==1?"s":""} in last sync:
+                    </div>
+                    {info.errors.slice(0,3).map((e,i)=>(
+                      <div key={i} style={{fontSize:11,color:"#92400e",background:"#1a0808",border:"1px solid #ef444430",
+                        borderRadius:5,padding:"4px 10px",marginBottom:3,fontFamily:"monospace"}}>
+                        {e.window && <span style={{color:"#ef4444",marginRight:6}}>[{e.window}]</span>}
+                        {e.error?.slice(0,120)}
+                      </div>
+                    ))}
+                    {info.errors.length > 3 && (
+                      <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>
+                        +{info.errors.length-3} more errors
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Schedule reference */}
+        <div style={{marginTop:16,background:"#07101c",border:"1px solid #1e293b",borderRadius:8,padding:"12px 16px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#4d6e8a",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>Daily sync schedule (ET)</div>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+            {[
+              {label:"📘 Meta",  time:"8:00am"},
+              {label:"📡 TTD",   time:"8:30am"},
+              {label:"🖥️ DSP",   time:"9:00am"},
+              {label:"🔍 Google",time:"9:30am"},
+              {label:"👻 Snap",  time:"10:00am"},
+            ].map(({label,time})=>(
+              <div key={label} style={{fontSize:11,color:"#4d6e8a"}}>
+                {label} <span style={{color:"#7a9bbf",fontWeight:600}}>{time}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>}
+
       {activeSection==="setup"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
         {[
           {
@@ -2605,7 +2722,7 @@ export default function App() {
           return {...campaign, metaSnapshots:meta.snapshots, metaSyncedAt:syncedAt};
         }));
         setMetaSyncStatus("done");
-        setMetaSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count});
+        setMetaSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
       } catch(e) {
         console.warn("Meta sync skipped:",e.message);
         setMetaSyncStatus("error");
@@ -2628,7 +2745,7 @@ export default function App() {
           return {...campaign, ttdSnapshots:ttd.snapshots, ttdSyncedAt:syncedAt};
         }));
         setTtdSyncStatus("done");
-        setTtdSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count});
+        setTtdSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
       } catch(e) {
         console.warn("TTD sync skipped:",e.message);
         setTtdSyncStatus("error");
@@ -2651,7 +2768,7 @@ export default function App() {
           return {...campaign, dspSnapshots:dsp.snapshots, dspSyncedAt:syncedAt};
         }));
         setDspSyncStatus("done");
-        setDspSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count});
+        setDspSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
       } catch(e) {
         console.warn("DSP sync skipped:",e.message);
         setDspSyncStatus("error");
@@ -2674,7 +2791,7 @@ export default function App() {
           return {...campaign, googleSnapshots:g.snapshots, googleSyncedAt:syncedAt};
         }));
         setGoogleSyncStatus("done");
-        setGoogleSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count});
+        setGoogleSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
       } catch(e) {
         console.warn("Google Ads sync skipped:",e.message);
         setGoogleSyncStatus("error");
@@ -2697,7 +2814,7 @@ export default function App() {
           return {...campaign, snapSnapshots:s.snapshots, snapSyncedAt:syncedAt};
         }));
         setSnapSyncStatus("done");
-        setSnapSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count});
+        setSnapSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
       } catch(e) {
         console.warn("Snap sync skipped:",e.message);
         setSnapSyncStatus("error");
