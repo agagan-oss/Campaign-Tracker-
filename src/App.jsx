@@ -168,10 +168,9 @@ function isStoppedServing(c) {
   return impr === 0;
 }
 
-function ReminderCalendar({ reminders, setReminders, onAdd }) {
+function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
   const today = getToday();
   const [cur, setCur] = useState(() => { const n = new Date(); return { y:n.getFullYear(), m:n.getMonth() }; });
-  const [selected, setSelected] = useState(null);
   const firstDay = new Date(cur.y, cur.m, 1).getDay();
   const daysInMonth = new Date(cur.y, cur.m+1, 0).getDate();
   const monthName = new Date(cur.y, cur.m, 1).toLocaleString("default", {month:"long",year:"numeric"});
@@ -188,83 +187,153 @@ function ReminderCalendar({ reminders, setReminders, onAdd }) {
       }
     }
   });
-  const selReminders = selected ? (byDay[selected]||[]) : [];
-  const prev = () => setCur(c => c.m===0 ? {y:c.y-1,m:11} : {y:c.y,m:c.m-1});
-  const next = () => setCur(c => c.m===11 ? {y:c.y+1,m:0} : {y:c.y,m:c.m+1});
+  const [selected, setSelected] = useState(null);
+  const prev = () => { setCur(c => c.m===0 ? {y:c.y-1,m:11} : {y:c.y,m:c.m-1}); setSelected(null); };
+  const next = () => { setCur(c => c.m===11 ? {y:c.y+1,m:0} : {y:c.y,m:c.m+1}); setSelected(null); };
   const cells = [];
   for (let i=0; i<firstDay; i++) cells.push(null);
   for (let d=1; d<=daysInMonth; d++) cells.push(d);
+  // Pad to complete last row
+  while (cells.length % 7 !== 0) cells.push(null);
+
   return (
-    <div>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-        <button onClick={prev} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 12px",color:"#7a9bbf",cursor:"pointer",fontSize:14}}>←</button>
-        <span style={{color:"#edf4ff",fontWeight:700,fontSize:14}}>{monthName}</span>
-        <button onClick={next} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 12px",color:"#7a9bbf",cursor:"pointer",fontSize:14}}>→</button>
+    <div style={{width:"100%"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <button onClick={prev} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"6px 16px",color:"#7a9bbf",cursor:"pointer",fontSize:16}}>←</button>
+        <span style={{color:"#edf4ff",fontWeight:700,fontSize:16}}>{monthName}</span>
+        <button onClick={next} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"6px 16px",color:"#7a9bbf",cursor:"pointer",fontSize:16}}>→</button>
       </div>
+
+      {/* Day-of-week headers */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:3}}>
-        {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=>(
-          <div key={d} style={{textAlign:"center",fontSize:10,color:"#3d5a72",fontWeight:700,padding:"4px 0",textTransform:"uppercase",letterSpacing:"0.05em"}}>{d}</div>
+        {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>(
+          <div key={d} style={{textAlign:"center",fontSize:11,color:"#3d5a72",fontWeight:700,padding:"6px 0",textTransform:"uppercase",letterSpacing:"0.06em"}}>{d}</div>
         ))}
       </div>
+
+      {/* Calendar grid */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
         {cells.map((d,i) => {
-          if (!d) return <div key={"e"+i}/>;
+          if (!d) return <div key={"e"+i} style={{minHeight:110,background:"#06090f",borderRadius:7,border:"1px solid #0d1525"}}/>;
           const ds = dateStr(d);
           const isToday = ds===today;
           const isPast = ds<today;
           const dayRems = byDay[d]||[];
           const hasOverdue = isPast && dayRems.length>0;
-          const isSel = selected===d;
           return (
-            <div key={d} onClick={()=>setSelected(isSel?null:d)}
-              style={{background:isSel?"#002e24":isToday?"#0e2038":"#0a1525",border:`1px solid ${isSel?"#00c896":isToday?"#00c89660":hasOverdue?"#ef444440":"#1e293b"}`,borderRadius:7,padding:"6px 4px",minHeight:56,cursor:"pointer"}}>
-              <div style={{textAlign:"center",fontSize:12,fontWeight:isToday?700:400,color:isToday?"#00e5a0":isPast?"#3d5a72":"#7a9bbf",marginBottom:3}}>{d}</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:2,justifyContent:"center"}}>
-                {dayRems.slice(0,4).map(r => {
+            <div key={d} onClick={()=>setSelected(selected===d?null:d)}
+              style={{background:selected===d?"#002e24":isToday?"#0c1e30":"#0a1525",
+                border:`1px solid ${selected===d?"#00c896":isToday?"#00c89650":hasOverdue?"#ef444430":"#1e293b"}`,
+                borderRadius:7,padding:"8px 7px",minHeight:110,
+                display:"flex",flexDirection:"column",gap:3,cursor:"pointer"}}>
+              {/* Date number + add button */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
+                <span style={{fontSize:13,fontWeight:isToday?700:500,
+                  color:isToday?"#00e5a0":isPast?"#3d5a72":"#a8c4e0",
+                  background:isToday?"#003d28":undefined,
+                  borderRadius:isToday?12:undefined,
+                  padding:isToday?"1px 7px":undefined,
+                  lineHeight:1.6}}>{d}</span>
+                <button onClick={()=>onAdd(ds)}
+                  style={{background:"none",border:"none",color:"#1e3a50",cursor:"pointer",
+                    fontSize:14,lineHeight:1,padding:"0 2px",opacity:0,transition:"opacity .15s"}}
+                  className="cal-add-btn">+</button>
+              </div>
+              {/* Reminder chips */}
+              <div style={{display:"flex",flexDirection:"column",gap:2,flex:1}}>
+                {dayRems.slice(0,3).map(r => {
                   const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
-                  return <div key={r.id} style={{width:7,height:7,borderRadius:"50%",background:isPast?"#ef4444":rt.color}}/>;
+                  const camp = r.campaignId ? null : null; // campaign name lookup not needed here
+                  return (
+                    <div key={r.id}
+                      style={{background:isPast?"#1a0808":(rt.color+"15"),
+                        border:`1px solid ${isPast?"#ef444430":(rt.color+"40")}`,
+                        borderRadius:4,padding:"2px 5px",
+                        display:"flex",alignItems:"flex-start",gap:4}}>
+                      <div style={{width:6,height:6,borderRadius:"50%",
+                        background:isPast?"#ef4444":rt.color,
+                        flexShrink:0,marginTop:3}}/>
+                      <div style={{minWidth:0,flex:1}}>
+                        <div style={{fontSize:10,fontWeight:700,
+                          color:isPast?"#ef4444":rt.color,
+                          lineHeight:1.3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                          {rt.label.replace(/^\S+\s/,"")}
+                        </div>
+                        {r.note&&<div style={{fontSize:9,color:"#4d6e8a",lineHeight:1.3,
+                          whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",
+                          maxWidth:"100%"}}>{r.note}</div>}
+                      </div>
+                      <button onClick={e=>{e.stopPropagation();setReminders(prev=>prev.filter(x=>x.id!==r.id));}}
+                        style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",
+                          fontSize:10,lineHeight:1,padding:0,flexShrink:0,opacity:0.6}}>×</button>
+                    </div>
+                  );
                 })}
-                {dayRems.length>4 && <div style={{fontSize:8,color:"#4d6e8a"}}>+{dayRems.length-4}</div>}
+                {dayRems.length>3 && (
+                  <div style={{fontSize:9,color:"#4d6e8a",paddingLeft:10}}>
+                    +{dayRems.length-3} more
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
       </div>
-      {selected && (
-        <div style={{marginTop:14,background:"#07101c",border:"1px solid #1a2744",borderRadius:8,padding:12}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <span style={{fontSize:12,color:"#00e5a0",fontWeight:700}}>
-              {new Date(cur.y,cur.m,selected).toLocaleDateString("default",{weekday:"long",month:"long",day:"numeric"})}
-            </span>
-            <button onClick={()=>onAdd(dateStr(selected))} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"3px 10px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Add</button>
-          </div>
-          {selReminders.length===0
-            ? <div style={{fontSize:12,color:"#3d5a72",textAlign:"center",padding:"10px 0"}}>No reminders this day</div>
-            : selReminders.map(r => {
-                const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
-                return (
-                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid #1a2744"}}>
-                    <div style={{width:8,height:8,borderRadius:"50%",background:rt.color,flexShrink:0}}/>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:12,color:rt.color,fontWeight:700}}>{rt.label}</div>
-                      {r.note && <div style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.note}</div>}
+
+      {/* Expanded day detail panel */}
+      {selected && (() => {
+        const selRems = byDay[selected]||[];
+        const selDateStr = dateStr(selected);
+        const selLabel = new Date(cur.y,cur.m,selected).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+        const isPast = selDateStr < today;
+        return (
+          <div style={{marginTop:10,background:"#07101c",border:"1px solid #1a2744",borderRadius:10,padding:"14px 18px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <span style={{fontSize:13,color:"#00e5a0",fontWeight:700}}>{selLabel}</span>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>onAdd(selDateStr)} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"4px 12px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Add</button>
+                <button onClick={()=>setSelected(null)} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"4px 10px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>×</button>
+              </div>
+            </div>
+            {selRems.length===0
+              ? <div style={{fontSize:12,color:"#3d5a72",textAlign:"center",padding:"12px 0"}}>No reminders — click + Add to create one</div>
+              : selRems.map(r => {
+                  const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
+                  const camp = campaigns.find(c=>c.id===r.campaignId);
+                  return (
+                    <div key={r.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",borderBottom:"1px solid #1a2744"}}>
+                      <div style={{width:9,height:9,borderRadius:"50%",background:isPast?"#ef4444":rt.color,flexShrink:0,marginTop:3}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,color:isPast?"#ef4444":rt.color,fontWeight:700,marginBottom:2}}>{rt.label}</div>
+                        {camp && <div style={{fontSize:11,color:"#a8c4e0",fontWeight:600,marginBottom:2}}>{camp.campaignName.trim()} <span style={{color:"#3d5a72",fontWeight:400}}>· {camp.platform} · {camp.mediaPartner}</span></div>}
+                        {r.note && <div style={{fontSize:12,color:"#7a9bbf",lineHeight:1.5}}>{r.note}</div>}
+                        {r.repeat!=="none" && <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>↻ Repeats {r.repeat}</div>}
+                      </div>
+                      <div style={{display:"flex",gap:5,flexShrink:0}}>
+                        <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00d48a",fontSize:11,padding:"3px 8px",cursor:"pointer"}}>✓ Done</button>
+                        <button onClick={()=>setReminders(prev=>prev.filter(x=>x.id!==r.id))} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,color:"#ef4444",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✕</button>
+                      </div>
                     </div>
-                    <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00d48a",fontSize:10,padding:"2px 6px",cursor:"pointer",flexShrink:0}}>✓</button>
-                    <button onClick={()=>setReminders(prev=>prev.filter(x=>x.id!==r.id))} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,color:"#ef4444",fontSize:10,padding:"2px 6px",cursor:"pointer",flexShrink:0}}>✕</button>
-                  </div>
-                );
-              })
-          }
-        </div>
-      )}
-      <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:12}}>
+                  );
+                })
+            }
+          </div>
+        );
+      })()}
+
+      {/* Legend */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:12,marginTop:14,padding:"8px 0",borderTop:"1px solid #1e293b"}}>
         {REMINDER_TYPES.map(t=>(
-          <div key={t.value} style={{display:"flex",alignItems:"center",gap:4}}>
-            <div style={{width:7,height:7,borderRadius:"50%",background:t.color}}/>
-            <span style={{fontSize:10,color:"#3d5a72"}}>{t.label.replace(/^\S+\s/,"")}</span>
+          <div key={t.value} style={{display:"flex",alignItems:"center",gap:5}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:t.color,flexShrink:0}}/>
+            <span style={{fontSize:10,color:"#4d6e8a"}}>{t.label.replace(/^\S+\s/,"")}</span>
           </div>
         ))}
       </div>
+
+      {/* Hover style for add button */}
+      <style>{`.cal-add-btn:hover { opacity: 1 !important; color: #00e5a0 !important; }`}</style>
     </div>
   );
 }
@@ -410,7 +479,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
             </div>
           </div>
         ) : view==="calendar" ? (
-          <ReminderCalendar reminders={reminders} setReminders={setReminders} onAdd={addOnDate}/>
+          <ReminderCalendar reminders={reminders} setReminders={setReminders} onAdd={addOnDate} campaigns={campaigns}/>
         ) : (
           <div>
             {overdue.length>0 && (
@@ -615,10 +684,10 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                 ) : (
                   <div style={{display:"flex",alignItems:"center",gap:8,background:isPast?"#1a0808":"#0a1628",border:`1px solid ${isPast?"#ef444430":rt.color+"30"}`,borderRadius:5,padding:"5px 10px"}}>
                     <button onClick={()=>startEditReminder(r)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:4,color:"#00e5a0",cursor:"pointer",fontSize:10,padding:"1px 6px",fontWeight:600,flexShrink:0}}>Edit</button>
-                    <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:12,lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>
+                    <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,color:"#ef4444",cursor:"pointer",fontSize:12,lineHeight:1,padding:"1px 5px",flexShrink:0}}>×</button>
                     <span style={{fontSize:11,color:isPast?"#ef4444":rt.color,fontWeight:600}}>{rt.label}</span>
-                    {r.note&&<span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{r.note}</span>}
-                    <span style={{fontSize:11,color:"#3d5a72",fontFamily:"monospace",whiteSpace:"nowrap",marginLeft:"auto"}}>{fmtDate(r.date)}</span>
+                    <span style={{fontSize:11,color:"#00e5a0",whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
+                    {r.note&&<span style={{fontSize:11,color:"#00e5a0",flex:1}}>{r.note}</span>}
                   </div>
                 )}
               </div>
