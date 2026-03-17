@@ -2559,6 +2559,181 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
 
 
 
+
+function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
+  const today = getToday();
+  const clientCampaigns = allCampaigns.filter(c =>
+    c.campaignName.trim() === campaign.campaignName.trim()
+  );
+  const [mode, setMode]                 = useState("extend"); // "extend" | "renew"
+  const [endDate, setEndDate]           = useState("");
+  const [startDate, setStartDate]       = useState(campaign.endDate || today);
+  const [goal, setGoal]                 = useState(campaign.note1 || "");
+  const [contractValue, setContractValue] = useState(campaign.contractValue || "");
+  const [applyAll, setApplyAll]         = useState(clientCampaigns.length > 1);
+  const iS = {width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,
+    padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"};
+  const labelS = {display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,
+    textTransform:"uppercase",letterSpacing:"0.06em"};
+
+  function doExtend() {
+    if (!endDate) return;
+    const targets = applyAll ? clientCampaigns : [campaign];
+    targets.forEach(c => {
+      onExtend({
+        ...c,
+        endDate,
+        note1: goal || c.note1,
+        contractValue: contractValue || c.contractValue,
+        status: "active",
+      });
+    });
+    onClose();
+  }
+
+  function doRenew() {
+    if (!endDate) return;
+    const targets = applyAll ? clientCampaigns : [campaign];
+    const newCampaigns = targets.map(c => ({
+      ...c,
+      id: Date.now() + Math.random(),
+      startDate, endDate,
+      note1: goal || c.note1,
+      contractValue: contractValue || c.contractValue,
+      status: "active",
+      impressions:"", ctr:"", cpm:"", spend:"",
+      completionRate:"", conversions:"", clicks:"",
+      reach:"", frequency:"", videoViews:"",
+      lastChecked: today,
+      metaSnapshots: undefined, ttdSnapshots: undefined,
+      dspSnapshots: undefined, googleSnapshots: undefined, snapSnapshots: undefined,
+    }));
+    onRenew(newCampaigns, campaign);
+  }
+
+  const isExtend = mode === "extend";
+  const canSubmit = !!endDate;
+
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",
+      display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",
+        borderRadius:14,padding:24,width:"min(540px,96vw)",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
+
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <div>
+            <div style={{fontSize:15,fontWeight:800,color:"#edf4ff"}}>{isExtend?"📅 Extend":"🔄 Renew"} Campaign</div>
+            <div style={{fontSize:12,color:"#4d6e8a",marginTop:2}}>{campaign.campaignName.trim()} · {campaign.platform} · {campaign.mediaPartner}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#4d6e8a",fontSize:20,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+
+        {/* Mode toggle */}
+        <div style={{display:"flex",gap:6,marginBottom:20,background:"#07101c",borderRadius:9,padding:4}}>
+          {[
+            {key:"extend", icon:"📅", label:"Extend", desc:"Same campaign, new end date. Config stays intact, sync keeps working."},
+            {key:"renew",  icon:"🔄", label:"Renew",  desc:"Fresh campaign row with clean metrics. Use when flight truly ends."},
+          ].map(({key,icon,label,desc})=>(
+            <button key={key} onClick={()=>setMode(key)}
+              style={{flex:1,background:mode===key?"#0e1a2e":"none",
+                border:`1px solid ${mode===key?"#00c896":"transparent"}`,
+                borderRadius:7,padding:"10px 12px",cursor:"pointer",textAlign:"left"}}>
+              <div style={{fontSize:12,fontWeight:700,color:mode===key?"#00e5a0":"#4d6e8a",marginBottom:3}}>
+                {icon} {label}
+              </div>
+              <div style={{fontSize:10,color:mode===key?"#4d6e8a":"#2a3f55",lineHeight:1.4}}>{desc}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* Apply to all platforms toggle */}
+        {clientCampaigns.length > 1 && (
+          <div onClick={()=>setApplyAll(v=>!v)} style={{background:applyAll?"#002e24":"#0a1525",
+            border:`1px solid ${applyAll?"#00c896":"#1e293b"}`,borderRadius:8,padding:"10px 14px",
+            marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:16,height:16,borderRadius:3,background:applyAll?"#00c896":"#162236",
+              border:`1px solid ${applyAll?"#00c896":"#334155"}`,display:"flex",alignItems:"center",
+              justifyContent:"center",flexShrink:0}}>
+              {applyAll && <span style={{color:"#000",fontSize:11,fontWeight:900}}>✓</span>}
+            </div>
+            <div>
+              <div style={{fontSize:12,fontWeight:700,color:applyAll?"#00e5a0":"#7a9bbf"}}>
+                {isExtend?"Extend":"Renew"} all {clientCampaigns.length} platforms for {campaign.campaignName.trim()}
+              </div>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:1}}>
+                {clientCampaigns.map(c=>c.platform).join(" · ")}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Renew-only: start date */}
+        {!isExtend && (
+          <div style={{marginBottom:14}}>
+            <label style={labelS}>New Start Date</label>
+            <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} style={iS}/>
+          </div>
+        )}
+
+        {/* End date — label changes by mode */}
+        <div style={{marginBottom:14}}>
+          <label style={labelS}>{isExtend?"New End Date *":"New End Date *"}</label>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)}
+              style={{...iS,borderColor:endDate?"#334155":"#ef444460"}}/>
+            {isExtend && campaign.endDate && (
+              <span style={{fontSize:11,color:"#3d5a72",whiteSpace:"nowrap"}}>
+                Currently: {campaign.endDate}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Goal */}
+        <div style={{marginBottom:14}}>
+          <label style={labelS}>Goal / Note 1
+            {applyAll && clientCampaigns.length > 1 &&
+              <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}> — leave blank to keep each platform's goal</span>}
+          </label>
+          <input value={goal} onChange={e=>setGoal(e.target.value)}
+            placeholder={campaign.note1 || "e.g. 125K/Mo — leave blank to keep existing"}
+            style={iS}/>
+        </div>
+
+        {/* Contract value */}
+        <div style={{marginBottom:16}}>
+          <label style={labelS}>Contract Value ($) <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>— leave blank to keep existing</span></label>
+          <input type="number" value={contractValue} onChange={e=>setContractValue(e.target.value)}
+            placeholder={campaign.contractValue || "0.00"} style={iS}/>
+        </div>
+
+        {/* Info note */}
+        <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:7,
+          padding:"9px 14px",marginBottom:20,fontSize:11,color:"#4d6e8a",lineHeight:1.5}}>
+          {isExtend
+            ? "📅 Extend updates the existing row — dates, goal, and contract value only. Metrics and sync data are preserved. Platform config stays intact."
+            : "🔄 Renew creates new campaign rows with clean metrics and sync data. Original rows are kept. You'll need to update the platform config with any new campaign IDs."}
+        </div>
+
+        {/* Actions */}
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={isExtend ? doExtend : doRenew} disabled={!canSubmit}
+            style={{flex:1,background:canSubmit?"#00c896":"#162236",border:"none",borderRadius:8,
+              padding:"11px 0",color:canSubmit?"#000":"#3d5a72",fontWeight:700,fontSize:14,
+              cursor:canSubmit?"pointer":"default"}}>
+            {isExtend?"📅":"🔄"} {isExtend?"Extend":"Renew"}{applyAll&&clientCampaigns.length>1?` All ${clientCampaigns.length} Platforms`:""}
+          </button>
+          <button onClick={onClose} style={{flex:1,background:"#162236",border:"1px solid #334155",
+            borderRadius:8,padding:"11px 0",color:"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const today = getToday();
   const COLS = 11;
@@ -2575,6 +2750,7 @@ export default function App() {
   const [showAdd, setShowAdd]     = useState(false);
   const [showExportReminder, setShowExportReminder] = useState(false);
   const [showReminderModal, setShowReminderModal]   = useState(false);
+  const [renewTarget, setRenewTarget]               = useState(null);
   const [saved, setSaved]         = useState(false);
   const [expanded, setExpanded]   = useState(new Set());
   const [groupByClient, setGroupByClient]       = useState(false);
@@ -2734,6 +2910,29 @@ export default function App() {
       try { localStorage.setItem(ACTIVITY_KEY, JSON.stringify(next)); } catch(e) { console.error(e); }
       return next;
     });
+  }
+
+  function handleExtend(updatedCampaign) {
+    setCampaigns(cs => cs.map(c => c.id === updatedCampaign.id ? updatedCampaign : c));
+    addLog({type:"edited",campaignName:updatedCampaign.campaignName,partner:updatedCampaign.mediaPartner,
+      platform:updatedCampaign.platform,detail:`Extended to ${updatedCampaign.endDate}`,
+      campaignId:updatedCampaign.id,prevSnapshot:null});
+  }
+
+  function handleRenew(newCampaigns, originalCampaign) {
+    setCampaigns(cs => {
+      const idx = cs.findIndex(c => c.id === originalCampaign.id);
+      const next = [...cs];
+      // Insert all new campaigns right after the first original
+      newCampaigns.forEach((nc, i) => next.splice(idx + 1 + i, 0, nc));
+      return next;
+    });
+    newCampaigns.forEach(nc => {
+      addLog({type:"created",campaignName:nc.campaignName,partner:nc.mediaPartner,
+        platform:nc.platform,detail:`Renewed from "${originalCampaign.campaignName}" · ${originalCampaign.endDate} → ${nc.endDate}`,
+        campaignId:nc.id,prevSnapshot:null});
+    });
+    setRenewTarget(null);
   }
 
   function handleUndo(entry) {
@@ -3262,6 +3461,7 @@ export default function App() {
                         <TD>
                           <div style={{display:"flex",gap:5}}>
                             <button onClick={()=>setEditTarget(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
+                            <button onClick={()=>setRenewTarget(c)} style={{background:"#002418",border:"1px solid #00c89640",borderRadius:5,color:"#00c896",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:700}} title="Renew campaign">🔄</button>
                             <button onClick={()=>{ const copy={...c,id:Date.now(),campaignName:c.campaignName+" (copy)",impressions:"",ctr:"",cpm:"",spend:""}; setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }} style={{background:"#091a2a",border:"1px solid #1e3a5f",borderRadius:5,color:"#00e5a0",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>⧉</button>
                             <button onClick={()=>{ if(window.confirm("Delete this campaign?")) { addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:`Campaign deleted`,campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); } }} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,color:"#ef4444",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>✕</button>
                             <button title="Send to Archive" onClick={()=>{ if(window.confirm(`Archive "${c.campaignName}"? It will move to the Campaign Archive tab.`)) { setArchive(prev=>[...prev,{...c,archivedDate:getToday()}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Manually sent to archive",campaignId:c.id,prevSnapshot:{...c}}); }}} style={{background:"#1a0828",border:"1px solid #a855f740",borderRadius:5,color:"#a855f7",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:700}}>🗄 →</button>
@@ -3284,6 +3484,7 @@ export default function App() {
       {editTarget && <Modal campaign={editTarget} onSave={u=>{ updateCampaign(u); setEditTarget(null); }} onClose={()=>setEditTarget(null)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()} reminders={reminders} setReminders={setReminders} campaigns={campaigns}/>}
       {showAdd    && <Modal isNew onSave={n=>{ setCampaigns(cs=>[...cs,n]); addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null}); setShowAdd(false); }} onClose={()=>setShowAdd(false)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
       {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} onClose={()=>setShowReminderModal(false)}/>}
+      {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
     </div>
   </div>
   );
