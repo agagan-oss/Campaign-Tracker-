@@ -82,9 +82,25 @@ function resolveMetrics(c, preset) {
   const key = getSnapshotKey(preset);
   if (key && c.metaSnapshots && c.metaSnapshots[key]) {
     const s = c.metaSnapshots[key];
-    return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", source:"meta", snapshotKey:key };
+    return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", clicks:s.clicks!=null?String(s.clicks):"", source:"meta", snapshotKey:key };
   }
-  return { impressions:c.impressions||"", ctr:c.ctr||"", cpm:c.cpm||"", spend:c.spend||"", source:key?"manual-no-snapshot":"manual", snapshotKey:key };
+  if (key && c.ttdSnapshots && c.ttdSnapshots[key]) {
+    const s = c.ttdSnapshots[key];
+    return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", clicks:s.clicks!=null?String(s.clicks):"", source:"ttd", snapshotKey:key };
+  }
+  if (key && c.dspSnapshots && c.dspSnapshots[key]) {
+    const s = c.dspSnapshots[key];
+    return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", clicks:s.clicks!=null?String(s.clicks):"", source:"dsp", snapshotKey:key };
+  }
+  if (key && c.googleSnapshots && c.googleSnapshots[key]) {
+    const s = c.googleSnapshots[key];
+    return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", clicks:s.clicks!=null?String(s.clicks):"", videoViews:s.video_views!=null?String(s.video_views):"", completionRate:s.vcr!=null?String(s.vcr):"", source:"google", snapshotKey:key };
+  }
+  if (key && c.snapSnapshots && c.snapSnapshots[key]) {
+    const s = c.snapSnapshots[key];
+    return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", clicks:s.clicks!=null?String(s.clicks):"", source:"snap", snapshotKey:key };
+  }
+  return { impressions:c.impressions||"", ctr:c.ctr||"", cpm:c.cpm||"", spend:c.spend||"", clicks:c.clicks||"", source:key?"manual-no-snapshot":"manual", snapshotKey:key };
 }
 
 
@@ -152,10 +168,9 @@ function isStoppedServing(c) {
   return impr === 0;
 }
 
-function ReminderCalendar({ reminders, setReminders, onAdd }) {
+function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
   const today = getToday();
   const [cur, setCur] = useState(() => { const n = new Date(); return { y:n.getFullYear(), m:n.getMonth() }; });
-  const [selected, setSelected] = useState(null);
   const firstDay = new Date(cur.y, cur.m, 1).getDay();
   const daysInMonth = new Date(cur.y, cur.m+1, 0).getDate();
   const monthName = new Date(cur.y, cur.m, 1).toLocaleString("default", {month:"long",year:"numeric"});
@@ -172,83 +187,167 @@ function ReminderCalendar({ reminders, setReminders, onAdd }) {
       }
     }
   });
-  const selReminders = selected ? (byDay[selected]||[]) : [];
-  const prev = () => setCur(c => c.m===0 ? {y:c.y-1,m:11} : {y:c.y,m:c.m-1});
-  const next = () => setCur(c => c.m===11 ? {y:c.y+1,m:0} : {y:c.y,m:c.m+1});
+  const [selected, setSelected] = useState(null);
+  const prev = () => { setCur(c => c.m===0 ? {y:c.y-1,m:11} : {y:c.y,m:c.m-1}); setSelected(null); };
+  const next = () => { setCur(c => c.m===11 ? {y:c.y+1,m:0} : {y:c.y,m:c.m+1}); setSelected(null); };
   const cells = [];
   for (let i=0; i<firstDay; i++) cells.push(null);
   for (let d=1; d<=daysInMonth; d++) cells.push(d);
+  // Pad to complete last row
+  while (cells.length % 7 !== 0) cells.push(null);
+
   return (
-    <div>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-        <button onClick={prev} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 12px",color:"#7a9bbf",cursor:"pointer",fontSize:14}}>←</button>
-        <span style={{color:"#edf4ff",fontWeight:700,fontSize:14}}>{monthName}</span>
-        <button onClick={next} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 12px",color:"#7a9bbf",cursor:"pointer",fontSize:14}}>→</button>
+    <div style={{width:"100%"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <button onClick={prev} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"6px 16px",color:"#7a9bbf",cursor:"pointer",fontSize:16}}>←</button>
+        <span style={{color:"#edf4ff",fontWeight:700,fontSize:16}}>{monthName}</span>
+        <button onClick={next} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"6px 16px",color:"#7a9bbf",cursor:"pointer",fontSize:16}}>→</button>
       </div>
+
+      {/* Day-of-week headers */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:3}}>
-        {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=>(
-          <div key={d} style={{textAlign:"center",fontSize:10,color:"#3d5a72",fontWeight:700,padding:"4px 0",textTransform:"uppercase",letterSpacing:"0.05em"}}>{d}</div>
+        {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>(
+          <div key={d} style={{textAlign:"center",fontSize:11,color:"#3d5a72",fontWeight:700,padding:"6px 0",textTransform:"uppercase",letterSpacing:"0.06em"}}>{d}</div>
         ))}
       </div>
+
+      {/* Calendar grid — relative container so popover can anchor to it */}
+      <div style={{position:"relative"}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
         {cells.map((d,i) => {
-          if (!d) return <div key={"e"+i}/>;
+          if (!d) return <div key={"e"+i} style={{height:110,background:"#06090f",borderRadius:7,border:"1px solid #0d1525"}}/>;
           const ds = dateStr(d);
           const isToday = ds===today;
           const isPast = ds<today;
           const dayRems = byDay[d]||[];
           const hasOverdue = isPast && dayRems.length>0;
-          const isSel = selected===d;
           return (
-            <div key={d} onClick={()=>setSelected(isSel?null:d)}
-              style={{background:isSel?"#002e24":isToday?"#0e2038":"#0a1525",border:`1px solid ${isSel?"#00c896":isToday?"#00c89660":hasOverdue?"#ef444440":"#1e293b"}`,borderRadius:7,padding:"6px 4px",minHeight:56,cursor:"pointer"}}>
-              <div style={{textAlign:"center",fontSize:12,fontWeight:isToday?700:400,color:isToday?"#00e5a0":isPast?"#3d5a72":"#7a9bbf",marginBottom:3}}>{d}</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:2,justifyContent:"center"}}>
-                {dayRems.slice(0,4).map(r => {
+            <div key={d} onClick={()=>setSelected(selected===d?null:d)}
+              style={{background:selected===d?"#002e24":isToday?"#0c1e30":"#0a1525",
+                border:`1px solid ${selected===d?"#00c896":isToday?"#00c89650":hasOverdue?"#ef444430":"#1e293b"}`,
+                borderRadius:7,padding:"8px 7px",height:110,
+                display:"flex",flexDirection:"column",gap:3,cursor:"pointer",overflow:"hidden"}}>
+              {/* Date number + add button */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
+                <span style={{fontSize:13,fontWeight:isToday?700:500,
+                  color:isToday?"#00e5a0":isPast?"#3d5a72":"#a8c4e0",
+                  background:isToday?"#003d28":undefined,
+                  borderRadius:isToday?12:undefined,
+                  padding:isToday?"1px 7px":undefined,
+                  lineHeight:1.6}}>{d}</span>
+                <button onClick={()=>onAdd(ds)}
+                  style={{background:"none",border:"none",color:"#1e3a50",cursor:"pointer",
+                    fontSize:14,lineHeight:1,padding:"0 2px",opacity:0,transition:"opacity .15s"}}
+                  className="cal-add-btn">+</button>
+              </div>
+              {/* Reminder chips — compact single-line with campaign name */}
+              <div style={{display:"flex",flexDirection:"column",gap:2,flex:1}}>
+                {dayRems.slice(0,3).map(r => {
                   const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
-                  return <div key={r.id} style={{width:7,height:7,borderRadius:"50%",background:isPast?"#ef4444":rt.color}}/>;
+                  const camp = campaigns.find(c=>c.id===r.campaignId);
+                  return (
+                    <div key={r.id} title={[rt.label, camp?.campaignName?.trim(), r.note].filter(Boolean).join(' · ')}
+                      style={{background:isPast?"#1a0808":(rt.color+"15"),
+                        border:`1px solid ${isPast?"#ef444430":(rt.color+"40")}`,
+                        borderRadius:4,padding:"2px 5px",
+                        display:"flex",alignItems:"center",gap:3,overflow:"hidden"}}>
+                      <div style={{width:5,height:5,borderRadius:"50%",
+                        background:isPast?"#ef4444":rt.color,flexShrink:0}}/>
+                      <span style={{fontSize:9,fontWeight:700,
+                        color:isPast?"#ef4444":rt.color,
+                        whiteSpace:"nowrap",flexShrink:0}}>
+                        {rt.label.replace(/^\S+\s/,"")}
+                      </span>
+                      {camp && <span style={{fontSize:9,color:"#00e5a0",
+                        whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:1}}>
+                        · {camp.campaignName.trim()}
+                      </span>}
+                      {!camp && r.note && <span style={{fontSize:9,color:"#4d6e8a",
+                        whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:1}}>
+                        {r.note}
+                      </span>}
+                    </div>
+                  );
                 })}
-                {dayRems.length>4 && <div style={{fontSize:8,color:"#4d6e8a"}}>+{dayRems.length-4}</div>}
+                {dayRems.length>3 && (
+                  <div style={{fontSize:9,color:"#4d6e8a",paddingLeft:10}}>
+                    +{dayRems.length-3} more
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
       </div>
-      {selected && (
-        <div style={{marginTop:14,background:"#07101c",border:"1px solid #1a2744",borderRadius:8,padding:12}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <span style={{fontSize:12,color:"#00e5a0",fontWeight:700}}>
-              {new Date(cur.y,cur.m,selected).toLocaleDateString("default",{weekday:"long",month:"long",day:"numeric"})}
-            </span>
-            <button onClick={()=>onAdd(dateStr(selected))} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"3px 10px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Add</button>
-          </div>
-          {selReminders.length===0
-            ? <div style={{fontSize:12,color:"#3d5a72",textAlign:"center",padding:"10px 0"}}>No reminders this day</div>
-            : selReminders.map(r => {
-                const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
-                return (
-                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid #1a2744"}}>
-                    <div style={{width:8,height:8,borderRadius:"50%",background:rt.color,flexShrink:0}}/>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:12,color:rt.color,fontWeight:700}}>{rt.label}</div>
-                      {r.note && <div style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.note}</div>}
+
+      {/* Floating popover — overlays the calendar, no scrolling needed */}
+      {selected && (() => {
+        const selRems = byDay[selected]||[];
+        const selDateStr = dateStr(selected);
+        const selLabel = new Date(cur.y,cur.m,selected).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+        const isPast = selDateStr < today;
+        // Position: figure out which row the day is in (0-indexed)
+        const cellIndex = cells.indexOf(selected);
+        const row = Math.floor(cellIndex / 7);
+        const totalRows = Math.ceil(cells.length / 7);
+        // Show below if in top half, above if in bottom half
+        const showBelow = row < totalRows / 2;
+        const topOffset = showBelow ? (row + 1) * 113 + 3 : undefined;
+        const bottomOffset = !showBelow ? (totalRows - row) * 113 + 3 : undefined;
+        return (
+          <div style={{
+            position:"absolute", left:0, right:0, zIndex:50,
+            top: showBelow ? topOffset : undefined,
+            bottom: !showBelow ? bottomOffset : undefined,
+            background:"#07101c",border:"1px solid #00c89640",borderRadius:10,
+            padding:"14px 18px",boxShadow:"0 8px 40px rgba(0,0,0,0.8)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <span style={{fontSize:13,color:"#00e5a0",fontWeight:700}}>{selLabel}</span>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>onAdd(selDateStr)} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"4px 12px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Add</button>
+                <button onClick={()=>setSelected(null)} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"4px 10px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>×</button>
+              </div>
+            </div>
+            {selRems.length===0
+              ? <div style={{fontSize:12,color:"#3d5a72",textAlign:"center",padding:"12px 0"}}>No reminders — click + Add to create one</div>
+              : selRems.map(r => {
+                  const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
+                  const camp = campaigns.find(c=>c.id===r.campaignId);
+                  return (
+                    <div key={r.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",borderBottom:"1px solid #1a2744"}}>
+                      <div style={{width:9,height:9,borderRadius:"50%",background:isPast?"#ef4444":rt.color,flexShrink:0,marginTop:3}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,color:isPast?"#ef4444":rt.color,fontWeight:700,marginBottom:2}}>{rt.label}</div>
+                        {camp && <div style={{fontSize:11,color:"#a8c4e0",fontWeight:600,marginBottom:2}}>{camp.campaignName.trim()} <span style={{color:"#3d5a72",fontWeight:400}}>· {camp.platform} · {camp.mediaPartner}</span></div>}
+                        {r.note && <div style={{fontSize:12,color:"#7a9bbf",lineHeight:1.5}}>{r.note}</div>}
+                        {r.repeat!=="none" && <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>↻ Repeats {r.repeat}</div>}
+                      </div>
+                      <div style={{display:"flex",gap:5,flexShrink:0}}>
+                        <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00d48a",fontSize:11,padding:"3px 8px",cursor:"pointer"}}>✓ Done</button>
+                        <button onClick={()=>setReminders(prev=>prev.filter(x=>x.id!==r.id))} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,color:"#ef4444",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✕</button>
+                      </div>
                     </div>
-                    <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00d48a",fontSize:10,padding:"2px 6px",cursor:"pointer",flexShrink:0}}>✓</button>
-                    <button onClick={()=>setReminders(prev=>prev.filter(x=>x.id!==r.id))} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,color:"#ef4444",fontSize:10,padding:"2px 6px",cursor:"pointer",flexShrink:0}}>✕</button>
-                  </div>
-                );
-              })
-          }
-        </div>
-      )}
-      <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:12}}>
+                  );
+                })
+            }
+          </div>
+        );
+      })()}
+      </div>
+
+      {/* Legend */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:12,marginTop:14,padding:"8px 0",borderTop:"1px solid #1e293b"}}>
         {REMINDER_TYPES.map(t=>(
-          <div key={t.value} style={{display:"flex",alignItems:"center",gap:4}}>
-            <div style={{width:7,height:7,borderRadius:"50%",background:t.color}}/>
-            <span style={{fontSize:10,color:"#3d5a72"}}>{t.label.replace(/^\S+\s/,"")}</span>
+          <div key={t.value} style={{display:"flex",alignItems:"center",gap:5}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:t.color,flexShrink:0}}/>
+            <span style={{fontSize:10,color:"#4d6e8a"}}>{t.label.replace(/^\S+\s/,"")}</span>
           </div>
         ))}
       </div>
+
+      {/* Hover style for add button */}
+      <style>{`.cal-add-btn:hover { opacity: 1 !important; color: #00e5a0 !important; }`}</style>
     </div>
   );
 }
@@ -310,7 +409,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
           {r.repeat!=="none" && <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>↻ Repeats {r.repeat}</div>}
         </div>
         <div style={{display:"flex",gap:5,flexShrink:0}}>
-          {showEdit && <button onClick={()=>edit(r)} style={{background:"#162236",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>Edit</button>}
+          {showEdit && <button onClick={()=>edit(r)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:4,color:"#00e5a0",fontSize:11,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>}
           {!r.dismissed && <button onClick={()=>dismiss(r.id)} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00d48a",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✓ Done</button>}
           <button onClick={()=>del(r.id)} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,color:"#ef4444",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✕</button>
         </div>
@@ -320,7 +419,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
 
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:14,padding:24,width:"min(580px,96vw)",maxHeight:"88vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:14,padding:24,width:view==="calendar"?"min(1400px,96vw)":"min(580px,96vw)",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:16,fontWeight:800,color:"#edf4ff"}}>🔔 Reminders</span>
@@ -394,7 +493,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
             </div>
           </div>
         ) : view==="calendar" ? (
-          <ReminderCalendar reminders={reminders} setReminders={setReminders} onAdd={addOnDate}/>
+          <ReminderCalendar reminders={reminders} setReminders={setReminders} onAdd={addOnDate} campaigns={campaigns}/>
         ) : (
           <div>
             {overdue.length>0 && (
@@ -484,7 +583,7 @@ function MetricPill({ label, value, color, prefix="", suffix="" }) {
 
 function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders=()=>{} }) {
   const resolved = resolveMetrics(c, dateRange.preset);
-  const [local, setLocal] = useState({impressions:resolved.impressions,ctr:resolved.ctr,cpm:resolved.cpm,spend:resolved.spend,completionRate:c.completionRate||""});
+  const [local, setLocal] = useState({impressions:resolved.impressions,ctr:resolved.ctr,cpm:resolved.cpm,spend:resolved.spend,completionRate:c.completionRate||"",conversions:c.conversions||"",clicks:c.clicks||"",reach:c.reach||"",frequency:c.frequency||"",videoViews:c.videoViews||""});
   const [dirty, setDirty] = useState(false);
   const prevPreset = useRef(dateRange.preset);
   useEffect(()=>{
@@ -523,36 +622,51 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
             <span style={{fontSize:11,color:"#00c896",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>📊 Metrics</span>
             {dateRange.start && <span style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"1px 8px",fontSize:10,fontFamily:"monospace",color:"#4d6e8a"}}>{dateRange.start===dateRange.end?dateRange.start:`${dateRange.start} → ${dateRange.end}`}</span>}
-            {resolved.source==="meta" && <span style={{fontSize:10,color:"#60a5fa",background:"#0c1e38",border:"1px solid #3b82f640",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Meta snapshot</span>}
+            {resolved.source==="meta" && <span style={{fontSize:10,color:"#60a5fa",background:"#0c1e38",border:"1px solid #3b82f640",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Meta</span>}
+            {resolved.source==="ttd" && <span style={{fontSize:10,color:"#a78bfa",background:"#1a0e38",border:"1px solid #7c3aed40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ TTD</span>}
+            {resolved.source==="dsp" && <span style={{fontSize:10,color:"#34d399",background:"#001a10",border:"1px solid #34d39940",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ DSP</span>}
+            {resolved.source==="google" && <span style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Google</span>}
+            {resolved.source==="snap" && <span style={{fontSize:10,color:"#f9a8d4",background:"#1a0010",border:"1px solid #f9a8d440",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Snap</span>}
             {resolved.source==="manual-no-snapshot" && <span title="No Meta snapshot for this date range — showing manually saved values" style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⚠ No snapshot · manual data</span>}
           </div>
           {(()=>{
-            const isCTV = c.platform==="CTV"||c.platform==="OTT";
-            const cols = isCTV ? "repeat(5, minmax(120px, 200px))" : "repeat(4, minmax(130px, 200px))";
-            const completionField = (<div key="completionRate">
-              <label style={{display:"block",fontSize:10,color:"#a78bfa",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>Completion Rate<span style={{opacity:.5,marginLeft:4}}>%</span></label>
-              <input type="number" value={local.completionRate} onChange={e=>set("completionRate",e.target.value)} placeholder="—" style={{...iS,borderColor:local.completionRate?"#a78bfa60":"#162236"}}/>
-            </div>);
+            const isCTV    = c.platform==="CTV"||c.platform==="OTT";
+            const isVideo  = ["FBV","YT","TT"].includes(c.platform)||isCTV;
+            const isSocial = ["FB","IG","TT","FBV"].includes(c.platform);
+            const isSEM    = c.platform==="SEM";
+            // Build ordered field list for this platform
+            const allFields = [
+              {key:"impressions",label:"Impressions",   color:"#00e5a0",prefix:"",  suffix:""},
+              {key:"ctr",        label:"CTR",           color:"#00ffb3",prefix:"",  suffix:"%"},
+              {key:"cpm",        label:"CPM",           color:"#fb923c",prefix:"$", suffix:""},
+              {key:"spend",      label:"Spend",         color:"#f472b6",prefix:"$", suffix:""},
+              ...(isSocial||isSEM||["DSP","SP","TD"].includes(c.platform) ? [{key:"clicks",label:"Clicks",color:"#38bdf8",prefix:"",suffix:""}] : []),
+              ...(isSocial        ? [{key:"reach",     label:"Reach",      color:"#e879f9",prefix:"",suffix:""}]   : []),
+              ...(isSocial        ? [{key:"frequency", label:"Frequency",  color:"#fb923c",prefix:"",suffix:"x"}]  : []),
+              ...(isVideo&&!isCTV ? [{key:"videoViews",label:"Video Views",color:"#a78bfa",prefix:"",suffix:""}]   : []),
+              ...(isVideo         ? [{key:"completionRate",label:isCTV?"Completion %":"VCR %",color:"#818cf8",prefix:"",suffix:"%"}] : []),
+              ...(isCTV||isSEM    ? [{key:"conversions",label:"Conversions",color:"#34d399",prefix:"",suffix:""}]  : []),
+            ];
+            const colCount = Math.min(6, allFields.length);
             return (
-              <div style={{display:"grid",gridTemplateColumns:cols,gap:12,marginBottom:14}}>
-                {metrics.map(({key,label,color,prefix,suffix},i)=>(
-                  <Fragment key={key}>
-                    <div>
+              <div style={{marginBottom:14}}>
+                <div style={{display:"grid",gridTemplateColumns:`repeat(${colCount}, minmax(95px, 1fr))`,gap:10}}>
+                  {allFields.map(({key,label,color,prefix,suffix})=>(
+                    <div key={key}>
                       <label style={{display:"block",fontSize:10,color,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>
-                        {prefix && <span style={{opacity:.5,marginRight:1}}>{prefix}</span>}{label}{suffix && <span style={{opacity:.5,marginLeft:1}}>{suffix}</span>}
+                        {prefix&&<span style={{opacity:.5,marginRight:1}}>{prefix}</span>}{label}{suffix&&<span style={{opacity:.5,marginLeft:1}}>{suffix}</span>}
                       </label>
-                      <input type="number" value={local[key]} onChange={e=>set(key,e.target.value)} placeholder="—" style={{...iS,borderColor:local[key]?color+"60":"#162236"}}/>
+                      <input type="number" value={local[key]||""} onChange={e=>set(key,e.target.value)} placeholder="—" style={{...iS,borderColor:local[key]?color+"60":"#162236"}}/>
                     </div>
-                    {isCTV && i===0 && completionField}
-                  </Fragment>
-                ))}
+                  ))}
+                </div>
               </div>
             );
           })()}
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <button onClick={save} disabled={!dirty} style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"6px 18px",color:dirty?"#fff":"#3b5070",fontSize:12,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>Save Metrics</button>
             {!dirty && (c.impressions||c.ctr||c.cpm||c.spend) && <span style={{fontSize:11,color:"#00d48a",display:"flex",alignItems:"center",gap:4}}>✓ Metrics saved</span>}
-            {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:"",completionRate:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
+            {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
           </div>
           <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
@@ -583,11 +697,11 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                   </div>
                 ) : (
                   <div style={{display:"flex",alignItems:"center",gap:8,background:isPast?"#1a0808":"#0a1628",border:`1px solid ${isPast?"#ef444430":rt.color+"30"}`,borderRadius:5,padding:"5px 10px"}}>
+                    <button onClick={()=>startEditReminder(r)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:4,color:"#00e5a0",cursor:"pointer",fontSize:10,padding:"1px 6px",fontWeight:600,flexShrink:0}}>Edit</button>
+                    <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,color:"#ef4444",cursor:"pointer",fontSize:12,lineHeight:1,padding:"1px 5px",flexShrink:0}}>×</button>
                     <span style={{fontSize:11,color:isPast?"#ef4444":rt.color,fontWeight:600}}>{rt.label}</span>
-                    {r.note&&<span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{r.note}</span>}
-                    <span style={{fontSize:11,color:"#3d5a72",fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
-                    <button onClick={()=>startEditReminder(r)} style={{background:"none",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",cursor:"pointer",fontSize:10,padding:"1px 6px"}}>Edit</button>
-                    <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:12,lineHeight:1,padding:"0 2px"}}>×</button>
+                    <span style={{fontSize:11,color:"#00e5a0",whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
+                    {r.note&&<span style={{fontSize:11,color:"#00e5a0",flex:1}}>{r.note}</span>}
                   </div>
                 )}
               </div>
@@ -635,256 +749,20 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
 
 function DateBar({ range, setRange }) {
   const presets = getPresets();
-  const [cs, setCs] = useState(range.start||"");
-  const [ce, setCe] = useState(range.end||"");
-  const [showCustom, setShowCustom] = useState(false);
-  const quickKeys = ["mtd","yesterday"];
-  const dropdownKeys = ["today","last7","last30","lastMonth","custom"];
-  const isDropdownActive = dropdownKeys.includes(range.preset);
-  function handleDropdown(val) {
-    if (val==="custom") { setShowCustom(true); setRange({preset:"custom",start:cs,end:ce,label:"Custom"}); }
-    else if (val!=="__none__") { setShowCustom(false); setRange({preset:val,...presets[val]}); }
-  }
+  const quickKeys = ["mtd","yesterday","last30"];
   return (
     <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"11px 16px",marginBottom:14,display:"flex",flexWrap:"wrap",alignItems:"center",gap:8}}>
       <span style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginRight:4}}>📅 Date Range</span>
       <div style={{display:"flex",gap:5}}>
-        {quickKeys.map(k=>{ const on=range.preset===k; return <button key={k} onClick={()=>{setShowCustom(false);setRange({preset:k,...presets[k]});}} style={{background:on?"#002e24":"#0e1a2e",border:`1px solid ${on?"#00c896":"#162236"}`,borderRadius:6,padding:"4px 13px",color:on?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:on?700:500,cursor:"pointer"}}>{presets[k].label}</button>; })}
+        {quickKeys.map(k=>{ const on=range.preset===k; return <button key={k} onClick={()=>setRange({preset:k,...presets[k]})} style={{background:on?"#002e24":"#0e1a2e",border:`1px solid ${on?"#00c896":"#162236"}`,borderRadius:6,padding:"4px 13px",color:on?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:on?700:500,cursor:"pointer"}}>{presets[k].label}</button>; })}
       </div>
-      <div style={{width:1,height:20,background:"#162236"}}/>
-      <select value={isDropdownActive?range.preset:"__none__"} onChange={e=>handleDropdown(e.target.value)} style={{background:isDropdownActive?"#002e24":"#0e1a2e",border:`1px solid ${isDropdownActive?"#00c896":"#162236"}`,borderRadius:6,padding:"4px 11px",color:isDropdownActive?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:isDropdownActive?700:500,cursor:"pointer"}}>
-        <option value="__none__" disabled>More…</option>
-        <option value="today">Today</option>
-        <option value="last7">Last 7 Days</option>
-        <option value="last30">Last 30 Days</option>
-        <option value="lastMonth">Last Month</option>
-        <option value="custom">Custom Range…</option>
-      </select>
-      {(showCustom||range.preset==="custom") && (
-        <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <input type="date" value={cs} onChange={e=>setCs(e.target.value)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"4px 8px",color:"#d8eaf8",fontSize:12}}/>
-          <span style={{color:"#3d5a72",fontSize:11}}>to</span>
-          <input type="date" value={ce} onChange={e=>setCe(e.target.value)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"4px 8px",color:"#d8eaf8",fontSize:12}}/>
-          <button onClick={()=>{if(cs&&ce){setRange({preset:"custom",start:cs,end:ce,label:`${cs} → ${ce}`});setShowCustom(false);}}} disabled={!cs||!ce} style={{background:cs&&ce?"#00c896":"#162236",border:"none",borderRadius:6,padding:"4px 12px",color:cs&&ce?"#fff":"#3d5a72",fontSize:12,fontWeight:700,cursor:cs&&ce?"pointer":"default"}}>Apply</button>
-        </div>
-      )}
-      {range.start && range.end && (
-        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
-          <span style={{fontSize:11,color:"#3d5a72"}}>Showing:</span>
-          <span style={{fontSize:11,color:"#00e5a0",fontWeight:500,background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"2px 8px"}}>{range.start===range.end?range.start:`${range.start} → ${range.end}`}</span>
-        </div>
-      )}
-    </div>
-
-  );
-}
-
-function CampaignArchive({ archive, onRestore, onClear }) {
-  const [search, setSearch] = useState("");
-  const [fPartner, setFPartner] = useState("all");
-  const [fPlatform, setFPlatform] = useState("all");
-  const [fStatus, setFStatus] = useState("all");
-  const [fEnded, setFEnded] = useState("all");
-  const [expanded, setExpanded] = useState(new Set());
-
-  const partners  = [...new Set(archive.map(c=>c.mediaPartner))].sort();
-  const platforms = [...new Set(archive.map(c=>c.platform))].sort();
-
-  const today = getToday();
-  function endedCutoff(preset) {
-    const d = new Date(); d.setHours(0,0,0,0);
-    if (preset==="30") { d.setDate(d.getDate()-30); return d.toISOString().slice(0,10); }
-    if (preset==="60") { d.setDate(d.getDate()-60); return d.toISOString().slice(0,10); }
-    if (preset==="90") { d.setDate(d.getDate()-90); return d.toISOString().slice(0,10); }
-    return null;
-  }
-
-  const filtered = archive.filter(c => {
-    const q = search.toLowerCase();
-    const ms = !q || c.campaignName.toLowerCase().includes(q)
-      || c.mediaPartner.toLowerCase().includes(q)
-      || (c.platform||"").toLowerCase().includes(q)
-      || (c.goal||"").toLowerCase().includes(q)
-      || (c.note1||"").toLowerCase().includes(q)
-      || (c.note2||"").toLowerCase().includes(q)
-      || (c.endDate||"").includes(q)
-      || (c.history||"").toLowerCase().includes(q);
-    const cutoff = endedCutoff(fEnded);
-    const inRange = !cutoff || c.endDate >= cutoff;
-    return ms
-      && (fPartner==="all"||c.mediaPartner===fPartner)
-      && (fPlatform==="all"||c.platform===fPlatform)
-      && (fStatus==="all"||(c.status||"")===fStatus)
-      && inRange;
-  });
-
-  // Group by media partner
-  const groups = {};
-  filtered.forEach(c => {
-    if (!groups[c.mediaPartner]) groups[c.mediaPartner] = [];
-    groups[c.mediaPartner].push(c);
-  });
-
-  function toggleExpand(id) {
-    setExpanded(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
-  }
-
-  return (
-    <div style={{padding:"0 0 40px"}}>
-      {/* Toolbar */}
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:16}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, partner, goal, notes…"
-          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 13px",color:"#d8eaf8",fontSize:13,width:260}}/>
-        <select value={fPartner} onChange={e=>setFPartner(e.target.value)}
-          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 11px",color:"#7a9bbf",fontSize:13}}>
-          <option value="all">All Partners</option>
-          {partners.map(p=><option key={p}>{p}</option>)}
-        </select>
-        <select value={fPlatform} onChange={e=>setFPlatform(e.target.value)}
-          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 11px",color:"#7a9bbf",fontSize:13}}>
-          <option value="all">All Platforms</option>
-          {platforms.map(p=><option key={p}>{p}</option>)}
-        </select>
-        <select value={fStatus} onChange={e=>setFStatus(e.target.value)}
-          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 11px",color:"#7a9bbf",fontSize:13}}>
-          <option value="all">All Statuses</option>
-          {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-        </select>
-        <select value={fEnded} onChange={e=>setFEnded(e.target.value)}
-          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 11px",color:"#7a9bbf",fontSize:13}}>
-          <option value="all">Any End Date</option>
-          <option value="30">Ended within 30 days</option>
-          <option value="60">Ended within 60 days</option>
-          <option value="90">Ended within 90 days</option>
-        </select>
-        {(search||fPartner!=="all"||fPlatform!=="all"||fStatus!=="all"||fEnded!=="all") && (
-          <button onClick={()=>{setSearch("");setFPartner("all");setFPlatform("all");setFStatus("all");setFEnded("all");}}
-            style={{background:"none",border:"1px solid #334155",borderRadius:6,padding:"4px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
-            Clear filters
-          </button>
-        )}
-        <span style={{fontSize:11,color:"#3d5a72",marginLeft:4}}>{filtered.length} of {archive.length} archived campaign{archive.length!==1?"s":""}</span>
-        {archive.length>0 && (
-          <button onClick={()=>{ if(window.confirm("Clear the entire archive? This cannot be undone.")) onClear(); }}
-            style={{marginLeft:"auto",background:"#1a0808",border:"1px solid #ef444440",borderRadius:6,padding:"4px 11px",color:"#ef4444",fontSize:11,cursor:"pointer"}}>
-            Clear Archive
-          </button>
-        )}
-      </div>
-
-      {filtered.length === 0 ? (
-        <div style={{textAlign:"center",padding:"60px 0",color:"#3d5a72"}}>
-          <div style={{fontSize:32,marginBottom:10}}>🗄️</div>
-          <div style={{fontSize:13}}>{archive.length===0
-            ? "No archived campaigns yet. Campaigns that ended 60+ days ago will move here automatically."
-            : "No campaigns match your filters."}</div>
-        </div>
-      ) : (
-        <div>
-          {Object.entries(groups).map(([partner, camps]) => (
-            <div key={partner} style={{marginBottom:20}}>
-              <div style={{fontSize:11,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",
-                marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
-                <span style={{color:"#4d6e8a"}}>{partner}</span>
-                <div style={{flex:1,height:1,background:"#0d1525"}}/>
-                <span style={{fontWeight:400}}>{camps.length} campaign{camps.length!==1?"s":""}</span>
-              </div>
-              <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,overflow:"hidden"}}>
-                <table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead>
-                    <tr style={{background:"#070d16"}}>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Campaign</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Platform</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Goal</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>End Date</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Archived</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Metrics</th>
-                      <th style={{padding:"9px 13px",borderBottom:"1px solid #1e293b"}}/>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {camps.map((c,i) => {
-                      const col = PLT_COLORS[c.platform]||PLT_COLORS.default;
-                      const isOpen = expanded.has(c.id);
-                      const hasMetrics = !!(c.impressions||c.ctr||c.cpm||c.spend);
-                      const hasNotes = !!(c.note1||c.note2||c.history);
-                      return (
-                        <Fragment key={c.id}>
-                          <tr style={{background:i%2===0?"#0c1625":"#090f1c",borderBottom:"1px solid #060c18"}}>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
-                              <div style={{display:"flex",alignItems:"center",gap:6}}>
-                                {(hasNotes||hasMetrics) && (
-                                  <button onClick={()=>toggleExpand(c.id)}
-                                    style={{background:"none",border:"none",cursor:"pointer",color:hasMetrics?"#00c896":"#3d5a72",
-                                      fontSize:10,padding:"2px 4px",transform:isOpen?"rotate(90deg)":"rotate(0deg)",transition:"transform .15s"}}>▶</button>
-                                )}
-                                <span style={{color:"#edf4ff",fontWeight:600,fontSize:13}}>{c.campaignName.trim()}</span>
-                                {c.monthlyFlight && <span style={{color:"#00e5c0",fontSize:12}}>★</span>}
-                              </div>
-                              {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:2,marginLeft:hasNotes||hasMetrics?18:0}}>{c.note1.trim()}</div>}
-                            </td>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
-                              <span style={{background:col+"22",color:col,border:`1px solid ${col}55`,borderRadius:3,
-                                padding:"1px 7px",fontSize:11,fontWeight:700}}>{c.platform}</span>
-                            </td>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle",maxWidth:160}}>
-                              <span style={{color:"#7a9bbf",fontSize:12,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={c.goal}>{c.goal||"—"}</span>
-                            </td>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
-                              <span style={{color:"#6b7280",fontSize:13,fontWeight:600}}>{fmtDate(c.endDate)}</span>
-                              <span style={{color:"#3d5a72",fontSize:11,marginLeft:5}}>({Math.abs(getDaysLeft(c.endDate))}d ago)</span>
-                            </td>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
-                              <span style={{color:"#3d5a72",fontSize:11}}>{c.archivedDate||"—"}</span>
-                            </td>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
-                              {hasMetrics ? (
-                                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                                  {c.impressions&&<span style={{fontSize:10,color:"#00e5a0"}}>{fmtNum(c.impressions)} imp</span>}
-                                  {c.ctr&&<span style={{fontSize:10,color:"#00ffb3"}}>{c.ctr}% CTR</span>}
-                                  {c.cpm&&<span style={{fontSize:10,color:"#fb923c"}}>${c.cpm} CPM</span>}
-                                  {c.spend&&<span style={{fontSize:10,color:"#f472b6"}}>${fmtNum(c.spend)} spend</span>}
-                                </div>
-                              ) : <span style={{color:"#1e3048",fontSize:11}}>—</span>}
-                            </td>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
-                              <button onClick={()=>onRestore(c)}
-                                style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:5,
-                                  color:"#00e5a0",fontSize:11,padding:"4px 10px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>
-                                ↩ Restore
-                              </button>
-                            </td>
-                          </tr>
-                          {isOpen && (hasNotes||hasMetrics) && (
-                            <tr style={{background:"#07101c"}}>
-                              <td colSpan={7} style={{padding:"12px 18px 14px 36px",borderBottom:"1px solid #0d1525"}}>
-                                {c.note2&&c.note2.trim()&&<div style={{fontSize:11,color:"#ef4444",marginBottom:6}}>⚠ {c.note2.trim()}</div>}
-                                {c.history&&c.history.trim()&&(
-                                  <div style={{marginBottom:6}}>
-                                    <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:3}}>Change History</div>
-                                    <pre style={{margin:0,fontSize:11,color:"#4d6e8a",fontFamily:"inherit",whiteSpace:"pre-wrap"}}>{c.history.trim()}</pre>
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
 
 
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[] }) {
-  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
+  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
   const [f, setF] = useState(campaign?{...campaign}:blank);
   const blankR = { type:"ad-swap", note:"", date:"", repeat:"none" };
   const [newReminder, setNewReminder] = useState(blankR);
@@ -936,32 +814,44 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
         {row("note1","Note 1")}
         {row("note2","Note 2")}
         {row("lastChecked","Last Checked","date")}
+        {/* Contract Value */}
+        <div style={{marginBottom:12}}>
+          <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 Contract Value</label>
+          <div style={{display:"flex",alignItems:"center",gap:0,background:"#162236",border:"1px solid #334155",borderRadius:6,overflow:"hidden"}}>
+            <span style={{padding:"7px 10px",color:"#34d399",fontWeight:700,fontSize:13,background:"#0e1a2e",borderRight:"1px solid #334155"}}>$</span>
+            <input type="number" value={f.contractValue||""} onChange={e=>set("contractValue",e.target.value)} placeholder="e.g. 5000" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:"#d8eaf8",fontSize:13,outline:"none"}}/>
+          </div>
         </div>
+        {/* Monthly Flights */}
         <div style={{marginBottom:12}}>
           <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Flights</label>
-          <button onClick={()=>set("monthlyFlight",!f.monthlyFlight)} style={{display:"flex",alignItems:"center",gap:8,background:f.monthlyFlight?"#00201a":"#162236",border:`1px solid ${f.monthlyFlight?"#2dd4bf60":"#1e3350"}`,borderRadius:7,padding:"8px 14px",cursor:"pointer",width:"100%"}}>
+          <button onClick={()=>set("monthlyFlight",!f.monthlyFlight)} style={{display:"flex",alignItems:"center",gap:8,background:f.monthlyFlight?"#00201a":"#162236",border:`1px solid ${f.monthlyFlight?"#2dd4bf60":"#1e3350"}`,borderRadius:7,padding:"8px 14px",cursor:"pointer",width:"100%",boxSizing:"border-box"}}>
             <span style={{fontSize:15,color:f.monthlyFlight?"#00e5c0":"#3d5a72"}}>★</span>
             <span style={{fontSize:12,color:f.monthlyFlight?"#00e5c0":"#4d6e8a",fontWeight:f.monthlyFlight?700:400}}>{f.monthlyFlight?"Monthly flights enabled":"No monthly flights"}</span>
             <span style={{marginLeft:"auto",fontSize:10,color:f.monthlyFlight?"#00e5c0":"#1e3350"}}>{f.monthlyFlight?"ON":"OFF"}</span>
           </button>
         </div>
-        <div style={{marginBottom:12}}>
+        {/* Projection URL — full width */}
+        <div style={{marginBottom:12,gridColumn:"1 / -1"}}>
           <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📎 Projection Sheet URL</label>
           <div style={{display:"flex",gap:6}}>
             <input type="url" value={f.projectionUrl||""} onChange={e=>set("projectionUrl",e.target.value)} placeholder="https://docs.google.com/..." style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
             {f.projectionUrl&&f.projectionUrl.trim()&&<a href={f.projectionUrl.trim()} target="_blank" rel="noopener noreferrer" style={{background:"#002e24",border:"1px solid #3b82f640",borderRadius:6,padding:"7px 12px",color:"#00e5a0",fontSize:12,fontWeight:600,textDecoration:"none",whiteSpace:"nowrap",display:"flex",alignItems:"center"}}>Open ↗</a>}
           </div>
         </div>
-        <div style={{marginBottom:12}}>
+        {/* Folder Path — full width */}
+        <div style={{marginBottom:12,gridColumn:"1 / -1"}}>
           <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📁 Client Folder Path</label>
           <div style={{display:"flex",gap:6}}>
             <input type="text" value={f.folderPath||""} onChange={e=>set("folderPath",e.target.value)} placeholder="\\192.168.3.2\Data\..." style={{flex:1,background:"#162236",border:"1px solid #1e3350",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"Consolas,monospace"}}/>
             {f.folderPath&&f.folderPath.trim()&&<button onClick={()=>navigator.clipboard.writeText(f.folderPath.trim())} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"7px 12px",color:"#00e5a0",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Copy 📋</button>}
           </div>
         </div>
-        <div style={{marginBottom:16}}>
+        {/* History — full width */}
+        <div style={{marginBottom:16,gridColumn:"1 / -1"}}>
           <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History</label>
-          <textarea value={f.history||""} onChange={e=>set("history",e.target.value)} placeholder={"3/2/26 — Increased budget\n..."} style={{width:"100%",background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:110,lineHeight:1.6}}/>
+          <textarea value={f.history||""} onChange={e=>set("history",e.target.value)} placeholder={"3/2/26 — Increased budget\n..."} style={{width:"100%",background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:80,lineHeight:1.6}}/>
+        </div>
         </div>
         {!isNew && campaign && (
           <div style={{marginBottom:16,paddingTop:14,borderTop:"1px solid #1e293b"}}>
@@ -1133,9 +1023,9 @@ function ActivityLog({ log, campaigns, onClear, onUndo }) {
               </div>
             </div>
           ))}
-        </div>
-      )}
-    </div>
+          </div>
+        )}
+      </div>
   );
 }
 
@@ -1184,6 +1074,1666 @@ function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms }) {
 }
 
 
+
+// ─── Platform KPI benchmarks ──────────────────────────────────────────────
+const PLT_KPI = {
+  FB:    { primary:"CTR", good:0.0025, ok:0.001,  label:"CTR",        tip:"Good >0.25% · OK >0.10%" },
+  IG:    { primary:"CTR", good:0.0025, ok:0.001,  label:"CTR",        tip:"Good >0.25% · OK >0.10%" },
+  TT:    { primary:"CTR", good:0.01,   ok:0.005,  label:"CTR",        tip:"Good >1% · OK >0.5%"     },
+  FBV:   { primary:"VCR", good:0.70,   ok:0.50,   label:"Completion", tip:"Good >70% · OK >50%"     },
+  DSP:   { primary:"CTR", good:0.0008, ok:0.0003, label:"CTR",        tip:"Good >0.08% · OK >0.03%" },
+  TD:    { primary:"CTR", good:0.0008, ok:0.0003, label:"CTR",        tip:"Good >0.08% · OK >0.03%" },
+  SP:    { primary:"CTR", good:0.0008, ok:0.0003, label:"CTR",        tip:"Good >0.08% · OK >0.03%" },
+  CTV:   { primary:"VCR", good:0.95,   ok:0.85,   label:"Completion", tip:"Good >95% · OK >85%"     },
+  OTT:   { primary:"VCR", good:0.95,   ok:0.85,   label:"Completion", tip:"Good >95% · OK >85%"     },
+  SEM:   { primary:"CTR", good:0.05,   ok:0.02,   label:"CTR",        tip:"Good >5% · OK >2%"       },
+  YT:    { primary:"VCR", good:0.35,   ok:0.20,   label:"View Rate",  tip:"Good >35% · OK >20%"     },
+  EMAIL: { primary:"CTR", good:0.03,   ok:0.01,   label:"Click Rate", tip:"Good >3% · OK >1%"       },
+};
+
+// ─── Pacing date bar ──────────────────────────────────────────────────────
+function PacingDateBar({ range, setRange }) {
+  const presets = getPresets();
+  const [cs, setCs] = useState(range.start||"");
+  const [ce, setCe] = useState(range.end||"");
+  const [showCustom, setShowCustom] = useState(false);
+  const quickKeys = ["mtd","yesterday","last30"];
+  const isCustom = range.preset==="custom";
+  return (
+    <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:7}}>
+      {quickKeys.map(k=>{
+        const on=range.preset===k;
+        return <button key={k} onClick={()=>{setShowCustom(false);setRange({preset:k,...presets[k]});}}
+          style={{background:on?"#002e24":"#0e1a2e",border:"1px solid "+(on?"#00c896":"#162236"),borderRadius:6,padding:"4px 12px",color:on?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:on?700:500,cursor:"pointer"}}>
+          {presets[k].label}
+        </button>;
+      })}
+      <div style={{width:1,height:18,background:"#162236"}}/>
+      <button onClick={()=>setShowCustom(v=>!v)}
+        style={{background:isCustom||showCustom?"#002e24":"#0e1a2e",border:"1px solid "+(isCustom||showCustom?"#00c896":"#162236"),borderRadius:6,padding:"4px 12px",color:isCustom||showCustom?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:isCustom||showCustom?700:500,cursor:"pointer"}}>
+        {isCustom?range.label:"Custom…"}
+      </button>
+      {(showCustom||isCustom)&&(
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <input type="date" value={cs} onChange={e=>setCs(e.target.value)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"4px 8px",color:"#d8eaf8",fontSize:12}}/>
+          <span style={{color:"#3d5a72",fontSize:11}}>to</span>
+          <input type="date" value={ce} onChange={e=>setCe(e.target.value)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"4px 8px",color:"#d8eaf8",fontSize:12}}/>
+          <button onClick={()=>{if(cs&&ce){setRange({preset:"custom",start:cs,end:ce,label:cs===ce?cs:cs+" → "+ce});setShowCustom(false);}}} disabled={!cs||!ce}
+            style={{background:cs&&ce?"#00c896":"#162236",border:"none",borderRadius:6,padding:"4px 12px",color:cs&&ce?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:cs&&ce?"pointer":"default"}}>Apply</button>
+          {isCustom&&<button onClick={()=>{setShowCustom(false);setRange({preset:"mtd",...getPresets().mtd});}}
+            style={{background:"none",border:"1px solid #334155",borderRadius:6,padding:"4px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>Clear</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Pacing Dashboard ─────────────────────────────────────────────────────
+function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, onEdit=()=>{} }) {
+  const [showNoGoal,   setShowNoGoal]   = useState(false);
+  const [search,       setSearch]       = useState("");
+  const [fPartner,     setFPartner]     = useState("all");
+  const [fPlatforms,   setFPlatforms]   = useState(new Set());
+  const [sortKey,      setSortKey]      = useState("pacing"); // pacing | name | partner | platform
+  const [viewMode,     setViewMode]     = useState("cards");  // cards | table
+
+  // Flight progress helpers
+  function flightPct(c) {
+    if(!c.startDate||!c.endDate) return null;
+    const s=new Date(c.startDate+"T00:00:00"), e=new Date(c.endDate+"T00:00:00"), now=new Date();
+    const total=Math.max(1,(e-s)/86400000), elapsed=(now-s)/86400000;
+    return Math.min(1,Math.max(0,elapsed/total));
+  }
+  function daysRemaining(c) {
+    if(!c.endDate) return null;
+    const e=new Date(c.endDate+"T00:00:00"), now=new Date();
+    now.setHours(0,0,0,0);
+    return Math.ceil((e-now)/86400000);
+  }
+  function daysRemainingColor(d) {
+    if(d===null) return "#3d5a72";
+    if(d<=7)  return "#ef4444";
+    if(d<=14) return "#f59e0b";
+    return "#4d6e8a";
+  }
+
+  const allActive = campaigns.filter(c=>c.status==="active");
+  const partners  = ["all", ...new Set(allActive.map(c=>c.mediaPartner).filter(Boolean))].sort();
+  const platforms = [...new Set(allActive.map(c=>c.platform).filter(Boolean))].sort();
+
+  // Build rows for ALL active
+  const allRows = allActive.map(c=>{
+    const disp=resolveMetrics(c,dateRange.preset);
+    const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+    const monthlyGoal=parseMonthlyGoal(c.note1);
+    return {c,disp,pacing,monthlyGoal};
+  });
+
+  // Apply search + filters
+  const q = search.trim().toLowerCase();
+  const filtered = allRows.filter(({c})=>{
+    if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
+    if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
+    if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
+    return true;
+  });
+
+  const withGoal  = filtered.filter(r=>r.monthlyGoal);
+  const noGoalRows= filtered.filter(r=>!r.monthlyGoal);
+
+  // Sort
+  const orderMap={"Behind":0,"No data":1,"On Track":2,"Ahead":3};
+  withGoal.sort((a,b)=>{
+    if(sortKey==="name")     return a.c.campaignName.localeCompare(b.c.campaignName);
+    if(sortKey==="partner")  return a.c.mediaPartner.localeCompare(b.c.mediaPartner);
+    if(sortKey==="platform") return a.c.platform.localeCompare(b.c.platform);
+    // default: pacing (worst first)
+    const oa=orderMap[a.pacing?.label??"No data"],ob=orderMap[b.pacing?.label??"No data"];
+    return oa!==ob?oa-ob:(a.pacing?.ratio??0)-(b.pacing?.ratio??0);
+  });
+  noGoalRows.sort((a,b)=>{
+    if(sortKey==="name")     return a.c.campaignName.localeCompare(b.c.campaignName);
+    if(sortKey==="partner")  return a.c.mediaPartner.localeCompare(b.c.mediaPartner);
+    if(sortKey==="platform") return a.c.platform.localeCompare(b.c.platform);
+    return 0;
+  });
+  const behind  = withGoal.filter(r=>r.pacing?.label==="Behind");
+  const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
+  const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
+  const noPace  = withGoal.filter(r=>!r.pacing);
+  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0;
+
+  function KpiBox({c,disp}){
+    const kpi=PLT_KPI[c.platform]; if(!kpi) return null;
+    const isCTV=c.platform==="CTV"||c.platform==="OTT";
+    const rawVcr=(parseFloat(c.completionRate)||0)/100, rawCtr=(parseFloat(disp.ctr)||0)/100;
+    const val=kpi.primary==="VCR"?rawVcr:rawCtr; if(!val) return null;
+    const color=val>=kpi.good?"#00d48a":val>=kpi.ok?"#f59e0b":"#ef4444";
+    return <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:4}}>
+      <span title={kpi.tip} style={{cursor:"help",fontSize:10,fontWeight:700,color,background:color+"18",border:"1px solid "+color+"40",borderRadius:4,padding:"1px 7px"}}>
+        {kpi.label}: {kpi.primary==="VCR"?(rawVcr*100).toFixed(0)+"%":(rawCtr*100).toFixed(2)+"%"} · {val>=kpi.good?"Good":val>=kpi.ok?"OK":"Low"}
+      </span>
+      {isCTV&&(parseFloat(c.conversions)||0)>0&&<span style={{fontSize:10,fontWeight:700,color:"#34d399",background:"#34d39918",border:"1px solid #34d39940",borderRadius:4,padding:"1px 7px"}}>{parseInt(c.conversions).toLocaleString()} conv</span>}
+    </div>;
+  }
+
+  function PacingCard({c,disp,pacing,monthlyGoal}){
+    const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
+    const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null, del=parseInt(disp.impressions)||0;
+    const rem=Math.max(0,monthlyGoal-del), npd=(dim-dom)>0&&del>0?Math.round(rem/(dim-dom)):null;
+    const col=pacing?.color??"#4d6e8a", pCol=PLT_COLORS[c.platform]||PLT_COLORS.default;
+    const isCTV=c.platform==="CTV"||c.platform==="OTT";
+    const fp=flightPct(c), dr=daysRemaining(c), drc=daysRemainingColor(dr);
+    // Build perf metric boxes
+    const perfBoxes=[];
+    if(disp.ctr)         perfBoxes.push({label:"CTR",    val:parseFloat(disp.ctr).toFixed(2)+"%",                     color:"#00ffb3"});
+    if(disp.cpm)         perfBoxes.push({label:"CPM",    val:"$"+parseFloat(disp.cpm).toFixed(2),                     color:"#fb923c"});
+    if(disp.spend)       perfBoxes.push({label:"Spend",  val:"$"+Math.round(parseFloat(disp.spend)).toLocaleString(), color:"#f472b6"});
+    if(disp.clicks)      perfBoxes.push({label:"Clicks", val:parseInt(disp.clicks).toLocaleString(),                  color:"#38bdf8"});
+    if(c.reach)          perfBoxes.push({label:"Reach",  val:parseInt(c.reach).toLocaleString(),                      color:"#e879f9"});
+    if(c.frequency)      perfBoxes.push({label:"Freq",   val:parseFloat(c.frequency).toFixed(2)+"x",                  color:"#fb923c"});
+    if(c.videoViews)     perfBoxes.push({label:"Views",  val:parseInt(c.videoViews).toLocaleString(),                 color:"#a78bfa"});
+    if(c.completionRate) perfBoxes.push({label:isCTV?"Compl%":"VCR", val:parseFloat(c.completionRate).toFixed(1)+"%", color:"#818cf8"});
+    if(c.conversions)    perfBoxes.push({label:"Conv",   val:parseInt(c.conversions).toLocaleString(),                color:"#34d399"});
+
+    return <div style={{background:"#0c1625",border:"1px solid "+(pacing?col+"40":"#1e293b"),borderRadius:9,padding:"13px 16px",marginBottom:7}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:2}}>
+        <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{c.campaignName.trim()}</span>
+        <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>
+        {pacing&&<span style={{fontSize:10,fontWeight:700,color:col,background:col+"18",border:"1px solid "+col+"40",borderRadius:4,padding:"1px 6px"}}>{pacing.label}</span>}
+        {dr!==null&&<span style={{fontSize:10,fontWeight:700,color:drc,background:drc+"15",border:"1px solid "+drc+"40",borderRadius:4,padding:"1px 6px",marginLeft:2}}>
+          {dr<=0?"Ended":dr===1?"Last day":dr+"d left"}
+        </span>}
+        <button onClick={()=>onEdit(c)} style={{marginLeft:"auto",background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:11,padding:"3px 8px",cursor:"pointer",fontWeight:600,flexShrink:0}}>Edit</button>
+      </div>
+      <div style={{fontSize:11,color:"#4d6e8a",marginBottom:6}}>{c.mediaPartner}</div>
+
+      {/* Monthly pacing bar */}
+      {pacing&&<div style={{marginBottom:6}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#3d5a72",marginBottom:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+          <span>Monthly Pacing</span><span>Goal: {monthlyGoal.toLocaleString()}</span>
+        </div>
+        <div style={{position:"relative",background:"#07101c",borderRadius:3,height:6,marginBottom:2,overflow:"visible"}}>
+          <div title={"Expected: "+(exp?.toLocaleString()??"")} style={{position:"absolute",top:-3,left:Math.min(97,pacing.expectedPct*100)+"%",width:2,height:12,background:"#334155",borderRadius:1,zIndex:2}}/>
+          <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:3}}/>
+        </div>
+        <span style={{fontSize:10,color:col,fontWeight:700}}>{(pacing.pct*100).toFixed(1)}% of monthly goal</span>
+      </div>}
+      {!pacing&&monthlyGoal&&<div style={{fontSize:10,color:"#3d5a72",fontStyle:"italic",marginBottom:6}}>No impressions yet</div>}
+
+      {/* Flight progress bar */}
+      {fp!==null&&<div style={{marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#3d5a72",marginBottom:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+          <span>Flight Progress</span>
+          <span>{c.startDate} → {c.endDate}</span>
+        </div>
+        <div style={{background:"#07101c",borderRadius:3,height:4}}>
+          <div style={{background:"#334155",height:"100%",width:Math.min(100,fp*100)+"%",borderRadius:3}}/>
+        </div>
+        <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>{(fp*100).toFixed(0)}% through flight</div>
+      </div>}
+
+      {/* All metric boxes */}
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:2}}>
+        {monthlyGoal&&[
+          {label:"Delivered",val:del>0?del.toLocaleString():"—",color:"#00e5a0"},
+          {label:"Expected", val:exp?exp.toLocaleString():"—",  color:"#7a9bbf"},
+          {label:"Remaining",val:del>0?rem.toLocaleString():"—",color:rem>0?"#f59e0b":"#00d48a"},
+          {label:"Need/Day", val:npd?npd.toLocaleString():"—",  color:"#fb923c"},
+        ].map(({label,val,color})=><div key={label} style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:5,padding:"5px 9px",minWidth:60,textAlign:"center"}}>
+          <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
+          <div style={{fontSize:11,fontWeight:700,color}}>{val}</div>
+        </div>)}
+        {monthlyGoal&&perfBoxes.length>0&&<div style={{width:1,background:"#1a2744",alignSelf:"stretch",margin:"0 3px"}}/>}
+        {perfBoxes.map(({label,val,color})=>(
+          <div key={label} style={{background:"#07101c",border:"1px solid "+color+"28",borderRadius:5,padding:"5px 9px",minWidth:54,textAlign:"center"}}>
+            <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
+            <div style={{fontSize:11,fontWeight:700,color}}>{val}</div>
+          </div>
+        ))}
+        {!monthlyGoal&&!perfBoxes.length&&<div style={{fontSize:11,color:"#3d5a72",fontStyle:"italic"}}>No goal or metrics yet</div>}
+      </div>
+
+      {/* Per-campaign breakdown — shown when sync has breakdown data */}
+      {(()=>{
+        // Find whichever snapshot source is active and has breakdown data
+        const snapshotSources = [c.metaSnapshots, c.ttdSnapshots, c.dspSnapshots, c.googleSnapshots, c.snapSnapshots];
+        let snap = null;
+        for (const source of snapshotSources) {
+          if (!source) continue;
+          for (const key of ['mtd','last30','yesterday']) {
+            if (source[key]?.breakdown?.length >= 2) { snap = source[key]; break; }
+          }
+          if (snap) break;
+        }
+        const breakdown = snap?.breakdown;
+        if (!breakdown || breakdown.length < 2) return null;
+        return (
+          <div style={{marginTop:8,borderTop:"1px solid #1a2744",paddingTop:8}}>
+            <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5}}>
+              Campaign Breakdown ({breakdown.length})
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:3}}>
+              {breakdown.map(b=>(
+                <div key={b.id} style={{display:"flex",alignItems:"center",gap:6,background:"#07101c",borderRadius:5,padding:"5px 8px"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:10,color:"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}
+                      title={b.name}>{b.name}</div>
+                  </div>
+                  <div style={{display:"flex",gap:8,flexShrink:0}}>
+                    <span style={{fontSize:10,color:"#d8eaf8",fontWeight:600,fontVariantNumeric:"tabular-nums"}}>{parseInt(b.impressions).toLocaleString()}<span style={{color:"#3d5a72",fontWeight:400}}> impr</span></span>
+                    {b.spend>0&&<span style={{fontSize:10,color:"#f472b6",fontWeight:600}}>${Math.round(b.spend).toLocaleString()}</span>}
+                    {b.ctr>0&&<span style={{fontSize:10,color:"#00ffb3",fontWeight:600}}>{b.ctr.toFixed(2)}<span style={{color:"#3d5a72",fontWeight:400}}>%</span></span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+    </div>;
+  }
+
+  function TableRow({c,disp,pacing,monthlyGoal}){
+    const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
+    const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null, del=parseInt(disp.impressions)||0;
+    const rem=Math.max(0,monthlyGoal-del), npd=(dim-dom)>0&&del>0?Math.round(rem/(dim-dom)):null;
+    const col=pacing?.color??"#3d5a72", pCol=PLT_COLORS[c.platform]||PLT_COLORS.default;
+    const isCTV=c.platform==="CTV"||c.platform==="OTT";
+    const fp=flightPct(c), dr=daysRemaining(c), drc=daysRemainingColor(dr);
+    const kpi=PLT_KPI[c.platform];
+    const rawKpi=kpi?.primary==="VCR"?(parseFloat(c.completionRate)||0)/100:(parseFloat(disp.ctr)||0)/100;
+    const kpiColor=kpi&&rawKpi?rawKpi>=kpi.good?"#00d48a":rawKpi>=kpi.ok?"#f59e0b":"#ef4444":null;
+
+    return <div style={{display:"grid",gridTemplateColumns:"minmax(160px,2fr) 70px 80px 100px 110px 110px 80px 60px",gap:8,padding:"8px 12px",borderBottom:"1px solid #0d1525",alignItems:"center",background:"#0c1625",borderLeft:"3px solid "+col}}>
+      {/* Campaign + partner */}
+      <div style={{minWidth:0}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
+        <div style={{fontSize:10,color:"#4d6e8a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
+      </div>
+      {/* Platform */}
+      <div><span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span></div>
+      {/* Pacing status */}
+      <div>
+        {pacing?<span style={{fontSize:10,fontWeight:700,color:col}}>{pacing.label}</span>
+        :monthlyGoal?<span style={{fontSize:10,color:"#3d5a72"}}>No impr</span>
+        :<span style={{fontSize:10,color:"#334155"}}>No goal</span>}
+      </div>
+      {/* Monthly pacing bar */}
+      <div>
+        {pacing?<>
+          <div style={{position:"relative",background:"#07101c",borderRadius:2,height:5,overflow:"visible",marginBottom:2}}>
+            <div title={"Expected: "+(exp?.toLocaleString()??"")} style={{position:"absolute",top:-2,left:Math.min(97,pacing.expectedPct*100)+"%",width:2,height:9,background:"#334155",borderRadius:1,zIndex:2}}/>
+            <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:2}}/>
+          </div>
+          <div style={{fontSize:9,color:col,fontWeight:700}}>{(pacing.pct*100).toFixed(1)}%</div>
+        </>:<div style={{fontSize:10,color:"#3d5a72"}}>—</div>}
+      </div>
+      {/* Flight progress bar */}
+      <div>
+        {fp!==null?<>
+          <div style={{background:"#07101c",borderRadius:2,height:5,marginBottom:2}}>
+            <div style={{background:"#334155",height:"100%",width:Math.min(100,fp*100)+"%",borderRadius:2}}/>
+          </div>
+          <div style={{fontSize:9,color:"#3d5a72"}}>{(fp*100).toFixed(0)}% of flight</div>
+        </>:<div style={{fontSize:10,color:"#3d5a72"}}>—</div>}
+      </div>
+      {/* Key metric (CTR or VCR) */}
+      <div>
+        {kpi&&rawKpi?<span style={{fontSize:10,fontWeight:700,color:kpiColor}}>{kpi.label}: {kpi.primary==="VCR"?(rawKpi*100).toFixed(0)+"%":(rawKpi*100).toFixed(2)+"%"}</span>
+        :disp.cpm?<span style={{fontSize:10,color:"#fb923c"}}>${parseFloat(disp.cpm).toFixed(2)} CPM</span>
+        :<span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+      </div>
+      {/* Days remaining */}
+      <div>
+        {dr!==null?<span style={{fontSize:10,fontWeight:700,color:drc}}>{dr<=0?"Done":dr+"d"}</span>
+        :<span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+      </div>
+      {/* Edit */}
+      <div><button onClick={()=>onEdit(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button></div>
+    </div>;
+  }
+
+  function TableHeader(){
+    return <div style={{display:"grid",gridTemplateColumns:"minmax(160px,2fr) 70px 80px 100px 110px 110px 80px 60px",gap:8,padding:"6px 12px",borderBottom:"1px solid #1a2744",marginBottom:2}}>
+      {["Campaign","Platform","Status","Mo. Pacing","Flight","KPI","Days Left",""].map((h,i)=>(
+        <div key={i} style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
+      ))}
+    </div>;
+  }
+
+  function Section({label,color,items,defaultOpen=true}){
+    const [open,setOpen]=useState(defaultOpen); if(!items.length) return null;
+    return <div style={{marginBottom:viewMode==="table"?2:18}}>
+      <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:open?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
+        <span style={{fontSize:11,color,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>{label} ({items.length})</span>
+        <span style={{color:"#3d5a72",fontSize:10,display:"inline-block",transform:open?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
+      </div>
+      {open&&viewMode==="table"&&<TableHeader/>}
+      {open&&items.map(r=>viewMode==="table"
+        ?<TableRow key={r.c.id} {...r}/>
+        :<PacingCard key={r.c.id} {...r}/>
+      )}
+    </div>;
+  }
+
+  return <div style={{color:"#d8eaf8"}}>
+    {/* Header */}
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:2}}>📈 Pacing Dashboard</div>
+      <div style={{fontSize:11,color:"#4d6e8a"}}>{allActive.length} active · {withGoal.length} with goals{anyFilter?" · filtered":""}</div>
+    </div>
+
+    {/* Date bar */}
+    <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:9,padding:"10px 14px",marginBottom:10}}>
+      <PacingDateBar range={dateRange} setRange={setDateRange}/>
+    </div>
+
+    {/* Search + filters + sort */}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
+      <input
+        value={search} onChange={e=>setSearch(e.target.value)}
+        placeholder="Search campaigns, partners…"
+        style={{background:"#0e1a2e",border:"1px solid "+(search?"#00c896":"#1e293b"),borderRadius:7,padding:"7px 12px",color:"#d8eaf8",fontSize:12,width:220,outline:"none"}}
+      />
+      <select value={fPartner} onChange={e=>setFPartner(e.target.value)}
+        style={{background:"#0e1a2e",border:"1px solid "+(fPartner!=="all"?"#00c896":"#1e293b"),borderRadius:7,padding:"7px 10px",color:fPartner!=="all"?"#00e5a0":"#7a9bbf",fontSize:12,cursor:"pointer"}}>
+        {partners.map(p=><option key={p} value={p}>{p==="all"?"All Partners":p}</option>)}
+      </select>
+      <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
+      <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
+        <span style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
+        {[["pacing","Pacing"],["name","Name"],["partner","Partner"],["platform","Platform"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setSortKey(k)}
+            style={{background:sortKey===k?"#002e24":"#0e1a2e",border:"1px solid "+(sortKey===k?"#00c896":"#1e293b"),borderRadius:6,padding:"4px 10px",color:sortKey===k?"#00e5a0":"#4d6e8a",fontSize:11,fontWeight:sortKey===k?700:400,cursor:"pointer"}}>
+            {l}
+          </button>
+        ))}
+        <div style={{width:1,height:18,background:"#162236",margin:"0 2px"}}/>
+        {[["cards","⊞"],["table","☰"]].map(([m,icon])=>(
+          <button key={m} onClick={()=>setViewMode(m)} title={m==="cards"?"Card view":"Table view"}
+            style={{background:viewMode===m?"#002e24":"#0e1a2e",border:"1px solid "+(viewMode===m?"#00c896":"#1e293b"),borderRadius:6,padding:"4px 9px",color:viewMode===m?"#00e5a0":"#4d6e8a",fontSize:14,cursor:"pointer",lineHeight:1}}>
+            {icon}
+          </button>
+        ))}
+      </div>
+    </div>
+    {anyFilter&&<div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
+      <span style={{fontSize:11,color:"#4d6e8a"}}>Showing {filtered.length} of {allActive.length}</span>
+      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());}} style={{background:"none",border:"1px solid #334155",borderRadius:5,padding:"2px 8px",color:"#7a9bbf",fontSize:11,cursor:"pointer"}}>Clear filters</button>
+    </div>}
+
+    {/* Summary pills */}
+    <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16,alignItems:"center"}}>
+      {[{label:"Behind",val:behind.length,color:"#fde047"},{label:"On Track",val:onTrack.length,color:"#00d48a"},{label:"Ahead",val:ahead.length,color:"#fb923c"},{label:"No Impr",val:noPace.length,color:"#4d6e8a"},{label:"No Goal",val:noGoalRows.length,color:"#334155"}].map(s=>(
+        <div key={s.label} style={{background:"#0e1a2e",border:"1px solid "+s.color+"30",borderRadius:7,padding:"8px 13px",minWidth:68,textAlign:"center"}}>
+          <div style={{fontSize:20,fontWeight:800,color:s.color,lineHeight:1}}>{s.val}</div>
+          <div style={{fontSize:10,color:"#4d6e8a",marginTop:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>{s.label}</div>
+        </div>
+      ))}
+      <div style={{marginLeft:"auto",fontSize:10,color:"#3d5a72",display:"flex",gap:10}}>
+        <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> Good</span>
+        <span><span style={{color:"#f59e0b",fontWeight:700}}>●</span> OK</span>
+        <span><span style={{color:"#ef4444",fontWeight:700}}>●</span> Low</span>
+      </div>
+    </div>
+    <Section label="Behind"         color="#fde047" items={behind}/>
+    <Section label="On Track"       color="#00d48a" items={onTrack}/>
+    <Section label="Ahead"          color="#fb923c" items={ahead}/>
+    <Section label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>
+    {noGoalRows.length>0&&<div style={{marginTop:4}}>
+      <div onClick={()=>setShowNoGoal(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:showNoGoal?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
+        <span style={{fontSize:11,color:"#334155",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>No Goal Set ({noGoalRows.length})</span>
+        <span style={{color:"#3d5a72",fontSize:10,display:"inline-block",transform:showNoGoal?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
+      </div>
+      {showNoGoal&&viewMode==="table"&&<TableHeader/>}
+      {showNoGoal&&noGoalRows.map(r=>viewMode==="table"
+        ?<TableRow key={r.c.id} {...r}/>
+        :<PacingCard key={r.c.id} {...r}/>
+      )}
+    </div>}
+  </div>;
+}
+
+// ─── Revenue Dashboard ────────────────────────────────────────────────────
+// Helper: given a campaign with contractValue + startDate + endDate,
+// spread revenue evenly across each calendar month it is active.
+function spreadRevenue(c) {
+  const contract = parseFloat(c.contractValue);
+  if (!contract || !c.startDate || !c.endDate) return {};
+  const start = new Date(c.startDate + "T00:00:00");
+  const end   = new Date(c.endDate   + "T00:00:00");
+  if (isNaN(start)||isNaN(end)||end<start) return {};
+
+  // Count total days in flight
+  const totalDays = Math.max(1, Math.round((end - start) / 86400000) + 1);
+
+  // Build list of months spanned
+  const months = {};
+  let cur = new Date(start.getFullYear(), start.getMonth(), 1);
+  const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
+  while (cur <= endMonth) {
+    const mo = cur.toISOString().slice(0,7);
+    // Days active in this month
+    const mStart = new Date(Math.max(start, new Date(cur.getFullYear(), cur.getMonth(), 1)));
+    const mEnd   = new Date(Math.min(end,   new Date(cur.getFullYear(), cur.getMonth()+1, 0)));
+    const days   = Math.max(0, Math.round((mEnd - mStart) / 86400000) + 1);
+    months[mo]   = (months[mo] || 0) + (contract * days / totalDays);
+    cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1);
+  }
+  return months;
+}
+
+function RevenueDashboard({ campaigns=[] }) {
+  const [filterPartner, setFilterPartner] = useState("all");
+  const now = new Date();
+
+  // Use synced MTD spend if available, otherwise fall back to manually entered spend
+  function resolveSpend(c) {
+    const mtd = c.metaSnapshots?.mtd?.spend ?? c.ttdSnapshots?.mtd?.spend ?? c.dspSnapshots?.mtd?.spend ?? c.googleSnapshots?.mtd?.spend ?? c.snapSnapshots?.mtd?.spend;
+    if (mtd != null) return mtd;
+    return parseFloat(c.spend) || 0;
+  }
+
+  const withContract = campaigns.filter(c => parseFloat(c.contractValue) > 0);
+  const partners = ["all", ...new Set(withContract.map(c=>c.mediaPartner))].sort();
+  const filtered  = filterPartner==="all" ? withContract : withContract.filter(c=>c.mediaPartner===filterPartner);
+
+  // Build 12-month window: 6 past + current + 5 future
+  const months = [];
+  for (let i=-6; i<=5; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth()+i, 1);
+    months.push(d.toISOString().slice(0,7));
+  }
+  const thisMonth = now.toISOString().slice(0,7);
+
+  // Aggregate revenue + spend per month
+  const monthRevenue = {};
+  months.forEach(mo => { monthRevenue[mo] = { revenue:0, spend:0 }; });
+
+  filtered.forEach(c => {
+    const spread = spreadRevenue(c);
+    Object.entries(spread).forEach(([mo, rev]) => {
+      if (monthRevenue[mo]) monthRevenue[mo].revenue += rev;
+    });
+    // Spread spend evenly too (same logic) — prefer synced MTD, fall back to manual
+    const spend = resolveSpend(c);
+    if (spend > 0 && c.startDate && c.endDate) {
+      const spendSpread = spreadRevenue({...c, contractValue: spend});
+      Object.entries(spendSpread).forEach(([mo, s]) => {
+        if (monthRevenue[mo]) monthRevenue[mo].spend += s;
+      });
+    }
+  });
+
+  const maxBar = Math.max(...months.map(mo=>monthRevenue[mo].revenue), 1);
+  const $f = v => v>0?"$"+Math.round(v).toLocaleString():"—";
+  const profitColor = p => p>0?"#00d48a":p<0?"#ef4444":"#4d6e8a";
+  const marginColor = m => m>=30?"#00d48a":m>=15?"#f59e0b":"#ef4444";
+
+  // Totals for this month
+  const tmRev   = monthRevenue[thisMonth]?.revenue || 0;
+  const tmSpend = monthRevenue[thisMonth]?.spend   || 0;
+  const tmProfit= tmRev - tmSpend;
+  const tmMargin= tmRev>0?(tmProfit/tmRev)*100:0;
+
+  // All-time totals across filtered
+  const totRev   = filtered.reduce((s,c)=>s+(parseFloat(c.contractValue)||0),0);
+  const totSpend = filtered.reduce((s,c)=>s+resolveSpend(c),0);
+  const totProfit= totRev - totSpend;
+
+  // Per-campaign rows sorted by contract desc
+  const rows = filtered.map(c=>({
+    c,
+    contract: parseFloat(c.contractValue)||0,
+    spend:    resolveSpend(c),
+    profit:   (parseFloat(c.contractValue)||0)-resolveSpend(c),
+    margin:   (parseFloat(c.contractValue)||0)>0?((parseFloat(c.contractValue)||0)-resolveSpend(c))/(parseFloat(c.contractValue)||0)*100:0,
+    pCol:     PLT_COLORS[c.platform]||PLT_COLORS.default,
+    moRevenue: spreadRevenue(c)[thisMonth]||0,
+  })).sort((a,b)=>b.contract-a.contract);
+
+  return (
+    <div style={{color:"#d8eaf8"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:18}}>
+        <div>
+          <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:2}}>💰 Revenue Dashboard</div>
+          <div style={{fontSize:11,color:"#4d6e8a"}}>{withContract.length} campaigns with contract values · revenue spread by flight dates</div>
+        </div>
+        <select value={filterPartner} onChange={e=>setFilterPartner(e.target.value)}
+          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"6px 12px",color:"#d8eaf8",fontSize:12,cursor:"pointer"}}>
+          {partners.map(p=><option key={p} value={p}>{p==="all"?"All Partners":p}</option>)}
+        </select>
+      </div>
+
+      {/* This month highlights */}
+      <div style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:10,padding:"16px 20px",marginBottom:18}}>
+        <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:12}}>
+          {new Date(thisMonth+"-01").toLocaleDateString("en-US",{month:"long",year:"numeric"})} (This Month)
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
+          {[
+            {label:"Revenue",  val:$f(tmRev),    color:"#7a9bbf",   sub:"client billed"},
+            {label:"Spend",    val:$f(tmSpend),  color:"#f59e0b",   sub:"to platform"},
+            {label:"Profit",   val:tmRev>0?(tmProfit>=0?"+":"")+$f(tmProfit):"—", color:profitColor(tmProfit), sub:"rev − spend"},
+            {label:"Margin",   val:tmRev>0?tmMargin.toFixed(1)+"%":"—", color:marginColor(tmMargin), sub:"this month"},
+          ].map(s=>(
+            <div key={s.label}>
+              <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>{s.label}</div>
+              <div style={{fontSize:24,fontWeight:800,color:s.color,lineHeight:1,marginBottom:3}}>{s.val}</div>
+              <div style={{fontSize:10,color:"#3d5a72"}}>{s.sub}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Monthly bar chart — 12 months */}
+      <div style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:10,padding:"18px 20px",marginBottom:18}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#7a9bbf",marginBottom:14,textTransform:"uppercase",letterSpacing:"0.07em"}}>Monthly Revenue (pro-rated by flight dates)</div>
+        <div style={{display:"flex",gap:5,alignItems:"flex-end",height:130,overflowX:"auto"}}>
+          {months.map(mo=>{
+            const {revenue,spend} = monthRevenue[mo];
+            const revH  = revenue>0?Math.max(5,(revenue/maxBar)*118):0;
+            const spendH= spend>0?Math.max(3,(spend/maxBar)*118):0;
+            const profit= revenue-spend;
+            const isCurrent = mo===thisMonth;
+            const label = new Date(mo+"-01").toLocaleDateString("en-US",{month:"short"});
+            const yr = mo.slice(2,4);
+            return (
+              <div key={mo} style={{flex:"1 0 44px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                <div style={{width:"100%",display:"flex",gap:2,alignItems:"flex-end",justifyContent:"center",height:120}}>
+                  {revenue>0?(
+                    <>
+                      <div title={"Revenue: "+$f(revenue)} style={{flex:1,background:isCurrent?"#3b82f6":"#3b82f680",borderRadius:"3px 3px 0 0",height:revH,cursor:"default",maxWidth:18,border:isCurrent?"1px solid #60a5fa40":"none"}}/>
+                      {spend>0&&<div title={"Spend: "+$f(spend)} style={{flex:1,background:isCurrent?"#f59e0b":"#f59e0b80",borderRadius:"3px 3px 0 0",height:spendH,cursor:"default",maxWidth:18}}/>}
+                    </>
+                  ):<div style={{flex:1,background:"#162236",borderRadius:"3px 3px 0 0",height:4,maxWidth:38}}/>}
+                </div>
+                <div style={{fontSize:9,color:isCurrent?"#00e5a0":"#3d5a72",textAlign:"center",fontWeight:isCurrent?700:400}}>{label}</div>
+                <div style={{fontSize:8,color:"#3d5a72"}}>{yr}</div>
+                {revenue>0&&<div style={{fontSize:8,fontWeight:700,color:profitColor(profit),textAlign:"center",whiteSpace:"nowrap"}}>{profit>=0?"+":""}{$f(profit)}</div>}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{display:"flex",gap:14,marginTop:10,fontSize:10,color:"#4d6e8a"}}>
+          <span><span style={{display:"inline-block",width:9,height:9,background:"#3b82f6",borderRadius:2,marginRight:4,verticalAlign:"middle"}}/>Revenue</span>
+          <span><span style={{display:"inline-block",width:9,height:9,background:"#f59e0b",borderRadius:2,marginRight:4,verticalAlign:"middle"}}/>Spend</span>
+          <span style={{marginLeft:"auto",color:"#3d5a72"}}>Profit shown below each bar · current month highlighted</span>
+        </div>
+      </div>
+
+      {/* All-time totals */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:18}}>
+        {[
+          {label:"Total Contract", val:$f(totRev),    color:"#7a9bbf", sub:"all flights"},
+          {label:"Total Spend",    val:$f(totSpend),  color:"#f59e0b", sub:"all platforms"},
+          {label:"Total Profit",   val:totRev>0?(totProfit>=0?"+":"")+$f(totProfit):"—", color:profitColor(totProfit), sub:"all time"},
+        ].map(s=>(
+          <div key={s.label} style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:9,padding:"12px 16px"}}>
+            <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>{s.label}</div>
+            <div style={{fontSize:20,fontWeight:800,color:s.color,lineHeight:1,marginBottom:3}}>{s.val}</div>
+            <div style={{fontSize:10,color:"#3d5a72"}}>{s.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Per-campaign table */}
+      {rows.length===0?(
+        <div style={{textAlign:"center",padding:"40px 0",color:"#3d5a72"}}>
+          <div style={{fontSize:28,marginBottom:8}}>💰</div>
+          <div style={{fontSize:13}}>No campaigns with contract values yet.</div>
+          <div style={{fontSize:11,marginTop:5}}>Edit a campaign and fill in the Contract Value field to start tracking.</div>
+        </div>
+      ):(
+        <div>
+          <div style={{fontSize:11,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Campaign Breakdown</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 70px 80px",gap:6,padding:"5px 10px",fontSize:9,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #1a2744",marginBottom:3}}>
+            <span>Campaign</span><span style={{textAlign:"right"}}>Contract</span><span style={{textAlign:"right"}}>Spend</span><span style={{textAlign:"right"}}>Profit</span><span style={{textAlign:"right"}}>Margin</span><span style={{textAlign:"right"}}>This Mo.</span>
+          </div>
+          {rows.map(({c,contract,spend,profit,margin,pCol,moRevenue})=>(
+            <div key={c.id} style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 70px 80px",gap:6,padding:"8px 10px",borderBottom:"1px solid #0e1828",alignItems:"center",background:"#0c1625",borderRadius:6,marginBottom:2}}>
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
+                  <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"0 4px",fontSize:9,fontWeight:700}}>{c.platform}</span>
+                  <span style={{fontSize:11,fontWeight:600,color:"#d8eaf8"}}>{c.campaignName.trim()}</span>
+                </div>
+                <div style={{fontSize:10,color:"#3d5a72"}}>{c.mediaPartner}{c.startDate&&c.endDate?` · ${c.startDate} → ${c.endDate}`:""}</div>
+              </div>
+              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:"#7a9bbf"}}>{$f(contract)}</div>
+              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:"#f59e0b"}}>{spend>0?$f(spend):"—"}</div>
+              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:profitColor(profit)}}>{spend>0?(profit>=0?"+":"")+$f(profit):"—"}</div>
+              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:marginColor(margin)}}>{spend>0?margin.toFixed(1)+"%":"—"}</div>
+              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:"#7a9bbf"}}>{moRevenue>0?$f(moRevenue):"—"}</div>
+            </div>
+          ))}
+          </div>
+        )}
+      </div>
+  );
+}
+
+const CONFIG_KEY = "campaign-tracker-platform-config";
+
+// ─── Platform Config Tab ───────────────────────────────────────────────────
+function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, ttdSyncStatus=null, ttdSyncInfo=null, dspSyncStatus=null, dspSyncInfo=null, googleSyncStatus=null, googleSyncInfo=null, snapSyncStatus=null, snapSyncInfo=null }) {
+  const [cfg, setCfg] = useState(()=>{
+    try { const s=localStorage.getItem(CONFIG_KEY); return s?JSON.parse(s):{}; } catch { return {}; }
+  });
+  const [activeSection, setActiveSection] = useState("meta");
+  const [copied, setCopied]   = useState("");
+  const [search, setSearch]   = useState("");
+
+  useEffect(()=>{
+    try { localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg)); } catch(e){}
+  },[cfg]);
+
+  // Deep get/set on dot-path
+  const setVal = (path, val) => setCfg(prev=>{
+    const next = JSON.parse(JSON.stringify(prev));
+    const parts = path.split(".");
+    let obj = next;
+    for(let i=0;i<parts.length-1;i++){ if(!obj[parts[i]]) obj[parts[i]]={};  obj=obj[parts[i]]; }
+    obj[parts[parts.length-1]] = val;
+    return next;
+  });
+  const getVal = (path, fallback="") => {
+    const parts = path.split(".");
+    let obj = cfg;
+    for(const p of parts){ if(obj==null) return fallback; obj=obj[p]; }
+    return obj??fallback;
+  };
+
+  // Campaigns filtered by platform + search
+  const q = search.trim().toLowerCase();
+  const metaActive = campaigns.filter(c=>["FB","FBV","IG"].includes(c.platform) && c.status==="active");
+  const ttdActive  = campaigns.filter(c=>c.platform==="TD"  && c.status==="active");
+  const dspActive    = campaigns.filter(c=>c.platform==="DSP" && c.status==="active");
+  const googleActive = campaigns.filter(c=>["SEM","YT"].includes(c.platform) && c.status==="active");
+  const snapActive   = campaigns.filter(c=>c.platform==="SP" && c.status==="active");
+  const metaFiltered = q ? metaActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)) : metaActive;
+  const ttdFiltered  = q ? ttdActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q))  : ttdActive;
+  const dspFiltered    = q ? dspActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q))    : dspActive;
+  const googleFiltered = q ? googleActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)) : googleActive;
+  const snapFiltered   = q ? snapActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q))   : snapActive;
+
+  // Group by partner
+  function groupByPartner(list) {
+    const map = {};
+    list.forEach(c=>{ if(!map[c.mediaPartner]) map[c.mediaPartner]=[]; map[c.mediaPartner].push(c); });
+    return Object.entries(map).sort(([a],[b])=>a.localeCompare(b));
+  }
+
+  // Download JSON
+  function downloadJSON(filename, data){
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href=url; a.download=filename; a.click();
+    URL.revokeObjectURL(url);
+  }
+  function copyText(text, key){
+    navigator.clipboard.writeText(text).catch(()=>{});
+    setCopied(key); setTimeout(()=>setCopied(""),1800);
+  }
+
+  // "Apply to all in partner" — propagate account/advertiser ID down to siblings
+  function applyToPartner(platform, partnerId, field, val) {
+    const siblings = (platform==="ttd" ? ttdActive : metaActive).filter(c=>c.mediaPartner===partnerId);
+    setCfg(prev=>{
+      const next = JSON.parse(JSON.stringify(prev));
+      siblings.forEach(c=>{
+        const parts = `${platform}.campaigns.${c.id}.${field}`.split(".");
+        let obj = next;
+        for(let i=0;i<parts.length-1;i++){ if(!obj[parts[i]]) obj[parts[i]]={};  obj=obj[parts[i]]; }
+        obj[parts[parts.length-1]] = val;
+      });
+      return next;
+    });
+  }
+
+  // Build JSON outputs
+  function buildMetaConfig(){
+    return {
+      _comment: "Each tracker row lists its own meta_campaign_ids array. spend/impressions are summed; CTR and CPM are recalculated from totals.",
+      campaigns: metaActive.map(c=>({
+        tracker_id: c.id,
+        tracker_name: `${c.campaignName.trim()} (${c.platform})`,
+        meta_account_id: getVal(`meta.campaigns.${c.id}.account_id`) || "act_REPLACE_ME",
+        meta_campaign_ids: (getVal(`meta.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean).length>0
+          ? (getVal(`meta.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean)
+          : ["REPLACE_ME"],
+      }))
+    };
+  }
+  function buildSnapConfig(){
+    return {
+      _comment: "One entry per tracker row. snap_ad_account_id is the ad account UUID from Snap Ads Manager URL. snap_campaign_ids are campaign UUIDs — one per line.",
+      campaigns: snapActive.map(c=>({
+        tracker_id: c.id,
+        tracker_name: `${c.campaignName.trim()} (SP)`,
+        snap_ad_account_id: getVal(`snap.campaigns.${c.id}.ad_account_id`) || "REPLACE_ME",
+        snap_campaign_ids: (getVal(`snap.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean).length>0
+          ? (getVal(`snap.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean)
+          : ["REPLACE_ME"],
+      }))
+    };
+  }
+  function buildGoogleConfig(){
+    return {
+      _comment: "google_customer_id: your Google Ads account ID without dashes (e.g. 1234567890). google_campaign_ids: numeric campaign IDs from the Campaigns table in Google Ads UI.",
+      campaigns: googleActive.map(c=>({
+        tracker_id: c.id,
+        tracker_name: `${c.campaignName.trim()} (${c.platform})`,
+        platform: c.platform,
+        google_customer_id: getVal(`google.campaigns.${c.id}.customer_id`) || "REPLACE_ME",
+        google_campaign_ids: (getVal(`google.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean).length>0
+          ? (getVal(`google.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean)
+          : ["REPLACE_ME"],
+      }))
+    };
+  }
+  function buildDSPConfig(){
+    return {
+      _comment: "One entry per tracker row. dsp_advertiser_uuid is the advertiser UUID provided by your DSP rep. List campaign UUIDs in dsp_campaign_uuids — metrics are summed and CTR/CPM recalculated.",
+      campaigns: dspActive.map(c=>({
+        tracker_id: c.id,
+        tracker_name: `${c.campaignName.trim()} (DSP)`,
+        dsp_advertiser_uuid: getVal(`dsp.campaigns.${c.id}.advertiser_uuid`) || "REPLACE_ME",
+        dsp_campaign_uuids: (getVal(`dsp.campaigns.${c.id}.campaign_uuids`)||"").split("\n").map(s=>s.trim()).filter(Boolean).length>0
+          ? (getVal(`dsp.campaigns.${c.id}.campaign_uuids`)||"").split("\n").map(s=>s.trim()).filter(Boolean)
+          : ["REPLACE_ME"],
+      }))
+    };
+  }
+  function buildTTDConfig(){
+    return {
+      _comment: "One entry per tracker row. Each client has one ttd_advertiser_id. List campaign IDs in ttd_campaign_ids — metrics are summed and CTR/CPM recalculated.",
+      campaigns: ttdActive.map(c=>({
+        tracker_id: c.id,
+        tracker_name: `${c.campaignName.trim()} (TD)`,
+        ttd_advertiser_id: getVal(`ttd.campaigns.${c.id}.advertiser_id`) || "REPLACE_ME",
+        ttd_campaign_ids: (getVal(`ttd.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean).length>0
+          ? (getVal(`ttd.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean)
+          : ["REPLACE_ME"],
+      }))
+    };
+  }
+
+  // Completeness
+  function metaComplete(c){
+    const aid = getVal(`meta.campaigns.${c.id}.account_id`);
+    const ids  = (getVal(`meta.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean);
+    return !!(aid && !aid.includes("REPLACE") && ids.length>0);
+  }
+  function ttdComplete(c){
+    const aid = getVal(`ttd.campaigns.${c.id}.advertiser_id`);
+    const ids  = (getVal(`ttd.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean);
+    return !!(aid && !aid.includes("REPLACE") && ids.length>0);
+  }
+  function dspComplete(c){
+    const aid = getVal(`dsp.campaigns.${c.id}.advertiser_uuid`);
+    const ids  = (getVal(`dsp.campaigns.${c.id}.campaign_uuids`)||"").split("\n").map(s=>s.trim()).filter(Boolean);
+    return !!(aid && !aid.includes("REPLACE") && ids.length>0);
+  }
+  function googleComplete(c){
+    const cid = getVal(`google.campaigns.${c.id}.customer_id`);
+    const ids  = (getVal(`google.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean);
+    return !!(cid && !cid.includes("REPLACE") && ids.length>0);
+  }
+  function snapComplete(c){
+    const aid = getVal(`snap.campaigns.${c.id}.ad_account_id`);
+    const ids  = (getVal(`snap.campaigns.${c.id}.campaign_ids`)||"").split("\n").map(s=>s.trim()).filter(Boolean);
+    return !!(aid && !aid.includes("REPLACE") && ids.length>0);
+  }
+
+  const metaDone = metaActive.filter(metaComplete).length;
+  const ttdDone  = ttdActive.filter(ttdComplete).length;
+  const dspDone    = dspActive.filter(dspComplete).length;
+  const googleDone = googleActive.filter(googleComplete).length;
+  const snapDone   = snapActive.filter(snapComplete).length;
+  const metaToken    = getVal("meta.credentials.token");
+  const ttdLogin     = getVal("ttd.credentials.login");
+  const ttdPass      = getVal("ttd.credentials.password");
+  const dspAccessKey    = getVal("dsp.credentials.access_key");
+  const dspSecretKey    = getVal("dsp.credentials.secret_key");
+  const dspSession      = getVal("dsp.credentials.session_token");
+  const dspApiKey       = getVal("dsp.credentials.api_key");
+  const googleMccId     = getVal("google.credentials.mcc_id");
+  const googleDevToken  = getVal("google.credentials.developer_token");
+  const googleClientId  = getVal("google.credentials.client_id");
+  const googleClientSec = getVal("google.credentials.client_secret");
+  const googleRefresh    = getVal("google.credentials.refresh_token");
+  const snapClientId    = getVal("snap.credentials.client_id");
+  const snapClientSec   = getVal("snap.credentials.client_secret");
+  const snapRefresh     = getVal("snap.credentials.refresh_token");
+
+  // Shared styles
+  const iS = {background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,width:"100%",boxSizing:"border-box",fontFamily:"inherit",outline:"none"};
+  const labelS = {display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700};
+
+  const sectionBtn = (key,label,icon) => (
+    <button key={key} onClick={()=>setActiveSection(key)}
+      style={{background:activeSection===key?"#002e24":"#0e1a2e",border:"1px solid "+(activeSection===key?"#00c896":"#1e293b"),
+        borderRadius:8,padding:"10px 0",color:activeSection===key?"#00e5a0":"#4d6e8a",
+        fontSize:13,fontWeight:activeSection===key?700:400,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7,
+        minWidth:200,flexShrink:0}}>
+      <span style={{fontSize:16}}>{icon}</span>{label}
+    </button>
+  );
+
+  // Reusable campaign card renderer
+  function CampaignCard({ c, platform, completeCheck, accountLabel, accountPlaceholder, accountHint, idHint }) {
+    const done   = completeCheck(c);
+    const pCol   = PLT_COLORS[c.platform]||PLT_COLORS.default;
+    const pfx    = platform; // "meta" or "ttd"
+    const accKey = pfx==="meta" ? "account_id" : "advertiser_id";
+    const accVal = getVal(`${pfx}.campaigns.${c.id}.${accKey}`);
+    const idsKey = pfx==="dsp" ? "campaign_uuids" : "campaign_ids";  // google and others all use campaign_ids
+    const idsVal = getVal(`${pfx}.campaigns.${c.id}.${idsKey}`);
+
+    // Highlight search match
+    const name = c.campaignName.trim();
+
+    return (
+      <div key={c.id} style={{background:"#0a1422",border:"1px solid "+(done?"#00d48a30":"#162236"),borderRadius:8,padding:"12px 14px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
+          <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>
+          <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{name}</span>
+          <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:done?"#00d48a":"#3d5a72"}}>{done?"✓ Ready":"Incomplete"}</span>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>
+            <label style={labelS}>{accountLabel}</label>
+            <input value={accVal} onChange={e=>setVal(`${pfx}.campaigns.${c.id}.${accKey}`,e.target.value)}
+              placeholder={accountPlaceholder} style={{...iS,fontFamily:"monospace"}}/>
+            <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>{accountHint}</div>
+          </div>
+          <div>
+            <label style={labelS}>Campaign ID(s) <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>— one per line</span></label>
+            <textarea value={idsVal} onChange={e=>setVal(`${pfx}.campaigns.${c.id}.${idsKey}`,e.target.value)}
+              placeholder={pfx==="meta"?"23456789012345\n23456789098765":"abc123def\nxyz456ghi"} rows={3}
+              style={{...iS,resize:"vertical",fontFamily:"monospace",minHeight:58}}/>
+            <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>{idHint}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Partner group renderer
+  function PartnerGroup({ partner, campaigns: pCampaigns, platform, completeCheck, accountLabel, accountPlaceholder, accountHint, idHint, accountFieldKey }) {
+    const allDone = pCampaigns.every(completeCheck);
+    const anyDone = pCampaigns.some(completeCheck);
+    // Representative account value (first configured, or first)
+    const repId   = pCampaigns[0]?.id;
+    const repAccKey = platform==="meta" ? "account_id" : platform==="dsp" ? "advertiser_uuid" : platform==="google" ? "customer_id" : platform==="snap" ? "ad_account_id" : "advertiser_id";
+    const repAccVal = getVal(`${platform}.campaigns.${repId}.${repAccKey}`);
+
+    return (
+      <div style={{marginBottom:16}}>
+        {/* Partner header */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,paddingBottom:6,borderBottom:"1px solid #1a2744"}}>
+          <span style={{fontSize:12,fontWeight:800,color:"#edf4ff"}}>{partner}</span>
+          <span style={{fontSize:10,color:"#3d5a72"}}>{pCampaigns.length} campaign{pCampaigns.length!==1?"s":""}</span>
+          <span style={{fontSize:10,fontWeight:700,color:allDone?"#00d48a":anyDone?"#f59e0b":"#3d5a72",marginLeft:"auto"}}>
+            {allDone?"✓ All ready":anyDone?"Partial":"Not configured"}
+          </span>
+          {/* Apply-to-all button: show when there are 2+ campaigns and an account ID is set */}
+          {pCampaigns.length>1 && repAccVal && (
+            <button
+              onClick={()=>applyToPartner(platform, partner, repAccKey, repAccVal)}
+              title={`Copy "${repAccVal}" to all ${partner} campaigns`}
+              style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:5,padding:"2px 9px",color:"#00e5a0",fontSize:10,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+              Apply ID to all ↓
+            </button>
+          )}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {pCampaigns.map(c=>(
+            <CampaignCard key={c.id} c={c} platform={platform} completeCheck={completeCheck}
+              accountLabel={accountLabel} accountPlaceholder={accountPlaceholder}
+              accountHint={accountHint} idHint={idHint}/>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{color:"#d8eaf8",maxWidth:1100}}>
+      <div style={{marginBottom:20}}>
+        <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:4}}>⚙️ Platform Config</div>
+        <div style={{fontSize:11,color:"#4d6e8a"}}>Connect your ad platforms so campaign metrics sync automatically via GitHub Actions. Fill in credentials and IDs below, then download the config files to drop into your repo.</div>
+      </div>
+
+      {/* Section switcher + download */}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"nowrap"}}>
+        {sectionBtn("meta","Meta (FB / FBV / IG)","📘")}
+        {sectionBtn("ttd","The Trade Desk (TD)","📡")}
+        {sectionBtn("dsp","DSP","🖥️")}
+        {sectionBtn("google","Google Ads (SEM / YT)","🔍")}
+        {sectionBtn("snap","Snapchat (SP)","👻")}
+        {sectionBtn("setup","GitHub Setup Guide","🛠️")}
+        {sectionBtn("health","Sync Health","🩺")}
+        {/* Download button — sits right next to Setup Guide, only on non-setup sections */}
+        {activeSection==="meta" && metaActive.length>0 && (
+          <button title="Download meta_config.json" onClick={()=>downloadJSON("meta_config.json", buildMetaConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            <span style={{fontSize:16}}>⬇</span>Config
+          </button>
+        )}
+        {activeSection==="ttd" && ttdActive.length>0 && (
+          <button title="Download ttd_config.json" onClick={()=>downloadJSON("ttd_config.json", buildTTDConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            <span style={{fontSize:16}}>⬇</span>Config
+          </button>
+        )}
+        {activeSection==="dsp" && dspActive.length>0 && (
+          <button title="Download dsp_config.json" onClick={()=>downloadJSON("dsp_config.json", buildDSPConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            <span style={{fontSize:16}}>⬇</span>Config
+          </button>
+        )}
+        {activeSection==="google" && googleActive.length>0 && (
+          <button title="Download google_ads_config.json" onClick={()=>downloadJSON("google_ads_config.json", buildGoogleConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            <span style={{fontSize:16}}>⬇</span>Config
+          </button>
+        )}
+        {activeSection==="snap" && snapActive.length>0 && (
+          <button title="Download snap_config.json" onClick={()=>downloadJSON("snap_config.json", buildSnapConfig())}
+            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            <span style={{fontSize:16}}>⬇</span>Config
+          </button>
+        )}
+      </div>
+      {/* Search — second row, hidden on Setup Guide */}
+      {activeSection!=="setup" && (
+        <div style={{marginBottom:16,position:"relative",display:"inline-block"}}>
+          <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#3d5a72",fontSize:13,pointerEvents:"none"}}>🔍</span>
+          <input value={search} onChange={e=>setSearch(e.target.value)}
+            placeholder="Search campaigns…"
+            style={{...iS,width:240,paddingLeft:30,background:"#0a1422"}}/>
+          {search && <button onClick={()=>setSearch("")}
+            style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}
+        </div>
+      )}
+
+      {/* ── META ── */}
+      {activeSection==="meta"&&<div>
+        {/* Credentials */}
+        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+            🔑 Meta Credentials
+            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally in your browser — never sent anywhere</span>
+          </div>
+          <div style={{maxWidth:580}}>
+            <label style={labelS}>Access Token <span style={{color:"#3d5a72",textTransform:"none",fontSize:10,fontWeight:400}}>— System User token with ads_read + read_insights</span></label>
+            <div style={{display:"flex",gap:6}}>
+              <input type="password" value={metaToken} onChange={e=>setVal("meta.credentials.token",e.target.value)}
+                placeholder="EAAxxxxxxxx..." style={{...iS,flex:1,fontFamily:"monospace"}}/>
+              {metaToken&&<button onClick={()=>copyText(metaToken,"meta-token")}
+                style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"7px 12px",color:"#00e5a0",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                {copied==="meta-token"?"✓ Copied":"Copy"}
+              </button>}
+            </div>
+            <div style={{fontSize:10,color:"#3d5a72",marginTop:4}}>Meta Business Suite → Business Settings → System Users → Add Token</div>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+            <div style={{background:metaDone===metaActive.length&&metaActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:metaActive.length>0?(metaDone/metaActive.length*100)+"%":"0%",transition:"width .3s"}}/>
+          </div>
+          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{metaDone} / {metaActive.length} campaigns configured</span>
+          {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {metaFiltered.length} match{metaFiltered.length!==1?"es":""}</span>}
+        </div>
+
+        {/* Grouped campaigns */}
+        {metaFiltered.length===0
+          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active FB/FBV/IG campaigns found."}</div>
+          : groupByPartner(metaFiltered).map(([partner, pCampaigns])=>(
+            <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="meta"
+              completeCheck={metaComplete}
+              accountLabel="Ad Account ID"
+              accountPlaceholder="act_123456789"
+              accountHint="Ads Manager URL → account_id= in the URL"
+              idHint="Ads Manager → click campaign → ID in URL or Columns"
+              accountFieldKey="account_id"/>
+          ))
+        }
+      </div>}
+
+      {/* ── TTD ── */}
+      {activeSection==="ttd"&&<div>
+        {/* Credentials */}
+        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+            🔑 TTD API Credentials
+            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,maxWidth:700}}>
+            <div>
+              <label style={labelS}>API Login</label>
+              <input value={ttdLogin} onChange={e=>setVal("ttd.credentials.login",e.target.value)}
+                placeholder="your@email.com" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>TTD UI → Accounts → API Access → create credential</div>
+            </div>
+            <div>
+              <label style={labelS}>API Password</label>
+              <input type="password" value={ttdPass} onChange={e=>setVal("ttd.credentials.password",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Use an API-only credential, not your UI login password</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+            <div style={{background:ttdDone===ttdActive.length&&ttdActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:ttdActive.length>0?(ttdDone/ttdActive.length*100)+"%":"0%",transition:"width .3s"}}/>
+          </div>
+          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{ttdDone} / {ttdActive.length} campaigns configured</span>
+          {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {ttdFiltered.length} match{ttdFiltered.length!==1?"es":""}</span>}
+        </div>
+
+        {/* Grouped campaigns */}
+        {ttdFiltered.length===0
+          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active TD campaigns found."}</div>
+          : groupByPartner(ttdFiltered).map(([partner, pCampaigns])=>(
+            <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="ttd"
+              completeCheck={ttdComplete}
+              accountLabel="Advertiser ID"
+              accountPlaceholder="abc123de"
+              accountHint="TTD UI → /advertiser/XXXXXXX/ in the URL"
+              idHint="TTD UI → Campaigns → click campaign → ID in URL"
+              accountFieldKey="advertiser_id"/>
+          ))
+        }
+      </div>}
+
+      {/* ── DSP ── */}
+      {activeSection==="dsp"&&<div>
+        {/* Credentials */}
+        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+            🔑 DSP API Credentials
+            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <label style={labelS}>AWS Access Key ID</label>
+              <input value={dspAccessKey} onChange={e=>setVal("dsp.credentials.access_key",e.target.value)}
+                placeholder="AKIAXXXXXXXXXXXXXXXX" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Provided by your DSP rep</div>
+            </div>
+            <div>
+              <label style={labelS}>AWS Secret Access Key</label>
+              <input type="password" value={dspSecretKey} onChange={e=>setVal("dsp.credentials.secret_key",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Provided by your DSP rep</div>
+            </div>
+            <div>
+              <label style={labelS}>x-api-key</label>
+              <input type="password" value={dspApiKey} onChange={e=>setVal("dsp.credentials.api_key",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Provided by your DSP rep alongside AWS credentials</div>
+            </div>
+            <div>
+              <label style={labelS}>AWS Session Token <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>— optional</span></label>
+              <input type="password" value={dspSession} onChange={e=>setVal("dsp.credentials.session_token",e.target.value)}
+                placeholder="Leave blank if not using temporary credentials" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Only needed if your rep issued temporary IAM credentials</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+            <div style={{background:dspDone===dspActive.length&&dspActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:dspActive.length>0?(dspDone/dspActive.length*100)+"%":"0%",transition:"width .3s"}}/>
+          </div>
+          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{dspDone} / {dspActive.length} campaigns configured</span>
+          {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {dspFiltered.length} match{dspFiltered.length!==1?"es":""}</span>}
+        </div>
+
+        {/* Grouped campaigns */}
+        {dspFiltered.length===0
+          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active DSP campaigns found."}</div>
+          : groupByPartner(dspFiltered).map(([partner, pCampaigns])=>(
+            <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="dsp"
+              completeCheck={dspComplete}
+              accountLabel="Advertiser UUID"
+              accountPlaceholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              accountHint="DSP platform → advertiser UUID in the URL or provided by rep"
+              idHint="DSP platform → Campaigns → click campaign → UUID in URL"
+              accountFieldKey="advertiser_uuid"/>
+          ))
+        }
+      </div>}
+
+      {/* ── GOOGLE ADS ── */}
+      {activeSection==="google"&&<div>
+        {/* Credentials */}
+        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:4,display:"flex",alignItems:"center",gap:8}}>
+            🔑 Google Ads API Credentials
+            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
+          </div>
+          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:12}}>
+            Requires a Google Ads developer token + OAuth2 credentials.{" "}
+            <a href="https://developers.google.com/google-ads/api/docs/get-started/oauth-cloud" target="_blank" rel="noreferrer"
+              style={{color:"#60a5fa",textDecoration:"none"}}>Setup guide →</a>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div style={{gridColumn:"1 / -1",background:"#07101c",borderRadius:7,padding:"10px 14px",display:"flex",alignItems:"center",gap:12}}>
+              <div style={{flex:1}}>
+                <label style={labelS}>MCC Manager Account ID</label>
+                <input value={googleMccId} onChange={e=>setVal("google.credentials.mcc_id",e.target.value)}
+                  placeholder="1234567890  (no dashes)" style={{...iS,fontFamily:"monospace"}}/>
+                <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Your top-level manager account ID — Google Ads UI → account switcher → MCC account number</div>
+              </div>
+              <div style={{fontSize:11,color:"#4d6e8a",maxWidth:220,lineHeight:1.4}}>
+                Since you have an MCC, one set of credentials covers all client accounts. Each campaign card below just needs the client's customer ID.
+              </div>
+            </div>
+            <div>
+              <label style={labelS}>Developer Token</label>
+              <input type="password" value={googleDevToken} onChange={e=>setVal("google.credentials.developer_token",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Google Ads UI → Tools → API Center</div>
+            </div>
+            <div>
+              <label style={labelS}>OAuth2 Client ID</label>
+              <input value={googleClientId} onChange={e=>setVal("google.credentials.client_id",e.target.value)}
+                placeholder="xxxxxxxxxxxx.apps.googleusercontent.com" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Google Cloud Console → APIs & Services → Credentials</div>
+            </div>
+            <div>
+              <label style={labelS}>OAuth2 Client Secret</label>
+              <input type="password" value={googleClientSec} onChange={e=>setVal("google.credentials.client_secret",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Same credentials screen as Client ID</div>
+            </div>
+            <div>
+              <label style={labelS}>Refresh Token</label>
+              <input type="password" value={googleRefresh} onChange={e=>setVal("google.credentials.refresh_token",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Generated once via OAuth flow — does not expire</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+            <div style={{background:googleDone===googleActive.length&&googleActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:googleActive.length>0?(googleDone/googleActive.length*100)+"%":"0%",transition:"width .3s"}}/>
+          </div>
+          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{googleDone} / {googleActive.length} campaigns configured</span>
+          {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {googleFiltered.length} match{googleFiltered.length!==1?"es":""}</span>}
+        </div>
+
+        {/* Grouped campaigns */}
+        {googleFiltered.length===0
+          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active SEM or YT campaigns found."}</div>
+          : groupByPartner(googleFiltered).map(([partner, pCampaigns])=>(
+            <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="google"
+              completeCheck={googleComplete}
+              accountLabel="Google Ads Customer ID"
+              accountPlaceholder="1234567890  (no dashes)"
+              accountHint="Google Ads UI → top account selector shows your Customer ID"
+              idHint="Google Ads UI → Campaigns table → hover campaign name to see numeric ID, or check URL"
+              accountFieldKey="customer_id"/>
+          ))
+        }
+      </div>}
+
+      {/* ── SNAPCHAT ── */}
+      {activeSection==="snap"&&<div>
+        {/* Approval warning */}
+        <div style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:8,padding:"12px 16px",marginBottom:16,display:"flex",gap:10,alignItems:"flex-start"}}>
+          <span style={{fontSize:18,flexShrink:0}}>⚠️</span>
+          <div>
+            <div style={{fontSize:12,fontWeight:700,color:"#f59e0b",marginBottom:3}}>Snapchat API approval required before this will work</div>
+            <div style={{fontSize:11,color:"#92400e",lineHeight:1.5}}>Submit your app for review at <span style={{color:"#fbbf24"}}>developers.snap.com</span> → My Apps → New App. Request <strong>snapchat-marketing-api</strong> scope. Approval takes 2–5 business days. See the Snapchat API Setup Guide for full instructions.</div>
+          </div>
+        </div>
+
+        {/* Credentials */}
+        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+            🔑 Snapchat API Credentials
+            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+            <div>
+              <label style={labelS}>OAuth2 Client ID</label>
+              <input value={snapClientId} onChange={e=>setVal("snap.credentials.client_id",e.target.value)}
+                placeholder="From developers.snap.com → My Apps" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Snap Developer Portal → your app → Client ID</div>
+            </div>
+            <div>
+              <label style={labelS}>OAuth2 Client Secret</label>
+              <input type="password" value={snapClientSec} onChange={e=>setVal("snap.credentials.client_secret",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Same app page as Client ID</div>
+            </div>
+            <div>
+              <label style={labelS}>Refresh Token</label>
+              <input type="password" value={snapRefresh} onChange={e=>setVal("snap.credentials.refresh_token",e.target.value)}
+                placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Generated via OAuth flow — see setup guide. Expires after 12 months.</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Progress */}
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+            <div style={{background:snapDone===snapActive.length&&snapActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:snapActive.length>0?(snapDone/snapActive.length*100)+"%":"0%",transition:"width .3s"}}/>
+          </div>
+          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{snapDone} / {snapActive.length} campaigns configured</span>
+          {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {snapFiltered.length} match{snapFiltered.length!==1?"es":""}</span>}
+        </div>
+
+        {/* Grouped campaigns */}
+        {snapFiltered.length===0
+          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active SP campaigns found."}</div>
+          : groupByPartner(snapFiltered).map(([partner, pCampaigns])=>(
+            <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="snap"
+              completeCheck={snapComplete}
+              accountLabel="Ad Account ID"
+              accountPlaceholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              accountHint="Snap Ads Manager URL → ads.snapchat.com/v2/accounts/YOUR-ID/..."
+              idHint="Snap Ads Manager → click a campaign → UUID in the URL"
+              accountFieldKey="ad_account_id"/>
+          ))
+        }
+      </div>}
+
+      {/* ── SETUP GUIDE ── */}
+      {activeSection==="health"&&<div>
+        <div style={{fontSize:14,fontWeight:700,color:"#edf4ff",marginBottom:16}}>🩺 Sync Health Dashboard</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {[
+            {key:"meta",   label:"Meta (FB / FBV / IG)", icon:"📘", color:"#60a5fa",  status:metaSyncStatus,   info:metaSyncInfo,   active:metaActive},
+            {key:"ttd",    label:"The Trade Desk (TD)",  icon:"📡", color:"#a78bfa",  status:ttdSyncStatus,    info:ttdSyncInfo,    active:ttdActive},
+            {key:"dsp",    label:"DSP",                  icon:"🖥️", color:"#34d399",  status:dspSyncStatus,    info:dspSyncInfo,    active:dspActive},
+            {key:"google", label:"Google Ads (SEM / YT)",icon:"🔍", color:"#f59e0b",  status:googleSyncStatus, info:googleSyncInfo, active:googleActive},
+            {key:"snap",   label:"Snapchat (SP)",         icon:"👻", color:"#f9a8d4",  status:snapSyncStatus,   info:snapSyncInfo,   active:snapActive},
+          ].map(({key,label,icon,color,status,info,active})=>{
+            const isConfigured = active.length > 0;
+            const hasErrors = info?.errors?.length > 0;
+            const lastSync = info?.last_updated;
+            const fetched = info?.fetched_count ?? 0;
+            const total = active.length;
+
+            // How long ago was last sync
+            let syncAge = null;
+            if (lastSync) {
+              const ms = Date.now() - new Date(lastSync).getTime();
+              const hrs = Math.floor(ms / 3600000);
+              const mins = Math.floor((ms % 3600000) / 60000);
+              syncAge = hrs > 0 ? `${hrs}h ${mins}m ago` : `${mins}m ago`;
+            }
+
+            // Status indicator
+            const dot = status==="syncing" ? {c:"#60a5fa",label:"Syncing…"}
+                      : status==="error"   ? {c:"#ef4444",label:"Error"}
+                      : status==="done" && fetched>0 ? {c:"#00d48a",label:"OK"}
+                      : status==="done" && fetched===0 ? {c:"#f59e0b",label:"No data"}
+                      : {c:"#3d5a72",label:"Not set up"};
+
+            return (
+              <div key={key} style={{background:"#0c1625",border:`1px solid ${dot.c}30`,borderRadius:10,padding:"14px 18px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom: hasErrors||lastSync ? 10 : 0}}>
+                  {/* Status dot */}
+                  <div style={{width:10,height:10,borderRadius:"50%",background:dot.c,flexShrink:0,
+                    boxShadow: status==="syncing"?`0 0 6px ${dot.c}`:"none"}}/>
+                  {/* Platform name */}
+                  <span style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>{icon} {label}</span>
+                  {/* Status badge */}
+                  <span style={{fontSize:11,background:dot.c+"22",border:`1px solid ${dot.c}40`,
+                    borderRadius:4,padding:"1px 8px",color:dot.c,fontWeight:600}}>{dot.label}</span>
+                  <div style={{flex:1}}/>
+                  {/* Campaign count */}
+                  {isConfigured && (
+                    <span style={{fontSize:11,color:"#4d6e8a"}}>
+                      {fetched}/{total} campaigns synced
+                    </span>
+                  )}
+                  {!isConfigured && (
+                    <span style={{fontSize:11,color:"#3d5a72"}}>Not configured</span>
+                  )}
+                </div>
+
+                {/* Last sync time row */}
+                {lastSync && (
+                  <div style={{display:"flex",alignItems:"center",gap:16,fontSize:11,color:"#4d6e8a",paddingLeft:20}}>
+                    <span>⏱ Last sync: <span style={{color:"#7a9bbf",fontWeight:500}}>{syncAge}</span>
+                      <span style={{opacity:0.5,marginLeft:6}}>{new Date(lastSync).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</span>
+                    </span>
+                    {/* Staleness warning */}
+                    {(()=>{
+                      const ms = Date.now() - new Date(lastSync).getTime();
+                      const hrs = ms / 3600000;
+                      if (hrs > 26) return <span style={{color:"#ef4444",fontWeight:600}}>⚠ Overdue — last sync was {Math.floor(hrs)}h ago</span>;
+                      if (hrs > 13) return <span style={{color:"#f59e0b",fontWeight:600}}>⚠ Running late</span>;
+                      return null;
+                    })()}
+                  </div>
+                )}
+
+                {/* Errors */}
+                {hasErrors && (
+                  <div style={{marginTop:8,paddingLeft:20}}>
+                    <div style={{fontSize:11,color:"#ef4444",fontWeight:600,marginBottom:4}}>
+                      ⚠ {info.errors.length} error{info.errors.length!==1?"s":""} in last sync:
+                    </div>
+                    {info.errors.slice(0,3).map((e,i)=>(
+                      <div key={i} style={{fontSize:11,color:"#92400e",background:"#1a0808",border:"1px solid #ef444430",
+                        borderRadius:5,padding:"4px 10px",marginBottom:3,fontFamily:"monospace"}}>
+                        {e.window && <span style={{color:"#ef4444",marginRight:6}}>[{e.window}]</span>}
+                        {e.error?.slice(0,120)}
+                      </div>
+                    ))}
+                    {info.errors.length > 3 && (
+                      <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>
+                        +{info.errors.length-3} more errors
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Schedule reference */}
+        <div style={{marginTop:16,background:"#07101c",border:"1px solid #1e293b",borderRadius:8,padding:"12px 16px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#4d6e8a",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>Daily sync schedule (ET)</div>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+            {[
+              {label:"📘 Meta",  time:"8:00am"},
+              {label:"📡 TTD",   time:"8:30am"},
+              {label:"🖥️ DSP",   time:"9:00am"},
+              {label:"🔍 Google",time:"9:30am"},
+              {label:"👻 Snap",  time:"10:00am"},
+            ].map(({label,time})=>(
+              <div key={label} style={{fontSize:11,color:"#4d6e8a"}}>
+                {label} <span style={{color:"#7a9bbf",fontWeight:600}}>{time}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>}
+
+      {activeSection==="setup"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {[
+          {
+            step:1, title:"TTD: Request API access from your rep first",
+            color:"#f59e0b",
+            lines:[
+              "Before anything else — contact your Trade Desk rep and ask them to enable 'My Reports API access' for your login",
+              "This is not on by default for all accounts; without it the TTD fetch script will get a 403 error",
+              "Meta has no equivalent requirement — you can set that up yourself without asking anyone",
+            ]
+          },
+          {
+            step:2, title:"Add your repo Secrets",
+            color:"#3b82f6",
+            lines:[
+              "Go to your GitHub repo → Settings → Secrets and variables → Actions",
+              "Add: META_ACCESS_TOKEN — your Meta System User token (from the Meta tab above)",
+              "Add: TTD_LOGIN and TTD_PASSWORD — your TTD API credentials (from the TTD tab above)",
+              "Add: DSP_AWS_ACCESS_KEY_ID, DSP_AWS_SECRET_ACCESS_KEY, DSP_API_KEY — from your DSP rep (from the DSP tab above)",
+              "Add: DSP_AWS_SESSION_TOKEN only if your rep issued temporary IAM credentials",
+              "Add: GOOGLE_ADS_DEVELOPER_TOKEN, GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN, GOOGLE_ADS_LOGIN_CUSTOMER_ID (your MCC ID) — from the Google Ads tab above",
+              "Add: SNAP_CLIENT_ID, SNAP_CLIENT_SECRET, SNAP_REFRESH_TOKEN — from the Snapchat tab above (requires API approval first)",
+              "These are encrypted and only visible to GitHub Actions — never to anyone else",
+            ]
+          },
+          {
+            step:3, title:"Upload the config files",
+            color:"#a78bfa",
+            lines:[
+              "Download meta_config.json, ttd_config.json, dsp_config.json, and google_ads_config.json from their respective tabs",
+              "Upload both files to the root of your GitHub repo (same folder as your tracker .jsx file)",
+              "The fetch scripts read these files to know which campaigns to pull data for",
+            ]
+          },
+          {
+            step:4, title:"Upload the workflow files",
+            color:"#fb923c",
+            lines:[
+              "In your repo, create the folder: .github/workflows/ (if it doesn't exist)",
+              "Upload fetch-meta.yml, fetch-ttd.yml, fetch-dsp.yml, and fetch-google-ads.yml into that folder",
+              "These tell GitHub Actions when to run the fetch scripts (daily at 8am ET)",
+            ]
+          },
+          {
+            step:5, title:"Test it manually",
+            color:"#00d48a",
+            lines:[
+              "Go to your GitHub repo → Actions tab",
+              "Start with Meta: click \"Fetch Meta Campaign Metrics\" → \"Run workflow\" → Run",
+              "If it passes, campaigns.json will appear in your repo — the tracker loads it automatically on open",
+              "Once your TTD rep confirms API access, test \"Fetch TTD Campaign Metrics\" the same way",
+              "For DSP: test \"Fetch DSP Campaign Metrics\" — runs at 9:00am ET (after Meta and TTD)",
+              "For Google Ads: test \"Fetch Google Ads Metrics\" — runs at 9:30am ET (last in sequence)",
+            ]
+          },
+          {
+            step:6, title:"After that — fully automatic",
+            color:"#00e5a0",
+            lines:[
+              "Meta runs daily at 8:00am ET, TTD at 8:30am ET",
+              "Each run pulls MTD, Last 30 days, and Yesterday windows",
+              "The tracker picks up the latest data every time you open it — both Meta and TTD badges show in the header",
+              "You only need to re-download and re-upload config files when you add new campaigns",
+            ]
+          },
+        ].map(({step,title,color,lines})=>(
+          <div key={step} style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",display:"flex",gap:16}}>
+            <div style={{width:32,height:32,borderRadius:"50%",background:color+"22",border:"2px solid "+color+"60",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}>
+              <span style={{fontSize:13,fontWeight:800,color}}>{step}</span>
+            </div>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:"#edf4ff",marginBottom:8}}>{title}</div>
+              {lines.map((l,i)=>(
+                <div key={i} style={{display:"flex",gap:8,marginBottom:5,alignItems:"flex-start"}}>
+                  <span style={{color,fontSize:11,marginTop:1,flexShrink:0}}>›</span>
+                  <span style={{fontSize:12,color:"#7a9bbf",lineHeight:1.5}}>{l}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>}
+    </div>
+  );
+}
+
+
+
+
+function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
+  const today = getToday();
+  const clientCampaigns = allCampaigns.filter(c =>
+    c.campaignName.trim() === campaign.campaignName.trim()
+  );
+  const [mode, setMode]                 = useState("extend"); // "extend" | "renew"
+  const [endDate, setEndDate]           = useState("");
+  const [startDate, setStartDate]       = useState(campaign.endDate || today);
+  const [goal, setGoal]                 = useState(campaign.note1 || "");
+  const [contractValue, setContractValue] = useState(campaign.contractValue || "");
+  const [applyAll, setApplyAll]         = useState(clientCampaigns.length > 1);
+  const iS = {width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,
+    padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"};
+  const labelS = {display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,
+    textTransform:"uppercase",letterSpacing:"0.06em"};
+
+  function doExtend() {
+    if (!endDate) return;
+    const targets = applyAll ? clientCampaigns : [campaign];
+    targets.forEach(c => {
+      onExtend({
+        ...c,
+        endDate,
+        note1: goal || c.note1,
+        contractValue: contractValue || c.contractValue,
+        status: "active",
+      });
+    });
+    onClose();
+  }
+
+  function doRenew() {
+    if (!endDate) return;
+    const targets = applyAll ? clientCampaigns : [campaign];
+    const newCampaigns = targets.map(c => ({
+      ...c,
+      id: Date.now() + Math.random(),
+      startDate, endDate,
+      note1: goal || c.note1,
+      contractValue: contractValue || c.contractValue,
+      status: "active",
+      impressions:"", ctr:"", cpm:"", spend:"",
+      completionRate:"", conversions:"", clicks:"",
+      reach:"", frequency:"", videoViews:"",
+      lastChecked: today,
+      metaSnapshots: undefined, ttdSnapshots: undefined,
+      dspSnapshots: undefined, googleSnapshots: undefined, snapSnapshots: undefined,
+    }));
+    onRenew(newCampaigns, campaign);
+  }
+
+  const isExtend = mode === "extend";
+  const canSubmit = !!endDate;
+
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",
+      display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",
+        borderRadius:14,padding:24,width:"min(540px,96vw)",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
+
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <div>
+            <div style={{fontSize:15,fontWeight:800,color:"#edf4ff"}}>{isExtend?"📅 Extend":"🔄 Renew"} Campaign</div>
+            <div style={{fontSize:12,color:"#4d6e8a",marginTop:2}}>{campaign.campaignName.trim()} · {campaign.platform} · {campaign.mediaPartner}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#4d6e8a",fontSize:20,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+
+        {/* Mode toggle */}
+        <div style={{display:"flex",gap:6,marginBottom:20,background:"#07101c",borderRadius:9,padding:4}}>
+          {[
+            {key:"extend", icon:"📅", label:"Extend", desc:"Same campaign, new end date. Config stays intact, sync keeps working."},
+            {key:"renew",  icon:"🔄", label:"Renew",  desc:"Fresh campaign row with clean metrics. Use when flight truly ends."},
+          ].map(({key,icon,label,desc})=>(
+            <button key={key} onClick={()=>setMode(key)}
+              style={{flex:1,background:mode===key?"#0e1a2e":"none",
+                border:`1px solid ${mode===key?"#00c896":"transparent"}`,
+                borderRadius:7,padding:"10px 12px",cursor:"pointer",textAlign:"left"}}>
+              <div style={{fontSize:12,fontWeight:700,color:mode===key?"#00e5a0":"#4d6e8a",marginBottom:3}}>
+                {icon} {label}
+              </div>
+              <div style={{fontSize:10,color:mode===key?"#4d6e8a":"#2a3f55",lineHeight:1.4}}>{desc}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* Apply to all platforms toggle */}
+        {clientCampaigns.length > 1 && (
+          <div onClick={()=>setApplyAll(v=>!v)} style={{background:applyAll?"#002e24":"#0a1525",
+            border:`1px solid ${applyAll?"#00c896":"#1e293b"}`,borderRadius:8,padding:"10px 14px",
+            marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:16,height:16,borderRadius:3,background:applyAll?"#00c896":"#162236",
+              border:`1px solid ${applyAll?"#00c896":"#334155"}`,display:"flex",alignItems:"center",
+              justifyContent:"center",flexShrink:0}}>
+              {applyAll && <span style={{color:"#000",fontSize:11,fontWeight:900}}>✓</span>}
+            </div>
+            <div>
+              <div style={{fontSize:12,fontWeight:700,color:applyAll?"#00e5a0":"#7a9bbf"}}>
+                {isExtend?"Extend":"Renew"} all {clientCampaigns.length} platforms for {campaign.campaignName.trim()}
+              </div>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:1}}>
+                {clientCampaigns.map(c=>c.platform).join(" · ")}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Renew-only: start date */}
+        {!isExtend && (
+          <div style={{marginBottom:14}}>
+            <label style={labelS}>New Start Date</label>
+            <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} style={iS}/>
+          </div>
+        )}
+
+        {/* End date — label changes by mode */}
+        <div style={{marginBottom:14}}>
+          <label style={labelS}>{isExtend?"New End Date *":"New End Date *"}</label>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)}
+              style={{...iS,borderColor:endDate?"#334155":"#ef444460"}}/>
+            {isExtend && campaign.endDate && (
+              <span style={{fontSize:11,color:"#3d5a72",whiteSpace:"nowrap"}}>
+                Currently: {campaign.endDate}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Goal */}
+        <div style={{marginBottom:14}}>
+          <label style={labelS}>Goal / Note 1
+            {applyAll && clientCampaigns.length > 1 &&
+              <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}> — leave blank to keep each platform's goal</span>}
+          </label>
+          <input value={goal} onChange={e=>setGoal(e.target.value)}
+            placeholder={campaign.note1 || "e.g. 125K/Mo — leave blank to keep existing"}
+            style={iS}/>
+        </div>
+
+        {/* Contract value */}
+        <div style={{marginBottom:16}}>
+          <label style={labelS}>Contract Value ($) <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>— leave blank to keep existing</span></label>
+          <input type="number" value={contractValue} onChange={e=>setContractValue(e.target.value)}
+            placeholder={campaign.contractValue || "0.00"} style={iS}/>
+        </div>
+
+        {/* Info note */}
+        <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:7,
+          padding:"9px 14px",marginBottom:20,fontSize:11,color:"#4d6e8a",lineHeight:1.5}}>
+          {isExtend
+            ? "📅 Extend updates the existing row — dates, goal, and contract value only. Metrics and sync data are preserved. Platform config stays intact."
+            : "🔄 Renew creates new campaign rows with clean metrics and sync data. Original rows are kept. You'll need to update the platform config with any new campaign IDs."}
+        </div>
+
+        {/* Actions */}
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={isExtend ? doExtend : doRenew} disabled={!canSubmit}
+            style={{flex:1,background:canSubmit?"#00c896":"#162236",border:"none",borderRadius:8,
+              padding:"11px 0",color:canSubmit?"#000":"#3d5a72",fontWeight:700,fontSize:14,
+              cursor:canSubmit?"pointer":"default"}}>
+            {isExtend?"📅":"🔄"} {isExtend?"Extend":"Renew"}{applyAll&&clientCampaigns.length>1?` All ${clientCampaigns.length} Platforms`:""}
+          </button>
+          <button onClick={onClose} style={{flex:1,background:"#162236",border:"1px solid #334155",
+            borderRadius:8,padding:"11px 0",color:"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const today = getToday();
   const COLS = 11;
@@ -1200,16 +2750,37 @@ export default function App() {
   const [showAdd, setShowAdd]     = useState(false);
   const [showExportReminder, setShowExportReminder] = useState(false);
   const [showReminderModal, setShowReminderModal]   = useState(false);
+  const [renewTarget, setRenewTarget]               = useState(null);
   const [saved, setSaved]         = useState(false);
   const [expanded, setExpanded]   = useState(new Set());
+  const [groupByClient, setGroupByClient]       = useState(false);
+  const [collapsedClients, setCollapsedClients] = useState(new Set());
   const [dragId, setDragId]       = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
   const [dateRange, setDateRange] = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
   const [activeTab, setActiveTab] = useState("campaigns");
+
+  // Count "behind" campaigns for the tab badge
+  const behindCount = useMemo(()=>
+    campaigns.filter(c=>{
+      if(c.status!=="active") return false;
+      const disp=resolveMetrics(c,dateRange.preset);
+      const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+      return pacing?.label==="Behind";
+    }).length
+  ,[campaigns,dateRange.preset]);
   const [activityLog, setActivityLog] = useState(()=>{ try { const s=localStorage.getItem(ACTIVITY_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
   const [archive, setArchive] = useState(()=>{ try { const s=localStorage.getItem(ARCHIVE_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
   const [metaSyncStatus, setMetaSyncStatus] = useState(null);
   const [metaSyncInfo,   setMetaSyncInfo]   = useState(null);
+  const [ttdSyncStatus,  setTtdSyncStatus]  = useState(null);
+  const [ttdSyncInfo,    setTtdSyncInfo]    = useState(null);
+  const [dspSyncStatus,    setDspSyncStatus]    = useState(null);
+  const [dspSyncInfo,      setDspSyncInfo]      = useState(null);
+  const [googleSyncStatus, setGoogleSyncStatus] = useState(null);
+  const [googleSyncInfo,   setGoogleSyncInfo]   = useState(null);
+  const [snapSyncStatus,   setSnapSyncStatus]   = useState(null);
+  const [snapSyncInfo,     setSnapSyncInfo]     = useState(null);
   useEffect(()=>{
     async function syncMeta() {
       setMetaSyncStatus("syncing");
@@ -1227,14 +2798,110 @@ export default function App() {
           return {...campaign, metaSnapshots:meta.snapshots, metaSyncedAt:syncedAt};
         }));
         setMetaSyncStatus("done");
-        setMetaSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count});
+        setMetaSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
       } catch(e) {
         console.warn("Meta sync skipped:",e.message);
         setMetaSyncStatus("error");
         setMetaSyncInfo({error:e.message});
       }
     }
+    async function syncTTD() {
+      setTtdSyncStatus("syncing");
+      try {
+        const resp = await fetch("ttd_campaigns.json?t="+Date.now());
+        if (!resp.ok) throw new Error("ttd_campaigns.json not found");
+        const data = await resp.json();
+        if (!data.campaigns||data.campaigns.length===0) { setTtdSyncStatus("done"); setTtdSyncInfo({last_updated:data.last_updated,fetched_count:0}); return; }
+        const ttdMap={};
+        data.campaigns.forEach(c=>{ ttdMap[c.tracker_id]=c; });
+        const syncedAt=data.last_updated||new Date().toISOString();
+        setCampaigns(cs=>cs.map(campaign=>{
+          const ttd=ttdMap[campaign.id];
+          if (!ttd||!ttd.snapshots) return campaign;
+          return {...campaign, ttdSnapshots:ttd.snapshots, ttdSyncedAt:syncedAt};
+        }));
+        setTtdSyncStatus("done");
+        setTtdSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
+      } catch(e) {
+        console.warn("TTD sync skipped:",e.message);
+        setTtdSyncStatus("error");
+        setTtdSyncInfo({error:e.message});
+      }
+    }
+    async function syncDSP() {
+      setDspSyncStatus("syncing");
+      try {
+        const resp = await fetch("dsp_campaigns.json?t="+Date.now());
+        if (!resp.ok) throw new Error("dsp_campaigns.json not found");
+        const data = await resp.json();
+        if (!data.campaigns||data.campaigns.length===0) { setDspSyncStatus("done"); setDspSyncInfo({last_updated:data.last_updated,fetched_count:0}); return; }
+        const dspMap={};
+        data.campaigns.forEach(c=>{ dspMap[c.tracker_id]=c; });
+        const syncedAt=data.last_updated||new Date().toISOString();
+        setCampaigns(cs=>cs.map(campaign=>{
+          const dsp=dspMap[campaign.id];
+          if (!dsp||!dsp.snapshots) return campaign;
+          return {...campaign, dspSnapshots:dsp.snapshots, dspSyncedAt:syncedAt};
+        }));
+        setDspSyncStatus("done");
+        setDspSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
+      } catch(e) {
+        console.warn("DSP sync skipped:",e.message);
+        setDspSyncStatus("error");
+        setDspSyncInfo({error:e.message});
+      }
+    }
+    async function syncGoogle() {
+      setGoogleSyncStatus("syncing");
+      try {
+        const resp = await fetch("google_ads_campaigns.json?t="+Date.now());
+        if (!resp.ok) throw new Error("google_ads_campaigns.json not found");
+        const data = await resp.json();
+        if (!data.campaigns||data.campaigns.length===0) { setGoogleSyncStatus("done"); setGoogleSyncInfo({last_updated:data.last_updated,fetched_count:0}); return; }
+        const googleMap={};
+        data.campaigns.forEach(c=>{ googleMap[c.tracker_id]=c; });
+        const syncedAt=data.last_updated||new Date().toISOString();
+        setCampaigns(cs=>cs.map(campaign=>{
+          const g=googleMap[campaign.id];
+          if (!g||!g.snapshots) return campaign;
+          return {...campaign, googleSnapshots:g.snapshots, googleSyncedAt:syncedAt};
+        }));
+        setGoogleSyncStatus("done");
+        setGoogleSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
+      } catch(e) {
+        console.warn("Google Ads sync skipped:",e.message);
+        setGoogleSyncStatus("error");
+        setGoogleSyncInfo({error:e.message});
+      }
+    }
+    async function syncSnap() {
+      setSnapSyncStatus("syncing");
+      try {
+        const resp = await fetch("snap_campaigns.json?t="+Date.now());
+        if (!resp.ok) throw new Error("snap_campaigns.json not found");
+        const data = await resp.json();
+        if (!data.campaigns||data.campaigns.length===0) { setSnapSyncStatus("done"); setSnapSyncInfo({last_updated:data.last_updated,fetched_count:0}); return; }
+        const snapMap={};
+        data.campaigns.forEach(c=>{ snapMap[c.tracker_id]=c; });
+        const syncedAt=data.last_updated||new Date().toISOString();
+        setCampaigns(cs=>cs.map(campaign=>{
+          const s=snapMap[campaign.id];
+          if (!s||!s.snapshots) return campaign;
+          return {...campaign, snapSnapshots:s.snapshots, snapSyncedAt:syncedAt};
+        }));
+        setSnapSyncStatus("done");
+        setSnapSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
+      } catch(e) {
+        console.warn("Snap sync skipped:",e.message);
+        setSnapSyncStatus("error");
+        setSnapSyncInfo({error:e.message});
+      }
+    }
     syncMeta();
+    syncTTD();
+    syncDSP();
+    syncGoogle();
+    syncSnap();
   },[]);
 
   function addLog(entry) {
@@ -1243,6 +2910,29 @@ export default function App() {
       try { localStorage.setItem(ACTIVITY_KEY, JSON.stringify(next)); } catch(e) { console.error(e); }
       return next;
     });
+  }
+
+  function handleExtend(updatedCampaign) {
+    setCampaigns(cs => cs.map(c => c.id === updatedCampaign.id ? updatedCampaign : c));
+    addLog({type:"edited",campaignName:updatedCampaign.campaignName,partner:updatedCampaign.mediaPartner,
+      platform:updatedCampaign.platform,detail:`Extended to ${updatedCampaign.endDate}`,
+      campaignId:updatedCampaign.id,prevSnapshot:null});
+  }
+
+  function handleRenew(newCampaigns, originalCampaign) {
+    setCampaigns(cs => {
+      const idx = cs.findIndex(c => c.id === originalCampaign.id);
+      const next = [...cs];
+      // Insert all new campaigns right after the first original
+      newCampaigns.forEach((nc, i) => next.splice(idx + 1 + i, 0, nc));
+      return next;
+    });
+    newCampaigns.forEach(nc => {
+      addLog({type:"created",campaignName:nc.campaignName,partner:nc.mediaPartner,
+        platform:nc.platform,detail:`Renewed from "${originalCampaign.campaignName}" · ${originalCampaign.endDate} → ${nc.endDate}`,
+        campaignId:nc.id,prevSnapshot:null});
+    });
+    setRenewTarget(null);
   }
 
   function handleUndo(entry) {
@@ -1331,6 +3021,7 @@ export default function App() {
   const pendingReminders = reminders.filter(r=>!r.dismissed&&r.date<=today).length;
 
   function toggleExpand(id){ setExpanded(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; }); }
+  function toggleClient(name){ setCollapsedClients(prev=>{ const n=new Set(prev); n.has(name)?n.delete(name):n.add(name); return n; }); }
   function onDragStart(id){ setDragId(id); }
   function onDragOver(e,id){ e.preventDefault(); setDragOverId(id); }
   function onDrop(e,targetId){
@@ -1421,7 +3112,7 @@ export default function App() {
   const TD = ({children,style={}}) => <td style={{padding:"9px 12px",borderBottom:"1px solid #060c18",verticalAlign:"middle",...style}}>{children}</td>;
 
   return (
-    <div style={{minHeight:"100vh",background:"#070d16",fontFamily:"'Inter','Segoe UI',system-ui,sans-serif",color:"#d8eaf8",fontSize:14}}>
+    <div style={{minHeight:"100vh",background:"#070d16",fontFamily:"'Inter','Segoe UI',sans-serif",color:"#d8eaf8",fontSize:14}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         *{box-sizing:border-box;}
@@ -1440,13 +3131,25 @@ export default function App() {
 
       {/* Header */}
       <div style={{background:"linear-gradient(180deg,#0e2038 0%,#0c1625 100%)",borderBottom:"1px solid #00c89628",borderTop:"2px solid #00c896",padding:"13px 20px",position:"sticky",top:0,zIndex:50}}>
-        <div style={{maxWidth:1600,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+        <div style={{maxWidth:1920,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:17,fontWeight:800,color:"#00e5a0",letterSpacing:"-0.03em"}}>Campaign Tracker</span>
             <span style={{fontSize:11,padding:"2px 7px",borderRadius:4,background:saved?"#00200f":"transparent",color:saved?"#00d48a":"transparent",border:saved?"1px solid #22c55e40":"1px solid transparent",transition:"all .3s",fontWeight:600}}>✓ Saved</span>
             {metaSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing Meta…</span>}
             {metaSyncStatus==="done" && metaSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(metaSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#002018",border:"1px solid #00c89640",color:"#00d48a",fontWeight:600,cursor:"default"}}>⬡ Meta: {metaSyncInfo.fetched_count} synced</span>}
             {metaSyncStatus==="error" && <span title={metaSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Meta sync —</span>}
+            {ttdSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing TTD…</span>}
+            {ttdSyncStatus==="done" && ttdSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(ttdSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#002018",border:"1px solid #00c89640",color:"#00d48a",fontWeight:600,cursor:"default"}}>⬡ TTD: {ttdSyncInfo.fetched_count} synced</span>}
+            {ttdSyncStatus==="error" && <span title={ttdSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ TTD sync —</span>}
+            {dspSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing DSP…</span>}
+            {dspSyncStatus==="done" && dspSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(dspSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#001a10",border:"1px solid #34d39940",color:"#34d399",fontWeight:600,cursor:"default"}}>⬡ DSP: {dspSyncInfo.fetched_count} synced</span>}
+            {dspSyncStatus==="error" && <span title={dspSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ DSP sync —</span>}
+            {googleSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing Google…</span>}
+            {googleSyncStatus==="done" && googleSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(googleSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a1000",border:"1px solid #f59e0b40",color:"#f59e0b",fontWeight:600,cursor:"default"}}>⬡ Google: {googleSyncInfo.fetched_count} synced</span>}
+            {googleSyncStatus==="error" && <span title={googleSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Google sync —</span>}
+            {snapSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing Snap…</span>}
+            {snapSyncStatus==="done" && snapSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(snapSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0010",border:"1px solid #f9a8d440",color:"#f9a8d4",fontWeight:600,cursor:"default"}}>⬡ Snap: {snapSyncInfo.fetched_count} synced</span>}
+            {snapSyncStatus==="error" && <span title={snapSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Snap sync —</span>}
           </div>
           <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
             <button onClick={()=>setShowReminderModal(true)} style={{position:"relative",background:pendingReminders>0?"#130a00":"#0e1a2e",border:`1px solid ${pendingReminders>0?"#f59e0b60":"#1e293b"}`,borderRadius:7,padding:"6px 13px",color:pendingReminders>0?"#f59e0b":"#4d6e8a",fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
@@ -1466,27 +3169,43 @@ export default function App() {
 
       {/* Tab Bar */}
       <div style={{background:"#0a1220",borderBottom:"1px solid #1e293b"}}>
-        <div style={{maxWidth:1600,margin:"0 auto",padding:"0 20px",display:"flex",gap:0}}>
+        <div style={{maxWidth:1920,margin:"0 auto",padding:"0 20px",display:"flex",gap:0}}>
           {[
             {key:"campaigns", label:"📋 Campaigns"},
+            {key:"pacing",    label:"📈 Pacing", badge: behindCount},
+            {key:"revenue",   label:"💰 Revenue"},
             {key:"activity",  label:"📜 Activity Log"},
             {key:"archive",   label:"🗄️ Campaign Archive"},
+            {key:"config",    label:"⚙️ Platform Config"},
           ].map(t=>(
             <button key={t.key} onClick={()=>setActiveTab(t.key)}
               style={{background:"none",border:"none",borderBottom:activeTab===t.key?"2px solid #00e5a0":"2px solid transparent",
                 padding:"11px 20px",color:activeTab===t.key?"#00e5a0":"#4d6e8a",fontSize:13,fontWeight:activeTab===t.key?700:400,
-                cursor:"pointer",transition:"all .15s",marginBottom:-1}}>
+                cursor:"pointer",transition:"all .15s",marginBottom:-1,display:"flex",alignItems:"center",gap:6}}>
               {t.label}
+              {t.badge>0&&<span style={{background:"#fde04722",border:"1px solid #fde04760",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,color:"#fde047",lineHeight:1.4}}>{t.badge}</span>}
             </button>
           ))}
         </div>
       </div>
 
-      <div style={{maxWidth:1600,margin:"0 auto",padding:"18px 20px 40px"}}>
+      <div style={{maxWidth:1920,margin:"0 auto",padding:"18px 20px 40px"}}>
         {activeTab==="archive" ? (
           <CampaignArchive archive={archive} onRestore={handleRestore} onClear={()=>setArchive([])}/>
+        ) : activeTab==="config" ? (
+          <PlatformConfig campaigns={campaigns}
+            metaSyncStatus={metaSyncStatus}   metaSyncInfo={metaSyncInfo}
+            ttdSyncStatus={ttdSyncStatus}     ttdSyncInfo={ttdSyncInfo}
+            dspSyncStatus={dspSyncStatus}     dspSyncInfo={dspSyncInfo}
+            googleSyncStatus={googleSyncStatus} googleSyncInfo={googleSyncInfo}
+            snapSyncStatus={snapSyncStatus}   snapSyncInfo={snapSyncInfo}
+          />
         ) : activeTab==="activity" ? (
           <ActivityLog log={activityLog} campaigns={campaigns} onUndo={handleUndo} onClear={()=>{ if(window.confirm("Clear the entire activity log?")){ setActivityLog([]); try{localStorage.removeItem(ACTIVITY_KEY);}catch(e){} }}} />
+        ) : activeTab==="pacing" ? (
+          <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} onEdit={(camp)=>setEditTarget(camp)}/>
+        ) : activeTab==="revenue" ? (
+          <RevenueDashboard campaigns={[...campaigns,...archive]}/>
         ) : (<>
         <ReminderAlertBanner reminders={reminders} onOpen={()=>setShowReminderModal(true)} onDismissAll={()=>setReminders(prev=>prev.map(r=>r.date<=today?{...r,dismissed:true}:r))}/>
 
@@ -1522,11 +3241,12 @@ export default function App() {
         {/* Filters */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…" style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"8px 14px",color:"#d8eaf8",fontSize:14,width:280}}/>
-          <select value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":"all")} onChange={e=>{ if(e.target.value==="__monthly__"){setFMonthly(true);setFStatus("all");setSortKey("endDate");}else if(e.target.value==="__reminder__"){setFMonthly(false);setFStatus("all");setSortKey("reminder");}else{setFMonthly(false);setFStatus(e.target.value);if(sortKey==="reminder")setSortKey("endDate");} }} style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder")?700:400}}>
+          <select value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":"all")} onChange={e=>{ if(e.target.value==="__monthly__"){setFMonthly(true);setFStatus("all");setSortKey("endDate");setGroupByClient(false);}else if(e.target.value==="__reminder__"){setFMonthly(false);setFStatus("all");setSortKey("reminder");setGroupByClient(false);}else if(e.target.value==="__grouped__"){setFMonthly(false);setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(true);}else{setFMonthly(false);setFStatus(e.target.value);if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(false);} }} style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient)?700:400}}>
             <option value="all">All Statuses</option>
             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
             <option value="__monthly__">★ Monthly Flights</option>
             <option value="__reminder__">🔔 Has Reminder</option>
+            <option value="__grouped__">👥 Group by Client</option>
           </select>
           <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
           <span style={{fontSize:11,color:"#3d5a72"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
@@ -1552,7 +3272,115 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((c,i) => {
+                {groupByClient ? (() => {
+                  // ── GROUPED MODE ──────────────────────────────────────────
+                  const clientMap = new Map();
+                  filtered.forEach(c => {
+                    const key = c.campaignName.trim();
+                    if (!clientMap.has(key)) clientMap.set(key, []);
+                    clientMap.get(key).push(c);
+                  });
+                  const rows = [];
+                  clientMap.forEach((camps, clientName) => {
+                    const isCollapsed = collapsedClients.has(clientName);
+                    const partner     = camps[0].mediaPartner;
+                    const platforms   = [...new Set(camps.map(c => c.platform))];
+                    const endDates    = camps.map(c => c.endDate).filter(Boolean).sort();
+                    const earliestEnd = endDates[0] || "";
+                    const dLeft       = earliestEnd ? getDaysLeft(earliestEnd) : null;
+                    const drc         = dLeft==null?"#4d6e8a":dLeft<0?"#6b7280":dLeft<=14?"#ef4444":dLeft<=30?"#f59e0b":"#00d48a";
+                    const hasReminder = camps.some(c => reminders.some(r => !r.dismissed && r.campaignId===c.id && r.date<=today));
+                    const statuses    = camps.map(c => c.status||"active");
+                    const groupStatus = statuses.every(s=>s==="off")?"off":statuses.some(s=>s==="pacing-behind")?"pacing-behind":statuses.some(s=>s==="pacing-ahead")?"pacing-ahead":"active";
+                    const scfg        = STATUS_CFG[groupStatus]||STATUS_CFG.active;
+                    const totalContract = camps.reduce((s,c) => s+(parseFloat(c.contractValue)||0), 0);
+                    const PLT = {FB:"#1877f2",FBV:"#1877f2",IG:"#e1306c",TT:"#ff0050",CTV:"#00b4d8",OTT:"#0096c7",DSP:"#7c3aed",TD:"#a78bfa",SP:"#fffc00",SEM:"#4285f4",YT:"#ff0000",EMAIL:"#0ea5e9",default:"#4d6e8a"};
+                    // Client header row
+                    rows.push(
+                      <tr key={`grp-${clientName}`} onClick={()=>toggleClient(clientName)}
+                        style={{background:"#07101c",cursor:"pointer",borderTop:"2px solid #1e3a5f"}}>
+                        <td colSpan={2} style={{padding:"0 0 0 12px",borderBottom:"1px solid #1e293b"}}>
+                          <span style={{color:"#3d5a72",fontSize:11,userSelect:"none"}}>{isCollapsed?"▶":"▼"}</span>
+                        </td>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
+                          <span style={{color:"#a8c4e0",fontWeight:600,fontSize:13}}>{partner}</span>
+                        </td>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+                            <span style={{color:"#edf4ff",fontWeight:700,fontSize:13}}>{clientName}</span>
+                            {hasReminder && <span style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700}}>🔔</span>}
+                            {platforms.map(p=>(
+                              <span key={p} style={{fontSize:10,background:(PLT[p]||PLT.default)+"22",border:`1px solid ${(PLT[p]||PLT.default)}40`,borderRadius:4,padding:"1px 6px",color:PLT[p]||PLT.default,fontWeight:600}}>{p}</span>
+                            ))}
+                          </div>
+                        </td>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}/>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
+                          <span style={{background:scfg.bg,color:scfg.color,border:`1px solid ${scfg.color}40`,borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:600}}>{scfg.label}</span>
+                        </td>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
+                          <span style={{fontSize:11,color:"#4d6e8a"}}>{camps.length} platform{camps.length!==1?"s":""}</span>
+                          {totalContract>0 && <span style={{fontSize:11,color:"#34d399",marginLeft:8}}>${Math.round(totalContract).toLocaleString()}</span>}
+                        </td>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}/>
+                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
+                          {earliestEnd && <span style={{fontSize:12,color:drc,fontWeight:600}}>
+                            {dLeft==null?"":dLeft<0?"Ended":dLeft===0?"Today":`${dLeft}d`}{" "}
+                            <span style={{fontWeight:400,opacity:0.7,fontSize:11}}>{earliestEnd}</span>
+                          </span>}
+                        </td>
+                        <td colSpan={2} style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}/>
+                      </tr>
+                    );
+                    // Platform rows — indented, hidden when collapsed
+                    if (!isCollapsed) {
+                      camps.forEach((c, i) => {
+                        const stale = c.lastChecked!==today;
+                        const open  = expanded.has(c.id);
+                        const hasData = !!(c.impressions||c.ctr||c.cpm||c.spend);
+                        const rowBg = i%2===0?"#0c1828":"#080f1a";
+                        const soonDate = new Date(today); soonDate.setDate(soonDate.getDate()+3); const soonStr=soonDate.toISOString().slice(0,10);
+                        const campReminders = reminders.filter(r=>!r.dismissed&&r.campaignId===c.id&&r.date<=today);
+                        const campUpcoming  = reminders.filter(r=>!r.dismissed&&r.campaignId===c.id&&r.date>today&&r.date<=soonStr);
+                        rows.push(
+                          <Fragment key={c.id}>
+                            <tr style={{background:rowBg}}>
+                              <td style={{padding:"0 0 0 6px",borderBottom:"1px solid #060c18",width:28}}/>
+                              <td style={{padding:"0 0 0 8px",borderBottom:"1px solid #060c18",width:36,textAlign:"center",verticalAlign:"middle"}}>
+                                <button onClick={()=>toggleExpand(c.id)} className="xbtn" style={{background:"none",border:"none",cursor:"pointer",padding:"5px 6px",color:hasData?"#00c896":"#1e3048",transform:open?"rotate(90deg)":"rotate(0deg)",fontSize:11,lineHeight:1,display:"block",margin:"0 auto"}}>▶</button>
+                              </td>
+                              <TD><span style={{color:"#4d6e8a",fontSize:11,paddingLeft:8}}>↳</span></TD>
+                              <TD>
+                                <div style={{display:"flex",alignItems:"center",gap:5,paddingLeft:12}}>
+                                  <span style={{color:"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
+                                  {campReminders.length>0 && <button onClick={()=>setShowReminderModal(true)} style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>🔔 {campReminders.length}</button>}
+                                  {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,whiteSpace:"nowrap"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
+                                </div>
+                                {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:2,paddingLeft:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{c.note1.trim()}</div>}
+                              </TD>
+                              <TD><StatusBadge status={c.status}/></TD>
+                              <TD><span style={{fontSize:12,color:(PLT[c.platform]||PLT.default),fontWeight:700}}>{c.platform}</span></TD>
+                              <TD><span style={{fontSize:11,color:"#7a9bbf"}}>{c.note1||"—"}</span></TD>
+                              <TD><span style={{fontSize:11,color:"#4d6e8a"}}>{c.startDate||"—"}</span></TD>
+                              <TD><EndChip d={c.endDate}/></TD>
+                              <TD><span style={{fontSize:11,color:stale?"#f59e0b":"#00d48a",fontWeight:stale?600:400}}>{fmtDate(c.lastChecked)}</span>
+                                {stale&&<button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00ffb3",fontSize:10,padding:"1px 6px",cursor:"pointer",fontWeight:700,marginLeft:4}}>✓</button>}
+                              </TD>
+                              <TD>
+                                <div style={{display:"flex",gap:5}}>
+                                  <button onClick={()=>setEditTarget(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
+                                  <button onClick={()=>{ if(window.confirm("Delete this campaign?")){ addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Campaign deleted",campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); }}} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,color:"#ef4444",fontSize:10,padding:"3px 6px",cursor:"pointer"}}>✕</button>
+                                </div>
+                              </TD>
+                            </tr>
+                            {open && <MetricRow key={"m"+c.id} c={c} colSpan={COLS} onUpdate={updateCampaign} dateRange={dateRange} reminders={reminders} setReminders={setReminders}/>}
+                          </Fragment>
+                        );
+                      });
+                    }
+                  });
+                  return rows;
+                })() : filtered.map((c,i) => {
                   const stale = c.lastChecked!==today;
                   const open  = expanded.has(c.id);
                   const hasData = !!(c.impressions||c.ctr||c.cpm||c.spend);
@@ -1633,6 +3461,7 @@ export default function App() {
                         <TD>
                           <div style={{display:"flex",gap:5}}>
                             <button onClick={()=>setEditTarget(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
+                            <button onClick={()=>setRenewTarget(c)} style={{background:"#002418",border:"1px solid #00c89640",borderRadius:5,color:"#00c896",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:700}} title="Renew campaign">🔄</button>
                             <button onClick={()=>{ const copy={...c,id:Date.now(),campaignName:c.campaignName+" (copy)",impressions:"",ctr:"",cpm:"",spend:""}; setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }} style={{background:"#091a2a",border:"1px solid #1e3a5f",borderRadius:5,color:"#00e5a0",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>⧉</button>
                             <button onClick={()=>{ if(window.confirm("Delete this campaign?")) { addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:`Campaign deleted`,campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); } }} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,color:"#ef4444",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>✕</button>
                             <button title="Send to Archive" onClick={()=>{ if(window.confirm(`Archive "${c.campaignName}"? It will move to the Campaign Archive tab.`)) { setArchive(prev=>[...prev,{...c,archivedDate:getToday()}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Manually sent to archive",campaignId:c.id,prevSnapshot:{...c}}); }}} style={{background:"#1a0828",border:"1px solid #a855f740",borderRadius:5,color:"#a855f7",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:700}}>🗄 →</button>
@@ -1651,11 +3480,12 @@ export default function App() {
         <div style={{marginTop:8,fontSize:11,color:"#1e3048",textAlign:"right"}}>▶ click to expand metrics · blue arrow = data entered</div>
       </>
       )}
-      </div>
 
       {editTarget && <Modal campaign={editTarget} onSave={u=>{ updateCampaign(u); setEditTarget(null); }} onClose={()=>setEditTarget(null)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()} reminders={reminders} setReminders={setReminders} campaigns={campaigns}/>}
       {showAdd    && <Modal isNew onSave={n=>{ setCampaigns(cs=>[...cs,n]); addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null}); setShowAdd(false); }} onClose={()=>setShowAdd(false)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
       {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} onClose={()=>setShowReminderModal(false)}/>}
+      {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
     </div>
+  </div>
   );
 }
