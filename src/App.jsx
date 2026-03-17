@@ -907,6 +907,172 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   );
 }
 
+function CampaignArchive({ archive, onRestore, onClear }) {
+  const [search, setSearch] = useState("");
+  const [expanded, setExpanded] = useState(new Set());
+
+  const monthKeys = [...new Set(
+    archive.map(c => (c.endDate||"").slice(0,7)).filter(Boolean)
+  )].sort().reverse();
+
+  const [activeMonth, setActiveMonth] = useState(() => monthKeys[0] || "");
+  const effectiveMonth = monthKeys.includes(activeMonth) ? activeMonth : (monthKeys[0]||"");
+
+  function monthLabel(ym) {
+    if (!ym) return "";
+    const [y,m] = ym.split("-");
+    return new Date(parseInt(y), parseInt(m)-1, 1).toLocaleDateString("en-US",{month:"long",year:"numeric"});
+  }
+
+  const filtered = archive.filter(c => {
+    const q = search.toLowerCase();
+    const ms = !q || c.campaignName.toLowerCase().includes(q)
+      || c.mediaPartner.toLowerCase().includes(q)
+      || (c.platform||"").toLowerCase().includes(q)
+      || (c.goal||"").toLowerCase().includes(q)
+      || (c.note1||"").toLowerCase().includes(q)
+      || (c.endDate||"").includes(q);
+    const inMonth = (c.endDate||"").slice(0,7) === effectiveMonth;
+    return ms && inMonth;
+  });
+
+  const groups = {};
+  filtered.forEach(c => {
+    if (!groups[c.mediaPartner]) groups[c.mediaPartner] = [];
+    groups[c.mediaPartner].push(c);
+  });
+
+  function toggleExpand(id) {
+    setExpanded(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
+  }
+
+  return (
+    <div style={{padding:"0 0 40px"}}>
+      {archive.length === 0 ? (
+        <div style={{textAlign:"center",padding:"60px 0",color:"#3d5a72"}}>
+          <div style={{fontSize:32,marginBottom:10}}>🗄️</div>
+          <div style={{fontSize:13}}>No archived campaigns yet. Campaigns that ended 60+ days ago will move here automatically.</div>
+        </div>
+      ) : (<>
+        <div style={{display:"flex",alignItems:"center",gap:0,marginBottom:16,borderBottom:"1px solid #1e293b",flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:0,flexWrap:"wrap",flex:1}}>
+            {monthKeys.map(mk => {
+              const count = archive.filter(c=>(c.endDate||"").slice(0,7)===mk).length;
+              const active = mk===effectiveMonth;
+              return (
+                <button key={mk} onClick={()=>setActiveMonth(mk)}
+                  style={{background:"none",border:"none",borderBottom:active?"2px solid #00e5a0":"2px solid transparent",
+                    padding:"9px 18px",color:active?"#00e5a0":"#4d6e8a",fontSize:13,fontWeight:active?700:400,
+                    cursor:"pointer",marginBottom:-1,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
+                  {monthLabel(mk)}
+                  <span style={{background:active?"#00e5a020":"#0e1a2e",border:`1px solid ${active?"#00e5a040":"#1e293b"}`,
+                    borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700,color:active?"#00e5a0":"#3d5a72"}}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center",padding:"0 0 8px 8px"}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…"
+              style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"6px 12px",color:"#d8eaf8",fontSize:12,width:180}}/>
+            {search && <button onClick={()=>setSearch("")} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13}}>×</button>}
+            <button onClick={()=>{ if(window.confirm("Clear the entire archive? This cannot be undone.")) onClear(); }}
+              style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:6,padding:"5px 11px",color:"#ef4444",fontSize:11,cursor:"pointer"}}>
+              Clear Archive
+            </button>
+          </div>
+        </div>
+
+        {filtered.length === 0 ? (
+          <div style={{textAlign:"center",padding:"40px 0",color:"#3d5a72",fontSize:13}}>No campaigns match your search.</div>
+        ) : (
+          <div>
+            {Object.entries(groups).map(([partner, camps]) => (
+            <div key={partner} style={{marginBottom:20}}>
+              <div style={{fontSize:11,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",
+                marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
+                <span style={{color:"#4d6e8a"}}>{partner}</span>
+                <div style={{flex:1,height:1,background:"#0d1525"}}/>
+                <span style={{fontWeight:400}}>{camps.length} campaign{camps.length!==1?"s":""}</span>
+              </div>
+              <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,overflow:"hidden"}}>
+                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                  <thead>
+                    <tr style={{background:"#070d16"}}>
+                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Campaign</th>
+                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Platform</th>
+                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Goal</th>
+                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>End Date</th>
+                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Archived</th>
+                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Metrics</th>
+                      <th style={{padding:"9px 13px",borderBottom:"1px solid #1e293b"}}/>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {camps.map((c,i) => {
+                      const pCol = PLT_COLORS[c.platform]||PLT_COLORS.default;
+                      const isOpen = expanded.has(c.id);
+                      const rowBg = i%2===0?"#0c1625":"#090f1c";
+                      return (
+                        <Fragment key={c.id}>
+                          <tr style={{background:rowBg}}>
+                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18"}}>
+                              <div style={{fontSize:12,fontWeight:600,color:"#edf4ff"}}>{c.campaignName.trim()}</div>
+                              {c.note1&&<div style={{fontSize:10,color:"#00ffb3",marginTop:2}}>{c.note1.trim()}</div>}
+                            </td>
+                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18"}}>
+                              <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 6px",fontSize:10,fontWeight:700}}>{c.platform}</span>
+                            </td>
+                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",fontSize:11,color:"#4d6e8a"}}>{c.goal||"—"}</td>
+                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",fontSize:11,color:"#7a9bbf"}}>{c.endDate||"—"}</td>
+                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",fontSize:11,color:"#3d5a72"}}>{c.archivedDate||"—"}</td>
+                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18"}}>
+                              <button onClick={()=>toggleExpand(c.id)} style={{background:"none",border:"none",cursor:"pointer",color:c.impressions?"#00c896":"#1e3048",fontSize:11,padding:0}}>
+                                {isOpen?"▼ Hide":"▶ Show"}
+                              </button>
+                            </td>
+                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18"}}>
+                              <button onClick={()=>onRestore(c)} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:5,color:"#00e5a0",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:600}}>Restore</button>
+                            </td>
+                          </tr>
+                          {isOpen && (
+                            <tr style={{background:"#06101a"}}>
+                              <td colSpan={7} style={{padding:"10px 16px",borderBottom:"1px solid #060c18"}}>
+                                <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:11}}>
+                                  {[
+                                    {label:"Impressions",val:c.impressions},
+                                    {label:"CTR",val:c.ctr?c.ctr+"%":null},
+                                    {label:"CPM",val:c.cpm?"$"+c.cpm:null},
+                                    {label:"Spend",val:c.spend?"$"+c.spend:null},
+                                    {label:"Clicks",val:c.clicks},
+                                    {label:"Reach",val:c.reach},
+                                    {label:"Freq",val:c.frequency},
+                                    {label:"VCR",val:c.completionRate?c.completionRate+"%":null},
+                                  ].filter(x=>x.val).map(({label,val})=>(
+                                    <div key={label} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:"4px 10px",textAlign:"center"}}>
+                                      <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
+                                      <div style={{fontWeight:700,color:"#d8eaf8"}}>{val}</div>
+                                    </div>
+                                  ))}
+                                  {!c.impressions&&!c.spend&&<span style={{color:"#3d5a72",fontStyle:"italic"}}>No metrics recorded</span>}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            ))}
+          </div>
+        )}
+      </>)}
+    </div>
+  );
+}
+
 const LOG_ICONS = {
   created:    { icon: "✨", color: "#00d48a", label: "Created" },
   deleted:    { icon: "🗑", color: "#ef4444", label: "Deleted" },
