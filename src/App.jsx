@@ -749,234 +749,13 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
 
 function DateBar({ range, setRange }) {
   const presets = getPresets();
-  const [cs, setCs] = useState(range.start||"");
-  const [ce, setCe] = useState(range.end||"");
-  const [showCustom, setShowCustom] = useState(false);
-  const quickKeys = ["mtd","yesterday"];
-  const dropdownKeys = ["today","last7","last30","lastMonth","custom"];
-  const isDropdownActive = dropdownKeys.includes(range.preset);
-  function handleDropdown(val) {
-    if (val==="custom") { setShowCustom(true); setRange({preset:"custom",start:cs,end:ce,label:"Custom"}); }
-    else if (val!=="__none__") { setShowCustom(false); setRange({preset:val,...presets[val]}); }
-  }
+  const quickKeys = ["mtd","yesterday","last30"];
   return (
     <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"11px 16px",marginBottom:14,display:"flex",flexWrap:"wrap",alignItems:"center",gap:8}}>
       <span style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginRight:4}}>📅 Date Range</span>
       <div style={{display:"flex",gap:5}}>
-        {quickKeys.map(k=>{ const on=range.preset===k; return <button key={k} onClick={()=>{setShowCustom(false);setRange({preset:k,...presets[k]});}} style={{background:on?"#002e24":"#0e1a2e",border:`1px solid ${on?"#00c896":"#162236"}`,borderRadius:6,padding:"4px 13px",color:on?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:on?700:500,cursor:"pointer"}}>{presets[k].label}</button>; })}
+        {quickKeys.map(k=>{ const on=range.preset===k; return <button key={k} onClick={()=>setRange({preset:k,...presets[k]})} style={{background:on?"#002e24":"#0e1a2e",border:`1px solid ${on?"#00c896":"#162236"}`,borderRadius:6,padding:"4px 13px",color:on?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:on?700:500,cursor:"pointer"}}>{presets[k].label}</button>; })}
       </div>
-      <div style={{width:1,height:20,background:"#162236"}}/>
-      <select value={isDropdownActive?range.preset:"__none__"} onChange={e=>handleDropdown(e.target.value)} style={{background:isDropdownActive?"#002e24":"#0e1a2e",border:`1px solid ${isDropdownActive?"#00c896":"#162236"}`,borderRadius:6,padding:"4px 11px",color:isDropdownActive?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:isDropdownActive?700:500,cursor:"pointer"}}>
-        <option value="__none__" disabled>More…</option>
-        <option value="today">Today</option>
-        <option value="last7">Last 7 Days</option>
-        <option value="last30">Last 30 Days</option>
-        <option value="lastMonth">Last Month</option>
-        <option value="custom">Custom Range…</option>
-      </select>
-      {(showCustom||range.preset==="custom") && (
-        <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <input type="date" value={cs} onChange={e=>setCs(e.target.value)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"4px 8px",color:"#d8eaf8",fontSize:12}}/>
-          <span style={{color:"#3d5a72",fontSize:11}}>to</span>
-          <input type="date" value={ce} onChange={e=>setCe(e.target.value)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"4px 8px",color:"#d8eaf8",fontSize:12}}/>
-          <button onClick={()=>{if(cs&&ce){setRange({preset:"custom",start:cs,end:ce,label:`${cs} → ${ce}`});setShowCustom(false);}}} disabled={!cs||!ce} style={{background:cs&&ce?"#00c896":"#162236",border:"none",borderRadius:6,padding:"4px 12px",color:cs&&ce?"#fff":"#3d5a72",fontSize:12,fontWeight:700,cursor:cs&&ce?"pointer":"default"}}>Apply</button>
-        </div>
-      )}
-      {range.start && range.end && (
-        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
-          <span style={{fontSize:11,color:"#3d5a72"}}>Showing:</span>
-          <span style={{fontSize:11,color:"#00e5a0",fontWeight:500,background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"2px 8px"}}>{range.start===range.end?range.start:`${range.start} → ${range.end}`}</span>
-        </div>
-      )}
-    </div>
-
-  );
-}
-
-function CampaignArchive({ archive, onRestore, onClear }) {
-  const [search, setSearch] = useState("");
-  const [expanded, setExpanded] = useState(new Set());
-
-  // Build month tabs from endDate, most recent first
-  const monthKeys = [...new Set(
-    archive.map(c => (c.endDate||"").slice(0,7)).filter(Boolean)
-  )].sort().reverse();
-
-  const [activeMonth, setActiveMonth] = useState(() => monthKeys[0] || "");
-
-  // Keep activeMonth in sync if archive changes
-  const effectiveMonth = monthKeys.includes(activeMonth) ? activeMonth : (monthKeys[0]||"");
-
-  function monthLabel(ym) {
-    if (!ym) return "";
-    const [y,m] = ym.split("-");
-    return new Date(parseInt(y), parseInt(m)-1, 1).toLocaleDateString("en-US",{month:"long",year:"numeric"});
-  }
-
-  const filtered = archive.filter(c => {
-    const q = search.toLowerCase();
-    const ms = !q || c.campaignName.toLowerCase().includes(q)
-      || c.mediaPartner.toLowerCase().includes(q)
-      || (c.platform||"").toLowerCase().includes(q)
-      || (c.goal||"").toLowerCase().includes(q)
-      || (c.note1||"").toLowerCase().includes(q)
-      || (c.note2||"").toLowerCase().includes(q)
-      || (c.endDate||"").includes(q)
-      || (c.history||"").toLowerCase().includes(q);
-    const inMonth = (c.endDate||"").slice(0,7) === effectiveMonth;
-    return ms && inMonth;
-  });
-
-  // Group by media partner within the active month
-  const groups = {};
-  filtered.forEach(c => {
-    if (!groups[c.mediaPartner]) groups[c.mediaPartner] = [];
-    groups[c.mediaPartner].push(c);
-  });
-
-  function toggleExpand(id) {
-    setExpanded(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
-  }
-
-  return (
-    <div style={{padding:"0 0 40px"}}>
-      {archive.length === 0 ? (
-        <div style={{textAlign:"center",padding:"60px 0",color:"#3d5a72"}}>
-          <div style={{fontSize:32,marginBottom:10}}>🗄️</div>
-          <div style={{fontSize:13}}>No archived campaigns yet. Campaigns that ended 60+ days ago will move here automatically.</div>
-        </div>
-      ) : (<>
-        {/* Month tabs + search + clear */}
-        <div style={{display:"flex",alignItems:"center",gap:0,marginBottom:16,borderBottom:"1px solid #1e293b",flexWrap:"wrap"}}>
-          <div style={{display:"flex",gap:0,flexWrap:"wrap",flex:1}}>
-            {monthKeys.map(mk => {
-              const count = archive.filter(c=>(c.endDate||"").slice(0,7)===mk).length;
-              const active = mk===effectiveMonth;
-              return (
-                <button key={mk} onClick={()=>setActiveMonth(mk)}
-                  style={{background:"none",border:"none",borderBottom:active?"2px solid #00e5a0":"2px solid transparent",
-                    padding:"9px 18px",color:active?"#00e5a0":"#4d6e8a",fontSize:13,fontWeight:active?700:400,
-                    cursor:"pointer",marginBottom:-1,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
-                  {monthLabel(mk)}
-                  <span style={{background:active?"#00e5a020":"#0e1a2e",border:`1px solid ${active?"#00e5a040":"#1e293b"}`,
-                    borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700,color:active?"#00e5a0":"#3d5a72"}}>{count}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div style={{display:"flex",gap:8,alignItems:"center",padding:"0 0 8px 8px"}}>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…"
-              style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"6px 12px",color:"#d8eaf8",fontSize:12,width:180}}/>
-            {search && <button onClick={()=>setSearch("")} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13}}>×</button>}
-            <button onClick={()=>{ if(window.confirm("Clear the entire archive? This cannot be undone.")) onClear(); }}
-              style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:6,padding:"5px 11px",color:"#ef4444",fontSize:11,cursor:"pointer"}}>
-              Clear Archive
-            </button>
-          </div>
-        </div>
-
-        {filtered.length === 0 ? (
-          <div style={{textAlign:"center",padding:"40px 0",color:"#3d5a72",fontSize:13}}>No campaigns match your search.</div>
-        ) : (
-          <div>
-            {Object.entries(groups).map(([partner, camps]) => (
-            <div key={partner} style={{marginBottom:20}}>
-              <div style={{fontSize:11,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",
-                marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
-                <span style={{color:"#4d6e8a"}}>{partner}</span>
-                <div style={{flex:1,height:1,background:"#0d1525"}}/>
-                <span style={{fontWeight:400}}>{camps.length} campaign{camps.length!==1?"s":""}</span>
-              </div>
-              <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,overflow:"hidden"}}>
-                <table style={{width:"100%",borderCollapse:"collapse"}}>
-                  <thead>
-                    <tr style={{background:"#070d16"}}>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Campaign</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Platform</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Goal</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>End Date</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Archived</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Metrics</th>
-                      <th style={{padding:"9px 13px",borderBottom:"1px solid #1e293b"}}/>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {camps.map((c,i) => {
-                      const col = PLT_COLORS[c.platform]||PLT_COLORS.default;
-                      const isOpen = expanded.has(c.id);
-                      const hasMetrics = !!(c.impressions||c.ctr||c.cpm||c.spend);
-                      const hasNotes = !!(c.note1||c.note2||c.history);
-                      return (
-                        <Fragment key={c.id}>
-                          <tr style={{background:i%2===0?"#0c1625":"#090f1c",borderBottom:"1px solid #060c18"}}>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
-                              <div style={{display:"flex",alignItems:"center",gap:6}}>
-                                {(hasNotes||hasMetrics) && (
-                                  <button onClick={()=>toggleExpand(c.id)}
-                                    style={{background:"none",border:"none",cursor:"pointer",color:hasMetrics?"#00c896":"#3d5a72",
-                                      fontSize:10,padding:"2px 4px",transform:isOpen?"rotate(90deg)":"rotate(0deg)",transition:"transform .15s"}}>▶</button>
-                                )}
-                                <span style={{color:"#edf4ff",fontWeight:600,fontSize:13}}>{c.campaignName.trim()}</span>
-                                {c.monthlyFlight && <span style={{color:"#00e5c0",fontSize:12}}>★</span>}
-                              </div>
-                              {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:2,marginLeft:hasNotes||hasMetrics?18:0}}>{c.note1.trim()}</div>}
-                            </td>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
-                              <span style={{background:col+"22",color:col,border:`1px solid ${col}55`,borderRadius:3,
-                                padding:"1px 7px",fontSize:11,fontWeight:700}}>{c.platform}</span>
-                            </td>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle",maxWidth:160}}>
-                              <span style={{color:"#7a9bbf",fontSize:12,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={c.goal}>{c.goal||"—"}</span>
-                            </td>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
-                              <span style={{color:"#6b7280",fontSize:13,fontWeight:600}}>{fmtDate(c.endDate)}</span>
-                              <span style={{color:"#3d5a72",fontSize:11,marginLeft:5}}>({Math.abs(getDaysLeft(c.endDate))}d ago)</span>
-                            </td>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
-                              <span style={{color:"#3d5a72",fontSize:11}}>{c.archivedDate||"—"}</span>
-                            </td>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
-                              {hasMetrics ? (
-                                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                                  {c.impressions&&<span style={{fontSize:10,color:"#00e5a0"}}>{fmtNum(c.impressions)} imp</span>}
-                                  {c.ctr&&<span style={{fontSize:10,color:"#00ffb3"}}>{c.ctr}% CTR</span>}
-                                  {c.cpm&&<span style={{fontSize:10,color:"#fb923c"}}>${c.cpm} CPM</span>}
-                                  {c.spend&&<span style={{fontSize:10,color:"#f472b6"}}>${fmtNum(c.spend)} spend</span>}
-                                </div>
-                              ) : <span style={{color:"#1e3048",fontSize:11}}>—</span>}
-                            </td>
-                            <td style={{padding:"11px 13px",verticalAlign:"middle"}}>
-                              <button onClick={()=>onRestore(c)}
-                                style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:5,
-                                  color:"#00e5a0",fontSize:11,padding:"4px 10px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>
-                                ↩ Restore
-                              </button>
-                            </td>
-                          </tr>
-                          {isOpen && (hasNotes||hasMetrics) && (
-                            <tr style={{background:"#07101c"}}>
-                              <td colSpan={7} style={{padding:"12px 18px 14px 36px",borderBottom:"1px solid #0d1525"}}>
-                                {c.note2&&c.note2.trim()&&<div style={{fontSize:11,color:"#ef4444",marginBottom:6}}>⚠ {c.note2.trim()}</div>}
-                                {c.history&&c.history.trim()&&(
-                                  <div style={{marginBottom:6}}>
-                                    <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:3}}>Change History</div>
-                                    <pre style={{margin:0,fontSize:11,color:"#4d6e8a",fontFamily:"inherit",whiteSpace:"pre-wrap"}}>{c.history.trim()}</pre>
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
-          </div>
-        )}
-      </>)}
     </div>
   );
 }
@@ -1515,6 +1294,44 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         ))}
         {!monthlyGoal&&!perfBoxes.length&&<div style={{fontSize:11,color:"#3d5a72",fontStyle:"italic"}}>No goal or metrics yet</div>}
       </div>
+
+      {/* Per-campaign breakdown — shown when sync has breakdown data */}
+      {(()=>{
+        // Find whichever snapshot source is active and has breakdown data
+        const snapshotSources = [c.metaSnapshots, c.ttdSnapshots, c.dspSnapshots, c.googleSnapshots, c.snapSnapshots];
+        let snap = null;
+        for (const source of snapshotSources) {
+          if (!source) continue;
+          for (const key of ['mtd','last30','yesterday']) {
+            if (source[key]?.breakdown?.length >= 2) { snap = source[key]; break; }
+          }
+          if (snap) break;
+        }
+        const breakdown = snap?.breakdown;
+        if (!breakdown || breakdown.length < 2) return null;
+        return (
+          <div style={{marginTop:8,borderTop:"1px solid #1a2744",paddingTop:8}}>
+            <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5}}>
+              Campaign Breakdown ({breakdown.length})
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:3}}>
+              {breakdown.map(b=>(
+                <div key={b.id} style={{display:"flex",alignItems:"center",gap:6,background:"#07101c",borderRadius:5,padding:"5px 8px"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:10,color:"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}
+                      title={b.name}>{b.name}</div>
+                  </div>
+                  <div style={{display:"flex",gap:8,flexShrink:0}}>
+                    <span style={{fontSize:10,color:"#d8eaf8",fontWeight:600,fontVariantNumeric:"tabular-nums"}}>{parseInt(b.impressions).toLocaleString()}<span style={{color:"#3d5a72",fontWeight:400}}> impr</span></span>
+                    {b.spend>0&&<span style={{fontSize:10,color:"#f472b6",fontWeight:600}}>${Math.round(b.spend).toLocaleString()}</span>}
+                    {b.ctr>0&&<span style={{fontSize:10,color:"#00ffb3",fontWeight:600}}>{b.ctr.toFixed(2)}<span style={{color:"#3d5a72",fontWeight:400}}>%</span></span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </div>;
   }
 
