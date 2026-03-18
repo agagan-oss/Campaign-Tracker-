@@ -171,6 +171,8 @@ function isStoppedServing(c) {
 function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
   const today = getToday();
   const [cur, setCur] = useState(() => { const n = new Date(); return { y:n.getFullYear(), m:n.getMonth() }; });
+  const [editingCalReminder, setEditingCalReminder] = useState(null);
+  const [editCalDraft, setEditCalDraft] = useState({});
   const firstDay = new Date(cur.y, cur.m, 1).getDay();
   const daysInMonth = new Date(cur.y, cur.m+1, 0).getDate();
   const monthName = new Date(cur.y, cur.m, 1).toLocaleString("default", {month:"long",year:"numeric"});
@@ -190,6 +192,9 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
   const [selected, setSelected] = useState(null);
   const prev = () => { setCur(c => c.m===0 ? {y:c.y-1,m:11} : {y:c.y,m:c.m-1}); setSelected(null); };
   const next = () => { setCur(c => c.m===11 ? {y:c.y+1,m:0} : {y:c.y,m:c.m+1}); setSelected(null); };
+  function startCalEdit(r) { setEditingCalReminder(r.id); setEditCalDraft({type:r.type,date:r.date,note:r.note||"",repeat:r.repeat||"none"}); }
+  function saveCalEdit(id) { setReminders(prev=>prev.map(r=>r.id===id?{...r,...editCalDraft}:r)); setEditingCalReminder(null); }
+  function cancelCalEdit() { setEditingCalReminder(null); }
   const cells = [];
   for (let i=0; i<firstDay; i++) cells.push(null);
   for (let d=1; d<=daysInMonth; d++) cells.push(d);
@@ -314,6 +319,34 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
               : selRems.map(r => {
                   const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
                   const camp = campaigns.find(c=>c.id===r.campaignId);
+                  const isEditing = editingCalReminder === r.id;
+                  const calIS = {background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
+                  if (isEditing) return (
+                    <div key={r.id} style={{padding:"10px 0",borderBottom:"1px solid #1a2744"}}>
+                      <div style={{background:"#0a1628",border:"1px solid #00c89640",borderRadius:8,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                          <div>
+                            <label style={{display:"block",fontSize:9,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Type</label>
+                            <select value={editCalDraft.type} onChange={e=>setEditCalDraft(p=>({...p,type:e.target.value}))} style={calIS}>
+                              {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label style={{display:"block",fontSize:9,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Date</label>
+                            <input type="date" value={editCalDraft.date} onChange={e=>setEditCalDraft(p=>({...p,date:e.target.value}))} style={calIS}/>
+                          </div>
+                        </div>
+                        <div>
+                          <label style={{display:"block",fontSize:9,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note</label>
+                          <input type="text" value={editCalDraft.note} onChange={e=>setEditCalDraft(p=>({...p,note:e.target.value}))} placeholder="Note (optional)" style={calIS}/>
+                        </div>
+                        <div style={{display:"flex",gap:6}}>
+                          <button onClick={()=>saveCalEdit(r.id)} disabled={!editCalDraft.date} style={{flex:1,background:editCalDraft.date?"#00c896":"#162236",border:"none",borderRadius:5,padding:"6px 0",color:editCalDraft.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:editCalDraft.date?"pointer":"default"}}>Save</button>
+                          <button onClick={cancelCalEdit} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 0",color:"#7a9bbf",fontSize:12,cursor:"pointer"}}>Cancel</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
                   return (
                     <div key={r.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",borderBottom:"1px solid #1a2744"}}>
                       <div style={{width:9,height:9,borderRadius:"50%",background:isPast?"#ef4444":rt.color,flexShrink:0,marginTop:3}}/>
@@ -324,6 +357,7 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
                         {r.repeat!=="none" && <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>↻ Repeats {r.repeat}</div>}
                       </div>
                       <div style={{display:"flex",gap:5,flexShrink:0}}>
+                        <button onClick={()=>startCalEdit(r)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:4,color:"#00e5a0",fontSize:11,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
                         <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00d48a",fontSize:11,padding:"3px 8px",cursor:"pointer"}}>✓ Done</button>
                         <button onClick={()=>setReminders(prev=>prev.filter(x=>x.id!==r.id))} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,color:"#ef4444",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✕</button>
                       </div>
@@ -553,6 +587,24 @@ function ReminderAlertBanner({ reminders, onOpen, onDismissAll }) {
         <button onClick={onOpen} style={{background:"#f59e0b",border:"none",borderRadius:7,padding:"7px 16px",color:"#000",fontWeight:700,fontSize:12,cursor:"pointer"}}>View All</button>
         <button onClick={onDismissAll} style={{background:"none",border:"1px solid #92400e",borderRadius:7,padding:"7px 12px",color:"#92400e",fontWeight:600,fontSize:12,cursor:"pointer"}}>Dismiss All</button>
       </div>
+    </div>
+  );
+}
+
+function DarkCheckbox({ checked, onChange, indeterminate=false }) {
+  return (
+    <div
+      onClick={e=>{ e.stopPropagation(); onChange({target:{checked:!checked}}); }}
+      style={{
+        width:14, height:14, borderRadius:3, flexShrink:0, cursor:"pointer",
+        background: checked ? "#00c896" : "#0e1a2e",
+        border: `1.5px solid ${checked ? "#00c896" : indeterminate ? "#00c896" : "#334155"}`,
+        display:"flex", alignItems:"center", justifyContent:"center",
+        transition:"all .12s", boxShadow: checked ? "0 0 6px #00c89640" : "none",
+      }}
+    >
+      {checked && <span style={{color:"#000",fontSize:9,fontWeight:900,lineHeight:1,marginTop:"0.5px"}}>✓</span>}
+      {!checked && indeterminate && <span style={{color:"#00c896",fontSize:10,fontWeight:900,lineHeight:1}}>−</span>}
     </div>
   );
 }
@@ -2902,7 +2954,7 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
 
 export default function App() {
   const today = getToday();
-  const COLS = 11;
+  const COLS = 12;
 
   const [campaigns, setCampaigns] = useState(()=>{ try { const s=localStorage.getItem(STORAGE_KEY); return s?JSON.parse(s):initialCampaigns; } catch { return initialCampaigns; } });
   const [reminders, setReminders] = useState(()=>{ try { const s=localStorage.getItem(REMINDERS_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
@@ -2923,6 +2975,9 @@ export default function App() {
   const [collapsedClients, setCollapsedClients] = useState(new Set());
   const [dragId, setDragId]       = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [bulkDraft, setBulkDraft] = useState({ note1:"", note2:"", status:"", lastChecked:"", history:"" });
   const [dateRange, setDateRange] = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
   const [activeTab, setActiveTab] = useState("campaigns");
 
@@ -3227,6 +3282,33 @@ export default function App() {
       return cs.map(c=>c.id===u.id?u:c);
     });
   }
+  function applyBulkEdit() {
+    const updates = {};
+    if (bulkDraft.note1.trim()) updates.note1 = bulkDraft.note1.trim();
+    if (bulkDraft.note2.trim()) updates.note2 = bulkDraft.note2.trim();
+    if (bulkDraft.status) updates.status = bulkDraft.status;
+    if (bulkDraft.lastChecked) updates.lastChecked = bulkDraft.lastChecked;
+    const historyEntry = bulkDraft.history.trim();
+    if (Object.keys(updates).length === 0 && !historyEntry) return;
+    const datePrefix = `${today} — `;
+    setCampaigns(cs => cs.map(c => {
+      if (!selectedIds.has(c.id)) return c;
+      const newUpdates = {...updates};
+      if (historyEntry) {
+        const line = historyEntry.startsWith(datePrefix) ? historyEntry : `${datePrefix}${historyEntry}`;
+        newUpdates.history = c.history && c.history.trim() ? `${line}\n${c.history}` : line;
+      }
+      const updated = {...c, ...newUpdates};
+      addLog({type:"edited", campaignName:c.campaignName, partner:c.mediaPartner, platform:c.platform,
+        detail:`Bulk edit: ${[...Object.entries(updates).map(([k,v])=>`${k}="${v}"`), historyEntry?`history+="${historyEntry}"`:""].filter(Boolean).join(", ")}`,
+        prevSnapshot:{...c}, campaignId:c.id});
+      return updated;
+    }));
+    setSelectedIds(new Set());
+    setShowBulkEdit(false);
+    setBulkDraft({ note1:"", note2:"", status:"", lastChecked:"", history:"" });
+  }
+
   function handleRestore(c) {
     if (!window.confirm(`Restore "${c.campaignName}" to active campaigns?`)) return;
     setCampaigns(cs=>[...cs,{...c,archivedDate:undefined}]);
@@ -3375,6 +3457,75 @@ export default function App() {
         ) : (<>
         <ReminderAlertBanner reminders={reminders} onOpen={()=>setShowReminderModal(true)} onDismissAll={()=>setReminders(prev=>prev.map(r=>r.date<=today?{...r,dismissed:true}:r))}/>
 
+        {/* Bulk Edit Bar */}
+        {selectedIds.size>0 && (
+          <div style={{background:"#001e14",border:"1px solid #00c89660",borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",flexWrap:"wrap",gap:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{background:"#00c896",color:"#000",borderRadius:6,padding:"2px 9px",fontSize:12,fontWeight:800}}>{selectedIds.size}</span>
+              <span style={{fontSize:13,color:"#00e5a0",fontWeight:700}}>campaign{selectedIds.size!==1?"s":""} selected</span>
+            </div>
+            {!showBulkEdit ? (
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button onClick={()=>setShowBulkEdit(true)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:7,padding:"7px 16px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer"}}>✏️ Bulk Edit</button>
+                <button onClick={()=>{ setCampaigns(cs=>cs.map(c=>selectedIds.has(c.id)?{...c,lastChecked:today}:c)); setSelectedIds(new Set()); }} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:7,padding:"7px 14px",color:"#00d48a",fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ Mark All Checked</button>
+                <button onClick={()=>setSelectedIds(new Set())} style={{background:"none",border:"1px solid #1e293b",borderRadius:7,padding:"7px 12px",color:"#4d6e8a",fontSize:13,cursor:"pointer"}}>Clear</button>
+              </div>
+            ) : (
+              <div style={{flex:1,background:"#0a1c2e",border:"1px solid #1e3a50",borderRadius:9,padding:"14px 18px",display:"flex",flexDirection:"column",gap:12}}>
+                <div style={{fontSize:12,color:"#00e5a0",fontWeight:700,marginBottom:2}}>Bulk Edit — changes apply to all {selectedIds.size} selected campaigns</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 1 <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
+                    <input value={bulkDraft.note1} onChange={e=>setBulkDraft(p=>({...p,note1:e.target.value}))} placeholder="e.g. Creative updated 3/18" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 2 <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
+                    <input value={bulkDraft.note2} onChange={e=>setBulkDraft(p=>({...p,note2:e.target.value}))} placeholder="e.g. FB, SP, DSP creative swap" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Status <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
+                    <select value={bulkDraft.status} onChange={e=>setBulkDraft(p=>({...p,status:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit"}}>
+                      <option value="">— No change —</option>
+                      {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Last Checked Date <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
+                    <input type="date" value={bulkDraft.lastChecked} onChange={e=>setBulkDraft(p=>({...p,lastChecked:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                  </div>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History Entry <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>— prepended to each campaign's history with today's date</span></label>
+                  <div style={{position:"relative"}}>
+                    <textarea
+                      value={bulkDraft.history}
+                      onChange={e=>setBulkDraft(p=>({...p,history:e.target.value}))}
+                      placeholder={`e.g. New creatives launched for FB, SP & DSP`}
+                      rows={2}
+                      style={{width:"100%",background:"#0e1a2e",border:`1px solid ${bulkDraft.history.trim()?"#f59e0b60":"#334155"}`,borderRadius:6,padding:"7px 36px 7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit",resize:"vertical",lineHeight:1.5,outline:"none"}}
+                    />
+                    {bulkDraft.history.trim() && (
+                      <span style={{position:"absolute",top:8,right:10,fontSize:10,color:"#f59e0b",fontWeight:600,pointerEvents:"none",background:"#0e1a2e",padding:"1px 4px",borderRadius:3}}>
+                        {today} —
+                      </span>
+                    )}
+                  </div>
+                  {bulkDraft.history.trim() && (
+                    <div style={{fontSize:10,color:"#4d6e8a",marginTop:4}}>
+                      Will prepend: <span style={{color:"#f59e0b",fontFamily:"monospace"}}>{today} — {bulkDraft.history.trim()}</span>
+                    </div>
+                  )}
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={applyBulkEdit} style={{background:"#00c896",border:"none",borderRadius:7,padding:"8px 22px",color:"#000",fontWeight:700,fontSize:13,cursor:"pointer"}}>Apply to {selectedIds.size} Campaign{selectedIds.size!==1?"s":""}</button>
+                  <button onClick={()=>{ setShowBulkEdit(false); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",history:""}); }} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"8px 16px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>Cancel</button>
+                  <button onClick={()=>{ setShowBulkEdit(false); setSelectedIds(new Set()); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",history:""}); }} style={{background:"none",border:"1px solid #334155",borderRadius:7,padding:"8px 12px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>Clear selection</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {showExportReminder && (
           <div style={{background:"#0d1a0a",border:"1px solid #f59e0b60",borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -3424,6 +3575,13 @@ export default function App() {
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:920}}>
               <thead>
                 <tr style={{background:"#070d16"}}>
+                  <th style={{width:36,padding:"0 8px",borderBottom:"1px solid #1e293b",textAlign:"center"}}>
+                    <DarkCheckbox
+                      checked={filtered.length>0&&filtered.every(c=>selectedIds.has(c.id))}
+                      indeterminate={filtered.some(c=>selectedIds.has(c.id))&&!filtered.every(c=>selectedIds.has(c.id))}
+                      onChange={e=>{ if(e.target.checked) setSelectedIds(new Set(filtered.map(c=>c.id))); else setSelectedIds(new Set()); }}
+                    />
+                  </th>
                   <th style={{width:28,borderBottom:"1px solid #1e293b"}}/>
                   <th style={{width:36,borderBottom:"1px solid #1e293b"}}/>
                   <TH k="mediaPartner" label="Partner"/>
@@ -3465,6 +3623,9 @@ export default function App() {
                     rows.push(
                       <tr key={`grp-${clientName}`} onClick={()=>toggleClient(clientName)}
                         style={{background:"#07101c",cursor:"pointer",borderTop:"2px solid #1e3a5f"}}>
+                        <td style={{padding:"0 8px",borderBottom:"1px solid #1e293b",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
+                          <DarkCheckbox checked={camps.every(c=>selectedIds.has(c.id))} indeterminate={camps.some(c=>selectedIds.has(c.id))&&!camps.every(c=>selectedIds.has(c.id))} onChange={e=>{ const ids=camps.map(c=>c.id); setSelectedIds(prev=>{ const n=new Set(prev); e.target.checked?ids.forEach(id=>n.add(id)):ids.forEach(id=>n.delete(id)); return n; }); }}/>
+                        </td>
                         <td colSpan={2} style={{padding:"0 0 0 12px",borderBottom:"1px solid #1e293b"}}>
                           <span style={{color:"#3d5a72",fontSize:11,userSelect:"none"}}>{isCollapsed?"▶":"▼"}</span>
                         </td>
@@ -3495,7 +3656,7 @@ export default function App() {
                             <span style={{fontWeight:400,opacity:0.7,fontSize:11}}>{earliestEnd}</span>
                           </span>}
                         </td>
-                        <td colSpan={2} style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}/>
+                        <td colSpan={3} style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}/>
                       </tr>
                     );
                     // Platform rows — indented, hidden when collapsed
@@ -3510,7 +3671,10 @@ export default function App() {
                         const campUpcoming  = reminders.filter(r=>!r.dismissed&&r.campaignId===c.id&&r.date>today&&r.date<=soonStr);
                         rows.push(
                           <Fragment key={c.id}>
-                            <tr style={{background:rowBg}}>
+                            <tr style={{background:selectedIds.has(c.id)?"#002418":rowBg}}>
+                              <td style={{padding:"0 8px",borderBottom:"1px solid #060c18",textAlign:"center",verticalAlign:"middle"}}>
+                                <DarkCheckbox checked={selectedIds.has(c.id)} onChange={e=>setSelectedIds(prev=>{ const n=new Set(prev); e.target.checked?n.add(c.id):n.delete(c.id); return n; })}/>
+                              </td>
                               <td style={{padding:"0 0 0 6px",borderBottom:"1px solid #060c18",width:28}}/>
                               <td style={{padding:"0 0 0 8px",borderBottom:"1px solid #060c18",width:36,textAlign:"center",verticalAlign:"middle"}}>
                                 <button onClick={()=>toggleExpand(c.id)} className="xbtn" style={{background:"none",border:"none",cursor:"pointer",padding:"5px 6px",color:hasData?"#00c896":"#1e3048",transform:open?"rotate(90deg)":"rotate(0deg)",fontSize:11,lineHeight:1,display:"block",margin:"0 auto"}}>▶</button>
@@ -3563,8 +3727,11 @@ export default function App() {
                         onDragOver={e=>onDragOver(e,c.id)}
                         onDrop={e=>onDrop(e,c.id)}
                         onDragEnd={onDragEnd}
-                        style={{background:dragOverId===c.id?"#0a1c30":rowBg,opacity:dragId===c.id?0.4:1,transition:"opacity .15s,background .1s"}}
+                        style={{background:selectedIds.has(c.id)?"#002418":dragOverId===c.id?"#0a1c30":rowBg,opacity:dragId===c.id?0.4:1,transition:"opacity .15s,background .1s"}}
                       >
+                        <td style={{padding:"0 8px",borderBottom:"1px solid #060c18",textAlign:"center",verticalAlign:"middle"}} onClick={e=>e.stopPropagation()}>
+                          <DarkCheckbox checked={selectedIds.has(c.id)} onChange={e=>setSelectedIds(prev=>{ const n=new Set(prev); e.target.checked?n.add(c.id):n.delete(c.id); return n; })}/>
+                        </td>
                         <td style={{padding:"0 0 0 6px",borderBottom:"1px solid #060c18",textAlign:"center",verticalAlign:"middle",width:28,cursor:"grab"}}>
                           <span style={{color:"#1e3048",fontSize:12,userSelect:"none",display:"block",lineHeight:1}}>⠿</span>
                         </td>
