@@ -3243,15 +3243,17 @@ export default function App() {
 
   function toggleExpand(id){ setExpanded(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; }); }
   function toggleClient(name){ setCollapsedClients(prev=>{ const n=new Set(prev); n.has(name)?n.delete(name):n.add(name); return n; }); }
-  function onDragStart(id){ setDragId(id); }
-  function onDragOver(e,id){ e.preventDefault(); setDragOverId(id); }
+  const dragIdRef = useRef(null);
+  function onDragStart(e, id){ dragIdRef.current = id; setDragId(id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(id)); }
+  function onDragOver(e,id){ e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverId(id); }
   function onDrop(e,targetId){
     e.preventDefault();
-    if(!dragId||dragId===targetId){ setDragId(null); setDragOverId(null); return; }
-    setCampaigns(cs=>{ const from=cs.findIndex(c=>c.id===dragId),to=cs.findIndex(c=>c.id===targetId); const next=[...cs]; const [m]=next.splice(from,1); next.splice(to,0,m); return next; });
-    setDragId(null); setDragOverId(null);
+    const sourceId = dragIdRef.current || Number(e.dataTransfer.getData("text/plain"));
+    if(!sourceId||sourceId===targetId){ setDragId(null); setDragOverId(null); dragIdRef.current=null; return; }
+    setCampaigns(cs=>{ const from=cs.findIndex(c=>c.id===sourceId),to=cs.findIndex(c=>c.id===targetId); const next=[...cs]; const [m]=next.splice(from,1); next.splice(to,0,m); return next; });
+    setDragId(null); setDragOverId(null); dragIdRef.current=null;
   }
-  function onDragEnd(){ setDragId(null); setDragOverId(null); }
+  function onDragEnd(){ setDragId(null); setDragOverId(null); dragIdRef.current=null; }
   function updateCampaign(u, logEntry) {
     setCampaigns(cs => {
       const old = cs.find(c=>c.id===u.id);
@@ -3723,13 +3725,13 @@ export default function App() {
                       <tr
                         className="crow"
                         draggable="true"
-                        onDragStart={()=>onDragStart(c.id)}
+                        onDragStart={e=>onDragStart(e, c.id)}
                         onDragOver={e=>onDragOver(e,c.id)}
                         onDrop={e=>onDrop(e,c.id)}
                         onDragEnd={onDragEnd}
                         style={{background:selectedIds.has(c.id)?"#002418":dragOverId===c.id?"#0a1c30":rowBg,opacity:dragId===c.id?0.4:1,transition:"opacity .15s,background .1s"}}
                       >
-                        <td style={{padding:"0 8px",borderBottom:"1px solid #060c18",textAlign:"center",verticalAlign:"middle"}} onClick={e=>e.stopPropagation()}>
+                        <td style={{padding:"0 8px",borderBottom:"1px solid #060c18",textAlign:"center",verticalAlign:"middle"}} onMouseDown={e=>e.stopPropagation()}>
                           <DarkCheckbox checked={selectedIds.has(c.id)} onChange={e=>setSelectedIds(prev=>{ const n=new Set(prev); e.target.checked?n.add(c.id):n.delete(c.id); return n; })}/>
                         </td>
                         <td style={{padding:"0 0 0 6px",borderBottom:"1px solid #060c18",textAlign:"center",verticalAlign:"middle",width:28,cursor:"grab"}}>
