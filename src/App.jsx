@@ -221,7 +221,7 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
       <div style={{position:"relative"}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
         {cells.map((d,i) => {
-          if (!d) return <div key={"e"+i} style={{height:110,background:"#06090f",borderRadius:7,border:"1px solid #0d1525"}}/>;
+          if (!d) return <div key={"e"+i} style={{height:120,background:"#06090f",borderRadius:7,border:"1px solid #0d1525"}}/>;
           const ds = dateStr(d);
           const isToday = ds===today;
           const isPast = ds<today;
@@ -231,7 +231,7 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
             <div key={d} onClick={()=>setSelected(selected===d?null:d)}
               style={{background:selected===d?"#002e24":isToday?"#0c1e30":"#0a1525",
                 border:`1px solid ${selected===d?"#00c896":isToday?"#00c89650":hasOverdue?"#ef444430":"#1e293b"}`,
-                borderRadius:7,padding:"8px 7px",height:110,
+                borderRadius:7,padding:"8px 7px",height:120,
                 display:"flex",flexDirection:"column",gap:3,cursor:"pointer",overflow:"hidden"}}>
               {/* Date number + add button */}
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
@@ -298,16 +298,16 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
         const totalRows = Math.ceil(cells.length / 7);
         // Show below if in top half, above if in bottom half
         const showBelow = row < totalRows / 2;
-        const topOffset = showBelow ? (row + 1) * 113 + 3 : undefined;
-        const bottomOffset = !showBelow ? (totalRows - row) * 113 + 3 : undefined;
+        const topOffset = showBelow ? (row + 1) * 123 + 3 : undefined;
+        const bottomOffset = !showBelow ? (totalRows - row) * 123 + 3 : undefined;
         return (
           <div style={{
             position:"absolute", left:0, right:0, zIndex:50,
             top: showBelow ? topOffset : undefined,
             bottom: !showBelow ? bottomOffset : undefined,
             background:"#07101c",border:"1px solid #00c89640",borderRadius:10,
-            padding:"14px 18px",boxShadow:"0 8px 40px rgba(0,0,0,0.8)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            padding:"14px 18px",boxShadow:"0 8px 40px rgba(0,0,0,0.8)",
+            maxHeight:"70vh", overflowY:"auto"}}>            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <span style={{fontSize:13,color:"#00e5a0",fontWeight:700}}>{selLabel}</span>
               <div style={{display:"flex",gap:8}}>
                 <button onClick={()=>onAdd(selDateStr)} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"4px 12px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Add</button>
@@ -386,6 +386,15 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
   );
 }
 
+// Closes a modal only when the user genuinely clicks the backdrop —
+// not when a text-selection drag starts inside the modal and releases outside.
+function useBackdropClose(onClose) {
+  const mouseDownOnBackdrop = useRef(false);
+  const onMouseDown = (e) => { mouseDownOnBackdrop.current = e.target === e.currentTarget; };
+  const onClick = (e) => { if (e.target === e.currentTarget && mouseDownOnBackdrop.current) onClose(); };
+  return { onMouseDown, onClick };
+}
+
 function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
   const blank = { id:null, type:"ad-swap", campaignId:"", note:"", date:"", repeat:"none", dismissed:false };
   const [form, setForm] = useState(blank);
@@ -451,9 +460,10 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
     );
   };
 
+  const reminderBackdrop = useBackdropClose(onClose);
   return (
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:14,padding:24,width:view==="calendar"?"min(1400px,96vw)":"min(580px,96vw)",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
+    <div {...reminderBackdrop} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:14,padding:24,width:view==="calendar"?"min(1600px,98vw)":"min(700px,96vw)",maxHeight:"96vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:16,fontWeight:800,color:"#edf4ff"}}>🔔 Reminders</span>
@@ -490,11 +500,18 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
         )}
         {view==="add" ? (
           <div>
-            <div style={{marginBottom:12}}>
-              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Reminder Type</label>
-              <select value={form.type} onChange={e=>sf("type",e.target.value)} style={iS}>
-                {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
+            {/* Type + Date side by side at the top */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Reminder Type</label>
+                <select value={form.type} onChange={e=>sf("type",e.target.value)} style={iS}>
+                  {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Due Date *</label>
+                <DatePicker value={form.date} onChange={v=>sf("date",v)}/>
+              </div>
             </div>
             <div style={{marginBottom:12}}>
               <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Campaign (optional)</label>
@@ -502,10 +519,6 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
                 <option value="">— No specific campaign —</option>
                 {campaigns.map(c=><option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}</option>)}
               </select>
-            </div>
-            <div style={{marginBottom:12}}>
-              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Due Date *</label>
-              <DatePicker value={form.date} onChange={v=>sf("date",v)}/>
             </div>
             <div style={{marginBottom:12}}>
               <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note</label>
@@ -1004,8 +1017,9 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     if (!f.campaignName.trim()||!f.mediaPartner.trim()) { alert("Campaign name and media partner required."); return; }
     onSave(isNew?{...f,id:Date.now()}:f);
   }
+  const modalBackdrop = useBackdropClose(onClose);
   return (
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
+    <div {...modalBackdrop} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:12,padding:28,width:"min(860px,95vw)",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
           <h2 style={{margin:0,color:"#edf4ff",fontSize:15,fontWeight:700}}>{isNew?"Add Campaign":"Edit Campaign"}</h2>
@@ -2994,8 +3008,9 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
   const isExtend = mode === "extend";
   const canSubmit = !!endDate;
 
+  const renewBackdrop = useBackdropClose(onClose);
   return (
-    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",
+    <div {...renewBackdrop} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",
       display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",
         borderRadius:14,padding:24,width:"min(540px,96vw)",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
