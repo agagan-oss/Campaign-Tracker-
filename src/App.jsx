@@ -661,8 +661,8 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
     }
   }, [dateRange.preset]);
   const [historyDraft, setHistoryDraft] = useState(c.history||"");
-  const [historyDirty, setHistoryDirty] = useState(false);
   const [showAddReminder, setShowAddReminder] = useState(false);
+  const [newEntry, setNewEntry] = useState("");
   const [newReminder, setNewReminder] = useState({type:"ad-swap",note:"",date:"",repeat:"none"});
   const [editingReminderId, setEditingReminderId] = useState(null);
   const [editReminderDraft, setEditReminderDraft] = useState({});
@@ -671,7 +671,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
   function cancelEditReminder() { setEditingReminderId(null); }
   const set = (k,v) => { setLocal(p=>({...p,[k]:v})); setDirty(true); };
   const save = () => { onUpdate({...c,...local}); setDirty(false); };
-  const saveHistory = () => { onUpdate({...c, history:historyDraft}); setHistoryDirty(false); };
+  
   const iS = {background:"#08111f",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,width:"100%",fontFamily:"Inter,sans-serif",boxSizing:"border-box"};
   const metrics = [
     {key:"impressions",label:"Impressions",color:"#00e5a0",prefix:"",suffix:""},
@@ -793,51 +793,51 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
           <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
               <span style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>📋 Change History</span>
-              {historyDirty && <button onClick={saveHistory} style={{background:"#00c896",border:"none",borderRadius:5,padding:"2px 10px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>Save</button>}
-              {!historyDirty && c.history&&c.history.trim() && <span style={{fontSize:10,color:"#00d48a"}}>✓ Saved</span>}
             </div>
-            {/* Quick-add timestamped entry */}
-            {(()=>{
-              const [newEntry, setNewEntry] = React.useState("");
-              const today = getToday();
-              const [y,m,d] = today.split("-");
-              const stamp = `${m}/${d}/${y}`;
-              function addEntry() {
-                if (!newEntry.trim()) return;
-                const line = `${stamp} — ${newEntry.trim()}`;
-                const updated = historyDraft.trim() ? `${line}\n${historyDraft}` : line;
-                setHistoryDraft(updated);
-                setHistoryDirty(updated !== (c.history||""));
-                setNewEntry("");
-              }
-              return (
-                <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"stretch"}}>
-                  <div style={{flex:1,display:"flex",alignItems:"center",background:"#0a1422",border:`1px solid ${newEntry.trim()?"#00c89660":"#1a2744"}`,borderRadius:6,overflow:"hidden",transition:"border-color .15s"}}>
-                    <span style={{padding:"0 8px",fontSize:10,color:"#3d5a72",fontWeight:700,whiteSpace:"nowrap",borderRight:"1px solid #1a2744",alignSelf:"stretch",display:"flex",alignItems:"center",background:"#060d18"}}>{stamp} —</span>
-                    <input
-                      value={newEntry}
-                      onChange={e=>setNewEntry(e.target.value)}
-                      onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); addEntry(); } }}
-                      placeholder="New entry… (press Enter)"
-                      style={{flex:1,background:"transparent",border:"none",padding:"6px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}
-                    />
-                  </div>
-                  <button
-                    onClick={addEntry}
-                    disabled={!newEntry.trim()}
-                    style={{background:newEntry.trim()?"#00c896":"#0a1422",border:"none",borderRadius:6,padding:"0 12px",color:newEntry.trim()?"#000":"#3d5a72",fontSize:11,fontWeight:700,cursor:newEntry.trim()?"pointer":"default",transition:"all .15s",whiteSpace:"nowrap"}}
-                  >+ Add</button>
-                </div>
-              );
-            })()}
+            <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"stretch"}}>
+              <button
+                onClick={()=>{
+                  if (!newEntry.trim()) return;
+                  const today = getToday();
+                  const [y,m,d] = today.split("-");
+                  const stamp = `${m}/${d}/${y}`;
+                  const line = `${stamp} — ${newEntry.trim()}`;
+                  const updated = historyDraft.trim() ? `${line}\n${historyDraft}` : line;
+                  setHistoryDraft(updated);
+                  onUpdate({...c, history:updated});
+                  setNewEntry("");
+                }}
+                disabled={!newEntry.trim()}
+                style={{background:newEntry.trim()?"#00c896":"#0a1422",border:"none",borderRadius:6,padding:"0 14px",color:newEntry.trim()?"#000":"#3d5a72",fontSize:11,fontWeight:700,cursor:newEntry.trim()?"pointer":"default",transition:"all .15s",whiteSpace:"nowrap",flexShrink:0}}
+              >+ Add</button>
+              <div style={{flex:1,display:"flex",alignItems:"center",background:"#0a1422",border:`1px solid ${newEntry.trim()?"#00c89660":"#1a2744"}`,borderRadius:6,overflow:"hidden",transition:"border-color .15s"}}>
+                <input
+                  value={newEntry}
+                  onChange={e=>setNewEntry(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault();
+                    if (!newEntry.trim()) return;
+                    const today = getToday();
+                    const [y,m,d] = today.split("-");
+                    const stamp = `${m}/${d}/${y}`;
+                    const line = `${stamp} — ${newEntry.trim()}`;
+                    const updated = historyDraft.trim() ? `${line}\n${historyDraft}` : line;
+                    setHistoryDraft(updated);
+                    onUpdate({...c, history:updated});
+                    setNewEntry("");
+                  }}}
+                  placeholder="Write a note and click Add or press Enter…"
+                  style={{flex:1,background:"transparent",border:"none",padding:"6px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}
+                />
+              </div>
+            </div>
             <textarea
               value={historyDraft}
-              onChange={e=>{ setHistoryDraft(e.target.value); setHistoryDirty(e.target.value!==( c.history||"")); }}
+              onChange={e=>{ setHistoryDraft(e.target.value); onUpdate({...c, history:e.target.value}); }}
               placeholder={"Entries appear here after you add them…"}
-              style={{width:"100%",background:"#060d18",border:`1px solid ${historyDirty?"#00c89660":"#1a2744"}`,borderRadius:5,
+              style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,
                 padding:"8px 10px",color:"#4d6e8a",fontSize:11,fontFamily:"inherit",
                 whiteSpace:"pre-wrap",lineHeight:1.6,resize:"vertical",minHeight:80,
-                boxSizing:"border-box",outline:"none",transition:"border-color .15s"}}
+                boxSizing:"border-box",outline:"none"}}
             />
           </div>
         </div>
