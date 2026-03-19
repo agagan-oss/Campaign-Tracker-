@@ -813,6 +813,121 @@ function DateBar({ range, setRange }) {
 }
 
 
+function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState(() => {
+    if (value) { const [y,m] = value.split("-"); return { y:parseInt(y), m:parseInt(m)-1 }; }
+    const n = new Date(); return { y:n.getFullYear(), m:n.getMonth() };
+  });
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (value) { const [y,m] = value.split("-"); setView({ y:parseInt(y), m:parseInt(m)-1 }); }
+  }, [value]);
+
+  useEffect(() => {
+    function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
+  const today = getToday();
+  const firstDay = new Date(view.y, view.m, 1).getDay();
+  const daysInMonth = new Date(view.y, view.m + 1, 0).getDate();
+  const monthName = new Date(view.y, view.m, 1).toLocaleString("default", { month:"long", year:"numeric" });
+  function pad(n) { return String(n).padStart(2,"0"); }
+  function dateStr(d) { return `${view.y}-${pad(view.m+1)}-${pad(d)}`; }
+  const prevMonth = () => setView(v => v.m===0 ? {y:v.y-1,m:11} : {y:v.y,m:v.m-1});
+  const nextMonth = () => setView(v => v.m===11 ? {y:v.y+1,m:0} : {y:v.y,m:v.m+1});
+
+  const cells = [];
+  for (let i=0; i<firstDay; i++) cells.push(null);
+  for (let d=1; d<=daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const displayValue = value ? fmtDate(value) : "";
+
+  return (
+    <div ref={ref} style={{position:"relative",userSelect:"none"}}>
+      <div
+        onClick={()=>setOpen(v=>!v)}
+        style={{
+          display:"flex", alignItems:"center", justifyContent:"space-between",
+          background:"#0e1a2e", border:`1px solid ${open?"#00c896":"#334155"}`,
+          borderRadius:6, padding:"7px 10px", cursor:"pointer",
+          transition:"border-color .15s",
+        }}
+      >
+        <span style={{fontSize:13, color:value?"#edf4ff":"#3d5a72", fontVariantNumeric:"tabular-nums"}}>
+          {displayValue || placeholder}
+        </span>
+        <span style={{fontSize:11, color:open?"#00c896":"#4d6e8a", marginLeft:8}}>📅</span>
+      </div>
+
+      {open && (
+        <div style={{
+          position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:500,
+          background:"#07101c", border:"1px solid #00c89640", borderRadius:10,
+          padding:"14px", boxShadow:"0 12px 48px rgba(0,0,0,.9)",
+          minWidth:260,
+        }}>
+          {/* Month nav */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+            <button onClick={prevMonth} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,width:28,height:28,color:"#7a9bbf",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>‹</button>
+            <span style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>{monthName}</span>
+            <button onClick={nextMonth} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,width:28,height:28,color:"#7a9bbf",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>›</button>
+          </div>
+
+          {/* Day headers */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}}>
+            {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=>(
+              <div key={d} style={{textAlign:"center",fontSize:10,color:"#3d5a72",fontWeight:700,padding:"3px 0",textTransform:"uppercase",letterSpacing:"0.05em"}}>{d}</div>
+            ))}
+          </div>
+
+          {/* Day cells */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
+            {cells.map((d,i) => {
+              if (!d) return <div key={"e"+i}/>;
+              const ds = dateStr(d);
+              const isSelected = ds === value;
+              const isToday = ds === today;
+              return (
+                <div
+                  key={d}
+                  onClick={()=>{ onChange(ds); setOpen(false); }}
+                  style={{
+                    textAlign:"center", borderRadius:5, padding:"5px 2px",
+                    fontSize:12, fontWeight: isSelected||isToday ? 700 : 400,
+                    cursor:"pointer",
+                    background: isSelected ? "#00c896" : isToday ? "#0c2820" : "transparent",
+                    color: isSelected ? "#000" : isToday ? "#00e5a0" : "#a8c4e0",
+                    border: isSelected ? "1px solid #00c896" : isToday ? "1px solid #00c89640" : "1px solid transparent",
+                    boxShadow: isSelected ? "0 0 8px #00c89660" : "none",
+                    transition:"all .1s",
+                  }}
+                  onMouseEnter={e=>{ if(!isSelected){ e.currentTarget.style.background="#0e2030"; e.currentTarget.style.color="#00e5a0"; } }}
+                  onMouseLeave={e=>{ if(!isSelected){ e.currentTarget.style.background=isToday?"#0c2820":"transparent"; e.currentTarget.style.color=isToday?"#00e5a0":"#a8c4e0"; } }}
+                >
+                  {d}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Clear */}
+          {value && (
+            <div style={{borderTop:"1px solid #1a2744",marginTop:10,paddingTop:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:11,color:"#4d6e8a"}}>Selected: <span style={{color:"#00e5a0",fontWeight:600}}>{displayValue}</span></span>
+              <button onClick={()=>{ onChange(""); setOpen(false); }} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer",padding:0}}>Clear ×</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[] }) {
   const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
   const [f, setF] = useState(campaign?{...campaign}:blank);
@@ -835,6 +950,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
       <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>{label}</label>
       {key==="status" ? <select value={f.status||""} onChange={e=>set("status",e.target.value)} style={iS}>{Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
       :key==="platform" ? <select value={f.platform} onChange={e=>set("platform",e.target.value)} style={iS}>{ALL_PLATFORMS.map(p=><option key={p}>{p}</option>)}</select>
+      :type==="date" ? <DatePicker value={f[key]||""} onChange={v=>set(key,v)}/>
       :<input type={type} value={f[key]||""} onChange={e=>set(key,e.target.value)} style={iS}/>}
     </div>
   );
@@ -2890,7 +3006,7 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
         {!isExtend && (
           <div style={{marginBottom:14}}>
             <label style={labelS}>New Start Date</label>
-            <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} style={iS}/>
+            <DatePicker value={startDate} onChange={v=>setStartDate(v)}/>
           </div>
         )}
 
@@ -2898,8 +3014,9 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
         <div style={{marginBottom:14}}>
           <label style={labelS}>{isExtend?"New End Date *":"New End Date *"}</label>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)}
-              style={{...iS,borderColor:endDate?"#334155":"#ef444460"}}/>
+            <div style={{flex:1}}>
+              <DatePicker value={endDate} onChange={v=>setEndDate(v)} placeholder="Select end date…"/>
+            </div>
             {isExtend && campaign.endDate && (
               <span style={{fontSize:11,color:"#3d5a72",whiteSpace:"nowrap"}}>
                 Currently: {campaign.endDate}
