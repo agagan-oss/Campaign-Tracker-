@@ -333,7 +333,7 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
                           </div>
                           <div>
                             <label style={{display:"block",fontSize:9,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Date</label>
-                            <input type="date" value={editCalDraft.date} onChange={e=>setEditCalDraft(p=>({...p,date:e.target.value}))} style={calIS}/>
+                            <DatePicker value={editCalDraft.date} onChange={v=>setEditCalDraft(p=>({...p,date:v}))}/>
                           </div>
                         </div>
                         <div>
@@ -505,7 +505,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
             </div>
             <div style={{marginBottom:12}}>
               <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Due Date *</label>
-              <input type="date" value={form.date} onChange={e=>sf("date",e.target.value)} style={iS}/>
+              <DatePicker value={form.date} onChange={v=>sf("date",v)}/>
             </div>
             <div style={{marginBottom:12}}>
               <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note</label>
@@ -738,7 +738,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                       </div>
                       <div>
                         <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
-                        <input type="date" value={editReminderDraft.date} onChange={e=>setEditReminderDraft(p=>({...p,date:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
+                        <DatePicker value={editReminderDraft.date} onChange={v=>setEditReminderDraft(p=>({...p,date:v}))}/>
                       </div>
                     </div>
                     <input type="text" value={editReminderDraft.note} onChange={e=>setEditReminderDraft(p=>({...p,note:e.target.value}))} placeholder="Note (optional)" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
@@ -769,7 +769,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
-                    <input type="date" value={newReminder.date} onChange={e=>setNewReminder(p=>({...p,date:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
+                    <DatePicker value={newReminder.date} onChange={v=>setNewReminder(p=>({...p,date:v}))}/>
                   </div>
                 </div>
                 <input type="text" value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))} placeholder="Note (optional)" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
@@ -849,6 +849,7 @@ function DateBar({ range, setRange }) {
 
 function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
   const [open, setOpen] = useState(false);
+  const [openUp, setOpenUp] = useState(false);
   const [view, setView] = useState(() => {
     if (value) { const [y,m] = value.split("-"); return { y:parseInt(y), m:parseInt(m)-1 }; }
     const n = new Date(); return { y:n.getFullYear(), m:n.getMonth() };
@@ -864,6 +865,14 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, []);
+
+  function handleOpen() {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setOpenUp(rect.bottom + 320 > window.innerHeight);
+    }
+    setOpen(v => !v);
+  }
 
   const today = getToday();
   const firstDay = new Date(view.y, view.m, 1).getDay();
@@ -884,7 +893,7 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
   return (
     <div ref={ref} style={{position:"relative",userSelect:"none"}}>
       <div
-        onClick={()=>setOpen(v=>!v)}
+        onClick={handleOpen}
         style={{
           display:"flex", alignItems:"center", justifyContent:"space-between",
           background:"#0e1a2e", border:`1px solid ${open?"#00c896":"#334155"}`,
@@ -900,7 +909,10 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
 
       {open && (
         <div style={{
-          position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:500,
+          position:"absolute",
+          top: openUp ? undefined : "calc(100% + 6px)",
+          bottom: openUp ? "calc(100% + 6px)" : undefined,
+          left:0, zIndex:500,
           background:"#07101c", border:"1px solid #00c89640", borderRadius:10,
           padding:"14px", boxShadow:"0 12px 48px rgba(0,0,0,.9)",
           minWidth:260,
@@ -1085,7 +1097,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
-                    <input type="date" value={newReminder.date} onChange={e=>setNewReminder(p=>({...p,date:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
+                    <DatePicker value={newReminder.date} onChange={v=>setNewReminder(p=>({...p,date:v}))}/>
                   </div>
                 </div>
                 <div>
@@ -1483,9 +1495,9 @@ function PacingDateBar({ range, setRange }) {
       </button>
       {(showCustom||isCustom)&&(
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-          <input type="date" value={cs} onChange={e=>setCs(e.target.value)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"4px 8px",color:"#d8eaf8",fontSize:12}}/>
+          <DatePicker value={cs} onChange={v=>setCs(v)}/>
           <span style={{color:"#3d5a72",fontSize:11}}>to</span>
-          <input type="date" value={ce} onChange={e=>setCe(e.target.value)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"4px 8px",color:"#d8eaf8",fontSize:12}}/>
+          <DatePicker value={ce} onChange={v=>setCe(v)}/>
           <button onClick={()=>{if(cs&&ce){setRange({preset:"custom",start:cs,end:ce,label:cs===ce?cs:cs+" → "+ce});setShowCustom(false);}}} disabled={!cs||!ce}
             style={{background:cs&&ce?"#00c896":"#162236",border:"none",borderRadius:6,padding:"4px 12px",color:cs&&ce?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:cs&&ce?"pointer":"default"}}>Apply</button>
           {isCustom&&<button onClick={()=>{setShowCustom(false);setRange({preset:"mtd",...getPresets().mtd});}}
@@ -3644,7 +3656,7 @@ export default function App() {
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Last Checked Date <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
-                    <input type="date" value={bulkDraft.lastChecked} onChange={e=>setBulkDraft(p=>({...p,lastChecked:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                    <DatePicker value={bulkDraft.lastChecked} onChange={v=>setBulkDraft(p=>({...p,lastChecked:v}))}/>
                   </div>
                 </div>
                 <div>
