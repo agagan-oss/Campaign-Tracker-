@@ -3150,6 +3150,8 @@ export default function App() {
   const [saved, setSaved]         = useState(false);
   const [expanded, setExpanded]   = useState(new Set());
   const [groupByClient, setGroupByClient]       = useState(false);
+  const [fGoalHit, setFGoalHit]                 = useState(false);
+  const [fCloseToGoal, setFCloseToGoal]         = useState(false);
   const [collapsedClients, setCollapsedClients] = useState(new Set());
   const [dragId, setDragId]       = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
@@ -3393,6 +3395,16 @@ export default function App() {
       const ms=!q||c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||c.platform.toLowerCase().includes(q);
       const hasReminder = reminders.some(r=>!r.dismissed&&r.campaignId===c.id);
       if(sortKey==="reminder" && !hasReminder) return false;
+      if(fGoalHit) {
+        const disp=resolveMetrics(c,dateRange.preset);
+        const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+        if(!(c.goalHit||(pacing&&pacing.pct>=1))) return false;
+      }
+      if(fCloseToGoal) {
+        const disp=resolveMetrics(c,dateRange.preset);
+        const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+        if(!(c.closeToGoal||(pacing&&pacing.pct>=0.8&&pacing.pct<1))) return false;
+      }
       return ms&&(fStatus==="all"||(c.status||"")===fStatus)&&(fPlatforms.size===0||fPlatforms.has(c.platform))&&(!fMonthly||c.monthlyFlight);
     });
     return [...list].sort((a,b)=>{
@@ -3404,7 +3416,7 @@ export default function App() {
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
     });
-  },[campaigns,reminders,search,fStatus,fPlatforms,fMonthly,sortKey,sortDir]);
+  },[campaigns,reminders,search,fStatus,fPlatforms,fMonthly,fGoalHit,fCloseToGoal,sortKey,sortDir,dateRange.preset]);
 
   const stats = useMemo(()=>({
     total: campaigns.length,
@@ -3738,11 +3750,25 @@ export default function App() {
         {/* Filters */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…" style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"8px 14px",color:"#d8eaf8",fontSize:14,width:280}}/>
-          <select value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":"all")} onChange={e=>{ if(e.target.value==="__monthly__"){setFMonthly(true);setFStatus("all");setSortKey("endDate");setGroupByClient(false);}else if(e.target.value==="__reminder__"){setFMonthly(false);setFStatus("all");setSortKey("reminder");setGroupByClient(false);}else if(e.target.value==="__grouped__"){setFMonthly(false);setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(true);}else{setFMonthly(false);setFStatus(e.target.value);if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(false);} }} style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient)?700:400}}>
+          <select
+            value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":fGoalHit?"__goalHit__":fCloseToGoal?"__closeToGoal__":"all")}
+            onChange={e=>{
+              const v=e.target.value;
+              setFMonthly(false); setFGoalHit(false); setFCloseToGoal(false); setGroupByClient(false);
+              if(v==="__monthly__"){setFMonthly(true);setFStatus("all");setSortKey("endDate");}
+              else if(v==="__reminder__"){setFStatus("all");setSortKey("reminder");}
+              else if(v==="__grouped__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(true);}
+              else if(v==="__goalHit__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFGoalHit(true);}
+              else if(v==="__closeToGoal__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFCloseToGoal(true);}
+              else{setFStatus(v);if(sortKey==="reminder")setSortKey("endDate");}
+            }}
+            style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":fGoalHit?"#00c896":fCloseToGoal?"#f59e0b":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":fGoalHit?"#00e5a0":fCloseToGoal?"#f59e0b":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient||fGoalHit||fCloseToGoal)?700:400}}>
             <option value="all">All Statuses</option>
             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
             <option value="__monthly__">★ Monthly Flights</option>
             <option value="__reminder__">🔔 Has Reminder</option>
+            <option value="__goalHit__">🎯 Goal Hit</option>
+            <option value="__closeToGoal__">⏳ Close to Goal</option>
             <option value="__grouped__">👥 Group by Client</option>
           </select>
           <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
@@ -3863,6 +3889,19 @@ export default function App() {
                               <TD>
                                 <div style={{display:"flex",alignItems:"center",gap:5,paddingLeft:12}}>
                                   <span style={{color:"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
+                                  {(()=>{
+                                    const disp=resolveMetrics(c,dateRange.preset);
+                                    const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+                                    const autoGoalHit=pacing&&pacing.pct>=1;
+                                    const autoClose=pacing&&pacing.pct>=0.8&&pacing.pct<1;
+                                    const showGoalHit=autoGoalHit||c.goalHit;
+                                    const showClose=!showGoalHit&&(autoClose||c.closeToGoal);
+                                    const tip=pacing?`${pacing.delivered.toLocaleString()} / ${pacing.goal.toLocaleString()} (${(pacing.pct*100).toFixed(0)}%)`:"Manual";
+                                    return (<>
+                                      {showGoalHit&&<button onClick={()=>updateCampaign({...c,goalHit:!c.goalHit})} title={`🎯 Goal hit! ${tip}`} style={{background:"#00c89620",border:"1px solid #00c89660",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#00e5a0",fontWeight:700,cursor:"pointer"}}>🎯 Goal Hit</button>}
+                                      {showClose&&<button onClick={()=>updateCampaign({...c,closeToGoal:!c.closeToGoal})} title={`⏳ Close to goal! ${tip}`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>⏳ Close</button>}
+                                    </>);
+                                  })()}
                                   {campReminders.length>0 && <button onClick={()=>setShowReminderModal(true)} style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>🔔 {campReminders.length}</button>}
                                   {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,whiteSpace:"nowrap"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                                 </div>
@@ -3924,6 +3963,25 @@ export default function App() {
                             <span style={{color:"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
                             {c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:false})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#00e5c0",fontSize:13,lineHeight:1,flexShrink:0}}>★</button>}
                             {!c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:true})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#1e3048",fontSize:13,lineHeight:1,flexShrink:0,opacity:0}} className="star-toggle">★</button>}
+                            {(()=>{
+                              const disp=resolveMetrics(c,dateRange.preset);
+                              const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+                              const autoGoalHit = pacing&&pacing.pct>=1;
+                              const autoCloseToGoal = pacing&&pacing.pct>=0.8&&pacing.pct<1;
+                              const showGoalHit = autoGoalHit||c.goalHit;
+                              const showCloseToGoal = !showGoalHit&&(autoCloseToGoal||c.closeToGoal);
+                              const tip = pacing?`${pacing.delivered.toLocaleString()} / ${pacing.goal.toLocaleString()} (${(pacing.pct*100).toFixed(0)}%)`:"Manual";
+                              return (<>
+                                {showGoalHit
+                                  ? <button onClick={()=>updateCampaign({...c,goalHit:!c.goalHit})} title={`🎯 Monthly goal hit! ${tip} — click to unpin`} style={{background:"#00c89620",border:"1px solid #00c89660",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#00e5a0",fontWeight:700,flexShrink:0,cursor:"pointer"}}>🎯 Goal Hit</button>
+                                  : <button onClick={()=>updateCampaign({...c,goalHit:true})} title="Mark goal as hit" style={{background:"none",border:"none",padding:"1px 2px",fontSize:10,color:"#1e3048",fontWeight:700,flexShrink:0,cursor:"pointer",opacity:0}} className="star-toggle">🎯</button>
+                                }
+                                {showCloseToGoal
+                                  ? <button onClick={()=>updateCampaign({...c,closeToGoal:!c.closeToGoal})} title={`⏳ Close to goal! ${tip} — click to unpin`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,flexShrink:0,cursor:"pointer"}}>⏳ Close</button>
+                                  : !showGoalHit&&<button onClick={()=>updateCampaign({...c,closeToGoal:true})} title="Mark as close to goal" style={{background:"none",border:"none",padding:"1px 2px",fontSize:10,color:"#1e3048",fontWeight:700,flexShrink:0,cursor:"pointer",opacity:0}} className="star-toggle">⏳</button>
+                                }
+                              </>);
+                            })()}
                             {campReminders.length>0 && (
                               <button onClick={()=>setShowReminderModal(true)} title="Reminder due!" style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer",flexShrink:0}}>🔔 {campReminders.length}</button>
                             )}
