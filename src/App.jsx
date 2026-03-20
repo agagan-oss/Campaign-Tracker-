@@ -395,7 +395,7 @@ function useBackdropClose(onClose) {
   return { onMouseDown, onClick };
 }
 
-function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
+function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampaignId=null }) {
   const blank = { id:null, type:"ad-swap", campaignId:"", note:"", date:"", repeat:"none", dismissed:false };
   const [form, setForm] = useState(blank);
   const [view, setView] = useState("list");
@@ -413,7 +413,8 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
   function addOnDate(date) { setForm({...blank,date}); setView("add"); }
 
   const today = getToday();
-  const [search, setSearch] = useState("");
+  const focusCampaign = focusCampaignId ? campaigns.find(c=>c.id===focusCampaignId) : null;
+  const [search, setSearch] = useState(() => focusCampaign ? focusCampaign.campaignName.trim() : "");
   const sorted = [...reminders].sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
   function matchesSearch(r) {
     if (!search.trim()) return true;
@@ -490,6 +491,12 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders }) {
 
         {view==="list" && (
           <div style={{marginBottom:14}}>
+            {focusCampaign && (
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#002e24",border:"1px solid #00c89640",borderRadius:7,padding:"7px 12px",marginBottom:8}}>
+                <span style={{fontSize:12,color:"#00e5a0",fontWeight:600}}>🔔 Reminders for <span style={{color:"#edf4ff"}}>{focusCampaign.campaignName.trim()}</span></span>
+                <button onClick={()=>setSearch("")} style={{background:"none",border:"none",color:"#4d6e8a",fontSize:11,cursor:"pointer",padding:0,whiteSpace:"nowrap"}}>Show all ×</button>
+              </div>
+            )}
             <input
               value={search}
               onChange={e=>setSearch(e.target.value)}
@@ -3145,7 +3152,7 @@ export default function App() {
   const [editTarget, setEditTarget] = useState(null);
   const [showAdd, setShowAdd]     = useState(false);
   const [showExportReminder, setShowExportReminder] = useState(false);
-  const [showReminderModal, setShowReminderModal]   = useState(false);
+  const [showReminderModal, setShowReminderModal]   = useState(null); // null=closed, true=open all, number=open focused on campaign
   const [renewTarget, setRenewTarget]               = useState(null);
   const [saved, setSaved]         = useState(false);
   const [expanded, setExpanded]   = useState(new Set());
@@ -3902,7 +3909,7 @@ export default function App() {
                                       {showClose&&<button onClick={()=>updateCampaign({...c,closeToGoal:!c.closeToGoal})} title={`⏳ Close to goal! ${tip}`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>⏳ Close</button>}
                                     </>);
                                   })()}
-                                  {campReminders.length>0 && <button onClick={()=>setShowReminderModal(true)} style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>🔔 {campReminders.length}</button>}
+                                  {campReminders.length>0 && <button onClick={()=>setShowReminderModal(c.id)} style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>🔔 {campReminders.length}</button>}
                                   {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,whiteSpace:"nowrap"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                                 </div>
                                 {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:2,paddingLeft:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{c.note1.trim()}</div>}
@@ -3983,10 +3990,10 @@ export default function App() {
                               </>);
                             })()}
                             {campReminders.length>0 && (
-                              <button onClick={()=>setShowReminderModal(true)} title="Reminder due!" style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer",flexShrink:0}}>🔔 {campReminders.length}</button>
+                              <button onClick={()=>setShowReminderModal(c.id)} title="Reminder due!" style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer",flexShrink:0}}>🔔 {campReminders.length}</button>
                             )}
                             {campUpcoming.length>0 && campReminders.length===0 && (
-                              <button onClick={()=>setShowReminderModal(true)} title={`${campUpcoming.length} reminder${campUpcoming.length>1?"s":""} coming up soon`} style={{background:"#1e293b",border:"1px solid #475569",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#94a3b8",fontWeight:600,cursor:"pointer",flexShrink:0,opacity:0.75}}>🔔 {campUpcoming.length}</button>
+                              <button onClick={()=>setShowReminderModal(c.id)} title={`${campUpcoming.length} reminder${campUpcoming.length>1?"s":""} coming up soon`} style={{background:"#1e293b",border:"1px solid #475569",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#94a3b8",fontWeight:600,cursor:"pointer",flexShrink:0,opacity:0.75}}>🔔 {campUpcoming.length}</button>
                             )}
 {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                           </div>
@@ -4054,7 +4061,7 @@ export default function App() {
 
       {editTarget && <Modal campaign={editTarget} onSave={u=>{ updateCampaign(u); setEditTarget(null); }} onClose={()=>setEditTarget(null)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()} reminders={reminders} setReminders={setReminders} campaigns={campaigns}/>}
       {showAdd    && <Modal isNew onSave={n=>{ setCampaigns(cs=>[...cs,n]); addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null}); setShowAdd(false); }} onClose={()=>setShowAdd(false)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
-      {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} onClose={()=>setShowReminderModal(false)}/>}
+      {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} focusCampaignId={typeof showReminderModal==="number"?showReminderModal:null} onClose={()=>setShowReminderModal(null)}/>}
       {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
     </div>
   </div>
