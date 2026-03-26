@@ -5,7 +5,7 @@ const EXPORT_KEY = "campaign-tracker-last-export";
 const REMINDERS_KEY = "campaign-tracker-reminders";
 const ACTIVITY_KEY = "campaign-tracker-activity";
 const ARCHIVE_KEY = "campaign-tracker-archive";
-const ARCHIVE_DAYS = 5;
+const ARCHIVE_DAYS = 60;
 const MAX_LOG_ENTRIES = 500;
 
 const initialCampaigns = [{"mediaPartner":"WVR","campaignName":"Harry Green CDJR","platform":"FB","goal":"750K (7/1/25 - 12/31/25)","endDate":"2026-06-30","note1":"125K/Mo","note2":"","lastChecked":"2026-03-02","id":1769125165003,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Compass TK","campaignName":"Farm Bureau Financial-Jim Waters","platform":"TD","goal":"1.58M (8/11/25 - 7/31/26)","endDate":"2026-07-31","note1":"131.6K/Mo","note2":"","lastChecked":"2026-03-02","id":1769125792921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Saginaw","campaignName":"Great Lakes Pace","platform":"FB","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-25","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209400165,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Palm Springs","campaignName":"Carpet Empire Plus","platform":"FB","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-31","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209535972,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Palm Springs","campaignName":"Carpet Empire Plus","platform":"DSP","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-31","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209663140,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"TD","goal":"143K (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"12K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214676416,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"FB","goal":"1.08M (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"90K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214678888,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"DSP","goal":"1.08M (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"90K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214712742,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Britestar Milwaukee Middle School","platform":"TD","goal":"100K Monthly","endDate":"2026-03-31","note1":"100K Monthly","note2":"","lastChecked":"2026-03-02","id":1769214781502,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"TD","goal":"40K Feb/March","endDate":"2026-03-31","note1":"40K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439021921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"FB","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439025194,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"FBV","goal":"20K Feb/March","endDate":"2026-03-31","note1":"20K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439086411,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"DSP","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439117040,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"SEM","goal":"Need New Budget for February","endDate":"2026-01-31","note1":"Need New Budget for February","note2":"","lastChecked":"2026-03-02","id":1769439141224,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"TD","goal":"40K Feb/March","endDate":"2026-03-31","note1":"40K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439175821,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"FB","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439200352,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"FBV","goal":"20K Feb/March","endDate":"2026-03-31","note1":"20K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439219988,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"DSP","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439236958,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"SEM","goal":"Need New Budget for February","endDate":"2026-01-31","note1":"Need New Budget for February","note2":"","lastChecked":"2026-03-02","id":1769439252985,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Noyes Development","platform":"TD","goal":"14.5K/Mo","endDate":"2026-03-31","note1":"14.5K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439379921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"TD","goal":"500K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"97K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439513145,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"CTV","goal":"291K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"66K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439528551,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"OTT","goal":"207K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"47K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439581123,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"EMAIL","goal":"5 Emails","endDate":"2026-03-31","note1":"1/Mo","note2":"","lastChecked":"2026-03-02","id":1769440542802,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"FB","goal":"283K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"41K/Mo (15-20% Oregon)","note2":"","lastChecked":"2026-03-02","id":1769440737136,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities ","platform":"FBV","goal":"175K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","id":1772483657607,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"DSP","goal":"460K (11/3/25 - 5/31/26) ","endDate":"2026-05-31","note1":"67K/Mo (15-20% Oregon)","note2":"","lastChecked":"2026-03-02","id":1772483749345,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"TD","goal":"70K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"10K/Mo","note2":"","lastChecked":"2026-03-02","id":1772483792126,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities Audio","platform":"TD","goal":"296K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"59.5K/Mo","note2":"","lastChecked":"2026-03-02","id":1772483819653,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America","platform":"FB","goal":"900K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"180K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484331559},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America","platform":"DSP","goal":"1.275M (11/4/25 - 3/31/26) ","endDate":"2026-03-31","status":"active","note1":"255K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484347656},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America ","platform":"SP","goal":"375K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"75K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484372498},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America  ","platform":"CTV","goal":"435K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"87K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484401165},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America ","platform":"OTT","goal":"298K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"60K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484418938},{"mediaPartner":"WVR","campaignName":"Concord University","platform":"FB","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484485079},{"mediaPartner":"WVR","campaignName":"Concord University ","platform":"SP","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484490232},{"mediaPartner":"WVR","campaignName":"Concord University ","platform":"DSP","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484503162},{"mediaPartner":"Enchanting Media","campaignName":"Waterview Casino","platform":"FB","goal":"95K March","endDate":"2026-03-31","status":"active","note1":"95K March ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484624626},{"mediaPartner":"Enchanting Media","campaignName":"Waterview Casino","platform":"DSP","goal":"95K March","endDate":"2026-03-31","status":"active","note1":"95K March ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484630475},{"mediaPartner":"Alpha Moberly","campaignName":"Right Rate Roofing","platform":"SEM","goal":"5,400 (12/4/25 - 7/30/26) ","endDate":"2026-07-31","status":"active","note1":"$900/Mo ","note2":" $1,564 March ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484709093},{"mediaPartner":"Compass","campaignName":"Bolz Chiro","platform":"FB","goal":"400K (1/1/26 - 4/30/26)","endDate":"2026-03-31","status":"active","note1":"100K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484763564},{"mediaPartner":"Compass","campaignName":"Brownstone","platform":"DSP","goal":"229K (12/12/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"58K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484790999},{"mediaPartner":"Compass","campaignName":"Brownstone ","platform":"FB","goal":"80K (12/12/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"20K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484798543},{"mediaPartner":"Compass","campaignName":"Brownstone  ","platform":"FBV","goal":"148K (12/12/25 - 3/31/26) ","endDate":"2026-03-31","status":"active","note1":"37K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484823373},{"mediaPartner":"Alpha Moberly","campaignName":"Specs Quincy","platform":"FB","goal":"300K (1/1/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484872046},{"mediaPartner":"Alpha Moberly","campaignName":"Specs Quincy","platform":"DSP","goal":"300K (1/1/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484887059},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Pearl Hawaii Federal Credit Union","platform":"SEM","goal":"$35,091 Media Spend (1/13/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"$2,925/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484925304},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Pearl Hawaii Federal Credit Union ","platform":"CTV","goal":"375K (1/14/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"31,250/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484928999},{"mediaPartner":"Alpha Moberly","campaignName":"Prairieland FS","platform":"DSP","goal":"445K (1/16/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"37.5K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484986463},{"mediaPartner":"Alpha Moberly","campaignName":"Prairieland FS ","platform":"FB","goal":"445K (1/16/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"40.5K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485011820},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Holo HIIT","platform":"FBV","goal":"63K (1/16/26 - 3/31/26)","endDate":"2026-03-31","status":"off","note1":"","note2":"FB Access ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485059494},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Holo HIIT ","platform":"FBV","goal":"63K (1/16/26 - 3/31/26)","endDate":"2026-03-31","status":"off","note1":"30K Feb/March","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485067041},{"mediaPartner":"Alpha Moberly","campaignName":"Culligan of Hanibal","platform":"DSP","goal":"758K (1/22/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485129272},{"mediaPartner":"Alpha Moberly","campaignName":"Quincy Catholic Elementary School","platform":"FB","goal":"125K (2/1/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"100K 2/1 - 4/30 (25K December)","note2":"FB Access/Creatives ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485194758},{"mediaPartner":"Alpha Moberly","campaignName":"Quincy Catholic Elementary School ","platform":"DSP","goal":"125K (2/1/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"100K 2/1 - 4/30 (25K December)","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485211288},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Leavitt Yamane & Soldner","platform":"DSP","goal":"1.025M (2/9/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"93.5K/Mo ","note2":"Streaming Orders/Mo","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485298961},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Leavitt Yamane & Soldner","platform":"FB","goal":"1.025M (2/9/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"93.5K/Mo ","note2":"FB Access","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485347220},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Aloha Sugarcane Juices","platform":"TD","goal":"172K (2/16/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"58K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485429793},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio)","platform":"DSP","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485804286},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio) ","platform":"FB","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485820512},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio) ","platform":"SP","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485828817},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA)","platform":"DSP","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485842011},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA)","platform":"FB","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485880132},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA) ","platform":"SP","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485887909},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV)","platform":"DSP","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485904806},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD)","platform":"DSP","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772486056686},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD) ","platform":"FB","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486135542},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD)  ","platform":"SP","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486155939},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV) ","platform":"FB","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486026268},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV) ","platform":"SP","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486034400},{"mediaPartner":"Allen Media Broadcasting","campaignName":"King Windward Nissan ","platform":"TD","goal":"179K (2/20/26 - 3/15/26)","endDate":"2026-03-15","status":"active","note1":"","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486199815},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque","platform":"FB","goal":"20K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"10K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486231814},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"FBV","goal":"12K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"6K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486241660},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"FBV","goal":"35K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"18K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486264350},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"YT","goal":"6K Views (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"3K Views/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486294122},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque  ","platform":"TD","goal":"91K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"46K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772486311325}];
@@ -1186,7 +1186,7 @@ function CampaignArchive({ archive, onRestore, onClear }) {
       {archive.length === 0 ? (
         <div style={{textAlign:"center",padding:"60px 0",color:"#3d5a72"}}>
           <div style={{fontSize:32,marginBottom:10}}>🗄️</div>
-          <div style={{fontSize:13}}>No archived campaigns yet. Campaigns that ended 5+ days ago will move here automatically.</div>
+          <div style={{fontSize:13}}>No archived campaigns yet. Campaigns that ended 60+ days ago will move here automatically.</div>
         </div>
       ) : (<>
         <div style={{display:"flex",alignItems:"center",gap:0,marginBottom:16,borderBottom:"1px solid #1e293b",flexWrap:"wrap"}}>
@@ -1290,14 +1290,6 @@ function CampaignArchive({ archive, onRestore, onClear }) {
                                   ))}
                                   {!c.impressions&&!c.spend&&<span style={{color:"#3d5a72",fontStyle:"italic"}}>No metrics recorded</span>}
                                 </div>
-                                {c.history&&c.history.trim()&&(
-                                  <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid #1a2744"}}>
-                                    <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:6}}>📋 Change History</div>
-                                    <div style={{background:"#060d18",borderRadius:5,padding:"8px 10px",whiteSpace:"pre-wrap",fontSize:11,color:"#4d6e8a",lineHeight:1.6,maxHeight:180,overflowY:"auto"}}>
-                                      {c.history.trim()}
-                                    </div>
-                                  </div>
-                                )}
                               </td>
                             </tr>
                           )}
@@ -3391,31 +3383,18 @@ export default function App() {
   useEffect(()=>{ const last=localStorage.getItem(EXPORT_KEY); if(!last){setShowExportReminder(true);return;} if((Date.now()-parseInt(last))/(1000*60*60*24)>=3) setShowExportReminder(true); },[]);
 
 
-  // Auto-archive campaigns ended 5+ days ago
-  // Runs after both campaigns and archive are confirmed loaded from localStorage
+  // Auto-archive campaigns ended 60+ days ago
   useEffect(()=>{
-    // Guard: don't run if either state is still at default empty (avoids race on first load)
     const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate()-ARCHIVE_DAYS);
     const cutoffStr = cutoff.toISOString().slice(0,10);
     const toArchive = campaigns.filter(c=>c.endDate && c.endDate<=cutoffStr);
     if (toArchive.length===0) return;
     const archiveIds = new Set(archive.map(a=>a.id));
-    const newEntries = toArchive.filter(c=>!archiveIds.has(c.id)).map(c=>{
-      const today = getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`;
-      const archiveNote = `${stamp} — Campaign archived (ended ${c.endDate})`;
-      return {...c, archivedDate:today, history: c.history&&c.history.trim() ? `${archiveNote}\n${c.history}` : archiveNote};
-    });
+    const newEntries = toArchive.filter(c=>!archiveIds.has(c.id)).map(c=>({...c,archivedDate:getToday()}));
     if (newEntries.length===0) return;
-    // Write archive first, then only remove from campaigns if archive write succeeded
-    const updatedArchive = [...newEntries, ...archive];
-    try {
-      localStorage.setItem(ARCHIVE_KEY, JSON.stringify(updatedArchive));
-      setArchive(updatedArchive);
-      setCampaigns(cs=>cs.filter(c=>!newEntries.find(a=>a.id===c.id)));
-    } catch(e) {
-      console.error("Archive write failed — campaigns preserved:", e);
-    }
-  },[campaigns.length, archive.length]); // re-check whenever counts change
+    setArchive(prev=>[...newEntries,...prev]);
+    setCampaigns(cs=>cs.filter(c=>!toArchive.find(a=>a.id===c.id)));
+  },[]);
 
   const platforms = useMemo(()=>{ const used=new Set(campaigns.map(c=>c.platform)); return [...ALL_PLATFORMS.filter(p=>used.has(p)), ...[...used].filter(p=>!ALL_PLATFORMS.includes(p)).sort()]; },[campaigns]);
   const filtered  = useMemo(()=>{
@@ -3537,10 +3516,7 @@ export default function App() {
 
   function handleRestore(c) {
     if (!window.confirm(`Restore "${c.campaignName}" to active campaigns?`)) return;
-    const today = getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`;
-    const restoreNote = `${stamp} — Campaign restored from archive`;
-    const updatedHistory = c.history&&c.history.trim() ? `${restoreNote}\n${c.history}` : restoreNote;
-    setCampaigns(cs=>[...cs,{...c,archivedDate:undefined,history:updatedHistory}]);
+    setCampaigns(cs=>[...cs,{...c,archivedDate:undefined}]);
     setArchive(prev=>prev.filter(a=>a.id!==c.id));
   }
 
@@ -3548,90 +3524,13 @@ export default function App() {
 
   const doExport = () => {
     try {
-      const payload = {
-        campaigns,
-        reminders,
-        archive,
-        activityLog,
-        exportDate: new Date().toISOString(),
-        exportVersion: 2,
-      };
-      const b=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+      const b=new Blob([JSON.stringify({campaigns,reminders,exportDate:new Date().toISOString()},null,2)],{type:"application/json"});
       const url=URL.createObjectURL(b); const a=document.createElement("a");
       a.href=url; a.download=`campaign-tracker-${today}.json`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
       localStorage.setItem(EXPORT_KEY,Date.now().toString()); setShowExportReminder(false);
     } catch(e){ alert("Export failed: "+e.message); }
   };
-
-  const doImport = (e) => {
-    const file=e.target.files[0]; if(!file) return;
-    const reader=new FileReader();
-    reader.onload=evt=>{
-      try {
-        const p=JSON.parse(evt.target.result);
-
-        // Validate top-level structure
-        if (!p || typeof p !== "object") { alert("❌ Invalid file — not a valid JSON object."); return; }
-        if (!p.campaigns || !Array.isArray(p.campaigns)) { alert("❌ Invalid file — missing campaigns array."); return; }
-
-        // Validate each campaign has required fields
-        const requiredFields = ["id","campaignName","mediaPartner","platform"];
-        const badCampaigns = p.campaigns.filter(c => !c || requiredFields.some(f => c[f]==null));
-        if (badCampaigns.length > 0) {
-          alert(`❌ Import aborted — ${badCampaigns.length} campaign(s) are missing required fields (id, campaignName, mediaPartner, platform). File may be corrupted.`);
-          return;
-        }
-
-        // Check for duplicate IDs within the import file
-        const ids = p.campaigns.map(c=>c.id);
-        const uniqueIds = new Set(ids);
-        if (uniqueIds.size !== ids.length) {
-          const dupes = ids.filter((id,i)=>ids.indexOf(id)!==i);
-          console.warn("Duplicate IDs in import:", dupes);
-          // Don't block — just warn, duplicates can happen from copy-paste errors
-        }
-
-        const archiveData = Array.isArray(p.archive) ? p.archive : [];
-        const reminderData = Array.isArray(p.reminders) ? p.reminders : [];
-        const logData = Array.isArray(p.activityLog) ? p.activityLog : [];
-
-        const summary = [
-          `${p.campaigns.length} campaign${p.campaigns.length!==1?"s":""}`,
-          archiveData.length>0 ? `${archiveData.length} archived` : null,
-          reminderData.length>0 ? `${reminderData.length} reminder${reminderData.length!==1?"s":""}` : null,
-          logData.length>0 ? `${logData.length} activity log entries` : null,
-          p.exportDate ? `exported ${new Date(p.exportDate).toLocaleDateString()}` : null,
-        ].filter(Boolean).join(", ");
-
-        if (!window.confirm(`Import ${summary}?\n\nThis will replace ALL current data including your archive. This cannot be undone.\n\nMake sure you've exported your current data first.`)) return;
-
-        // Write to localStorage first — if any fail, abort before touching state
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(p.campaigns));
-          localStorage.setItem(ARCHIVE_KEY, JSON.stringify(archiveData));
-          localStorage.setItem(REMINDERS_KEY, JSON.stringify(reminderData));
-          if (logData.length > 0) localStorage.setItem(ACTIVITY_KEY, JSON.stringify(logData));
-        } catch(storageErr) {
-          alert("❌ Import failed — could not write to storage (possibly full). No data was changed.\n\n" + storageErr.message);
-          return;
-        }
-
-        // All writes succeeded — now update state
-        setCampaigns(p.campaigns);
-        setArchive(archiveData);
-        setReminders(reminderData);
-        if (logData.length > 0) setActivityLog(logData);
-
-        alert(`✅ Import successful!\n\n${summary}`);
-      } catch(parseErr) {
-        alert("❌ Couldn't read file — it may be corrupted or not a valid tracker export.\n\n" + parseErr.message);
-      }
-    };
-    reader.readAsText(file);
-    e.target.value="";
-  };
-
   const doExportCSV = () => {
     try {
       const headers = ["Media Partner","Campaign Name","Platform","Status","Goal","Start Date","End Date","Last Checked","Monthly Flight","Impressions","CTR","CPM","Spend","Completion Rate","Note 1","Note 2","Projection URL","Folder Path","Change History"];
@@ -3650,6 +3549,12 @@ export default function App() {
       a.href=url; a.download=`campaigns-${today}.csv`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     } catch(e){ alert("CSV export failed: "+e.message); }
+  };
+  const doImport = (e) => {
+    const file=e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=evt=>{ try { const p=JSON.parse(evt.target.result); if(p.campaigns&&Array.isArray(p.campaigns)){ if(window.confirm(`Import ${p.campaigns.length} campaigns${p.reminders?` and ${p.reminders.length} reminders`:""}? This replaces current data.`)){ setCampaigns(p.campaigns); if(p.reminders) setReminders(p.reminders); alert("✅ Import successful!"); } } else { alert("❌ Invalid file."); } } catch { alert("❌ Couldn't read file."); } };
+    reader.readAsText(file); e.target.value="";
   };
 
   const TH = ({k,label,style={}}) => (
@@ -3843,23 +3748,14 @@ export default function App() {
         )}
 
         {/* Stats */}
-        <div style={{display:"flex",gap:9,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
+        <div style={{display:"flex",gap:9,flexWrap:"wrap",marginBottom:14}}>
           {[{label:"Total",val:stats.total,color:"#7a9bbf"},{label:"Active",val:stats.active,color:"#00d48a"},{label:"Ahead",val:stats.ahead,color:"#fb923c"},{label:"Behind",val:stats.behind,color:"#fde047"},{label:"Close to Goal",val:stats.closeToGoal,color:"#00e5c0"},{label:"Off",val:stats.off,color:"#ef4444"},{label:"≤14d End",val:stats.soon,color:"#f87171"},{label:"★ Monthly",val:stats.monthlyFlights,color:"#00e5c0"}].map(s=>(
             <div key={s.label} style={{background:"#0e1a2e",border:`1px solid ${s.color}30`,borderRadius:8,padding:"9px 15px",minWidth:75}}>
               <div style={{fontSize:22,fontWeight:800,color:s.color,lineHeight:1,letterSpacing:"-0.02em"}}>{s.val}</div>
               <div style={{fontSize:11,color:"#4d6e8a",marginTop:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>{s.label}</div>
             </div>
           ))}
-          <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
-            {campaigns.some(c=>c.goalHit||c.closeToGoal) && (
-              <button
-                onClick={()=>{ if(window.confirm("Reset all 🎯 Goal Hit and ⏳ Close to Goal badges? This won't affect Monthly Flight ★ or Reminder 🔔 tags.")) setCampaigns(cs=>cs.map(c=>({...c,goalHit:false,closeToGoal:false}))); }}
-                title="Clear all Goal Hit and Close to Goal badges — use at the start of a new month"
-                style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:7,padding:"7px 13px",color:"#4d6e8a",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}
-              >↺ Reset Goals</button>
-            )}
-            <span style={{fontSize:11,color:"#3d5a72"}}>Today: {today}</span>
-          </div>
+          <div style={{marginLeft:"auto",alignSelf:"center",fontSize:11,color:"#3d5a72"}}>Today: {today}</div>
         </div>
 
         <DateBar range={dateRange} setRange={setDateRange}/>
@@ -4029,8 +3925,8 @@ export default function App() {
                                     const showClose=!showGoalHit&&(autoClose||c.closeToGoal);
                                     const tip=pacing?`${pacing.delivered.toLocaleString()} / ${pacing.goal.toLocaleString()} (${(pacing.pct*100).toFixed(0)}%)`:"Manual";
                                     return (<>
-                                      {showGoalHit&&<button onClick={()=>updateCampaign({...c,goalHit:!c.goalHit,closeToGoal:false})} title={`🎯 Goal hit! ${tip}`} style={{background:"#00c89620",border:"1px solid #00c89660",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#00e5a0",fontWeight:700,cursor:"pointer"}}>🎯 Goal Hit</button>}
-                                      {showClose&&<button onClick={()=>updateCampaign({...c,closeToGoal:!c.closeToGoal,goalHit:false})} title={`⏳ Close to goal! ${tip}`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>⏳ Close</button>}
+                                      {showGoalHit&&<button onClick={()=>updateCampaign({...c,goalHit:!c.goalHit})} title={`🎯 Goal hit! ${tip}`} style={{background:"#00c89620",border:"1px solid #00c89660",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#00e5a0",fontWeight:700,cursor:"pointer"}}>🎯 Goal Hit</button>}
+                                      {showClose&&<button onClick={()=>updateCampaign({...c,closeToGoal:!c.closeToGoal})} title={`⏳ Close to goal! ${tip}`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>⏳ Close</button>}
                                     </>);
                                   })()}
                                   {campReminders.length>0 && <button onClick={()=>setShowReminderModal(c.id)} style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>🔔 {campReminders.length}</button>}
@@ -4104,12 +4000,12 @@ export default function App() {
                               const tip = pacing?`${pacing.delivered.toLocaleString()} / ${pacing.goal.toLocaleString()} (${(pacing.pct*100).toFixed(0)}%)`:"Manual";
                               return (<>
                                 {showGoalHit
-                                  ? <button onClick={()=>updateCampaign({...c,goalHit:!c.goalHit,closeToGoal:false})} title={`🎯 Monthly goal hit! ${tip} — click to unpin`} style={{background:"#00c89620",border:"1px solid #00c89660",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#00e5a0",fontWeight:700,flexShrink:0,cursor:"pointer"}}>🎯 Goal Hit</button>
-                                  : <button onClick={()=>updateCampaign({...c,goalHit:true,closeToGoal:false})} title="Mark goal as hit" style={{background:"none",border:"none",padding:"1px 2px",fontSize:10,color:"#1e3048",fontWeight:700,flexShrink:0,cursor:"pointer",opacity:0}} className="star-toggle">🎯</button>
+                                  ? <button onClick={()=>updateCampaign({...c,goalHit:!c.goalHit})} title={`🎯 Monthly goal hit! ${tip} — click to unpin`} style={{background:"#00c89620",border:"1px solid #00c89660",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#00e5a0",fontWeight:700,flexShrink:0,cursor:"pointer"}}>🎯 Goal Hit</button>
+                                  : <button onClick={()=>updateCampaign({...c,goalHit:true})} title="Mark goal as hit" style={{background:"none",border:"none",padding:"1px 2px",fontSize:10,color:"#1e3048",fontWeight:700,flexShrink:0,cursor:"pointer",opacity:0}} className="star-toggle">🎯</button>
                                 }
                                 {showCloseToGoal
-                                  ? <button onClick={()=>updateCampaign({...c,closeToGoal:!c.closeToGoal,goalHit:false})} title={`⏳ Close to goal! ${tip} — click to unpin`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,flexShrink:0,cursor:"pointer"}}>⏳ Close</button>
-                                  : !showGoalHit&&<button onClick={()=>updateCampaign({...c,closeToGoal:true,goalHit:false})} title="Mark as close to goal" style={{background:"none",border:"none",padding:"1px 2px",fontSize:10,color:"#1e3048",fontWeight:700,flexShrink:0,cursor:"pointer",opacity:0}} className="star-toggle">⏳</button>
+                                  ? <button onClick={()=>updateCampaign({...c,closeToGoal:!c.closeToGoal})} title={`⏳ Close to goal! ${tip} — click to unpin`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,flexShrink:0,cursor:"pointer"}}>⏳ Close</button>
+                                  : !showGoalHit&&<button onClick={()=>updateCampaign({...c,closeToGoal:true})} title="Mark as close to goal" style={{background:"none",border:"none",padding:"1px 2px",fontSize:10,color:"#1e3048",fontWeight:700,flexShrink:0,cursor:"pointer",opacity:0}} className="star-toggle">⏳</button>
                                 }
                               </>);
                             })()}
@@ -4166,8 +4062,7 @@ export default function App() {
                             <button onClick={()=>setRenewTarget(c)} style={{background:"#002418",border:"1px solid #00c89640",borderRadius:5,color:"#00c896",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:700}} title="Renew campaign">🔄</button>
                             <button onClick={()=>{ const copy={...c,id:Date.now(),campaignName:c.campaignName+" (copy)",impressions:"",ctr:"",cpm:"",spend:""}; setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }} style={{background:"#091a2a",border:"1px solid #1e3a5f",borderRadius:5,color:"#00e5a0",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>⧉</button>
                             <button onClick={()=>{ if(window.confirm("Delete this campaign?")) { addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:`Campaign deleted`,campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); } }} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,color:"#ef4444",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>✕</button>
-                            <button title="Send to Archive" onClick={()=>{ if(window.confirm(`Archive "${c.campaignName}"? It will move to the Campaign Archive tab.`)) { const tod=getToday(); const [ay,am,ad]=tod.split("-"); const astamp=`${am}/${ad}/${ay}`; const archNote=`${astamp} — Campaign manually archived`; const archHist=c.history&&c.history.trim()?`${archNote}
-${c.history}`:archNote; setArchive(prev=>[...prev,{...c,archivedDate:tod,history:archHist}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Manually sent to archive",campaignId:c.id,prevSnapshot:{...c}}); }}} style={{background:"#1a0828",border:"1px solid #a855f740",borderRadius:5,color:"#a855f7",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:700}}>🗄 →</button>
+                            <button title="Send to Archive" onClick={()=>{ if(window.confirm(`Archive "${c.campaignName}"? It will move to the Campaign Archive tab.`)) { setArchive(prev=>[...prev,{...c,archivedDate:getToday()}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Manually sent to archive",campaignId:c.id,prevSnapshot:{...c}}); }}} style={{background:"#1a0828",border:"1px solid #a855f740",borderRadius:5,color:"#a855f7",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:700}}>🗄 →</button>
                           </div>
                         </TD>
                       </tr>
