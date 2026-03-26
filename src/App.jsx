@@ -3159,6 +3159,7 @@ export default function App() {
   const [groupByClient, setGroupByClient]       = useState(false);
   const [fGoalHit, setFGoalHit]                 = useState(false);
   const [fCloseToGoal, setFCloseToGoal]         = useState(false);
+  const [fExcludeGoalHit, setFExcludeGoalHit]   = useState(false);
   const [collapsedClients, setCollapsedClients] = useState(new Set());
   const [dragId, setDragId]       = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
@@ -3412,6 +3413,11 @@ export default function App() {
         const pacing=computeMonthlyPacing(disp.impressions,c.note1);
         if(!(c.closeToGoal||(pacing&&pacing.pct>=0.8&&pacing.pct<1))) return false;
       }
+      if(fExcludeGoalHit) {
+        const disp=resolveMetrics(c,dateRange.preset);
+        const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+        if(c.goalHit||(pacing&&pacing.pct>=1)) return false;
+      }
       return ms&&(fStatus==="all"||(c.status||"")===fStatus)&&(fPlatforms.size===0||fPlatforms.has(c.platform))&&(!fMonthly||c.monthlyFlight);
     });
     return [...list].sort((a,b)=>{
@@ -3423,7 +3429,7 @@ export default function App() {
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
     });
-  },[campaigns,reminders,search,fStatus,fPlatforms,fMonthly,fGoalHit,fCloseToGoal,sortKey,sortDir,dateRange.preset]);
+  },[campaigns,reminders,search,fStatus,fPlatforms,fMonthly,fGoalHit,fCloseToGoal,fExcludeGoalHit,sortKey,sortDir,dateRange.preset]);
 
   const stats = useMemo(()=>({
     total: campaigns.length,
@@ -3765,7 +3771,7 @@ export default function App() {
               if(v==="__monthly__"){setFMonthly(true);setFStatus("all");setSortKey("endDate");}
               else if(v==="__reminder__"){setFStatus("all");setSortKey("reminder");}
               else if(v==="__grouped__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(true);}
-              else if(v==="__goalHit__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFGoalHit(true);}
+              else if(v==="__goalHit__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFGoalHit(true);setFExcludeGoalHit(false);}
               else if(v==="__closeToGoal__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFCloseToGoal(true);}
               else{setFStatus(v);if(sortKey==="reminder")setSortKey("endDate");}
             }}
@@ -3778,6 +3784,20 @@ export default function App() {
             <option value="__closeToGoal__">⏳ Close to Goal</option>
             <option value="__grouped__">👥 Group by Client</option>
           </select>
+          <button
+            onClick={()=>setFExcludeGoalHit(v=>!v)}
+            title="Hide campaigns that have already hit their monthly goal"
+            style={{
+              background:fExcludeGoalHit?"#1a0e00":"#0e1a2e",
+              border:`1px solid ${fExcludeGoalHit?"#f59e0b":"#162236"}`,
+              borderRadius:7,padding:"7px 11px",
+              color:fExcludeGoalHit?"#f59e0b":"#4d6e8a",
+              fontSize:13,fontWeight:fExcludeGoalHit?700:400,
+              cursor:"pointer",whiteSpace:"nowrap",
+              transition:"all .15s",
+            }}>
+            {fExcludeGoalHit?"🎯 Hiding Goal Hit":"🎯 Exclude Goal Hit"}
+          </button>
           <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
           <span style={{fontSize:11,color:"#3d5a72"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
         </div>
