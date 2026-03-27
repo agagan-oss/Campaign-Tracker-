@@ -3425,6 +3425,12 @@ export default function App() {
   useEffect(()=>{ try { localStorage.setItem(ARCHIVE_KEY,JSON.stringify(archive)); } catch(e){console.error(e);} },[archive]);
   useEffect(()=>{ const last=localStorage.getItem(EXPORT_KEY); if(!last){setShowExportReminder(true);return;} if((Date.now()-parseInt(last))/(1000*60*60*24)>=3) setShowExportReminder(true); },[]);
 
+  // One-time cleanup: clear closeToGoal on any campaign that also has goalHit set
+  useEffect(()=>{
+    const hasBoth = campaigns.some(c=>c.goalHit&&c.closeToGoal);
+    if (hasBoth) setCampaigns(cs=>cs.map(c=>c.goalHit&&c.closeToGoal?{...c,closeToGoal:false}:c));
+  },[]);
+
 
   // Auto-archive campaigns ended 5+ days ago — runs once on mount only
   const didAutoArchive = useRef(false);
@@ -3467,6 +3473,8 @@ export default function App() {
       if(fCloseToGoal) {
         const disp=resolveMetrics(c,dateRange.preset);
         const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+        const isGoalHit = c.goalHit||(pacing&&pacing.pct>=1);
+        if(isGoalHit) return false; // goal hit takes priority — never show in close-to-goal filter
         if(!(c.closeToGoal||(pacing&&pacing.pct>=0.8&&pacing.pct<1))) return false;
       }
       if(fExcludeGoalHit) {
