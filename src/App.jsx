@@ -4092,7 +4092,7 @@ export default function App() {
                               </TD>
                               <TD>
                                 <div style={{display:"flex",gap:5}}>
-                                  <button onClick={()=>setEditTarget(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
+                                  <button onClick={()=>setEditTarget(c)} style={{background:"#1a0e00",border:"1px solid #fb923c60",borderRadius:5,color:"#fb923c",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
                                   <button onClick={async()=>{ if(await confirm({title:`Delete "${c.campaignName}"?`,message:"This cannot be undone. Consider archiving instead.",confirmLabel:"Delete",danger:true})){ addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Campaign deleted",campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); }}} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,color:"#ef4444",fontSize:10,padding:"3px 6px",cursor:"pointer"}}>✕</button>
                                 </div>
                               </TD>
@@ -4206,7 +4206,7 @@ export default function App() {
                         </TD>
                         <TD>
                           <div style={{display:"flex",gap:5}}>
-                            <button onClick={()=>setEditTarget(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
+                            <button onClick={()=>setEditTarget(c)} style={{background:"#1a0e00",border:"1px solid #fb923c60",borderRadius:5,color:"#fb923c",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
                             <button onClick={()=>setRenewTarget(c)} style={{background:"#002418",border:"1px solid #00c89640",borderRadius:5,color:"#00c896",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:700}} title="Renew campaign">🔄</button>
                             <button onClick={()=>{ const copy={...c,id:Date.now(),campaignName:c.campaignName+" (copy)",impressions:"",ctr:"",cpm:"",spend:""}; setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }} style={{background:"#091a2a",border:"1px solid #1e3a5f",borderRadius:5,color:"#00e5a0",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>⧉</button>
                             <button onClick={async()=>{ if(await confirm({title:`Delete "${c.campaignName}"?`,message:"This cannot be undone. Consider archiving instead.",confirmLabel:"Delete",danger:true})) { addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:`Campaign deleted`,campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); } }} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,color:"#ef4444",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>✕</button>
