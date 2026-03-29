@@ -1176,6 +1176,297 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   );
 }
 
+function AIAdvisor({ campaigns, archive, reminders, dateRange }) {
+  const [loading, setLoading] = useState(false);
+  const [analysis, setAnalysis] = useState(null);
+  const [error, setError] = useState(null);
+  const [question, setQuestion] = useState("");
+  const [chatHistory, setChatHistory] = useState([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef(null);
+
+  useEffect(() => { chatEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [chatHistory]);
+
+  function buildContext() {
+    const today = getToday();
+    const active = campaigns.filter(c => c.status === "active");
+    const rows = active.map(c => {
+      const disp = resolveMetrics(c, dateRange.preset);
+      const pacing = computeMonthlyPacing(disp.impressions, c.note1);
+      const daysLeft = getDaysLeft(c.endDate);
+      return {
+        campaign: c.campaignName.trim(),
+        partner: c.mediaPartner,
+        platform: c.platform,
+        status: c.status,
+        goal: c.goal,
+        note1: c.note1,
+        endDate: c.endDate,
+        daysLeft,
+        startDate: c.startDate,
+        impressions: disp.impressions || null,
+        ctr: disp.ctr || null,
+        cpm: disp.cpm || null,
+        spend: disp.spend || null,
+        clicks: disp.clicks || null,
+        completionRate: c.completionRate || null,
+        lastChecked: c.lastChecked,
+        history: c.history ? c.history.slice(0, 400) : null,
+        pacing: pacing ? {
+          label: pacing.label,
+          pct: Math.round(pacing.pct * 100),
+          delivered: pacing.delivered,
+          goal: pacing.goal,
+          expected: pacing.expected,
+        } : null,
+        goalHit: c.goalHit || false,
+        closeToGoal: c.closeToGoal || false,
+      };
+    });
+
+    const overdueReminders = reminders.filter(r => !r.dismissed && r.date < today).length;
+    const endingSoon = active.filter(c => { const d = getDaysLeft(c.endDate); return d >= 0 && d <= 7; });
+
+    return {
+      today,
+      activeCampaignCount: active.length,
+      archivedCount: archive.length,
+      overdueReminders,
+      endingSoon: endingSoon.map(c => ({ campaign: c.campaignName.trim(), platform: c.platform, partner: c.mediaPartner, daysLeft: getDaysLeft(c.endDate) })),
+      campaigns: rows,
+    };
+  }
+
+  const SYSTEM = `You are a digital advertising campaign performance analyst embedded in a campaign tracker used by Recrue Media, a digital advertising agency. You manage campaigns across Meta (FB, FBV, IG), DSP, CTV, OTT, Snapchat (SP), SEM, The Trade Desk (TD), TikTok (TT), and YouTube (YT).
+
+When analyzing campaigns, focus on:
+- Pacing issues: campaigns behind or ahead of monthly impression goals
+- Campaigns ending soon with unresolved issues
+- CTR/CPM benchmarks by platform (FB good CTR >0.25%, DSP/TD >0.08%, SEM >5%, CTV completion >95%)
+- Campaigns marked Off that may need attention
+- Stale check-ins (lastChecked old)
+- Budget pacing relative to time elapsed in the flight
+- Concrete, actionable recommendations — not generic advice
+
+Be direct and specific. Reference actual campaign names, partners, and numbers. Format your response with clear sections using emoji headers. Keep recommendations concise and prioritized. If you don't have enough data (no impressions recorded), say so and suggest what to check.`;
+
+  async function runAnalysis() {
+    setLoading(true);
+    setError(null);
+    setAnalysis(null);
+    try {
+      const ctx = buildContext();
+      const prompt = `Here is the current state of all active campaigns as of ${ctx.today}. Analyze performance, flag issues, and give prioritized recommendations.
+
+Campaign data:
+${JSON.stringify(ctx, null, 2)}
+
+Provide:
+1. 🚨 Urgent flags (pacing behind, ending soon, off status with issues)
+2. ⚠️ Watch list (close to goal, stale data, minor concerns)
+3. ✅ Performing well
+4. 💡 Top 3 recommendations to act on today`;
+
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1500,
+          system: SYSTEM,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      const text = data.content?.find(b => b.type === "text")?.text || "";
+      setAnalysis(text);
+      setChatHistory([{ role: "assistant", content: text, isAnalysis: true }]);
+    } catch(e) {
+      setError(e.message);
+    }
+    setLoading(false);
+  }
+
+  async function sendQuestion() {
+    if (!question.trim() || chatLoading) return;
+    const q = question.trim();
+    setQuestion("");
+    setChatLoading(true);
+    const userMsg = { role: "user", content: q };
+    const newHistory = [...chatHistory, userMsg];
+    setChatHistory(newHistory);
+    try {
+      const ctx = buildContext();
+      const contextMsg = { role: "user", content: `Campaign context: ${JSON.stringify(ctx)}` };
+      const messages = [contextMsg, ...newHistory.map(m => ({ role: m.role, content: m.content }))];
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: SYSTEM,
+          messages,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      const text = data.content?.find(b => b.type === "text")?.text || "";
+      setChatHistory(h => [...h, { role: "assistant", content: text }]);
+    } catch(e) {
+      setChatHistory(h => [...h, { role: "assistant", content: `Error: ${e.message}`, isError: true }]);
+    }
+    setChatLoading(false);
+  }
+
+  const iS = { background:"#0e1a2e", border:"1px solid #1e293b", borderRadius:8, padding:"10px 14px", color:"#d8eaf8", fontSize:13, fontFamily:"inherit", width:"100%", boxSizing:"border-box", outline:"none" };
+
+  function renderMarkdown(text) {
+    // Simple markdown-to-styled-text renderer
+    return text.split("\n").map((line, i) => {
+      if (!line.trim()) return <div key={i} style={{height:6}}/>;
+      // Headers with emoji
+      if (/^#{1,3} /.test(line)) {
+        const content = line.replace(/^#{1,3} /, "");
+        return <div key={i} style={{fontSize:13,fontWeight:700,color:"#edf4ff",marginTop:14,marginBottom:4}}>{content}</div>;
+      }
+      // Bold
+      const parts = line.split(/(\*\*[^*]+\*\*)/g).map((p, j) =>
+        p.startsWith("**") ? <strong key={j} style={{color:"#edf4ff",fontWeight:700}}>{p.slice(2,-2)}</strong> : p
+      );
+      // Bullet
+      if (line.match(/^[-•*] /)) {
+        return <div key={i} style={{display:"flex",gap:8,marginBottom:3,paddingLeft:4}}>
+          <span style={{color:"#00c896",flexShrink:0,marginTop:1}}>›</span>
+          <span style={{fontSize:12,color:"#a8c4e0",lineHeight:1.6}}>{parts.map((p,j)=>typeof p==="string"?p.replace(/^[-•*] /,""):p)}</span>
+        </div>;
+      }
+      return <div key={i} style={{fontSize:12,color:"#a8c4e0",lineHeight:1.7,marginBottom:2}}>{parts}</div>;
+    });
+  }
+
+  return (
+    <div style={{color:"#d8eaf8",maxWidth:1100}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:20}}>
+        <div>
+          <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:4}}>🤖 AI Performance Advisor</div>
+          <div style={{fontSize:12,color:"#4d6e8a",lineHeight:1.5}}>
+            Analyzes your {campaigns.filter(c=>c.status==="active").length} active campaigns for pacing issues, performance flags, and optimization opportunities.
+          </div>
+        </div>
+        <button
+          onClick={runAnalysis}
+          disabled={loading}
+          style={{background:loading?"#162236":"#002e24",border:`1px solid ${loading?"#334155":"#00c89650"}`,borderRadius:8,padding:"10px 22px",color:loading?"#3d5a72":"#00e5a0",fontSize:13,fontWeight:700,cursor:loading?"default":"pointer",display:"flex",alignItems:"center",gap:8,whiteSpace:"nowrap",flexShrink:0}}>
+          {loading ? <>⟳ Analyzing…</> : <>✦ {analysis?"Re-analyze":"Run Analysis"}</>}
+        </button>
+      </div>
+
+      {/* Empty state */}
+      {!analysis && !loading && !error && (
+        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"48px 32px",textAlign:"center"}}>
+          <div style={{fontSize:36,marginBottom:12}}>✦</div>
+          <div style={{fontSize:14,color:"#edf4ff",fontWeight:600,marginBottom:8}}>Ready to analyze your campaigns</div>
+          <div style={{fontSize:12,color:"#4d6e8a",maxWidth:400,margin:"0 auto",lineHeight:1.7}}>
+            Click <strong style={{color:"#00e5a0"}}>Run Analysis</strong> to get AI-powered flags on pacing, performance issues, campaigns ending soon, and specific recommendations for today.
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:10,padding:"14px 18px",color:"#ef4444",fontSize:13,marginBottom:16}}>
+          ⚠ {error}
+        </div>
+      )}
+
+      {/* Loading skeleton */}
+      {loading && (
+        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"24px"}}>
+          {[80,60,90,50,70].map((w,i)=>(
+            <div key={i} style={{height:12,background:"#162236",borderRadius:6,marginBottom:10,width:`${w}%`,animation:"pulse 1.5s ease-in-out infinite",animationDelay:`${i*0.1}s`}}/>
+          ))}
+          <style>{`@keyframes pulse{0%,100%{opacity:.4}50%{opacity:.8}}`}</style>
+        </div>
+      )}
+
+      {/* Analysis + chat */}
+      {analysis && !loading && (
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          {/* Chat messages */}
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,overflow:"hidden"}}>
+            <div style={{maxHeight:520,overflowY:"auto",padding:"20px 24px",display:"flex",flexDirection:"column",gap:16}}>
+              {chatHistory.map((msg, i) => (
+                <div key={i} style={{display:"flex",gap:12,alignItems:"flex-start",flexDirection:msg.role==="user"?"row-reverse":"row"}}>
+                  <div style={{width:28,height:28,borderRadius:"50%",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,
+                    background:msg.role==="user"?"#002e24":"#0e1a2e",
+                    border:`1px solid ${msg.role==="user"?"#00c89640":"#1e293b"}`}}>
+                    {msg.role==="user"?"👤":"✦"}
+                  </div>
+                  <div style={{flex:1,minWidth:0,maxWidth:"85%"}}>
+                    {msg.role==="assistant" && msg.isAnalysis && (
+                      <div style={{fontSize:10,color:"#3d5a72",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>AI Analysis</div>
+                    )}
+                    <div style={{background:msg.role==="user"?"#002e24":"#07101c",border:`1px solid ${msg.role==="user"?"#00c89630":"#1a2744"}`,borderRadius:10,padding:"12px 16px"}}>
+                      {msg.role==="user"
+                        ? <span style={{fontSize:13,color:"#d8eaf8"}}>{msg.content}</span>
+                        : <div>{renderMarkdown(msg.content)}</div>
+                      }
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {chatLoading && (
+                <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+                  <div style={{width:28,height:28,borderRadius:"50%",background:"#0e1a2e",border:"1px solid #1e293b",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>✦</div>
+                  <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:10,padding:"12px 16px"}}>
+                    <span style={{color:"#4d6e8a",fontSize:13}}>⟳ Thinking…</span>
+                  </div>
+                </div>
+              )}
+              <div ref={chatEndRef}/>
+            </div>
+
+            {/* Input */}
+            <div style={{borderTop:"1px solid #1a2744",padding:"12px 16px",display:"flex",gap:8}}>
+              <input
+                value={question}
+                onChange={e=>setQuestion(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendQuestion()}
+                placeholder="Ask a follow-up… e.g. 'Which Alpha campaigns need attention?' or 'What should I do about Fairmont?'"
+                style={{...iS,flex:1,padding:"9px 14px"}}
+              />
+              <button
+                onClick={sendQuestion}
+                disabled={!question.trim()||chatLoading}
+                style={{background:question.trim()&&!chatLoading?"#002e24":"#0e1a2e",border:`1px solid ${question.trim()&&!chatLoading?"#00c89650":"#1e293b"}`,borderRadius:8,padding:"9px 18px",color:question.trim()&&!chatLoading?"#00e5a0":"#3d5a72",fontSize:13,fontWeight:700,cursor:question.trim()&&!chatLoading?"pointer":"default",whiteSpace:"nowrap"}}>
+                Send ↵
+              </button>
+            </div>
+          </div>
+
+          {/* Quick questions */}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            <span style={{fontSize:11,color:"#3d5a72",alignSelf:"center",marginRight:4}}>Quick asks:</span>
+            {[
+              "Which campaigns are most behind on pacing?",
+              "Any campaigns ending this week?",
+              "Which platforms are underperforming?",
+              "Draft a status update for my team",
+            ].map(q=>(
+              <button key={q} onClick={()=>{setQuestion(q);}} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:20,padding:"4px 12px",color:"#4d6e8a",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CampaignArchive({ archive, onRestore, onClear }) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(new Set());
@@ -3770,6 +4061,7 @@ export default function App() {
               {key:"activity",  label:"📜 Activity Log"},
               {key:"archive",   label:"🗄️ Archive"},
               {key:"config",    label:"⚙️ Config"},
+              {key:"ai",        label:"✦ AI Advisor"},
             ].map(t=>(
               <button key={t.key} onClick={()=>setActiveTab(t.key)}
                 style={{background:"none",border:"none",borderBottom:activeTab===t.key?"2px solid #00e5a0":"2px solid transparent",
@@ -3784,6 +4076,8 @@ export default function App() {
 
         {activeTab==="archive" ? (
           <CampaignArchive archive={archive} onRestore={handleRestore} onClear={()=>setArchive([])}/>
+        ) : activeTab==="ai" ? (
+          <AIAdvisor campaigns={campaigns} archive={archive} reminders={reminders} dateRange={dateRange}/>
         ) : activeTab==="config" ? (
           <PlatformConfig campaigns={campaigns}
             metaSyncStatus={metaSyncStatus}   metaSyncInfo={metaSyncInfo}
