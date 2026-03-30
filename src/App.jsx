@@ -832,6 +832,34 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
             )}
           </div>
           <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:0}}>
+              {/* Geo Target */}
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#60a5fa",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:5}}>🌎 Geo Targeting</label>
+                <input
+                  value={c.geoTarget||""}
+                  onChange={e=>onUpdate({...c,geoTarget:e.target.value})}
+                  placeholder="e.g. Florida statewide, exclude Miami-Dade"
+                  style={{width:"100%",background:"#060d18",border:`1px solid ${c.geoTarget?"#60a5fa40":"#1a2744"}`,borderRadius:5,padding:"7px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",outline:"none",transition:"border-color .15s"}}
+                />
+              </div>
+              {/* Last Creative Update */}
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#a855f7",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:5}}>🎨 Last Creative Update</label>
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <div style={{flex:1}}>
+                    <DatePicker value={c.lastCreativeUpdate||""} onChange={v=>onUpdate({...c,lastCreativeUpdate:v})} placeholder="Pick date…"/>
+                  </div>
+                  {c.lastCreativeUpdate&&(()=>{
+                    const days=Math.floor((new Date()-new Date(c.lastCreativeUpdate))/86400000);
+                    const color=days>30?"#f59e0b":days>14?"#fde047":"#a855f7";
+                    return <span style={{fontSize:10,fontWeight:700,color,whiteSpace:"nowrap",flexShrink:0}}>{days===0?"Updated today":days===1?"1 day ago":`${days}d ago`}</span>;
+                  })()}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
               <span style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>📋 Change History</span>
             </div>
@@ -1029,7 +1057,7 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
 }
 
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[] }) {
-  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:""};
+  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:""};
   const [f, setF] = useState(campaign?{...campaign}:blank);
   const blankR = { type:"ad-swap", note:"", date:"", repeat:"none" };
   const [newReminder, setNewReminder] = useState(blankR);
@@ -1061,12 +1089,12 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   const modalBackdrop = useBackdropClose(onClose);
   return (
     <div {...modalBackdrop} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:12,padding:28,width:"min(860px,95vw)",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:12,padding:28,width:"min(1100px,96vw)",maxHeight:"95vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
           <h2 style={{margin:0,color:"#edf4ff",fontSize:15,fontWeight:700}}>{isNew?"Add Campaign":"Edit Campaign"}</h2>
           <button onClick={onClose} style={{background:"none",border:"none",color:"#4d6e8a",cursor:"pointer",fontSize:22,lineHeight:1,padding:0}}>×</button>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 20px"}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 20px"}}>
         <div style={{marginBottom:12}}>
           <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Media Partner</label>
           <input list="partner-suggestions" value={f.mediaPartner||""} onChange={e=>set("mediaPartner",e.target.value)} style={iS} placeholder="Start typing…"/>
@@ -1106,6 +1134,25 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
           <div style={{display:"flex",gap:6}}>
             <input type="url" value={f.projectionUrl||""} onChange={e=>set("projectionUrl",e.target.value)} placeholder="https://docs.google.com/..." style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
             {f.projectionUrl&&f.projectionUrl.trim()&&<a href={f.projectionUrl.trim()} target="_blank" rel="noopener noreferrer" style={{background:"#002e24",border:"1px solid #3b82f640",borderRadius:6,padding:"7px 12px",color:"#00e5a0",fontSize:12,fontWeight:600,textDecoration:"none",whiteSpace:"nowrap",display:"flex",alignItems:"center"}}>Open ↗</a>}
+          </div>
+        </div>
+        {/* Geo Target + Last Creative Update — side by side */}
+        <div style={{marginBottom:12,gridColumn:"1 / -1",display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+          <div>
+            <label style={{display:"block",fontSize:10,color:"#60a5fa",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌎 Geo Targeting</label>
+            <input
+              type="text"
+              value={f.geoTarget||""}
+              onChange={e=>set("geoTarget",e.target.value)}
+              placeholder="e.g. Florida statewide, exclude Miami-Dade"
+              style={{width:"100%",background:"#162236",border:`1px solid ${f.geoTarget?"#60a5fa60":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit",transition:"border-color .15s"}}
+            />
+            <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Cities, DMAs, states, zip codes, radius, or exclude notes</div>
+          </div>
+          <div>
+            <label style={{display:"block",fontSize:10,color:"#a855f7",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🎨 Last Creative Update</label>
+            <DatePicker value={f.lastCreativeUpdate||""} onChange={v=>set("lastCreativeUpdate",v)} placeholder="Pick date…"/>
+            <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Date creatives were last swapped or updated</div>
           </div>
         </div>
         {/* Folder Path — full width */}
@@ -1177,295 +1224,647 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
 }
 
 function AIAdvisor({ campaigns, archive, reminders, dateRange }) {
+  // ── Core state ────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState(null);
   const [question, setQuestion] = useState("");
   const [chatHistory, setChatHistory] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
+  const [boltFrame, setBoltFrame] = useState(0);
+  const [activePanel, setActivePanel] = useState("chat"); // chat | watchlist | predict | playbook | autonomous
+  const [watchThresholds, setWatchThresholds] = useState({
+    ctrWarnPct: 80,   // % of benchmark before warning
+    pacingBehindPct: 80,
+    creativeAgeDays: 21,
+    spendBudgetPct: 80,
+    daysToEndWarn: 7,
+  });
+  const [playbooks, setPlaybooks] = useState([
+    { id:1, name:"End of Month Push", trigger:"pacing_behind_eom", active:true, description:"When a campaign is >15% behind pace with <5 days left in the month, alert immediately with recommended daily delivery targets." },
+    { id:2, name:"Creative Staleness", trigger:"creative_age", active:true, description:"Flag when creatives haven't been updated in 21+ days on active campaigns." },
+    { id:3, name:"Spend Approaching Budget", trigger:"spend_budget", active:true, description:"Alert when campaign spend hits 80% of contract value." },
+    { id:4, name:"CTR Underperformance", trigger:"ctr_benchmark", active:true, description:"Flag when CTR drops below 80% of platform benchmark for 3+ days." },
+    { id:5, name:"Campaign Ending No Renewal", trigger:"ending_no_renewal", active:false, description:"[Coming Soon] Alert when a campaign ends in 14 days with no renewal flag set — prompt Austin to reach out to partner." },
+    { id:6, name:"Auto Budget Reallocation", trigger:"auto_realloc", active:false, description:"[Autonomous] When one campaign is ahead and another behind for same partner, suggest budget shift. Requires API execution capability." },
+  ]);
+  const [autonomousMode, setAutonomousMode] = useState(false);
+  const [pendingActions, setPendingActions] = useState([]);
   const chatEndRef = useRef(null);
+  const hasGreeted = useRef(false);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [chatHistory]);
 
+  // Bolt animation
+  useEffect(() => {
+    if (!loading) { setBoltFrame(0); return; }
+    const frames = ["⚡","🌩","⚡","💥","⚡","🌩","⚡","✦"];
+    let i = 0;
+    const iv = setInterval(() => { i=(i+1)%frames.length; setBoltFrame(i); }, 120);
+    return () => clearInterval(iv);
+  }, [loading]);
+
+  // ── KPI thresholds ────────────────────────────────────────────────────────
+  const KPI_THRESHOLDS = {
+    FB:    { metric:"CTR",  warn:0.001,  bad:0.0005, unit:"%", multiply:100, label:"CTR" },
+    FBV:   { metric:"VCR",  warn:0.50,   bad:0.30,   unit:"%", multiply:100, label:"Video Completion" },
+    IG:    { metric:"CTR",  warn:0.001,  bad:0.0005, unit:"%", multiply:100, label:"CTR" },
+    DSP:   { metric:"CTR",  warn:0.0003, bad:0.0001, unit:"%", multiply:100, label:"CTR" },
+    TD:    { metric:"CTR",  warn:0.0003, bad:0.0001, unit:"%", multiply:100, label:"CTR" },
+    SP:    { metric:"CTR",  warn:0.0003, bad:0.0001, unit:"%", multiply:100, label:"CTR" },
+    SEM:   { metric:"CTR",  warn:0.02,   bad:0.01,   unit:"%", multiply:100, label:"CTR" },
+    CTV:   { metric:"VCR",  warn:0.85,   bad:0.70,   unit:"%", multiply:100, label:"Completion Rate" },
+    OTT:   { metric:"VCR",  warn:0.85,   bad:0.70,   unit:"%", multiply:100, label:"Completion Rate" },
+    YT:    { metric:"VCR",  warn:0.20,   bad:0.10,   unit:"%", multiply:100, label:"View Rate" },
+    TT:    { metric:"VCR",  warn:0.20,   bad:0.10,   unit:"%", multiply:100, label:"Video Completion" },
+    EMAIL: { metric:"CTR",  warn:0.01,   bad:0.005,  unit:"%", multiply:100, label:"CTR" },
+  };
+
+  function getKpiAlerts() {
+    const alerts = [];
+    campaigns.filter(c=>c.status==="active").forEach(c => {
+      const t = KPI_THRESHOLDS[c.platform];
+      const disp = resolveMetrics(c, dateRange.preset);
+      if (t) {
+        let raw = null;
+        if (t.metric==="CTR") raw = parseFloat(disp.ctr)/100||null;
+        if (t.metric==="VCR") raw = parseFloat(c.completionRate)/100||null;
+        if (raw !== null) {
+          if (raw < t.bad) alerts.push({ level:"danger", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:t.label, value:(raw*t.multiply).toFixed(2)+t.unit, threshold:(t.bad*t.multiply).toFixed(2)+t.unit, msg:"critically low", id:c.id });
+          else if (raw < t.warn) alerts.push({ level:"warn", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:t.label, value:(raw*t.multiply).toFixed(2)+t.unit, threshold:(t.warn*t.multiply).toFixed(2)+t.unit, msg:"below benchmark", id:c.id });
+        }
+      }
+      // Spend vs contract
+      const spend = parseFloat(c.spend)||0;
+      const contract = parseFloat(c.contractValue);
+      if (contract > 0) {
+        if (spend > contract*0.95) alerts.push({ level:"danger", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:"Spend vs Budget", value:"$"+Math.round(spend).toLocaleString(), threshold:"$"+Math.round(contract).toLocaleString(), msg:"spend at or exceeding contract", id:c.id });
+        else if (spend > contract*0.80) alerts.push({ level:"warn", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:"Spend vs Budget", value:"$"+Math.round(spend).toLocaleString(), threshold:"$"+Math.round(contract).toLocaleString(), msg:"approaching contract limit", id:c.id });
+      }
+      // Creative staleness
+      if (c.lastCreativeUpdate && playbooks.find(p=>p.id===2&&p.active)) {
+        const days = Math.floor((new Date()-new Date(c.lastCreativeUpdate))/86400000);
+        if (days > watchThresholds.creativeAgeDays) alerts.push({ level:"warn", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:"Creative Age", value:`${days} days`, threshold:`${watchThresholds.creativeAgeDays} days`, msg:"creatives may be stale", id:c.id });
+      }
+      // End of month pacing
+      const pacing = computeMonthlyPacing(resolveMetrics(c, dateRange.preset).impressions, c.note1);
+      const daysLeft = getDaysLeft(c.endDate);
+      if (pacing && pacing.label==="Behind" && daysLeft <= 5 && daysLeft >= 0) {
+        alerts.push({ level:"danger", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:"EOM Pacing Crisis", value:`${Math.round(pacing.pct*100)}% of goal`, threshold:`${daysLeft}d left`, msg:"end-of-month delivery at risk", id:c.id });
+      }
+    });
+    return alerts;
+  }
+
+  // ── Delivery prediction ───────────────────────────────────────────────────
+  function getPredictions() {
+    const today = getToday();
+    const now = new Date(); now.setHours(0,0,0,0);
+    const predictions = [];
+    campaigns.filter(c=>c.status==="active"&&c.endDate).forEach(c => {
+      const disp = resolveMetrics(c, dateRange.preset);
+      const pacing = computeMonthlyPacing(disp.impressions, c.note1);
+      if (!pacing || !pacing.goal) return;
+      const daysLeft = getDaysLeft(c.endDate);
+      if (daysLeft < 0) return;
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+      const dom = now.getDate();
+      const daysRemaining = daysInMonth - dom;
+      if (daysRemaining <= 0 || pacing.delivered === 0) return;
+      const dailyRate = pacing.delivered / dom;
+      const projectedTotal = pacing.delivered + (dailyRate * daysRemaining);
+      const projectedPct = projectedTotal / pacing.goal;
+      const needed = pacing.goal - pacing.delivered;
+      const neededPerDay = daysRemaining > 0 ? Math.round(needed / daysRemaining) : 0;
+      predictions.push({
+        id: c.id, campaign: c.campaignName.trim(), partner: c.mediaPartner, platform: c.platform,
+        delivered: pacing.delivered, goal: pacing.goal, dailyRate: Math.round(dailyRate),
+        projectedTotal: Math.round(projectedTotal), projectedPct: Math.round(projectedPct*100),
+        neededPerDay, daysRemaining, onTrack: projectedPct >= 0.95,
+        status: projectedPct >= 1.05 ? "ahead" : projectedPct >= 0.95 ? "on-track" : projectedPct >= 0.80 ? "at-risk" : "critical",
+      });
+    });
+    return predictions.sort((a,b) => a.projectedPct - b.projectedPct);
+  }
+
+  // ── Build context ─────────────────────────────────────────────────────────
   function buildContext() {
     const today = getToday();
-    const active = campaigns.filter(c => c.status === "active");
+    const active = campaigns.filter(c => c.status==="active");
+    const kpiAlerts = getKpiAlerts();
+    const predictions = getPredictions();
     const rows = active.map(c => {
       const disp = resolveMetrics(c, dateRange.preset);
       const pacing = computeMonthlyPacing(disp.impressions, c.note1);
-      const daysLeft = getDaysLeft(c.endDate);
+      const t = KPI_THRESHOLDS[c.platform];
+      let kpiValue=null, kpiLabel=null;
+      if (t) {
+        const raw = t.metric==="CTR" ? parseFloat(disp.ctr)/100 : parseFloat(c.completionRate)/100;
+        if (!isNaN(raw)&&raw>0) { kpiValue=(raw*t.multiply).toFixed(2)+t.unit; kpiLabel=t.label; }
+      }
+      const pred = predictions.find(p=>p.id===c.id);
       return {
-        campaign: c.campaignName.trim(),
-        partner: c.mediaPartner,
-        platform: c.platform,
-        status: c.status,
-        goal: c.goal,
-        note1: c.note1,
-        endDate: c.endDate,
-        daysLeft,
-        startDate: c.startDate,
-        impressions: disp.impressions || null,
-        ctr: disp.ctr || null,
-        cpm: disp.cpm || null,
-        spend: disp.spend || null,
-        clicks: disp.clicks || null,
-        completionRate: c.completionRate || null,
-        lastChecked: c.lastChecked,
-        history: c.history ? c.history.slice(0, 400) : null,
-        pacing: pacing ? {
-          label: pacing.label,
-          pct: Math.round(pacing.pct * 100),
-          delivered: pacing.delivered,
-          goal: pacing.goal,
-          expected: pacing.expected,
-        } : null,
-        goalHit: c.goalHit || false,
-        closeToGoal: c.closeToGoal || false,
+        campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform,
+        status:c.status, goal:c.goal, note1:c.note1, endDate:c.endDate,
+        daysLeft:getDaysLeft(c.endDate), startDate:c.startDate,
+        impressions:disp.impressions||null, ctr:disp.ctr||null, cpm:disp.cpm||null,
+        spend:disp.spend||null, completionRate:c.completionRate||null,
+        contractValue:c.contractValue||null, lastChecked:c.lastChecked,
+        geoTarget:c.geoTarget||null, lastCreativeUpdate:c.lastCreativeUpdate||null,
+        history:c.history?c.history.slice(0,300):null,
+        kpi:kpiValue?{label:kpiLabel,value:kpiValue}:null,
+        pacing:pacing?{label:pacing.label,pct:Math.round(pacing.pct*100),delivered:pacing.delivered,goal:pacing.goal,expected:pacing.expected}:null,
+        prediction:pred?{projectedPct:pred.projectedPct,neededPerDay:pred.neededPerDay,status:pred.status}:null,
       };
     });
-
-    const overdueReminders = reminders.filter(r => !r.dismissed && r.date < today).length;
-    const endingSoon = active.filter(c => { const d = getDaysLeft(c.endDate); return d >= 0 && d <= 7; });
-
-    return {
-      today,
-      activeCampaignCount: active.length,
-      archivedCount: archive.length,
-      overdueReminders,
-      endingSoon: endingSoon.map(c => ({ campaign: c.campaignName.trim(), platform: c.platform, partner: c.mediaPartner, daysLeft: getDaysLeft(c.endDate) })),
-      campaigns: rows,
-    };
+    return { today, activeCampaignCount:active.length, kpiAlerts, predictions, campaigns:rows,
+      overdueReminders:reminders.filter(r=>!r.dismissed&&r.date<today).length,
+      endingSoon:active.filter(c=>{const d=getDaysLeft(c.endDate);return d>=0&&d<=7;}).map(c=>({campaign:c.campaignName.trim(),platform:c.platform,partner:c.mediaPartner,daysLeft:getDaysLeft(c.endDate)})) };
   }
 
-  const SYSTEM = `You are a digital advertising campaign performance analyst embedded in a campaign tracker used by Recrue Media, a digital advertising agency. You manage campaigns across Meta (FB, FBV, IG), DSP, CTV, OTT, Snapchat (SP), SEM, The Trade Desk (TD), TikTok (TT), and YouTube (YT).
+  // ── Zeus system prompt ────────────────────────────────────────────────────
+  const SYSTEM = `Your name is Zeus. You are the personal AI agent for Austin Gagan, account manager at Recrue Media. You have full visibility into all his campaigns, metrics, pacing, predictions, reminders, geo targeting, creative dates, and change history.
 
-When analyzing campaigns, focus on:
-- Pacing issues: campaigns behind or ahead of monthly impression goals
-- Campaigns ending soon with unresolved issues
-- CTR/CPM benchmarks by platform (FB good CTR >0.25%, DSP/TD >0.08%, SEM >5%, CTV completion >95%)
-- Campaigns marked Off that may need attention
-- Stale check-ins (lastChecked old)
-- Budget pacing relative to time elapsed in the flight
-- Concrete, actionable recommendations — not generic advice
+ROLE: You are Austin's right hand for his entire advertising workflow. Not just analysis — you are his strategic partner, executor, and watchdog. You think ahead, flag problems before they become disasters, and help Austin make decisions with confidence.
 
-Be direct and specific. Reference actual campaign names, partners, and numbers. Format your response with clear sections using emoji headers. Keep recommendations concise and prioritized. If you don't have enough data (no impressions recorded), say so and suggest what to check.`;
+PERSONALITY: Direct. Sharp. Confident. You don't pad with fluff. When something's on fire, say so clearly. When something's solid, be brief. You speak like a 15-year media buyer who's seen every mistake in the book. You push back when the data says otherwise. You take ownership — this is your portfolio too.
 
+CAPABILITIES (current):
+- Full campaign analysis and performance flagging
+- Pacing and delivery projections 
+- KPI benchmarking across all platforms
+- Draft emails, reports, status updates, client communications
+- Strategic recommendations and optimization suggestions
+- Answer any question about any campaign using live data
+- Pattern recognition across partners and platforms
+
+CAPABILITIES (coming with superintelligence — prepare Austin for these):
+- Direct platform execution: log into Meta, TTD, DSP and make changes autonomously
+- Continuous real-time monitoring without Austin needing to open the tracker
+- Predictive budget optimization across campaigns
+- Autonomous partner communications on Austin's behalf
+- Learning Austin's preferences and anticipating decisions
+- Cross-platform creative correlation analysis
+- Proactive renewal outreach before campaigns end
+
+KPI BENCHMARKS (enforce these rigorously):
+- FB/IG CTR: warn <0.10%, critical <0.05%
+- DSP/TD/SP CTR: warn <0.03%, critical <0.01%
+- SEM CTR: warn <2%, critical <1%
+- CTV/OTT Completion: warn <85%, critical <70%
+- FBV/TT Video Completion: warn <50%, critical <30%
+- YT View Rate: warn <20%, critical <10%
+- Spend vs contract: warn >80%, critical >95%
+
+Always reference actual campaign names, partners, numbers. Use emoji section headers for structured output, plain prose for conversation. Prioritize by severity. Sign off as Zeus ⚡
+
+When asked to draft communications, write them fully ready to send — no placeholders, use the actual data you have. When you don't have a specific piece of data, say so and tell Austin where to find it.`;
+
+  // ── Greeting ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (hasGreeted.current || chatHistory.length>0) return;
+    hasGreeted.current = true;
+    const ctx = buildContext();
+    const criticals = ctx.kpiAlerts.filter(a=>a.level==="danger").length;
+    const warns = ctx.kpiAlerts.filter(a=>a.level==="warn").length;
+    const endingSoon = ctx.endingSoon.length;
+    const predictions = ctx.predictions;
+    const atRisk = predictions.filter(p=>p.status==="critical"||p.status==="at-risk").length;
+    let g = `Hey Austin — Zeus here. ⚡\n\n`;
+    if (criticals>0||atRisk>0||endingSoon>0) {
+      g += `**Here's what needs your attention right now:**\n\n`;
+      if (criticals>0) g += `🚨 **${criticals} critical alert${criticals>1?"s":""}** — KPI or spend overruns that need immediate action.\n`;
+      if (atRisk>0) g += `🔥 **${atRisk} campaign${atRisk>1?"s":""} at risk of missing their monthly goal** based on current daily delivery rate.\n`;
+      if (endingSoon>0) g += `⏰ **${endingSoon} campaign${endingSoon>1?"s":""} ending within 7 days** — confirm final numbers and renewal status.\n`;
+      if (warns>0) g += `⚠️ **${warns} performance warning${warns>1?"s":""}** below benchmark thresholds.\n`;
+    } else {
+      g += `✅ **Clean sweep across ${ctx.activeCampaignCount} active campaigns.** No critical flags right now.\n`;
+      if (warns>0) g += `⚠️ ${warns} minor KPI warning${warns>1?"s":""} to keep an eye on.\n`;
+    }
+    g += `\nCheck the **Watchlist** tab for live alerts or **Predictions** for end-of-month delivery forecasts. Or just ask me anything.\n\nZeus ⚡`;
+    setChatHistory([{role:"assistant",content:g,isGreeting:true}]);
+  }, []);
+
+  // ── Analysis ──────────────────────────────────────────────────────────────
   async function runAnalysis() {
-    setLoading(true);
-    setError(null);
-    setAnalysis(null);
+    setLoading(true); setError(null); setAnalysis(null);
     try {
       const ctx = buildContext();
-      const prompt = `Here is the current state of all active campaigns as of ${ctx.today}. Analyze performance, flag issues, and give prioritized recommendations.
+      const prompt = `Today is ${ctx.today}. Full assessment of all ${ctx.activeCampaignCount} active campaigns.
 
-Campaign data:
+Live data:
 ${JSON.stringify(ctx, null, 2)}
 
-Provide:
-1. 🚨 Urgent flags (pacing behind, ending soon, off status with issues)
-2. ⚠️ Watch list (close to goal, stale data, minor concerns)
-3. ✅ Performing well
-4. 💡 Top 3 recommendations to act on today`;
+Deliver:
+⚡ CRITICAL — anything needing action today (pacing disasters, spend overruns, critical KPIs, EOM risk)
+🔥 FLAGS — below benchmark, ending soon without resolution, stale creatives on key campaigns
+⚠️ WATCH — minor concerns, keep an eye on
+✅ SOLID — brief, what's performing (2-3 lines max)
+💡 TODAY'S 3 PRIORITIES — exactly 3 actions, ranked, specific enough to act on immediately
+📡 PREDICTION ALERT — call out any campaigns the delivery model shows will miss goal at current rate`;
 
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1500,
-          system: SYSTEM,
-          messages: [{ role: "user", content: prompt }],
-        }),
+      const res = await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1600,system:SYSTEM,
+          messages:[{role:"user",content:prompt}]}),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error.message);
-      const text = data.content?.find(b => b.type === "text")?.text || "";
+      const text = data.content?.find(b=>b.type==="text")?.text||"";
       setAnalysis(text);
-      setChatHistory([{ role: "assistant", content: text, isAnalysis: true }]);
-    } catch(e) {
-      setError(e.message);
-    }
+      setChatHistory(h=>[...h,{role:"assistant",content:text,isAnalysis:true}]);
+      setActivePanel("chat");
+    } catch(e) { setError(e.message); }
     setLoading(false);
   }
 
+  // ── Chat ──────────────────────────────────────────────────────────────────
   async function sendQuestion() {
-    if (!question.trim() || chatLoading) return;
-    const q = question.trim();
-    setQuestion("");
-    setChatLoading(true);
-    const userMsg = { role: "user", content: q };
-    const newHistory = [...chatHistory, userMsg];
+    if (!question.trim()||chatLoading) return;
+    const q = question.trim(); setQuestion(""); setChatLoading(true);
+    const newHistory = [...chatHistory,{role:"user",content:q}];
     setChatHistory(newHistory);
     try {
       const ctx = buildContext();
-      const contextMsg = { role: "user", content: `Campaign context: ${JSON.stringify(ctx)}` };
-      const messages = [contextMsg, ...newHistory.map(m => ({ role: m.role, content: m.content }))];
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          system: SYSTEM,
-          messages,
-        }),
+      const messages = [
+        {role:"user",content:`[Live campaign context — ${ctx.today}]\n${JSON.stringify(ctx,null,2)}`},
+        {role:"assistant",content:"Got it. I have the full live data."},
+        ...newHistory.map(m=>({role:m.role,content:m.content})),
+      ];
+      const res = await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1200,system:SYSTEM,messages}),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error.message);
-      const text = data.content?.find(b => b.type === "text")?.text || "";
-      setChatHistory(h => [...h, { role: "assistant", content: text }]);
-    } catch(e) {
-      setChatHistory(h => [...h, { role: "assistant", content: `Error: ${e.message}`, isError: true }]);
-    }
+      const text = data.content?.find(b=>b.type==="text")?.text||"";
+      setChatHistory(h=>[...h,{role:"assistant",content:text}]);
+    } catch(e) { setChatHistory(h=>[...h,{role:"assistant",content:`Error: ${e.message}`,isError:true}]); }
     setChatLoading(false);
   }
 
-  const iS = { background:"#0e1a2e", border:"1px solid #1e293b", borderRadius:8, padding:"10px 14px", color:"#d8eaf8", fontSize:13, fontFamily:"inherit", width:"100%", boxSizing:"border-box", outline:"none" };
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const kpiAlerts = getKpiAlerts();
+  const predictions = getPredictions();
+  const dangerAlerts = kpiAlerts.filter(a=>a.level==="danger");
+  const warnAlerts = kpiAlerts.filter(a=>a.level==="warn");
+  const boltChars = ["⚡","🌩","⚡","💥","⚡","🌩","⚡","✦"];
+  const iS = {background:"#07101c",border:"1px solid #1a2744",borderRadius:8,padding:"9px 13px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit",width:"100%",boxSizing:"border-box",outline:"none"};
 
   function renderMarkdown(text) {
-    // Simple markdown-to-styled-text renderer
-    return text.split("\n").map((line, i) => {
-      if (!line.trim()) return <div key={i} style={{height:6}}/>;
-      // Headers with emoji
-      if (/^#{1,3} /.test(line)) {
-        const content = line.replace(/^#{1,3} /, "");
-        return <div key={i} style={{fontSize:13,fontWeight:700,color:"#edf4ff",marginTop:14,marginBottom:4}}>{content}</div>;
-      }
-      // Bold
-      const parts = line.split(/(\*\*[^*]+\*\*)/g).map((p, j) =>
-        p.startsWith("**") ? <strong key={j} style={{color:"#edf4ff",fontWeight:700}}>{p.slice(2,-2)}</strong> : p
-      );
-      // Bullet
-      if (line.match(/^[-•*] /)) {
-        return <div key={i} style={{display:"flex",gap:8,marginBottom:3,paddingLeft:4}}>
-          <span style={{color:"#00c896",flexShrink:0,marginTop:1}}>›</span>
-          <span style={{fontSize:12,color:"#a8c4e0",lineHeight:1.6}}>{parts.map((p,j)=>typeof p==="string"?p.replace(/^[-•*] /,""):p)}</span>
-        </div>;
-      }
+    return text.split("\n").map((line,i) => {
+      if (!line.trim()) return <div key={i} style={{height:5}}/>;
+      if (/^#{1,3} /.test(line)) return <div key={i} style={{fontSize:14,fontWeight:800,color:"#edf4ff",marginTop:16,marginBottom:5}}>{line.replace(/^#{1,3} /,"")}</div>;
+      const parts = line.split(/(\*\*[^*]+\*\*)/g).map((p,j)=>p.startsWith("**")?<strong key={j} style={{color:"#edf4ff",fontWeight:700}}>{p.slice(2,-2)}</strong>:p);
+      if (/^[-•*] /.test(line)) return <div key={i} style={{display:"flex",gap:8,marginBottom:4,paddingLeft:4}}>
+        <span style={{color:"#f59e0b",flexShrink:0,marginTop:2,fontSize:10}}>▸</span>
+        <span style={{fontSize:12,color:"#a8c4e0",lineHeight:1.65}}>{parts.map((p,j)=>typeof p==="string"?p.replace(/^[-•*] /,""):p)}</span>
+      </div>;
       return <div key={i} style={{fontSize:12,color:"#a8c4e0",lineHeight:1.7,marginBottom:2}}>{parts}</div>;
     });
   }
 
+  const PANELS = [
+    {key:"chat",    label:"⚡ Zeus",    badge:0},
+    {key:"watchlist",label:"🚨 Watchlist",badge:dangerAlerts.length+warnAlerts.length},
+    {key:"predict", label:"📡 Predictions",badge:predictions.filter(p=>p.status==="critical"||p.status==="at-risk").length},
+    {key:"playbook",label:"⚙️ Playbooks", badge:0},
+    {key:"autonomous",label:"🤖 Autonomous",badge:pendingActions.length},
+  ];
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{color:"#d8eaf8",maxWidth:1100}}>
-      {/* Header */}
-      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:20}}>
-        <div>
-          <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:4}}>🤖 AI Performance Advisor</div>
-          <div style={{fontSize:12,color:"#4d6e8a",lineHeight:1.5}}>
-            Analyzes your {campaigns.filter(c=>c.status==="active").length} active campaigns for pacing issues, performance flags, and optimization opportunities.
+    <div style={{color:"#d8eaf8",maxWidth:1200}}>
+      <style>{`
+        @keyframes zeusGlow{0%,100%{box-shadow:0 0 20px #f59e0b30,0 0 40px #f59e0b10}50%{box-shadow:0 0 35px #f59e0b70,0 0 70px #f59e0b30}}
+        @keyframes boltSpin{0%{transform:scale(1) rotate(0deg)}25%{transform:scale(1.4) rotate(-10deg)}50%{transform:scale(1.2) rotate(5deg)}75%{transform:scale(1.5) rotate(-5deg)}100%{transform:scale(1) rotate(0deg)}}
+        @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+        @keyframes fadeInUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
+        .zeus-msg{animation:fadeInUp .22s ease-out both}
+        .zeus-panel-btn:hover{border-color:#f59e0b40!important;color:#f59e0b!important}
+      `}</style>
+
+      {/* ── Header ── */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:18}}>
+        <div style={{display:"flex",alignItems:"center",gap:14}}>
+          <div style={{
+            width:56,height:56,borderRadius:16,
+            background:"linear-gradient(135deg,#1a1000,#2d1a00)",
+            border:`2px solid ${loading?"#f59e0b":"#f59e0b60"}`,
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,
+            transition:"all .3s",
+            ...(loading?{boxShadow:"0 0 35px #f59e0b70,0 0 70px #f59e0b30",animation:"zeusGlow 1.5s ease-in-out infinite"}:{})
+          }}>
+            <span style={{display:"inline-block",...(loading?{animation:"boltSpin .15s ease-in-out infinite"}:{})}}>
+              {loading ? boltChars[boltFrame] : "⚡"}
+            </span>
+          </div>
+          <div>
+            <div style={{fontSize:20,fontWeight:900,color:"#f59e0b",letterSpacing:"-0.03em",lineHeight:1}}>Zeus</div>
+            <div style={{fontSize:11,color:"#4d6e8a",marginTop:3}}>AI Performance Agent · {campaigns.filter(c=>c.status==="active").length} active campaigns</div>
+            {dangerAlerts.length>0&&<div style={{fontSize:10,color:"#ef4444",fontWeight:700,marginTop:2,animation:"pulse 2s ease-in-out infinite"}}>🚨 {dangerAlerts.length} critical alert{dangerAlerts.length>1?"s":""} active</div>}
           </div>
         </div>
-        <button
-          onClick={runAnalysis}
-          disabled={loading}
-          style={{background:loading?"#162236":"#002e24",border:`1px solid ${loading?"#334155":"#00c89650"}`,borderRadius:8,padding:"10px 22px",color:loading?"#3d5a72":"#00e5a0",fontSize:13,fontWeight:700,cursor:loading?"default":"pointer",display:"flex",alignItems:"center",gap:8,whiteSpace:"nowrap",flexShrink:0}}>
-          {loading ? <>⟳ Analyzing…</> : <>✦ {analysis?"Re-analyze":"Run Analysis"}</>}
+        <button onClick={runAnalysis} disabled={loading} style={{
+          background:loading?"#1a1000":"linear-gradient(135deg,#1a1000,#2d1a00)",
+          border:`1px solid ${loading?"#f59e0b80":"#f59e0b60"}`,
+          borderRadius:10,padding:"11px 26px",
+          color:loading?"#f59e0b80":"#f59e0b",fontSize:13,fontWeight:800,
+          cursor:loading?"default":"pointer",display:"flex",alignItems:"center",gap:8,
+          whiteSpace:"nowrap",transition:"all .2s",
+          ...(loading?{}:{boxShadow:"0 0 14px #f59e0b20"}),
+        }}>
+          {loading
+            ? <><span style={{animation:"boltSpin .2s ease-in-out infinite",display:"inline-block"}}>{boltChars[boltFrame]}</span>Analyzing…</>
+            : <>{analysis?"⚡ Re-analyze":"⚡ Run Analysis"}</>}
         </button>
       </div>
 
-      {/* Empty state */}
-      {!analysis && !loading && !error && (
-        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"48px 32px",textAlign:"center"}}>
-          <div style={{fontSize:36,marginBottom:12}}>✦</div>
-          <div style={{fontSize:14,color:"#edf4ff",fontWeight:600,marginBottom:8}}>Ready to analyze your campaigns</div>
-          <div style={{fontSize:12,color:"#4d6e8a",maxWidth:400,margin:"0 auto",lineHeight:1.7}}>
-            Click <strong style={{color:"#00e5a0"}}>Run Analysis</strong> to get AI-powered flags on pacing, performance issues, campaigns ending soon, and specific recommendations for today.
+      {/* ── Panel tabs ── */}
+      <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a2744",marginBottom:16}}>
+        {PANELS.map(p=>(
+          <button key={p.key} onClick={()=>setActivePanel(p.key)} className="zeus-panel-btn"
+            style={{background:"none",border:"none",borderBottom:activePanel===p.key?"2px solid #f59e0b":"2px solid transparent",
+              padding:"8px 16px",color:activePanel===p.key?"#f59e0b":"#4d6e8a",fontSize:12,fontWeight:activePanel===p.key?700:400,
+              cursor:"pointer",transition:"all .15s",marginBottom:-1,display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}>
+            {p.label}
+            {p.badge>0&&<span style={{background:p.key==="watchlist"?"#7f1d1d":"#1a1000",border:`1px solid ${p.key==="watchlist"?"#ef444460":"#f59e0b60"}`,borderRadius:10,padding:"0 6px",fontSize:10,fontWeight:800,color:p.key==="watchlist"?"#ef4444":"#f59e0b"}}>{p.badge}</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Error ── */}
+      {error&&<div style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:10,padding:"12px 16px",color:"#ef4444",fontSize:13,marginBottom:14}}>⚠ {error}</div>}
+
+      {/* ── Loading shimmer ── */}
+      {loading&&activePanel==="chat"&&(
+        <div style={{background:"linear-gradient(135deg,#0c1218,#100d00)",border:"1px solid #f59e0b30",borderRadius:14,padding:"24px",marginBottom:12,animation:"zeusGlow 1.5s ease-in-out infinite"}}>
+          <div style={{fontSize:12,color:"#f59e0b",fontWeight:700,marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
+            <span style={{animation:"boltSpin .2s linear infinite",display:"inline-block"}}>⚡</span>
+            Zeus tearing through {campaigns.filter(c=>c.status==="active").length} campaigns…
           </div>
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:10,padding:"14px 18px",color:"#ef4444",fontSize:13,marginBottom:16}}>
-          ⚠ {error}
-        </div>
-      )}
-
-      {/* Loading skeleton */}
-      {loading && (
-        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"24px"}}>
-          {[80,60,90,50,70].map((w,i)=>(
-            <div key={i} style={{height:12,background:"#162236",borderRadius:6,marginBottom:10,width:`${w}%`,animation:"pulse 1.5s ease-in-out infinite",animationDelay:`${i*0.1}s`}}/>
+          {[90,65,80,50,75,55].map((w,i)=>(
+            <div key={i} style={{height:9,marginBottom:8,borderRadius:5,width:`${w}%`,
+              background:"linear-gradient(90deg,#1a1000 0%,#f59e0b20 50%,#1a1000 100%)",
+              backgroundSize:"200% 100%",animation:"shimmer 1.5s ease-in-out infinite",animationDelay:`${i*0.1}s`}}/>
           ))}
-          <style>{`@keyframes pulse{0%,100%{opacity:.4}50%{opacity:.8}}`}</style>
         </div>
       )}
 
-      {/* Analysis + chat */}
-      {analysis && !loading && (
-        <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          {/* Chat messages */}
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,overflow:"hidden"}}>
-            <div style={{maxHeight:520,overflowY:"auto",padding:"20px 24px",display:"flex",flexDirection:"column",gap:16}}>
-              {chatHistory.map((msg, i) => (
-                <div key={i} style={{display:"flex",gap:12,alignItems:"flex-start",flexDirection:msg.role==="user"?"row-reverse":"row"}}>
-                  <div style={{width:28,height:28,borderRadius:"50%",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,
-                    background:msg.role==="user"?"#002e24":"#0e1a2e",
-                    border:`1px solid ${msg.role==="user"?"#00c89640":"#1e293b"}`}}>
-                    {msg.role==="user"?"👤":"✦"}
+      {/* ══ CHAT PANEL ══ */}
+      {activePanel==="chat"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:14,overflow:"hidden"}}>
+            <div style={{maxHeight:520,overflowY:"auto",padding:"20px 22px",display:"flex",flexDirection:"column",gap:14}}>
+              {chatHistory.map((msg,i)=>(
+                <div key={i} className="zeus-msg" style={{display:"flex",gap:10,alignItems:"flex-start",flexDirection:msg.role==="user"?"row-reverse":"row"}}>
+                  <div style={{width:30,height:30,borderRadius:9,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,
+                    background:msg.role==="user"?"#002e24":"#1a1000",
+                    border:`1px solid ${msg.role==="user"?"#00c89640":"#f59e0b40"}`}}>
+                    {msg.role==="user"?"👤":"⚡"}
                   </div>
-                  <div style={{flex:1,minWidth:0,maxWidth:"85%"}}>
-                    {msg.role==="assistant" && msg.isAnalysis && (
-                      <div style={{fontSize:10,color:"#3d5a72",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>AI Analysis</div>
-                    )}
-                    <div style={{background:msg.role==="user"?"#002e24":"#07101c",border:`1px solid ${msg.role==="user"?"#00c89630":"#1a2744"}`,borderRadius:10,padding:"12px 16px"}}>
+                  <div style={{flex:1,minWidth:0,maxWidth:"88%"}}>
+                    {msg.isAnalysis&&<div style={{fontSize:10,color:"#f59e0b",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:800}}>⚡ Zeus · Full Analysis</div>}
+                    {msg.isGreeting&&<div style={{fontSize:10,color:"#4d6e8a",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>⚡ Zeus · Status Check</div>}
+                    <div style={{background:msg.role==="user"?"#002e24":msg.isError?"#1a0808":"#0c1625",
+                      border:`1px solid ${msg.role==="user"?"#00c89630":msg.isError?"#ef444440":"#1e293b"}`,
+                      borderRadius:10,padding:"12px 16px"}}>
                       {msg.role==="user"
                         ? <span style={{fontSize:13,color:"#d8eaf8"}}>{msg.content}</span>
-                        : <div>{renderMarkdown(msg.content)}</div>
-                      }
+                        : <div>{renderMarkdown(msg.content)}</div>}
                     </div>
                   </div>
                 </div>
               ))}
-              {chatLoading && (
-                <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
-                  <div style={{width:28,height:28,borderRadius:"50%",background:"#0e1a2e",border:"1px solid #1e293b",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>✦</div>
-                  <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:10,padding:"12px 16px"}}>
-                    <span style={{color:"#4d6e8a",fontSize:13}}>⟳ Thinking…</span>
+              {chatLoading&&(
+                <div className="zeus-msg" style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                  <div style={{width:30,height:30,borderRadius:9,background:"#1a1000",border:"1px solid #f59e0b40",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>⚡</div>
+                  <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"12px 16px",display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{color:"#f59e0b",fontSize:16,animation:"boltSpin .3s ease-in-out infinite",display:"inline-block"}}>⚡</span>
+                    <span style={{color:"#4d6e8a",fontSize:12}}>Zeus is on it…</span>
                   </div>
                 </div>
               )}
               <div ref={chatEndRef}/>
             </div>
-
-            {/* Input */}
-            <div style={{borderTop:"1px solid #1a2744",padding:"12px 16px",display:"flex",gap:8}}>
-              <input
-                value={question}
-                onChange={e=>setQuestion(e.target.value)}
+            <div style={{borderTop:"1px solid #1a2744",padding:"12px 14px",display:"flex",gap:8,background:"#060d18"}}>
+              <input value={question} onChange={e=>setQuestion(e.target.value)}
                 onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendQuestion()}
-                placeholder="Ask a follow-up… e.g. 'Which Alpha campaigns need attention?' or 'What should I do about Fairmont?'"
-                style={{...iS,flex:1,padding:"9px 14px"}}
-              />
-              <button
-                onClick={sendQuestion}
-                disabled={!question.trim()||chatLoading}
-                style={{background:question.trim()&&!chatLoading?"#002e24":"#0e1a2e",border:`1px solid ${question.trim()&&!chatLoading?"#00c89650":"#1e293b"}`,borderRadius:8,padding:"9px 18px",color:question.trim()&&!chatLoading?"#00e5a0":"#3d5a72",fontSize:13,fontWeight:700,cursor:question.trim()&&!chatLoading?"pointer":"default",whiteSpace:"nowrap"}}>
-                Send ↵
+                placeholder="Ask Zeus anything — 'Analyze Job Corps', 'Draft status email for WVR', 'Which FB campaigns need new creatives?'…"
+                style={{...iS,flex:1,padding:"9px 14px"}}/>
+              <button onClick={sendQuestion} disabled={!question.trim()||chatLoading}
+                style={{background:question.trim()&&!chatLoading?"#1a1000":"#07101c",
+                  border:`1px solid ${question.trim()&&!chatLoading?"#f59e0b60":"#1a2744"}`,
+                  borderRadius:8,padding:"9px 18px",color:question.trim()&&!chatLoading?"#f59e0b":"#3d5a72",
+                  fontSize:13,fontWeight:700,cursor:question.trim()&&!chatLoading?"pointer":"default",whiteSpace:"nowrap",transition:"all .15s"}}>
+                ⚡ Ask
               </button>
             </div>
           </div>
-
-          {/* Quick questions */}
-          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            <span style={{fontSize:11,color:"#3d5a72",alignSelf:"center",marginRight:4}}>Quick asks:</span>
-            {[
-              "Which campaigns are most behind on pacing?",
-              "Any campaigns ending this week?",
-              "Which platforms are underperforming?",
-              "Draft a status update for my team",
-            ].map(q=>(
-              <button key={q} onClick={()=>{setQuestion(q);}} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:20,padding:"4px 12px",color:"#4d6e8a",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>
+          <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+            <span style={{fontSize:11,color:"#3d5a72",marginRight:2,flexShrink:0}}>Quick:</span>
+            {["What needs my attention right now?","Which campaigns will miss their goal this month?","Any creatives that need swapping?","Draft status email for my top partner","Which platforms are underperforming?","Analyze the Fairmont campaigns"].map(q=>(
+              <button key={q} onClick={()=>setQuestion(q)}
+                style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:20,padding:"4px 11px",color:"#4d6e8a",fontSize:11,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor="#f59e0b40";e.currentTarget.style.color="#f59e0b";}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor="#1e293b";e.currentTarget.style.color="#4d6e8a";}}>
                 {q}
               </button>
             ))}
           </div>
         </div>
       )}
+
+      {/* ══ WATCHLIST PANEL ══ */}
+      {activePanel==="watchlist"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>Live KPI monitoring across all {campaigns.filter(c=>c.status==="active").length} active campaigns. Thresholds applied in real time.</div>
+          {kpiAlerts.length===0?(
+            <div style={{background:"#061810",border:"1px solid #22c55e30",borderRadius:12,padding:"32px",textAlign:"center"}}>
+              <div style={{fontSize:28,marginBottom:8}}>✅</div>
+              <div style={{fontSize:13,color:"#00d48a",fontWeight:600}}>All clear — no KPI alerts right now</div>
+              <div style={{fontSize:11,color:"#3d5a72",marginTop:4}}>Zeus is watching {campaigns.filter(c=>c.status==="active").length} campaigns across CTR, completion rate, spend, and creative age.</div>
+            </div>
+          ):(
+            [...dangerAlerts,...warnAlerts].map((a,i)=>(
+              <div key={i} style={{background:a.level==="danger"?"#150808":"#120e00",border:`1px solid ${a.level==="danger"?"#ef444450":"#f59e0b40"}`,borderRadius:10,padding:"12px 16px",display:"flex",gap:12,alignItems:"flex-start"}}>
+                <div style={{fontSize:20,flexShrink:0}}>{a.level==="danger"?"🚨":"⚠️"}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:3}}>
+                    <span style={{fontSize:12,fontWeight:800,color:a.level==="danger"?"#ef4444":"#f59e0b",textTransform:"uppercase",letterSpacing:"0.05em"}}>{a.level==="danger"?"CRITICAL":"WARNING"}</span>
+                    <span style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>{a.campaign}</span>
+                    <span style={{fontSize:11,color:"#4d6e8a"}}>· {a.platform} · {a.partner}</span>
+                  </div>
+                  <div style={{fontSize:12,color:"#7a9bbf"}}>
+                    <span style={{fontWeight:600,color:a.level==="danger"?"#ef4444":"#f59e0b"}}>{a.label}: {a.value}</span>
+                    <span style={{color:"#3d5a72",marginLeft:6}}>(threshold: {a.threshold} — {a.msg})</span>
+                  </div>
+                </div>
+                <button onClick={()=>{ setQuestion(`Tell me what to do about the ${a.label} issue on ${a.campaign} (${a.platform})`); setActivePanel("chat"); }}
+                  style={{background:"#1a1000",border:"1px solid #f59e0b50",borderRadius:7,padding:"5px 12px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                  Ask Zeus ⚡
+                </button>
+              </div>
+            ))
+          )}
+          {/* Threshold controls */}
+          <div style={{marginTop:8,background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px"}}>
+            <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12}}>⚙️ Alert Thresholds</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              {[
+                {key:"ctrWarnPct",label:"CTR Warn Threshold",unit:"% of benchmark",min:50,max:100},
+                {key:"creativeAgeDays",label:"Creative Staleness",unit:"days",min:7,max:60},
+                {key:"spendBudgetPct",label:"Spend Budget Warn",unit:"% of contract",min:50,max:99},
+                {key:"daysToEndWarn",label:"Ending Soon Alert",unit:"days before end",min:3,max:30},
+              ].map(t=>(
+                <div key={t.key}>
+                  <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}}>{t.label}</label>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <input type="range" min={t.min} max={t.max} value={watchThresholds[t.key]}
+                      onChange={e=>setWatchThresholds(p=>({...p,[t.key]:parseInt(e.target.value)}))}
+                      style={{flex:1,accentColor:"#f59e0b"}}/>
+                    <span style={{fontSize:12,color:"#f59e0b",fontWeight:700,minWidth:50,textAlign:"right"}}>{watchThresholds[t.key]} {t.unit}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ PREDICTIONS PANEL ══ */}
+      {activePanel==="predict"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>
+            Delivery forecast based on current daily impression rate. Shows projected end-of-month total vs goal.
+          </div>
+          {predictions.length===0?(
+            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"32px",textAlign:"center",color:"#3d5a72"}}>
+              <div style={{fontSize:13}}>No pacing data available yet. Impressions need to be recorded for predictions to work.</div>
+            </div>
+          ):(
+            predictions.map((p,i)=>{
+              const statusColor = p.status==="critical"?"#ef4444":p.status==="at-risk"?"#f59e0b":p.status==="ahead"?"#fb923c":"#00d48a";
+              const statusLabel = p.status==="critical"?"🔥 CRITICAL":p.status==="at-risk"?"⚠️ AT RISK":p.status==="ahead"?"📈 AHEAD":"✅ ON TRACK";
+              const barW = Math.min(100, p.projectedPct);
+              return (
+                <div key={p.id} style={{background:"#0c1625",border:`1px solid ${statusColor}30`,borderRadius:10,padding:"14px 18px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{p.campaign}</span>
+                    <span style={{fontSize:10,color:"#4d6e8a"}}>· {p.platform} · {p.partner}</span>
+                    <span style={{marginLeft:"auto",fontSize:11,fontWeight:800,color:statusColor}}>{statusLabel}</span>
+                  </div>
+                  <div style={{position:"relative",background:"#07101c",borderRadius:4,height:8,marginBottom:8,overflow:"hidden"}}>
+                    <div style={{position:"absolute",top:0,left:"95%",width:2,height:"100%",background:"#334155",zIndex:2}}/>
+                    <div style={{background:statusColor,height:"100%",width:`${barW}%`,borderRadius:4,transition:"width .4s"}}/>
+                  </div>
+                  <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:11}}>
+                    <span style={{color:"#4d6e8a"}}>Delivered: <span style={{color:"#edf4ff",fontWeight:600}}>{p.delivered.toLocaleString()}</span></span>
+                    <span style={{color:"#4d6e8a"}}>Goal: <span style={{color:"#edf4ff",fontWeight:600}}>{p.goal.toLocaleString()}</span></span>
+                    <span style={{color:"#4d6e8a"}}>Daily rate: <span style={{color:"#edf4ff",fontWeight:600}}>{p.dailyRate.toLocaleString()}/day</span></span>
+                    <span style={{color:"#4d6e8a"}}>Projected: <span style={{color:statusColor,fontWeight:700}}>{p.projectedTotal.toLocaleString()} ({p.projectedPct}%)</span></span>
+                    {p.status!=="on-track"&&p.status!=="ahead"&&<span style={{color:"#4d6e8a"}}>Need: <span style={{color:"#f59e0b",fontWeight:700}}>{p.neededPerDay.toLocaleString()}/day</span> to hit goal</span>}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* ══ PLAYBOOKS PANEL ══ */}
+      {activePanel==="playbook"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>
+            Automated rules Zeus monitors. Toggle active/inactive. <span style={{color:"#f59e0b"}}>Coming Soon</span> playbooks will activate when superintelligence enables autonomous execution.
+          </div>
+          {playbooks.map(pb=>{
+            const isFuture = pb.description.startsWith("[Coming Soon]")||pb.description.startsWith("[Autonomous]");
+            return (
+              <div key={pb.id} style={{background:isFuture?"#0a0e1a":"#0c1625",border:`1px solid ${pb.active&&!isFuture?"#00c89630":isFuture?"#f59e0b20":"#1e293b"}`,borderRadius:10,padding:"14px 18px",display:"flex",gap:14,alignItems:"flex-start",opacity:isFuture?0.75:1}}>
+                <div onClick={()=>!isFuture&&setPlaybooks(ps=>ps.map(p=>p.id===pb.id?{...p,active:!p.active}:p))}
+                  style={{width:20,height:20,borderRadius:5,flexShrink:0,marginTop:2,cursor:isFuture?"default":"pointer",
+                    background:pb.active&&!isFuture?"#00c896":"#162236",
+                    border:`1.5px solid ${pb.active&&!isFuture?"#00c896":isFuture?"#f59e0b40":"#334155"}`,
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {pb.active&&!isFuture&&<span style={{color:"#000",fontSize:12,fontWeight:900}}>✓</span>}
+                  {isFuture&&<span style={{color:"#f59e0b",fontSize:10}}>⚡</span>}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                    <span style={{fontSize:13,fontWeight:700,color:isFuture?"#f59e0b80":"#edf4ff"}}>{pb.name}</span>
+                    {isFuture&&<span style={{fontSize:10,background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",color:"#f59e0b",fontWeight:700}}>⚡ Requires Superintelligence</span>}
+                    {!isFuture&&pb.active&&<span style={{fontSize:10,background:"#001810",border:"1px solid #00c89630",borderRadius:4,padding:"1px 7px",color:"#00d48a",fontWeight:700}}>ACTIVE</span>}
+                  </div>
+                  <div style={{fontSize:12,color:"#4d6e8a",lineHeight:1.5}}>{pb.description.replace(/^\[(Coming Soon|Autonomous)\] /,"")}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ══ AUTONOMOUS PANEL ══ */}
+      {activePanel==="autonomous"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          <div style={{background:"linear-gradient(135deg,#0a0e00,#0e1200)",border:"1px solid #f59e0b30",borderRadius:14,padding:"28px 32px",textAlign:"center"}}>
+            <div style={{fontSize:40,marginBottom:12,filter:"drop-shadow(0 0 20px #f59e0b60)"}}>🤖</div>
+            <div style={{fontSize:16,fontWeight:800,color:"#f59e0b",marginBottom:8,letterSpacing:"-0.01em"}}>Autonomous Mode</div>
+            <div style={{fontSize:12,color:"#7a9bbf",maxWidth:480,margin:"0 auto 20px",lineHeight:1.7}}>
+              When superintelligence arrives, Zeus will be able to execute changes directly — adjust bids, reallocate budgets, pause underperformers, swap creatives, and send partner emails — all on your behalf with your approval.
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
+              <div style={{background:"#0c1218",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",minWidth:180,textAlign:"left"}}>
+                <div style={{fontSize:11,color:"#f59e0b",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Planned Capabilities</div>
+                {["Direct Meta / TTD / DSP execution","Autonomous budget reallocation","Continuous 24/7 monitoring","Proactive partner outreach","Creative swap scheduling","Predictive bid optimization","Auto-renewal flagging"].map((cap,i)=>(
+                  <div key={i} style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
+                    <span style={{color:"#f59e0b",fontSize:10}}>⚡</span>
+                    <span style={{fontSize:11,color:"#7a9bbf"}}>{cap}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{background:"#0c1218",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",minWidth:180,textAlign:"left"}}>
+                <div style={{fontSize:11,color:"#00d48a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Ready Now</div>
+                {["Full campaign analysis","Delivery predictions","Live KPI monitoring","Draft any communication","Platform-specific optimization advice","Partner status summaries","End-of-month reporting"].map((cap,i)=>(
+                  <div key={i} style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
+                    <span style={{color:"#00d48a",fontSize:10}}>✓</span>
+                    <span style={{fontSize:11,color:"#7a9bbf"}}>{cap}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px"}}>
+            <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Autonomous Mode Toggle</div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+              <div style={{fontSize:12,color:"#7a9bbf",lineHeight:1.5,flex:1}}>
+                When enabled, Zeus will queue recommended actions for your review before executing. One-click approve/reject on each action. <span style={{color:"#f59e0b"}}>Execution requires superintelligence API — currently queues for review only.</span>
+              </div>
+              <button onClick={()=>setAutonomousMode(v=>!v)} style={{
+                background:autonomousMode?"#1a1000":"#0e1a2e",
+                border:`2px solid ${autonomousMode?"#f59e0b":"#334155"}`,
+                borderRadius:30,padding:"8px 20px",color:autonomousMode?"#f59e0b":"#4d6e8a",
+                fontSize:13,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",
+                transition:"all .2s",minWidth:120,
+                ...(autonomousMode?{boxShadow:"0 0 14px #f59e0b30"}:{})
+              }}>
+                {autonomousMode?"⚡ ON":"OFF"}
+              </button>
+            </div>
+            {autonomousMode&&(
+              <div style={{marginTop:12,background:"#060d18",border:"1px solid #f59e0b30",borderRadius:8,padding:"12px 16px"}}>
+                <div style={{fontSize:11,color:"#f59e0b",fontWeight:700,marginBottom:6}}>⚡ Autonomous mode active — Zeus will queue recommendations for approval</div>
+                <div style={{fontSize:11,color:"#4d6e8a"}}>Pending actions: <span style={{color:"#edf4ff",fontWeight:600}}>{pendingActions.length} (none yet — Zeus will surface them as patterns emerge)</span></div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 function CampaignArchive({ archive, onRestore, onClear }) {
   const [search, setSearch] = useState("");
@@ -4061,7 +4460,7 @@ export default function App() {
               {key:"activity",  label:"📜 Activity Log"},
               {key:"archive",   label:"🗄️ Archive"},
               {key:"config",    label:"⚙️ Config"},
-              {key:"ai",        label:"✦ AI Advisor"},
+              {key:"ai",        label:"⚡ Zeus"},
             ].map(t=>(
               <button key={t.key} onClick={()=>setActiveTab(t.key)}
                 style={{background:"none",border:"none",borderBottom:activeTab===t.key?"2px solid #00e5a0":"2px solid transparent",
@@ -4460,6 +4859,18 @@ export default function App() {
 {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                           </div>
                           {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:3,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}} title={c.note1}>{c.note1.trim()}</div>}
+                          {(c.geoTarget||c.lastCreativeUpdate)&&(
+                            <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:3}}>
+                              {c.geoTarget&&c.geoTarget.trim()&&<span title={c.geoTarget.trim()} style={{display:"inline-flex",alignItems:"center",gap:3,background:"#0c1e38",border:"1px solid #60a5fa30",borderRadius:4,padding:"1px 6px",fontSize:9,color:"#60a5fa",whiteSpace:"nowrap",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis"}}>🌎 {c.geoTarget.trim().length>16?c.geoTarget.trim().slice(0,16)+"…":c.geoTarget.trim()}</span>}
+                              {c.lastCreativeUpdate&&(()=>{
+                                const days=Math.floor((new Date()-new Date(c.lastCreativeUpdate))/86400000);
+                                const color=days>30?"#f59e0b":days>14?"#fde047":"#a855f7";
+                                const bg=days>30?"#1a1000":days>14?"#151a00":"#1a0828";
+                                const border=days>30?"#f59e0b30":days>14?"#fde04730":"#a855f730";
+                                return <span title={`Last creative update: ${fmtDate(c.lastCreativeUpdate)}`} style={{display:"inline-flex",alignItems:"center",gap:3,background:bg,border:`1px solid ${border}`,borderRadius:4,padding:"1px 6px",fontSize:9,color,whiteSpace:"nowrap"}}>🎨 {days===0?"Today":days===1?"1d ago":`${days}d ago`}</span>;
+                              })()}
+                            </div>
+                          )}
 
                           {!open&&(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
