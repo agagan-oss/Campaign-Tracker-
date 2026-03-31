@@ -1231,8 +1231,9 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   );
 }
 
-function AIAdvisor({ campaigns, archive, reminders, dateRange }) {
-  // ── Core state ────────────────────────────────────────────────────────────
+
+function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, onUpdateCampaign, onArchiveCampaign, onRestoreCampaign, onSetReminder }) {
+  // ── Core state ─────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState(null);
@@ -1240,188 +1241,146 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange }) {
   const [chatHistory, setChatHistory] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [boltFrame, setBoltFrame] = useState(0);
-  const [activePanel, setActivePanel] = useState("chat"); // chat | watchlist | predict | playbook | benchmarks | autonomous
-  const [watchThresholds, setWatchThresholds] = useState({
-    ctrWarnPct: 80,
-    pacingBehindPct: 80,
-    creativeAgeDays: 21,
-    spendBudgetPct: 80,
-    daysToEndWarn: 7,
-  });
-  // Editable KPI benchmarks — stored in state so user can adjust
-  const defaultBenchmarks = {
-    FB:    { metric:"CTR",  warn:0.10,  bad:0.05,  unit:"%", label:"CTR",             desc:"Meta Feed" },
-    FBV:   { metric:"VCR",  warn:50,    bad:30,    unit:"%", label:"Video Completion", desc:"Meta Video" },
-    IG:    { metric:"CTR",  warn:0.10,  bad:0.05,  unit:"%", label:"CTR",             desc:"Instagram" },
-    DSP:   { metric:"CTR",  warn:0.03,  bad:0.01,  unit:"%", label:"CTR",             desc:"DSP Display" },
-    TD:    { metric:"CTR",  warn:0.03,  bad:0.01,  unit:"%", label:"CTR",             desc:"The Trade Desk" },
-    SP:    { metric:"CTR",  warn:0.03,  bad:0.01,  unit:"%", label:"CTR",             desc:"Snapchat" },
-    SEM:   { metric:"CTR",  warn:2.0,   bad:1.0,   unit:"%", label:"CTR",             desc:"Search" },
-    CTV:   { metric:"VCR",  warn:85,    bad:70,    unit:"%", label:"Completion Rate", desc:"Connected TV" },
-    OTT:   { metric:"VCR",  warn:85,    bad:70,    unit:"%", label:"Completion Rate", desc:"OTT / Streaming" },
-    YT:    { metric:"VCR",  warn:20,    bad:10,    unit:"%", label:"View Rate",       desc:"YouTube" },
-    TT:    { metric:"VCR",  warn:20,    bad:10,    unit:"%", label:"Video Completion", desc:"TikTok" },
-    EMAIL: { metric:"CTR",  warn:1.0,   bad:0.5,   unit:"%", label:"Click Rate",      desc:"Email" },
-  };
-  const [kpiBenchmarks, setKpiBenchmarks] = useState(() => {
-    try {
-      const saved = localStorage.getItem("zeus-benchmarks");
-      return saved ? {...defaultBenchmarks, ...JSON.parse(saved)} : defaultBenchmarks;
-    } catch { return defaultBenchmarks; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem("zeus-benchmarks", JSON.stringify(kpiBenchmarks)); } catch(e) {}
-  }, [kpiBenchmarks]);
-  const [playbooks, setPlaybooks] = useState([
-    { id:1, name:"End of Month Push", trigger:"pacing_behind_eom", active:true, description:"When a campaign is >15% behind pace with <5 days left in the month, alert immediately with recommended daily delivery targets." },
-    { id:2, name:"Creative Staleness", trigger:"creative_age", active:true, description:"Flag when creatives haven't been updated in 21+ days on active campaigns." },
-    { id:3, name:"Spend Approaching Budget", trigger:"spend_budget", active:true, description:"Alert when campaign spend hits 80% of contract value." },
-    { id:4, name:"CTR Underperformance", trigger:"ctr_benchmark", active:true, description:"Flag when CTR drops below 80% of platform benchmark for 3+ days." },
-    { id:5, name:"Campaign Ending No Renewal", trigger:"ending_no_renewal", active:false, description:"[Coming Soon] Alert when a campaign ends in 14 days with no renewal flag set — prompt Austin to reach out to partner." },
-    { id:6, name:"Auto Budget Reallocation", trigger:"auto_realloc", active:false, description:"[Autonomous] When one campaign is ahead and another behind for same partner, suggest budget shift. Requires API execution capability." },
-  ]);
-  const [autonomousMode, setAutonomousMode] = useState(false);
+  const [activePanel, setActivePanel] = useState("chat");
   const [pendingActions, setPendingActions] = useState([]);
+  const [executingAction, setExecutingAction] = useState(null);
+  const [actionFeedback, setActionFeedback] = useState(null);
   const chatEndRef = useRef(null);
   const hasGreeted = useRef(false);
+
+  // ── Watch thresholds ────────────────────────────────────────────────────────
+  const [watchThresholds, setWatchThresholds] = useState({
+    ctrWarnPct: 80, pacingBehindPct: 80, creativeAgeDays: 21,
+    spendBudgetPct: 80, daysToEndWarn: 7,
+  });
+
+  // ── Editable KPI benchmarks ─────────────────────────────────────────────────
+  const defaultBenchmarks = {
+    FB:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Meta Feed" },
+    FBV:   { metric:"VCR", warn:50,   bad:30,   unit:"%", label:"Video Completion", desc:"Meta Video" },
+    IG:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Instagram" },
+    DSP:   { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"DSP Display" },
+    TD:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"The Trade Desk" },
+    SP:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"Snapchat" },
+    SEM:   { metric:"CTR", warn:2.0,  bad:1.0,  unit:"%", label:"CTR",             desc:"Search" },
+    CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV" },
+    OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming" },
+    YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube" },
+    TT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"Video Completion", desc:"TikTok" },
+    EMAIL: { metric:"CTR", warn:1.0,  bad:0.5,  unit:"%", label:"Click Rate",      desc:"Email" },
+  };
+  const [kpiBenchmarks, setKpiBenchmarks] = useState(() => {
+    try { const s = localStorage.getItem("zeus-benchmarks"); return s ? {...defaultBenchmarks,...JSON.parse(s)} : defaultBenchmarks; } catch { return defaultBenchmarks; }
+  });
+  useEffect(() => { try { localStorage.setItem("zeus-benchmarks", JSON.stringify(kpiBenchmarks)); } catch(e) {} }, [kpiBenchmarks]);
+
+  // ── Playbooks ───────────────────────────────────────────────────────────────
+  const [playbooks, setPlaybooks] = useState([
+    { id:1, name:"End of Month Push", active:true, description:"Flag campaigns >15% behind pace with <5 days left in month." },
+    { id:2, name:"Creative Staleness", active:true, description:"Flag creatives not updated in 21+ days." },
+    { id:3, name:"Spend Approaching Budget", active:true, description:"Alert at 80% of contract value spend." },
+    { id:4, name:"CTR Underperformance", active:true, description:"Flag when CTR drops below benchmark." },
+    { id:5, name:"Campaign Ending No Renewal", active:false, description:"[Coming Soon] Alert 14 days before end with no renewal flag." },
+    { id:6, name:"Auto Budget Reallocation", active:false, description:"[Autonomous] Shift budget between campaigns for same partner." },
+  ]);
+  const [autonomousMode, setAutonomousMode] = useState(false);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [chatHistory]);
 
   // Bolt animation
   useEffect(() => {
-    if (!loading) { setBoltFrame(0); return; }
+    if (!loading && !chatLoading) { setBoltFrame(0); return; }
     const frames = ["⚡","🌩","⚡","💥","⚡","🌩","⚡","✦"];
     let i = 0;
     const iv = setInterval(() => { i=(i+1)%frames.length; setBoltFrame(i); }, 120);
     return () => clearInterval(iv);
-  }, [loading]);
+  }, [loading, chatLoading]);
 
-  // ── KPI thresholds — derived from editable benchmarks ────────────────────
+  // ── KPI thresholds derived from benchmarks ─────────────────────────────────
   const KPI_THRESHOLDS = Object.fromEntries(
     Object.entries(kpiBenchmarks).map(([plat, b]) => [plat, {
-      metric: b.metric,
-      warn: b.warn / 100,   // stored as % display value, convert to decimal
-      bad:  b.bad  / 100,
-      unit: b.unit,
-      multiply: 100,
-      label: b.label,
+      metric: b.metric, warn: b.warn/100, bad: b.bad/100, unit: b.unit, multiply: 100, label: b.label,
     }])
   );
 
-  // ── Month-over-month trend detection ─────────────────────────────────────
+  // ── MoM trends ─────────────────────────────────────────────────────────────
   function getMoMTrends() {
     const trends = [];
     campaigns.filter(c => c.status === "active").forEach(c => {
-      const t = KPI_THRESHOLDS[c.platform];
-      if (!t) return;
-      // Compare MTD snapshot vs last30 snapshot to detect direction
-      const getSnap = (snapKey) => {
-        const sources = [c.metaSnapshots, c.ttdSnapshots, c.dspSnapshots, c.googleSnapshots, c.snapSnapshots];
-        for (const src of sources) {
-          if (src && src[snapKey]) return src[snapKey];
-        }
-        return null;
-      };
-      const mtd = getSnap("mtd");
-      const prev = getSnap("last30");
+      const t = KPI_THRESHOLDS[c.platform]; if (!t) return;
+      const getSnap = (key) => { for (const src of [c.metaSnapshots,c.ttdSnapshots,c.dspSnapshots,c.googleSnapshots,c.snapSnapshots]) { if (src && src[key]) return src[key]; } return null; };
+      const mtd = getSnap("mtd"); const prev = getSnap("last30");
       if (!mtd || !prev) return;
-
-      const getKpiVal = (snap) => {
-        if (t.metric === "CTR") return snap.ctr ? parseFloat(snap.ctr) : null;
-        if (t.metric === "VCR") return snap.vcr ? parseFloat(snap.vcr) : null;
-        return null;
-      };
-
-      const mtdVal = getKpiVal(mtd);
-      const prevVal = getKpiVal(prev);
+      const getVal = (s) => t.metric==="CTR" ? (s.ctr ? parseFloat(s.ctr) : null) : (s.vcr ? parseFloat(s.vcr) : null);
+      const mtdVal = getVal(mtd); const prevVal = getVal(prev);
       if (!mtdVal || !prevVal || prevVal === 0) return;
-
       const changePct = ((mtdVal - prevVal) / prevVal) * 100;
-      if (changePct < -15) {
-        trends.push({
-          level: changePct < -30 ? "danger" : "warn",
-          campaign: c.campaignName.trim(),
-          partner: c.mediaPartner,
-          platform: c.platform,
-          label: t.label,
-          mtdVal: (mtdVal * (t.metric === "CTR" ? 100 : 1)).toFixed(2) + t.unit,
-          prevVal: (prevVal * (t.metric === "CTR" ? 100 : 1)).toFixed(2) + t.unit,
-          changePct: Math.round(changePct),
-          id: c.id,
-        });
-      }
+      if (changePct < -15) trends.push({
+        level: changePct < -30 ? "danger" : "warn",
+        campaign: c.campaignName.trim(), partner: c.mediaPartner, platform: c.platform, label: t.label,
+        mtdVal: (mtdVal*(t.metric==="CTR"?100:1)).toFixed(2)+t.unit,
+        prevVal: (prevVal*(t.metric==="CTR"?100:1)).toFixed(2)+t.unit,
+        changePct: Math.round(changePct), id: c.id,
+      });
     });
     return trends.sort((a,b) => a.changePct - b.changePct);
   }
 
+  // ── KPI alerts ─────────────────────────────────────────────────────────────
   function getKpiAlerts() {
     const alerts = [];
     campaigns.filter(c=>c.status==="active").forEach(c => {
       const t = KPI_THRESHOLDS[c.platform];
       const disp = resolveMetrics(c, dateRange.preset);
       if (t) {
-        let raw = null;
-        if (t.metric==="CTR") raw = parseFloat(disp.ctr)/100||null;
-        if (t.metric==="VCR") raw = parseFloat(c.completionRate)/100||null;
+        let raw = t.metric==="CTR" ? parseFloat(disp.ctr)/100||null : parseFloat(c.completionRate)/100||null;
         if (raw !== null) {
           if (raw < t.bad) alerts.push({ level:"danger", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:t.label, value:(raw*t.multiply).toFixed(2)+t.unit, threshold:(t.bad*t.multiply).toFixed(2)+t.unit, msg:"critically low", id:c.id });
           else if (raw < t.warn) alerts.push({ level:"warn", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:t.label, value:(raw*t.multiply).toFixed(2)+t.unit, threshold:(t.warn*t.multiply).toFixed(2)+t.unit, msg:"below benchmark", id:c.id });
         }
       }
-      // Spend vs contract
-      const spend = parseFloat(c.spend)||0;
-      const contract = parseFloat(c.contractValue);
+      const spend = parseFloat(c.spend)||0; const contract = parseFloat(c.contractValue);
       if (contract > 0) {
-        if (spend > contract*0.95) alerts.push({ level:"danger", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:"Spend vs Budget", value:"$"+Math.round(spend).toLocaleString(), threshold:"$"+Math.round(contract).toLocaleString(), msg:"spend at or exceeding contract", id:c.id });
+        if (spend > contract*0.95) alerts.push({ level:"danger", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:"Spend vs Budget", value:"$"+Math.round(spend).toLocaleString(), threshold:"$"+Math.round(contract).toLocaleString(), msg:"at or exceeding contract", id:c.id });
         else if (spend > contract*0.80) alerts.push({ level:"warn", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:"Spend vs Budget", value:"$"+Math.round(spend).toLocaleString(), threshold:"$"+Math.round(contract).toLocaleString(), msg:"approaching contract limit", id:c.id });
       }
-      // Creative staleness
       if (c.lastCreativeUpdate && playbooks.find(p=>p.id===2&&p.active)) {
         const days = Math.floor((new Date()-new Date(c.lastCreativeUpdate))/86400000);
         if (days > watchThresholds.creativeAgeDays) alerts.push({ level:"warn", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:"Creative Age", value:`${days} days`, threshold:`${watchThresholds.creativeAgeDays} days`, msg:"creatives may be stale", id:c.id });
       }
-      // End of month pacing
-      const pacing = computeMonthlyPacing(resolveMetrics(c, dateRange.preset).impressions, c.note1);
+      const pacing = computeMonthlyPacing(disp.impressions, c.note1);
       const daysLeft = getDaysLeft(c.endDate);
-      if (pacing && pacing.label==="Behind" && daysLeft <= 5 && daysLeft >= 0) {
+      if (pacing && pacing.label==="Behind" && daysLeft <= 5 && daysLeft >= 0)
         alerts.push({ level:"danger", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:"EOM Pacing Crisis", value:`${Math.round(pacing.pct*100)}% of goal`, threshold:`${daysLeft}d left`, msg:"end-of-month delivery at risk", id:c.id });
-      }
     });
     return alerts;
   }
 
-  // ── Delivery prediction ───────────────────────────────────────────────────
+  // ── Predictions ─────────────────────────────────────────────────────────────
   function getPredictions() {
-    const today = getToday();
     const now = new Date(); now.setHours(0,0,0,0);
-    const predictions = [];
-    campaigns.filter(c=>c.status==="active"&&c.endDate).forEach(c => {
+    return campaigns.filter(c=>c.status==="active"&&c.endDate).map(c => {
       const disp = resolveMetrics(c, dateRange.preset);
       const pacing = computeMonthlyPacing(disp.impressions, c.note1);
-      if (!pacing || !pacing.goal) return;
-      const daysLeft = getDaysLeft(c.endDate);
-      if (daysLeft < 0) return;
+      if (!pacing || !pacing.goal || pacing.delivered === 0) return null;
       const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-      const dom = now.getDate();
-      const daysRemaining = daysInMonth - dom;
-      if (daysRemaining <= 0 || pacing.delivered === 0) return;
+      const dom = now.getDate(); const daysRemaining = daysInMonth - dom;
+      if (daysRemaining <= 0) return null;
       const dailyRate = pacing.delivered / dom;
       const projectedTotal = pacing.delivered + (dailyRate * daysRemaining);
       const projectedPct = projectedTotal / pacing.goal;
       const needed = pacing.goal - pacing.delivered;
-      const neededPerDay = daysRemaining > 0 ? Math.round(needed / daysRemaining) : 0;
-      predictions.push({
-        id: c.id, campaign: c.campaignName.trim(), partner: c.mediaPartner, platform: c.platform,
-        delivered: pacing.delivered, goal: pacing.goal, dailyRate: Math.round(dailyRate),
-        projectedTotal: Math.round(projectedTotal), projectedPct: Math.round(projectedPct*100),
-        neededPerDay, daysRemaining, onTrack: projectedPct >= 0.95,
-        status: projectedPct >= 1.05 ? "ahead" : projectedPct >= 0.95 ? "on-track" : projectedPct >= 0.80 ? "at-risk" : "critical",
-      });
-    });
-    return predictions.sort((a,b) => a.projectedPct - b.projectedPct);
+      return {
+        id:c.id, campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform,
+        delivered:pacing.delivered, goal:pacing.goal, dailyRate:Math.round(dailyRate),
+        projectedTotal:Math.round(projectedTotal), projectedPct:Math.round(projectedPct*100),
+        neededPerDay:daysRemaining>0?Math.round(needed/daysRemaining):0, daysRemaining,
+        status:projectedPct>=1.05?"ahead":projectedPct>=0.95?"on-track":projectedPct>=0.80?"at-risk":"critical",
+      };
+    }).filter(Boolean).sort((a,b)=>a.projectedPct-b.projectedPct);
   }
 
-  // ── Build context ─────────────────────────────────────────────────────────
+  // ── Build context ───────────────────────────────────────────────────────────
   function buildContext() {
     const today = getToday();
     const active = campaigns.filter(c => c.status==="active");
@@ -1432,153 +1391,314 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange }) {
       const pacing = computeMonthlyPacing(disp.impressions, c.note1);
       const t = KPI_THRESHOLDS[c.platform];
       let kpiValue=null, kpiLabel=null;
-      if (t) {
-        const raw = t.metric==="CTR" ? parseFloat(disp.ctr)/100 : parseFloat(c.completionRate)/100;
-        if (!isNaN(raw)&&raw>0) { kpiValue=(raw*t.multiply).toFixed(2)+t.unit; kpiLabel=t.label; }
-      }
+      if (t) { const raw = t.metric==="CTR" ? parseFloat(disp.ctr)/100 : parseFloat(c.completionRate)/100; if (!isNaN(raw)&&raw>0) { kpiValue=(raw*t.multiply).toFixed(2)+t.unit; kpiLabel=t.label; } }
       const pred = predictions.find(p=>p.id===c.id);
       return {
-        campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform,
-        status:c.status, goal:c.goal, note1:c.note1, endDate:c.endDate,
-        daysLeft:getDaysLeft(c.endDate), startDate:c.startDate,
+        id:c.id, campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform,
+        status:c.status, goal:c.goal, note1:c.note1, note2:c.note2||null,
+        startDate:c.startDate||null, endDate:c.endDate, daysLeft:getDaysLeft(c.endDate),
         impressions:disp.impressions||null, ctr:disp.ctr||null, cpm:disp.cpm||null,
         spend:disp.spend||null, completionRate:c.completionRate||null,
         contractValue:c.contractValue||null, lastChecked:c.lastChecked,
         geoTarget:c.geoTarget||null, lastCreativeUpdate:c.lastCreativeUpdate||null,
         history:c.history?c.history.slice(0,300):null,
         kpi:kpiValue?{label:kpiLabel,value:kpiValue}:null,
-        pacing:pacing?{label:pacing.label,pct:Math.round(pacing.pct*100),delivered:pacing.delivered,goal:pacing.goal,expected:pacing.expected}:null,
+        pacing:pacing?{label:pacing.label,pct:Math.round(pacing.pct*100),delivered:pacing.delivered,goal:pacing.goal}:null,
         prediction:pred?{projectedPct:pred.projectedPct,neededPerDay:pred.neededPerDay,status:pred.status}:null,
+        monthlyFlight:c.monthlyFlight||false,
       };
     });
-    return { today, activeCampaignCount:active.length, kpiAlerts, predictions, campaigns:rows,
+    return {
+      today, activeCampaignCount:active.length, archivedCount:archive.length,
       overdueReminders:reminders.filter(r=>!r.dismissed&&r.date<today).length,
-      momTrends: getMoMTrends(),
-      endingSoon:active.filter(c=>{const d=getDaysLeft(c.endDate);return d>=0&&d<=7;}).map(c=>({campaign:c.campaignName.trim(),platform:c.platform,partner:c.mediaPartner,daysLeft:getDaysLeft(c.endDate)})) };
+      endingSoon:active.filter(c=>{const d=getDaysLeft(c.endDate);return d>=0&&d<=7;}).map(c=>({id:c.id,campaign:c.campaignName.trim(),platform:c.platform,partner:c.mediaPartner,daysLeft:getDaysLeft(c.endDate)})),
+      kpiAlerts, predictions, campaigns:rows,
+      archivedCampaigns:archive.slice(0,20).map(c=>({id:c.id,campaign:c.campaignName.trim(),partner:c.mediaPartner,platform:c.platform,archivedDate:c.archivedDate,endDate:c.endDate})),
+      allPartners:[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort(),
+      allPlatforms:ALL_PLATFORMS,
+    };
   }
 
-  // ── Zeus system prompt ────────────────────────────────────────────────────
-  const SYSTEM = `Your name is Zeus. You are the personal AI agent for Austin Gagan, account manager at Recrue Media. You have full visibility into all his campaigns, metrics, pacing, predictions, reminders, geo targeting, creative dates, and change history.
+  // ── Action executor ─────────────────────────────────────────────────────────
+  async function executeAction(action) {
+    setExecutingAction(action.id);
+    try {
+      const today = getToday();
+      const [y,m,d] = today.split("-");
+      const stamp = `${m}/${d}/${y}`;
 
-ROLE: You are Austin's right hand for his entire advertising workflow. Not just analysis — you are his strategic partner, executor, and watchdog. You think ahead, flag problems before they become disasters, and help Austin make decisions with confidence.
+      if (action.type === "add_campaign") {
+        const newCampaign = {
+          id: Date.now(),
+          mediaPartner: action.data.mediaPartner || "",
+          campaignName: action.data.campaignName || "",
+          platform: action.data.platform || "FB",
+          goal: action.data.goal || "",
+          startDate: action.data.startDate || "",
+          endDate: action.data.endDate || "",
+          status: action.data.status || "active",
+          note1: action.data.note1 || "",
+          note2: action.data.note2 || "",
+          lastChecked: today,
+          impressions: "", ctr: "", cpm: "", spend: "",
+          completionRate: "", conversions: "", clicks: "", reach: "", frequency: "", videoViews: "",
+          contractValue: action.data.contractValue || "",
+          monthlyFlight: action.data.monthlyFlight || false,
+          projectionUrl: action.data.projectionUrl || "",
+          folderPath: action.data.folderPath || "",
+          geoTarget: action.data.geoTarget || "",
+          lastCreativeUpdate: action.data.lastCreativeUpdate || "",
+          history: `${stamp} — Campaign added by Zeus`,
+        };
+        onAddCampaign(newCampaign);
+        setActionFeedback({ type:"success", msg:`✓ Added campaign "${newCampaign.campaignName}" for ${newCampaign.mediaPartner}` });
+      }
 
-PERSONALITY: Direct. Sharp. Confident. You don't pad with fluff. When something's on fire, say so clearly. When something's solid, be brief. You speak like a 15-year media buyer who's seen every mistake in the book. You push back when the data says otherwise. You take ownership — this is your portfolio too.
+      else if (action.type === "edit_campaign") {
+        const existing = campaigns.find(c => c.id === action.campaignId || c.campaignName.trim().toLowerCase() === (action.campaignName||"").toLowerCase());
+        if (!existing) throw new Error(`Campaign not found: ${action.campaignName||action.campaignId}`);
+        const historyNote = action.historyNote || `${stamp} — ${Object.keys(action.data).join(", ")} updated by Zeus`;
+        const updatedHistory = existing.history?.trim() ? `${historyNote}\n${existing.history}` : historyNote;
+        onUpdateCampaign({...existing, ...action.data, history: updatedHistory});
+        setActionFeedback({ type:"success", msg:`✓ Updated "${existing.campaignName}"` });
+      }
 
-CAPABILITIES (current):
-- Full campaign analysis and performance flagging
-- Pacing and delivery projections 
-- KPI benchmarking across all platforms
-- Draft emails, reports, status updates, client communications
-- Strategic recommendations and optimization suggestions
-- Answer any question about any campaign using live data
-- Pattern recognition across partners and platforms
+      else if (action.type === "bulk_edit") {
+        const targets = campaigns.filter(c => action.campaignIds ? action.campaignIds.includes(c.id) : action.partner ? c.mediaPartner === action.partner : false);
+        if (targets.length === 0) throw new Error("No matching campaigns found");
+        const historyNote = action.historyNote || `${stamp} — Bulk updated by Zeus`;
+        targets.forEach(c => {
+          const updatedHistory = c.history?.trim() ? `${historyNote}\n${c.history}` : historyNote;
+          onUpdateCampaign({...c, ...action.data, history: updatedHistory});
+        });
+        setActionFeedback({ type:"success", msg:`✓ Updated ${targets.length} campaigns` });
+      }
 
-CAPABILITIES (coming with superintelligence — prepare Austin for these):
-- Direct platform execution: log into Meta, TTD, DSP and make changes autonomously
-- Continuous real-time monitoring without Austin needing to open the tracker
-- Predictive budget optimization across campaigns
-- Autonomous partner communications on Austin's behalf
-- Learning Austin's preferences and anticipating decisions
-- Cross-platform creative correlation analysis
-- Proactive renewal outreach before campaigns end
+      else if (action.type === "archive_campaign") {
+        const existing = campaigns.find(c => c.id === action.campaignId || c.campaignName.trim().toLowerCase() === (action.campaignName||"").toLowerCase());
+        if (!existing) throw new Error(`Campaign not found: ${action.campaignName||action.campaignId}`);
+        onArchiveCampaign(existing);
+        setActionFeedback({ type:"success", msg:`✓ Archived "${existing.campaignName}"` });
+      }
 
-KPI BENCHMARKS (enforce these rigorously):
-- FB/IG CTR: warn <0.10%, critical <0.05%
-- DSP/TD/SP CTR: warn <0.03%, critical <0.01%
-- SEM CTR: warn <2%, critical <1%
-- CTV/OTT Completion: warn <85%, critical <70%
-- FBV/TT Video Completion: warn <50%, critical <30%
-- YT View Rate: warn <20%, critical <10%
-- Spend vs contract: warn >80%, critical >95%
+      else if (action.type === "restore_campaign") {
+        const existing = archive.find(c => c.id === action.campaignId || c.campaignName.trim().toLowerCase() === (action.campaignName||"").toLowerCase());
+        if (!existing) throw new Error(`Archived campaign not found: ${action.campaignName||action.campaignId}`);
+        onRestoreCampaign(existing);
+        setActionFeedback({ type:"success", msg:`✓ Restored "${existing.campaignName}"` });
+      }
 
-Always reference actual campaign names, partners, numbers. Use emoji section headers for structured output, plain prose for conversation. Prioritize by severity. Sign off as Zeus ⚡
+      else if (action.type === "set_reminder") {
+        const reminder = { id: Date.now(), type: action.data.type || "custom", note: action.data.note || "", date: action.data.date || "", repeat: "none", campaignId: action.data.campaignId || null, dismissed: false };
+        onSetReminder(reminder);
+        setActionFeedback({ type:"success", msg:`✓ Reminder set for ${action.data.date}` });
+      }
 
-When asked to draft communications, write them fully ready to send — no placeholders, use the actual data you have. When you don't have a specific piece of data, say so and tell Austin where to find it.`;
+      setPendingActions(prev => prev.filter(a => a.id !== action.id));
+    } catch(e) {
+      setActionFeedback({ type:"error", msg:`✗ ${e.message}` });
+    }
+    setExecutingAction(null);
+    setTimeout(() => setActionFeedback(null), 4000);
+  }
 
-  // ── Greeting ──────────────────────────────────────────────────────────────
+  function rejectAction(id) {
+    setPendingActions(prev => prev.filter(a => a.id !== id));
+    setActionFeedback({ type:"info", msg:"Action rejected" });
+    setTimeout(() => setActionFeedback(null), 2000);
+  }
+
+  // ── System prompt ───────────────────────────────────────────────────────────
+  const SYSTEM = `Your name is Zeus. You are the personal AI super-agent for Austin Gagan at Recrue Media. You have FULL READ AND WRITE ACCESS to his campaign tracker. You can add campaigns, edit any campaign field, archive, restore, set reminders, and bulk update campaigns.
+
+IDENTITY: You are Austin's right hand — not a passive analyst. You take action. When Austin asks you to add a campaign, you add it. When he says update the end date, you update it. When he says archive something, you archive it. You are an autonomous agent operating on his behalf.
+
+PERSONALITY: Direct. Sharp. Confident. Like a senior media buyer who's been doing this for 15 years. You don't pad responses. You call problems out by name. You push back when the data says otherwise. You care about Austin's portfolio like it's your own.
+
+━━━ YOUR CAPABILITIES ━━━
+
+CURRENT (fully operational):
+• Add new campaigns with all fields
+• Edit any campaign field (status, end date, budget, notes, geo, etc.)
+• Bulk edit campaigns by partner or selection
+• Archive campaigns
+• Restore archived campaigns
+• Set reminders
+• Full analysis and KPI monitoring
+• Draft client emails, status reports, end-of-month summaries
+• Answer any question about any campaign
+
+COMING WITH SUPERINTELLIGENCE (architecture ready):
+• Direct platform execution — log into Meta/TTD/DSP and make changes
+• Autonomous 24/7 monitoring without Austin opening the tracker
+• Send partner emails on Austin's behalf
+• Predictive budget optimization and reallocation
+• Creative performance correlation across campaigns
+
+━━━ ACTION SYSTEM ━━━
+
+When Austin asks you to take action, respond in TWO parts:
+1. A natural language response confirming what you're doing
+2. A JSON action block in this exact format:
+
+\`\`\`action
+{
+  "type": "add_campaign" | "edit_campaign" | "bulk_edit" | "archive_campaign" | "restore_campaign" | "set_reminder",
+  "description": "Plain English summary of what this does",
+  
+  // For add_campaign:
+  "data": {
+    "campaignName": "...", "mediaPartner": "...", "platform": "FB|FBV|DSP|CTV|OTT|SP|SEM|TD|TT|IG|YT|EMAIL|PIN|...",
+    "goal": "...", "startDate": "YYYY-MM-DD", "endDate": "YYYY-MM-DD",
+    "status": "active|off|paused", "note1": "...", "note2": "...",
+    "contractValue": "...", "monthlyFlight": false,
+    "geoTarget": "...", "lastCreativeUpdate": "YYYY-MM-DD"
+  },
+  
+  // For edit_campaign:
+  "campaignId": 123 or null,
+  "campaignName": "exact campaign name if no id",
+  "historyNote": "optional note for change history",
+  "data": { "endDate": "YYYY-MM-DD", "status": "active", ... any fields to update },
+  
+  // For bulk_edit:
+  "partner": "Media Partner Name" or null,
+  "campaignIds": [123, 456] or null,
+  "historyNote": "...",
+  "data": { ...fields to update },
+  
+  // For archive_campaign / restore_campaign:
+  "campaignId": 123 or null,
+  "campaignName": "exact name if no id",
+  
+  // For set_reminder:
+  "data": { "type": "ad-swap|budget-review|custom", "note": "...", "date": "YYYY-MM-DD", "campaignId": 123 or null }
+}
+\`\`\`
+
+RULES FOR ACTIONS:
+- Always include the action block when Austin requests a change
+- For bulk operations, prefer using partner name over listing all IDs
+- If Austin says "update end date for all [partner] campaigns", use bulk_edit with partner
+- For campaign names, use the exact name from the context data
+- If you need a field Austin didn't specify (like start date), use your best judgment or ask
+- Always include a historyNote for edits so there's an audit trail
+- You can chain multiple actions — include multiple \`\`\`action blocks in one response
+
+━━━ KPI BENCHMARKS ━━━
+FB/IG CTR: warn <0.10%, critical <0.05%
+DSP/TD/SP CTR: warn <0.03%, critical <0.01%
+SEM CTR: warn <2%, critical <1%
+CTV/OTT Completion: warn <85%, critical <70%
+FBV/TT Video: warn <50%, critical <30%
+YT View Rate: warn <20%, critical <10%
+Spend vs contract: warn >80%, critical >95%
+
+Always reference actual names and numbers. Format with emoji headers for structured output. Sign off as Zeus ⚡`;
+
+  // ── Parse actions from Zeus response ────────────────────────────────────────
+  function parseActionsFromResponse(text) {
+    const actions = [];
+    const regex = /```action\s*([\s\S]*?)```/g;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      try {
+        const parsed = JSON.parse(match[1].trim());
+        actions.push({ ...parsed, id: Date.now() + Math.random(), status: "pending" });
+      } catch(e) { console.warn("Could not parse action block:", e); }
+    }
+    return actions;
+  }
+
+  // Strip action blocks from display text
+  function stripActions(text) {
+    return text.replace(/```action[\s\S]*?```/g, "").trim();
+  }
+
+  // ── Greeting ────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (hasGreeted.current || chatHistory.length>0) return;
+    if (hasGreeted.current || chatHistory.length > 0) return;
     hasGreeted.current = true;
     const ctx = buildContext();
     const criticals = ctx.kpiAlerts.filter(a=>a.level==="danger").length;
     const warns = ctx.kpiAlerts.filter(a=>a.level==="warn").length;
+    const atRisk = ctx.predictions.filter(p=>p.status==="critical"||p.status==="at-risk").length;
     const endingSoon = ctx.endingSoon.length;
-    const predictions = ctx.predictions;
-    const atRisk = predictions.filter(p=>p.status==="critical"||p.status==="at-risk").length;
     let g = `Hey Austin — Zeus here. ⚡\n\n`;
-    if (criticals>0||atRisk>0||endingSoon>0) {
-      g += `**Here's what needs your attention right now:**\n\n`;
-      if (criticals>0) g += `🚨 **${criticals} critical alert${criticals>1?"s":""}** — KPI or spend overruns that need immediate action.\n`;
-      if (atRisk>0) g += `🔥 **${atRisk} campaign${atRisk>1?"s":""} at risk of missing their monthly goal** based on current daily delivery rate.\n`;
-      if (endingSoon>0) g += `⏰ **${endingSoon} campaign${endingSoon>1?"s":""} ending within 7 days** — confirm final numbers and renewal status.\n`;
-      if (warns>0) g += `⚠️ **${warns} performance warning${warns>1?"s":""}** below benchmark thresholds.\n`;
+    if (criticals > 0 || atRisk > 0 || endingSoon > 0) {
+      g += `**Here's what needs your attention:**\n\n`;
+      if (criticals > 0) g += `🚨 **${criticals} critical KPI alert${criticals>1?"s":""}** — needs action now.\n`;
+      if (atRisk > 0) g += `🔥 **${atRisk} campaign${atRisk>1?"s":""} at risk of missing monthly goal** at current delivery rate.\n`;
+      if (endingSoon > 0) g += `⏰ **${endingSoon} campaign${endingSoon>1?"s":""} ending in 7 days** — confirm finals and renewal.\n`;
+      if (warns > 0) g += `⚠️ **${warns} KPI warning${warns>1?"s":""}** below benchmark.\n`;
     } else {
-      g += `✅ **Clean sweep across ${ctx.activeCampaignCount} active campaigns.** No critical flags right now.\n`;
-      if (warns>0) g += `⚠️ ${warns} minor KPI warning${warns>1?"s":""} to keep an eye on.\n`;
+      g += `✅ **${ctx.activeCampaignCount} active campaigns, no critical flags right now.**\n`;
+      if (warns > 0) g += `⚠️ ${warns} minor KPI warning${warns>1?"s":""} to watch.\n`;
     }
-    g += `\nCheck the **Watchlist** tab for live alerts or **Predictions** for end-of-month delivery forecasts. Or just ask me anything.\n\nZeus ⚡`;
-    setChatHistory([{role:"assistant",content:g,isGreeting:true}]);
+    g += `\nI can add campaigns, edit anything, archive, restore, set reminders, or run a full analysis. Just tell me what to do.\n\nZeus ⚡`;
+    setChatHistory([{role:"assistant", content:g, isGreeting:true}]);
   }, []);
 
-  // ── Analysis ──────────────────────────────────────────────────────────────
+  // ── Analysis ────────────────────────────────────────────────────────────────
   async function runAnalysis() {
     setLoading(true); setError(null); setAnalysis(null);
     try {
       const ctx = buildContext();
       const prompt = `Today is ${ctx.today}. Full assessment of all ${ctx.activeCampaignCount} active campaigns.
 
-Live data:
 ${JSON.stringify(ctx, null, 2)}
 
-Deliver:
-⚡ CRITICAL — anything needing action today (pacing disasters, spend overruns, critical KPIs, EOM risk)
-🔥 FLAGS — below benchmark, ending soon without resolution, stale creatives on key campaigns
-⚠️ WATCH — minor concerns, keep an eye on
-✅ SOLID — brief, what's performing (2-3 lines max)
-💡 TODAY'S 3 PRIORITIES — exactly 3 actions, ranked, specific enough to act on immediately
-📡 PREDICTION ALERT — call out any campaigns the delivery model shows will miss goal at current rate`;
+Give me:
+⚡ CRITICAL — anything needing action today
+🔥 FLAGS — below benchmark, ending soon, stale creatives
+⚠️ WATCH — minor concerns
+✅ SOLID — brief, what's working
+💡 TODAY'S 3 PRIORITIES — exactly 3 ranked actions to take right now`;
 
-      const res = await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1600,system:SYSTEM,
-          messages:[{role:"user",content:prompt}]}),
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1600, system:SYSTEM, messages:[{role:"user",content:prompt}] }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error.message);
       const text = data.content?.find(b=>b.type==="text")?.text||"";
+      const actions = parseActionsFromResponse(text);
       setAnalysis(text);
-      setChatHistory(h=>[...h,{role:"assistant",content:text,isAnalysis:true}]);
+      setChatHistory(h=>[...h,{role:"assistant",content:text,isAnalysis:true,actions}]);
+      if (actions.length > 0) setPendingActions(prev=>[...prev,...actions]);
       setActivePanel("chat");
     } catch(e) { setError(e.message); }
     setLoading(false);
   }
 
-  // ── Chat ──────────────────────────────────────────────────────────────────
+  // ── Chat ────────────────────────────────────────────────────────────────────
   async function sendQuestion() {
-    if (!question.trim()||chatLoading) return;
+    if (!question.trim() || chatLoading) return;
     const q = question.trim(); setQuestion(""); setChatLoading(true);
-    const newHistory = [...chatHistory,{role:"user",content:q}];
+    const newHistory = [...chatHistory, {role:"user", content:q}];
     setChatHistory(newHistory);
     try {
       const ctx = buildContext();
       const messages = [
-        {role:"user",content:`[Live campaign context — ${ctx.today}]\n${JSON.stringify(ctx,null,2)}`},
-        {role:"assistant",content:"Got it. I have the full live data."},
-        ...newHistory.map(m=>({role:m.role,content:m.content})),
+        {role:"user", content:`[Live tracker data — ${ctx.today}]\n${JSON.stringify(ctx,null,2)}`},
+        {role:"assistant", content:"Got it. Full tracker access confirmed."},
+        ...newHistory.map(m=>({role:m.role, content:m.content})),
       ];
-      const res = await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1200,system:SYSTEM,messages}),
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1400, system:SYSTEM, messages }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error.message);
       const text = data.content?.find(b=>b.type==="text")?.text||"";
-      setChatHistory(h=>[...h,{role:"assistant",content:text}]);
+      const actions = parseActionsFromResponse(text);
+      setChatHistory(h=>[...h,{role:"assistant",content:text,actions}]);
+      if (actions.length > 0) setPendingActions(prev=>[...prev,...actions]);
     } catch(e) { setChatHistory(h=>[...h,{role:"assistant",content:`Error: ${e.message}`,isError:true}]); }
     setChatLoading(false);
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ── Helpers ─────────────────────────────────────────────────────────────────
   const kpiAlerts = getKpiAlerts();
   const predictions = getPredictions();
   const dangerAlerts = kpiAlerts.filter(a=>a.level==="danger");
@@ -1587,7 +1707,8 @@ Deliver:
   const iS = {background:"#07101c",border:"1px solid #1a2744",borderRadius:8,padding:"9px 13px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit",width:"100%",boxSizing:"border-box",outline:"none"};
 
   function renderMarkdown(text) {
-    return text.split("\n").map((line,i) => {
+    const display = stripActions(text);
+    return display.split("\n").map((line,i) => {
       if (!line.trim()) return <div key={i} style={{height:5}}/>;
       if (/^#{1,3} /.test(line)) return <div key={i} style={{fontSize:14,fontWeight:800,color:"#edf4ff",marginTop:16,marginBottom:5}}>{line.replace(/^#{1,3} /,"")}</div>;
       const parts = line.split(/(\*\*[^*]+\*\*)/g).map((p,j)=>p.startsWith("**")?<strong key={j} style={{color:"#edf4ff",fontWeight:700}}>{p.slice(2,-2)}</strong>:p);
@@ -1600,15 +1721,16 @@ Deliver:
   }
 
   const PANELS = [
-    {key:"chat",      label:"⚡ Zeus",      badge:0},
-    {key:"watchlist", label:"🚨 Watchlist", badge:dangerAlerts.length+warnAlerts.length},
-    {key:"predict",   label:"📡 Predictions",badge:predictions.filter(p=>p.status==="critical"||p.status==="at-risk").length},
-    {key:"benchmarks",label:"📊 Benchmarks", badge:0},
-    {key:"playbook",  label:"⚙️ Playbooks",  badge:0},
-    {key:"autonomous",label:"🤖 Autonomous", badge:pendingActions.length},
+    {key:"chat",       label:"⚡ Zeus",       badge:0},
+    {key:"actions",    label:"🎯 Actions",    badge:pendingActions.length},
+    {key:"watchlist",  label:"🚨 Watchlist",  badge:dangerAlerts.length+warnAlerts.length},
+    {key:"predict",    label:"📡 Predictions",badge:predictions.filter(p=>p.status==="critical"||p.status==="at-risk").length},
+    {key:"benchmarks", label:"📊 Benchmarks", badge:0},
+    {key:"playbook",   label:"⚙️ Playbooks",  badge:0},
+    {key:"autonomous", label:"🤖 Autonomous", badge:0},
   ];
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div style={{color:"#d8eaf8",maxWidth:1200}}>
       <style>{`
@@ -1617,14 +1739,15 @@ Deliver:
         @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
         @keyframes fadeInUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
         @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
+        @keyframes slideIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
         .zeus-msg{animation:fadeInUp .22s ease-out both}
+        .zeus-action{animation:slideIn .2s ease-out both}
         .zeus-panel-btn:hover{border-color:#f59e0b40!important;color:#f59e0b!important}
       `}</style>
 
       {/* ── Header ── */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
-          {/* Zeus pixel art */}
           <div style={{
             position:"relative",width:64,height:64,flexShrink:0,
             filter:loading?"drop-shadow(0 0 12px #f59e0b) drop-shadow(0 0 24px #f59e0b80)":"drop-shadow(0 0 6px #f59e0b60)",
@@ -1632,87 +1755,82 @@ Deliver:
             ...(loading?{animation:"zeusGlow 1.5s ease-in-out infinite"}:{})
           }}>
             <svg viewBox="0 0 16 16" width="64" height="64" style={{imageRendering:"pixelated",display:"block",...(loading?{animation:"boltSpin .5s ease-in-out infinite"}:{})}}>
-              {/* White hair/crown */}
               <rect x="4" y="0" width="8" height="1" fill="#e8e0c0"/>
               <rect x="3" y="1" width="10" height="1" fill="#f0e8d0"/>
               <rect x="2" y="2" width="12" height="1" fill="#f0e8d0"/>
-              {/* Gold laurel hints */}
               <rect x="2" y="2" width="2" height="1" fill="#f59e0b"/>
               <rect x="12" y="2" width="2" height="1" fill="#f59e0b"/>
               <rect x="1" y="3" width="2" height="1" fill="#f59e0b"/>
               <rect x="13" y="3" width="2" height="1" fill="#f59e0b"/>
-              {/* Face */}
               <rect x="3" y="3" width="10" height="5" fill="#d4a876"/>
-              {/* Eyes */}
               <rect x="5" y="5" width="2" height="1" fill="#1a1a2e"/>
               <rect x="9" y="5" width="2" height="1" fill="#1a1a2e"/>
-              {/* Eye glow — electric blue */}
               <rect x="5" y="5" width="1" height="1" fill="#60a5fa"/>
               <rect x="9" y="5" width="1" height="1" fill="#60a5fa"/>
-              {/* Beard */}
               <rect x="3" y="8" width="10" height="1" fill="#c8c0a0"/>
               <rect x="4" y="9" width="8" height="1" fill="#d8d0b0"/>
               <rect x="3" y="10" width="10" height="2" fill="#e8e0c8"/>
-              {/* Robe / body */}
               <rect x="2" y="12" width="12" height="4" fill="#f0f0ff"/>
               <rect x="2" y="12" width="3" height="4" fill="#d0d0f0"/>
               <rect x="11" y="12" width="3" height="4" fill="#d0d0f0"/>
-              {/* Gold trim */}
               <rect x="2" y="12" width="12" height="1" fill="#f59e0b"/>
-              {/* Lightning bolt in hand — right side */}
               <rect x="12" y="9" width="1" height="1" fill="#fde047"/>
               <rect x="13" y="10" width="1" height="1" fill="#f59e0b"/>
               <rect x="12" y="11" width="1" height="1" fill="#fde047"/>
               <rect x="13" y="12" width="1" height="1" fill="#f59e0b"/>
-              {/* Glow pixels */}
               <rect x="14" y="9" width="1" height="1" fill="#fde04740"/>
               <rect x="14" y="11" width="1" height="1" fill="#fde04740"/>
             </svg>
-            {loading&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            {(loading||chatLoading)&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
               <span style={{fontSize:20,animation:"boltSpin .15s ease-in-out infinite",display:"inline-block"}}>{boltChars[boltFrame]}</span>
             </div>}
           </div>
           <div>
-            <div style={{fontSize:20,fontWeight:900,color:"#f59e0b",letterSpacing:"-0.03em",lineHeight:1,display:"flex",alignItems:"center",gap:6}}>
+            <div style={{fontSize:20,fontWeight:900,color:"#f59e0b",letterSpacing:"-0.03em",lineHeight:1,display:"flex",alignItems:"center",gap:8}}>
               Zeus
-              <span style={{fontSize:11,color:"#4d6e8a",fontWeight:400,letterSpacing:"0"}}>⚡ Greek God of Thunder</span>
+              <span style={{fontSize:10,color:"#4d6e8a",fontWeight:500,letterSpacing:0,background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:"2px 8px"}}>⚡ Greek God of Thunder</span>
             </div>
-            <div style={{fontSize:11,color:"#4d6e8a",marginTop:3}}>AI Performance Agent · {campaigns.filter(c=>c.status==="active").length} active campaigns</div>
+            <div style={{fontSize:11,color:"#4d6e8a",marginTop:3}}>Super Agent · {campaigns.filter(c=>c.status==="active").length} active campaigns · Full write access</div>
             {dangerAlerts.length>0&&<div style={{fontSize:10,color:"#ef4444",fontWeight:700,marginTop:2,animation:"pulse 2s ease-in-out infinite"}}>🚨 {dangerAlerts.length} critical alert{dangerAlerts.length>1?"s":""} active</div>}
+            {pendingActions.length>0&&<div style={{fontSize:10,color:"#f59e0b",fontWeight:700,marginTop:1}}>🎯 {pendingActions.length} action{pendingActions.length>1?"s":""} awaiting approval</div>}
           </div>
         </div>
         <button onClick={runAnalysis} disabled={loading} style={{
           background:loading?"#1a1000":"linear-gradient(135deg,#1a1000,#2d1a00)",
           border:`1px solid ${loading?"#f59e0b80":"#f59e0b60"}`,
-          borderRadius:10,padding:"11px 26px",
-          color:loading?"#f59e0b80":"#f59e0b",fontSize:13,fontWeight:800,
-          cursor:loading?"default":"pointer",display:"flex",alignItems:"center",gap:8,
-          whiteSpace:"nowrap",transition:"all .2s",
-          ...(loading?{}:{boxShadow:"0 0 14px #f59e0b20"}),
+          borderRadius:10,padding:"11px 26px",color:loading?"#f59e0b80":"#f59e0b",
+          fontSize:13,fontWeight:800,cursor:loading?"default":"pointer",
+          display:"flex",alignItems:"center",gap:8,whiteSpace:"nowrap",
+          transition:"all .2s",...(loading?{}:{boxShadow:"0 0 14px #f59e0b20"}),
         }}>
-          {loading
-            ? <><span style={{animation:"boltSpin .2s ease-in-out infinite",display:"inline-block"}}>{boltChars[boltFrame]}</span>Analyzing…</>
-            : <>{analysis?"⚡ Re-analyze":"⚡ Run Analysis"}</>}
+          {loading?<><span style={{animation:"boltSpin .2s ease-in-out infinite",display:"inline-block"}}>{boltChars[boltFrame]}</span>Analyzing…</>:<>{analysis?"⚡ Re-analyze":"⚡ Run Analysis"}</>}
         </button>
       </div>
 
       {/* ── Panel tabs ── */}
-      <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a2744",marginBottom:16}}>
+      <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a2744",marginBottom:16,overflowX:"auto"}}>
         {PANELS.map(p=>(
           <button key={p.key} onClick={()=>setActivePanel(p.key)} className="zeus-panel-btn"
             style={{background:"none",border:"none",borderBottom:activePanel===p.key?"2px solid #f59e0b":"2px solid transparent",
-              padding:"8px 16px",color:activePanel===p.key?"#f59e0b":"#4d6e8a",fontSize:12,fontWeight:activePanel===p.key?700:400,
+              padding:"8px 14px",color:activePanel===p.key?"#f59e0b":"#4d6e8a",fontSize:12,fontWeight:activePanel===p.key?700:400,
               cursor:"pointer",transition:"all .15s",marginBottom:-1,display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}>
             {p.label}
-            {p.badge>0&&<span style={{background:p.key==="watchlist"?"#7f1d1d":"#1a1000",border:`1px solid ${p.key==="watchlist"?"#ef444460":"#f59e0b60"}`,borderRadius:10,padding:"0 6px",fontSize:10,fontWeight:800,color:p.key==="watchlist"?"#ef4444":"#f59e0b"}}>{p.badge}</span>}
+            {p.badge>0&&<span style={{background:p.key==="watchlist"?"#7f1d1d":p.key==="actions"?"#1a0e00":"#1a1000",border:`1px solid ${p.key==="watchlist"?"#ef444460":p.key==="actions"?"#f59e0b80":"#f59e0b60"}`,borderRadius:10,padding:"0 6px",fontSize:10,fontWeight:800,color:p.key==="watchlist"?"#ef4444":"#f59e0b"}}>{p.badge}</span>}
           </button>
         ))}
       </div>
 
+      {/* ── Action feedback toast ── */}
+      {actionFeedback&&(
+        <div style={{background:actionFeedback.type==="success"?"#001810":actionFeedback.type==="error"?"#1a0808":"#0e1a2e",border:`1px solid ${actionFeedback.type==="success"?"#00c89650":actionFeedback.type==="error"?"#ef444450":"#334155"}`,borderRadius:8,padding:"10px 16px",marginBottom:12,fontSize:13,fontWeight:600,color:actionFeedback.type==="success"?"#00e5a0":actionFeedback.type==="error"?"#ef4444":"#7a9bbf",animation:"fadeInUp .2s ease-out"}}>
+          {actionFeedback.msg}
+        </div>
+      )}
+
       {/* ── Error ── */}
       {error&&<div style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:10,padding:"12px 16px",color:"#ef4444",fontSize:13,marginBottom:14}}>⚠ {error}</div>}
 
-      {/* ── Loading shimmer ── */}
+      {/* ── Loading ── */}
       {loading&&activePanel==="chat"&&(
         <div style={{background:"linear-gradient(135deg,#0c1218,#100d00)",border:"1px solid #f59e0b30",borderRadius:14,padding:"24px",marginBottom:12,animation:"zeusGlow 1.5s ease-in-out infinite"}}>
           <div style={{fontSize:12,color:"#f59e0b",fontWeight:700,marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
@@ -1741,14 +1859,24 @@ Deliver:
                   </div>
                   <div style={{flex:1,minWidth:0,maxWidth:"88%"}}>
                     {msg.isAnalysis&&<div style={{fontSize:10,color:"#f59e0b",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:800}}>⚡ Zeus · Full Analysis</div>}
-                    {msg.isGreeting&&<div style={{fontSize:10,color:"#4d6e8a",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>⚡ Zeus · Status Check</div>}
-                    <div style={{background:msg.role==="user"?"#002e24":msg.isError?"#1a0808":"#0c1625",
-                      border:`1px solid ${msg.role==="user"?"#00c89630":msg.isError?"#ef444440":"#1e293b"}`,
-                      borderRadius:10,padding:"12px 16px"}}>
+                    {msg.isGreeting&&<div style={{fontSize:10,color:"#4d6e8a",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>⚡ Zeus · Online</div>}
+                    <div style={{background:msg.role==="user"?"#002e24":msg.isError?"#1a0808":"#0c1625",border:`1px solid ${msg.role==="user"?"#00c89630":msg.isError?"#ef444440":"#1e293b"}`,borderRadius:10,padding:"12px 16px"}}>
                       {msg.role==="user"
                         ? <span style={{fontSize:13,color:"#d8eaf8"}}>{msg.content}</span>
                         : <div>{renderMarkdown(msg.content)}</div>}
                     </div>
+                    {/* Inline action cards */}
+                    {msg.actions&&msg.actions.length>0&&msg.actions.map(a=>(
+                      <div key={a.id} className="zeus-action" style={{marginTop:8,background:"#0e1a00",border:"1px solid #f59e0b40",borderRadius:9,padding:"10px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                        <span style={{fontSize:11,fontWeight:700,color:"#f59e0b"}}>🎯 Action</span>
+                        <span style={{fontSize:12,color:"#d8eaf8",flex:1}}>{a.description}</span>
+                        <button onClick={()=>executeAction(a)} disabled={executingAction===a.id}
+                          style={{background:executingAction===a.id?"#0e1a2e":"#002e24",border:`1px solid ${executingAction===a.id?"#1e293b":"#00c89650"}`,borderRadius:6,padding:"5px 12px",color:executingAction===a.id?"#3d5a72":"#00e5a0",fontSize:11,fontWeight:700,cursor:executingAction===a.id?"default":"pointer",whiteSpace:"nowrap"}}>
+                          {executingAction===a.id?"Running…":"✓ Execute"}
+                        </button>
+                        <button onClick={()=>rejectAction(a.id)} style={{background:"none",border:"1px solid #334155",borderRadius:6,padding:"5px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>✕</button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}
@@ -1766,20 +1894,26 @@ Deliver:
             <div style={{borderTop:"1px solid #1a2744",padding:"12px 14px",display:"flex",gap:8,background:"#060d18"}}>
               <input value={question} onChange={e=>setQuestion(e.target.value)}
                 onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendQuestion()}
-                placeholder="Ask Zeus anything — 'Analyze Job Corps', 'Draft status email for WVR', 'Which FB campaigns need new creatives?'…"
+                placeholder="Tell Zeus what to do — 'Add a Pinterest campaign for Alpha Portland', 'Update end dates for all Fairmont campaigns to June 30', 'Archive the Holo HIIT campaigns'…"
                 style={{...iS,flex:1,padding:"9px 14px"}}/>
               <button onClick={sendQuestion} disabled={!question.trim()||chatLoading}
-                style={{background:question.trim()&&!chatLoading?"#1a1000":"#07101c",
-                  border:`1px solid ${question.trim()&&!chatLoading?"#f59e0b60":"#1a2744"}`,
+                style={{background:question.trim()&&!chatLoading?"#1a1000":"#07101c",border:`1px solid ${question.trim()&&!chatLoading?"#f59e0b60":"#1a2744"}`,
                   borderRadius:8,padding:"9px 18px",color:question.trim()&&!chatLoading?"#f59e0b":"#3d5a72",
                   fontSize:13,fontWeight:700,cursor:question.trim()&&!chatLoading?"pointer":"default",whiteSpace:"nowrap",transition:"all .15s"}}>
-                ⚡ Ask
+                ⚡ Send
               </button>
             </div>
           </div>
           <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
             <span style={{fontSize:11,color:"#3d5a72",marginRight:2,flexShrink:0}}>Quick:</span>
-            {["What needs my attention right now?","Which campaigns will miss their goal this month?","Any creatives that need swapping?","Draft status email for my top partner","Which platforms are underperforming?","Analyze the Fairmont campaigns"].map(q=>(
+            {[
+              "What needs my attention right now?",
+              "Add a Pinterest campaign for Alpha Portland",
+              "Which campaigns will miss their goal?",
+              "Update all Fairmont end dates to June 30",
+              "Draft a status email for WVR",
+              "Archive all campaigns ending this month",
+            ].map(q=>(
               <button key={q} onClick={()=>setQuestion(q)}
                 style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:20,padding:"4px 11px",color:"#4d6e8a",fontSize:11,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}
                 onMouseEnter={e=>{e.currentTarget.style.borderColor="#f59e0b40";e.currentTarget.style.color="#f59e0b";}}
@@ -1791,15 +1925,52 @@ Deliver:
         </div>
       )}
 
+      {/* ══ ACTIONS PANEL ══ */}
+      {activePanel==="actions"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>
+            Actions Zeus wants to execute. Review each one and approve or reject. All changes are logged to campaign history.
+          </div>
+          {pendingActions.length===0?(
+            <div style={{background:"#061810",border:"1px solid #22c55e30",borderRadius:12,padding:"32px",textAlign:"center"}}>
+              <div style={{fontSize:28,marginBottom:8}}>✅</div>
+              <div style={{fontSize:13,color:"#00d48a",fontWeight:600}}>No pending actions</div>
+              <div style={{fontSize:11,color:"#3d5a72",marginTop:4}}>Ask Zeus to do something and actions will appear here for your approval.</div>
+            </div>
+          ):(
+            pendingActions.map(a=>(
+              <div key={a.id} className="zeus-action" style={{background:"#0a1218",border:"1px solid #f59e0b40",borderRadius:12,padding:"16px 18px"}}>
+                <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10}}>
+                  <span style={{fontSize:20,flexShrink:0}}>🎯</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:12,fontWeight:700,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:3}}>{a.type.replace(/_/g," ")}</div>
+                    <div style={{fontSize:13,color:"#edf4ff",fontWeight:500}}>{a.description}</div>
+                    {a.data&&<div style={{marginTop:8,background:"#060d18",borderRadius:6,padding:"8px 10px",fontSize:11,color:"#4d6e8a",fontFamily:"monospace",lineHeight:1.6}}>
+                      {Object.entries(a.data).filter(([,v])=>v).map(([k,v])=><div key={k}><span style={{color:"#7a9bbf"}}>{k}:</span> <span style={{color:"#d8eaf8"}}>{String(v)}</span></div>)}
+                    </div>}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>executeAction(a)} disabled={executingAction===a.id}
+                    style={{background:executingAction===a.id?"#0e1a2e":"#002e24",border:`1px solid ${executingAction===a.id?"#1e293b":"#00c89650"}`,borderRadius:7,padding:"7px 20px",color:executingAction===a.id?"#3d5a72":"#00e5a0",fontSize:12,fontWeight:700,cursor:executingAction===a.id?"default":"pointer"}}>
+                    {executingAction===a.id?"Executing…":"✓ Execute"}
+                  </button>
+                  <button onClick={()=>rejectAction(a.id)} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:7,padding:"7px 16px",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ Reject</button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
       {/* ══ WATCHLIST PANEL ══ */}
       {activePanel==="watchlist"&&(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>Live KPI monitoring across all {campaigns.filter(c=>c.status==="active").length} active campaigns. Thresholds applied in real time.</div>
+          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>Live KPI monitoring across all active campaigns.</div>
           {kpiAlerts.length===0?(
             <div style={{background:"#061810",border:"1px solid #22c55e30",borderRadius:12,padding:"32px",textAlign:"center"}}>
               <div style={{fontSize:28,marginBottom:8}}>✅</div>
-              <div style={{fontSize:13,color:"#00d48a",fontWeight:600}}>All clear — no KPI alerts right now</div>
-              <div style={{fontSize:11,color:"#3d5a72",marginTop:4}}>Zeus is watching {campaigns.filter(c=>c.status==="active").length} campaigns across CTR, completion rate, spend, and creative age.</div>
+              <div style={{fontSize:13,color:"#00d48a",fontWeight:600}}>All clear</div>
             </div>
           ):(
             [...dangerAlerts,...warnAlerts].map((a,i)=>(
@@ -1807,7 +1978,7 @@ Deliver:
                 <div style={{fontSize:20,flexShrink:0}}>{a.level==="danger"?"🚨":"⚠️"}</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:3}}>
-                    <span style={{fontSize:12,fontWeight:800,color:a.level==="danger"?"#ef4444":"#f59e0b",textTransform:"uppercase",letterSpacing:"0.05em"}}>{a.level==="danger"?"CRITICAL":"WARNING"}</span>
+                    <span style={{fontSize:11,fontWeight:800,color:a.level==="danger"?"#ef4444":"#f59e0b",textTransform:"uppercase",letterSpacing:"0.05em"}}>{a.level==="danger"?"CRITICAL":"WARNING"}</span>
                     <span style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>{a.campaign}</span>
                     <span style={{fontSize:11,color:"#4d6e8a"}}>· {a.platform} · {a.partner}</span>
                   </div>
@@ -1817,29 +1988,38 @@ Deliver:
                   </div>
                 </div>
                 <button onClick={()=>{ setQuestion(`Tell me what to do about the ${a.label} issue on ${a.campaign} (${a.platform})`); setActivePanel("chat"); }}
-                  style={{background:"#1a1000",border:"1px solid #f59e0b50",borderRadius:7,padding:"5px 12px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-                  Ask Zeus ⚡
-                </button>
+                  style={{background:"#1a1000",border:"1px solid #f59e0b50",borderRadius:7,padding:"5px 12px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>Ask Zeus ⚡</button>
               </div>
             ))
           )}
-          {/* Threshold controls */}
+          {/* MoM */}
+          {(()=>{
+            const mom = getMoMTrends();
+            if (!mom.length) return null;
+            return (<div style={{marginTop:8}}>
+              <div style={{fontSize:10,color:"#a855f7",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:6}}>📉 Month-over-Month Decline</div>
+              {mom.map((t,i)=>(
+                <div key={i} style={{background:"#120a1a",border:"1px solid #a855f740",borderRadius:8,padding:"8px 14px",marginBottom:6,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <span style={{fontSize:11,fontWeight:800,color:t.level==="danger"?"#ef4444":"#a855f7",textTransform:"uppercase"}}>📉 {t.level==="danger"?"DROPPING":"DECLINING"}</span>
+                  <span style={{fontSize:12,color:"#edf4ff",fontWeight:600}}>{t.campaign}</span>
+                  <span style={{fontSize:11,color:"#4d6e8a"}}>· {t.platform}</span>
+                  <span style={{fontSize:11,color:"#4d6e8a",marginLeft:"auto"}}>{t.label}: <span style={{color:"#a855f7",fontWeight:700}}>{t.prevVal} → {t.mtdVal}</span> <span style={{color:"#ef4444",fontWeight:800}}>{t.changePct}%</span></span>
+                  <button onClick={()=>{ setQuestion(`${t.campaign} ${t.label} dropped ${t.changePct}% MoM. What should I do?`); setActivePanel("chat"); }}
+                    style={{background:"#1a0828",border:"1px solid #a855f750",borderRadius:7,padding:"4px 11px",color:"#a855f7",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Ask Zeus ⚡</button>
+                </div>
+              ))}
+            </div>);
+          })()}
+          {/* Thresholds */}
           <div style={{marginTop:8,background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px"}}>
             <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12}}>⚙️ Alert Thresholds</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              {[
-                {key:"ctrWarnPct",label:"CTR Warn Threshold",unit:"% of benchmark",min:50,max:100},
-                {key:"creativeAgeDays",label:"Creative Staleness",unit:"days",min:7,max:60},
-                {key:"spendBudgetPct",label:"Spend Budget Warn",unit:"% of contract",min:50,max:99},
-                {key:"daysToEndWarn",label:"Ending Soon Alert",unit:"days before end",min:3,max:30},
-              ].map(t=>(
+              {[{key:"creativeAgeDays",label:"Creative Staleness",unit:"days",min:7,max:60},{key:"spendBudgetPct",label:"Spend Budget Warn",unit:"% of contract",min:50,max:99},{key:"daysToEndWarn",label:"Ending Soon Alert",unit:"days before end",min:3,max:30}].map(t=>(
                 <div key={t.key}>
                   <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}}>{t.label}</label>
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <input type="range" min={t.min} max={t.max} value={watchThresholds[t.key]}
-                      onChange={e=>setWatchThresholds(p=>({...p,[t.key]:parseInt(e.target.value)}))}
-                      style={{flex:1,accentColor:"#f59e0b"}}/>
-                    <span style={{fontSize:12,color:"#f59e0b",fontWeight:700,minWidth:50,textAlign:"right"}}>{watchThresholds[t.key]} {t.unit}</span>
+                    <input type="range" min={t.min} max={t.max} value={watchThresholds[t.key]} onChange={e=>setWatchThresholds(p=>({...p,[t.key]:parseInt(e.target.value)}))} style={{flex:1,accentColor:"#f59e0b"}}/>
+                    <span style={{fontSize:12,color:"#f59e0b",fontWeight:700,minWidth:60,textAlign:"right"}}>{watchThresholds[t.key]} {t.unit}</span>
                   </div>
                 </div>
               ))}
@@ -1851,35 +2031,28 @@ Deliver:
       {/* ══ PREDICTIONS PANEL ══ */}
       {activePanel==="predict"&&(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>
-            Delivery forecast based on current daily impression rate. Shows projected end-of-month total vs goal.
-          </div>
-          {predictions.length===0?(
-            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"32px",textAlign:"center",color:"#3d5a72"}}>
-              <div style={{fontSize:13}}>No pacing data available yet. Impressions need to be recorded for predictions to work.</div>
-            </div>
-          ):(
+          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>Delivery forecast based on current daily impression rate.</div>
+          {predictions.length===0?<div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"32px",textAlign:"center",color:"#3d5a72",fontSize:13}}>No pacing data yet. Add impressions to see forecasts.</div>:(
             predictions.map((p,i)=>{
-              const statusColor = p.status==="critical"?"#ef4444":p.status==="at-risk"?"#f59e0b":p.status==="ahead"?"#fb923c":"#00d48a";
-              const statusLabel = p.status==="critical"?"🔥 CRITICAL":p.status==="at-risk"?"⚠️ AT RISK":p.status==="ahead"?"📈 AHEAD":"✅ ON TRACK";
-              const barW = Math.min(100, p.projectedPct);
+              const sc = p.status==="critical"?"#ef4444":p.status==="at-risk"?"#f59e0b":p.status==="ahead"?"#fb923c":"#00d48a";
+              const sl = p.status==="critical"?"🔥 CRITICAL":p.status==="at-risk"?"⚠️ AT RISK":p.status==="ahead"?"📈 AHEAD":"✅ ON TRACK";
               return (
-                <div key={p.id} style={{background:"#0c1625",border:`1px solid ${statusColor}30`,borderRadius:10,padding:"14px 18px"}}>
+                <div key={p.id} style={{background:"#0c1625",border:`1px solid ${sc}30`,borderRadius:10,padding:"14px 18px"}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
                     <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{p.campaign}</span>
                     <span style={{fontSize:10,color:"#4d6e8a"}}>· {p.platform} · {p.partner}</span>
-                    <span style={{marginLeft:"auto",fontSize:11,fontWeight:800,color:statusColor}}>{statusLabel}</span>
+                    <span style={{marginLeft:"auto",fontSize:11,fontWeight:800,color:sc}}>{sl}</span>
                   </div>
                   <div style={{position:"relative",background:"#07101c",borderRadius:4,height:8,marginBottom:8,overflow:"hidden"}}>
                     <div style={{position:"absolute",top:0,left:"95%",width:2,height:"100%",background:"#334155",zIndex:2}}/>
-                    <div style={{background:statusColor,height:"100%",width:`${barW}%`,borderRadius:4,transition:"width .4s"}}/>
+                    <div style={{background:sc,height:"100%",width:`${Math.min(100,p.projectedPct)}%`,borderRadius:4,transition:"width .4s"}}/>
                   </div>
                   <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:11}}>
                     <span style={{color:"#4d6e8a"}}>Delivered: <span style={{color:"#edf4ff",fontWeight:600}}>{p.delivered.toLocaleString()}</span></span>
                     <span style={{color:"#4d6e8a"}}>Goal: <span style={{color:"#edf4ff",fontWeight:600}}>{p.goal.toLocaleString()}</span></span>
-                    <span style={{color:"#4d6e8a"}}>Daily rate: <span style={{color:"#edf4ff",fontWeight:600}}>{p.dailyRate.toLocaleString()}/day</span></span>
-                    <span style={{color:"#4d6e8a"}}>Projected: <span style={{color:statusColor,fontWeight:700}}>{p.projectedTotal.toLocaleString()} ({p.projectedPct}%)</span></span>
-                    {p.status!=="on-track"&&p.status!=="ahead"&&<span style={{color:"#4d6e8a"}}>Need: <span style={{color:"#f59e0b",fontWeight:700}}>{p.neededPerDay.toLocaleString()}/day</span> to hit goal</span>}
+                    <span style={{color:"#4d6e8a"}}>Rate: <span style={{color:"#edf4ff",fontWeight:600}}>{p.dailyRate.toLocaleString()}/day</span></span>
+                    <span style={{color:"#4d6e8a"}}>Projected: <span style={{color:sc,fontWeight:700}}>{p.projectedTotal.toLocaleString()} ({p.projectedPct}%)</span></span>
+                    {p.status!=="on-track"&&p.status!=="ahead"&&<span style={{color:"#4d6e8a"}}>Need: <span style={{color:"#f59e0b",fontWeight:700}}>{p.neededPerDay.toLocaleString()}/day</span></span>}
                   </div>
                 </div>
               );
@@ -1888,25 +2061,56 @@ Deliver:
         </div>
       )}
 
+      {/* ══ BENCHMARKS PANEL ══ */}
+      {activePanel==="benchmarks"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{fontSize:11,color:"#4d6e8a"}}>Set your KPI thresholds per platform. Zeus uses these for live Watchlist alerts and analysis. Saves automatically.</div>
+          {Object.entries(kpiBenchmarks).map(([plat,b])=>{
+            const pc = PLT_COLORS[plat]||"#7a9bbf";
+            return (
+              <div key={plat} style={{background:"#0c1625",border:`1px solid ${pc}25`,borderRadius:10,padding:"14px 18px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                  <span style={{fontWeight:800,color:pc,background:pc+"22",border:`1px solid ${pc}50`,borderRadius:5,padding:"2px 10px",fontSize:12,fontFamily:"monospace",minWidth:52,textAlign:"center"}}>{plat}</span>
+                  <span style={{fontSize:12,color:"#7a9bbf"}}>{b.desc}</span>
+                  <span style={{fontSize:11,color:"#4d6e8a",marginLeft:"auto"}}>KPI: <span style={{color:"#edf4ff",fontWeight:600}}>{b.label}</span></span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>⚠️ Warn Below</label>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <input type="number" step="0.01" min="0" value={b.warn} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],warn:parseFloat(e.target.value)||0}}))} style={{flex:1,background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"7px 10px",color:"#f59e0b",fontSize:13,fontFamily:"inherit",outline:"none",minWidth:0}}/>
+                      <span style={{fontSize:12,color:"#4d6e8a",flexShrink:0}}>{b.unit}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#ef4444",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>🚨 Critical Below</label>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <input type="number" step="0.01" min="0" value={b.bad} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],bad:parseFloat(e.target.value)||0}}))} style={{flex:1,background:"#07101c",border:"1px solid #ef444440",borderRadius:6,padding:"7px 10px",color:"#ef4444",fontSize:13,fontFamily:"inherit",outline:"none",minWidth:0}}/>
+                      <span style={{fontSize:12,color:"#4d6e8a",flexShrink:0}}>{b.unit}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          <button onClick={()=>setKpiBenchmarks(defaultBenchmarks)} style={{background:"none",border:"1px solid #334155",borderRadius:8,padding:"8px 18px",color:"#4d6e8a",fontSize:12,cursor:"pointer",alignSelf:"flex-start",fontWeight:600}}>↺ Reset to Defaults</button>
+        </div>
+      )}
+
       {/* ══ PLAYBOOKS PANEL ══ */}
       {activePanel==="playbook"&&(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>
-            Automated rules Zeus monitors. Toggle active/inactive. <span style={{color:"#f59e0b"}}>Coming Soon</span> playbooks will activate when superintelligence enables autonomous execution.
-          </div>
+          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>Rules Zeus monitors. Toggle active/inactive.</div>
           {playbooks.map(pb=>{
             const isFuture = pb.description.startsWith("[Coming Soon]")||pb.description.startsWith("[Autonomous]");
             return (
               <div key={pb.id} style={{background:isFuture?"#0a0e1a":"#0c1625",border:`1px solid ${pb.active&&!isFuture?"#00c89630":isFuture?"#f59e0b20":"#1e293b"}`,borderRadius:10,padding:"14px 18px",display:"flex",gap:14,alignItems:"flex-start",opacity:isFuture?0.75:1}}>
                 <div onClick={()=>!isFuture&&setPlaybooks(ps=>ps.map(p=>p.id===pb.id?{...p,active:!p.active}:p))}
-                  style={{width:20,height:20,borderRadius:5,flexShrink:0,marginTop:2,cursor:isFuture?"default":"pointer",
-                    background:pb.active&&!isFuture?"#00c896":"#162236",
-                    border:`1.5px solid ${pb.active&&!isFuture?"#00c896":isFuture?"#f59e0b40":"#334155"}`,
-                    display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  style={{width:20,height:20,borderRadius:5,flexShrink:0,marginTop:2,cursor:isFuture?"default":"pointer",background:pb.active&&!isFuture?"#00c896":"#162236",border:`1.5px solid ${pb.active&&!isFuture?"#00c896":isFuture?"#f59e0b40":"#334155"}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
                   {pb.active&&!isFuture&&<span style={{color:"#000",fontSize:12,fontWeight:900}}>✓</span>}
                   {isFuture&&<span style={{color:"#f59e0b",fontSize:10}}>⚡</span>}
                 </div>
-                <div style={{flex:1,minWidth:0}}>
+                <div style={{flex:1}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
                     <span style={{fontSize:13,fontWeight:700,color:isFuture?"#f59e0b80":"#edf4ff"}}>{pb.name}</span>
                     {isFuture&&<span style={{fontSize:10,background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",color:"#f59e0b",fontWeight:700}}>⚡ Requires Superintelligence</span>}
@@ -1925,25 +2129,25 @@ Deliver:
         <div style={{display:"flex",flexDirection:"column",gap:16}}>
           <div style={{background:"linear-gradient(135deg,#0a0e00,#0e1200)",border:"1px solid #f59e0b30",borderRadius:14,padding:"28px 32px",textAlign:"center"}}>
             <div style={{fontSize:40,marginBottom:12,filter:"drop-shadow(0 0 20px #f59e0b60)"}}>🤖</div>
-            <div style={{fontSize:16,fontWeight:800,color:"#f59e0b",marginBottom:8,letterSpacing:"-0.01em"}}>Autonomous Mode</div>
+            <div style={{fontSize:16,fontWeight:800,color:"#f59e0b",marginBottom:8}}>Autonomous Mode</div>
             <div style={{fontSize:12,color:"#7a9bbf",maxWidth:480,margin:"0 auto 20px",lineHeight:1.7}}>
-              When superintelligence arrives, Zeus will be able to execute changes directly — adjust bids, reallocate budgets, pause underperformers, swap creatives, and send partner emails — all on your behalf with your approval.
+              Zeus already has full write access to your tracker. When superintelligence arrives, he'll extend that to direct platform execution — Meta, TTD, DSP — with no human in the loop required.
             </div>
             <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
-              <div style={{background:"#0c1218",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",minWidth:180,textAlign:"left"}}>
-                <div style={{fontSize:11,color:"#f59e0b",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Planned Capabilities</div>
-                {["Direct Meta / TTD / DSP execution","Autonomous budget reallocation","Continuous 24/7 monitoring","Proactive partner outreach","Creative swap scheduling","Predictive bid optimization","Auto-renewal flagging"].map((cap,i)=>(
+              <div style={{background:"#0c1218",border:"1px solid #00c89630",borderRadius:10,padding:"16px 20px",minWidth:180,textAlign:"left"}}>
+                <div style={{fontSize:11,color:"#00d48a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>✓ Ready Now</div>
+                {["Add campaigns","Edit any campaign field","Bulk update by partner","Archive & restore","Set reminders","Full KPI monitoring","Draft any communication","Run analysis on demand"].map((cap,i)=>(
                   <div key={i} style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
-                    <span style={{color:"#f59e0b",fontSize:10}}>⚡</span>
+                    <span style={{color:"#00d48a",fontSize:10}}>✓</span>
                     <span style={{fontSize:11,color:"#7a9bbf"}}>{cap}</span>
                   </div>
                 ))}
               </div>
-              <div style={{background:"#0c1218",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",minWidth:180,textAlign:"left"}}>
-                <div style={{fontSize:11,color:"#00d48a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Ready Now</div>
-                {["Full campaign analysis","Delivery predictions","Live KPI monitoring","Draft any communication","Platform-specific optimization advice","Partner status summaries","End-of-month reporting"].map((cap,i)=>(
+              <div style={{background:"#0c1218",border:"1px solid #f59e0b20",borderRadius:10,padding:"16px 20px",minWidth:180,textAlign:"left"}}>
+                <div style={{fontSize:11,color:"#f59e0b",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>⚡ With Superintelligence</div>
+                {["Direct Meta execution","Direct TTD / DSP execution","Continuous 24/7 monitoring","Autonomous partner outreach","Creative swap scheduling","Predictive bid optimization","Auto renewal flagging","Self-healing campaigns"].map((cap,i)=>(
                   <div key={i} style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
-                    <span style={{color:"#00d48a",fontSize:10}}>✓</span>
+                    <span style={{color:"#f59e0b",fontSize:10}}>⚡</span>
                     <span style={{fontSize:11,color:"#7a9bbf"}}>{cap}</span>
                   </div>
                 ))}
@@ -1954,25 +2158,15 @@ Deliver:
             <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Autonomous Mode Toggle</div>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
               <div style={{fontSize:12,color:"#7a9bbf",lineHeight:1.5,flex:1}}>
-                When enabled, Zeus will queue recommended actions for your review before executing. One-click approve/reject on each action. <span style={{color:"#f59e0b"}}>Execution requires superintelligence API — currently queues for review only.</span>
+                When enabled, Zeus queues actions for one-click approval instead of waiting for you to ask. <span style={{color:"#f59e0b"}}>Platform execution requires superintelligence API.</span>
               </div>
               <button onClick={()=>setAutonomousMode(v=>!v)} style={{
-                background:autonomousMode?"#1a1000":"#0e1a2e",
-                border:`2px solid ${autonomousMode?"#f59e0b":"#334155"}`,
+                background:autonomousMode?"#1a1000":"#0e1a2e",border:`2px solid ${autonomousMode?"#f59e0b":"#334155"}`,
                 borderRadius:30,padding:"8px 20px",color:autonomousMode?"#f59e0b":"#4d6e8a",
-                fontSize:13,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",
-                transition:"all .2s",minWidth:120,
+                fontSize:13,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",transition:"all .2s",minWidth:100,
                 ...(autonomousMode?{boxShadow:"0 0 14px #f59e0b30"}:{})
-              }}>
-                {autonomousMode?"⚡ ON":"OFF"}
-              </button>
+              }}>{autonomousMode?"⚡ ON":"OFF"}</button>
             </div>
-            {autonomousMode&&(
-              <div style={{marginTop:12,background:"#060d18",border:"1px solid #f59e0b30",borderRadius:8,padding:"12px 16px"}}>
-                <div style={{fontSize:11,color:"#f59e0b",fontWeight:700,marginBottom:6}}>⚡ Autonomous mode active — Zeus will queue recommendations for approval</div>
-                <div style={{fontSize:11,color:"#4d6e8a"}}>Pending actions: <span style={{color:"#edf4ff",fontWeight:600}}>{pendingActions.length} (none yet — Zeus will surface them as patterns emerge)</span></div>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -2069,7 +2263,16 @@ function CampaignArchive({ archive, onRestore, onClear }) {
                 <span style={{fontWeight:400}}>{camps.length} campaign{camps.length!==1?"s":""}</span>
               </div>
               <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,overflow:"hidden"}}>
-                <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed"}}>
+                  <colgroup>
+                    <col style={{width:"28%"}}/>
+                    <col style={{width:"8%"}}/>
+                    <col style={{width:"22%"}}/>
+                    <col style={{width:"10%"}}/>
+                    <col style={{width:"10%"}}/>
+                    <col style={{width:"10%"}}/>
+                    <col style={{width:"12%"}}/>
+                  </colgroup>
                   <thead>
                     <tr style={{background:"#070d16"}}>
                       <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Campaign</th>
@@ -2078,7 +2281,7 @@ function CampaignArchive({ archive, onRestore, onClear }) {
                       <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>End Date</th>
                       <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Archived</th>
                       <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Metrics</th>
-                      <th style={{padding:"9px 13px",borderBottom:"1px solid #1e293b"}}/>
+                      <th style={{padding:"9px 13px",textAlign:"right",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2089,22 +2292,22 @@ function CampaignArchive({ archive, onRestore, onClear }) {
                       return (
                         <Fragment key={c.id}>
                           <tr style={{background:rowBg}}>
-                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18"}}>
-                              <div style={{fontSize:12,fontWeight:600,color:"#edf4ff"}}>{c.campaignName.trim()}</div>
-                              {c.note1&&<div style={{fontSize:10,color:"#00ffb3",marginTop:2}}>{c.note1.trim()}</div>}
+                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",overflow:"hidden"}}>
+                              <div style={{fontSize:12,fontWeight:600,color:"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
+                              {c.note1&&<div style={{fontSize:10,color:"#00ffb3",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.note1.trim()}</div>}
                             </td>
                             <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18"}}>
                               <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 6px",fontSize:10,fontWeight:700}}>{c.platform}</span>
                             </td>
-                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",fontSize:11,color:"#4d6e8a"}}>{c.goal||"—"}</td>
-                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",fontSize:11,color:"#7a9bbf"}}>{c.endDate||"—"}</td>
-                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",fontSize:11,color:"#3d5a72"}}>{c.archivedDate||"—"}</td>
+                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",fontSize:11,color:"#4d6e8a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.goal||"—"}</td>
+                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",fontSize:11,color:"#7a9bbf",whiteSpace:"nowrap"}}>{c.endDate||"—"}</td>
+                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",fontSize:11,color:"#3d5a72",whiteSpace:"nowrap"}}>{c.archivedDate||"—"}</td>
                             <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18"}}>
                               <button onClick={()=>toggleExpand(c.id)} style={{background:"none",border:"none",cursor:"pointer",color:c.impressions?"#00c896":"#1e3048",fontSize:11,padding:0}}>
                                 {isOpen?"▼ Hide":"▶ Show"}
                               </button>
                             </td>
-                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18"}}>
+                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",textAlign:"right"}}>
                               <button onClick={()=>onRestore(c)} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:5,color:"#00e5a0",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:600}}>Restore</button>
                             </td>
                           </tr>
@@ -4166,7 +4369,7 @@ export default function App() {
   const [dragOverId, setDragOverId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showBulkEdit, setShowBulkEdit] = useState(false);
-  const [bulkDraft, setBulkDraft] = useState({ note1:"", note2:"", status:"", lastChecked:"", history:"" });
+  const [bulkDraft, setBulkDraft] = useState({ note1:"", note2:"", status:"", lastChecked:"", endDate:"", history:"" });
   const [dateRange, setDateRange] = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
   const [activeTab, setActiveTab] = useState("campaigns");
 
@@ -4515,6 +4718,7 @@ export default function App() {
     if (bulkDraft.note2.trim()) updates.note2 = bulkDraft.note2.trim();
     if (bulkDraft.status) updates.status = bulkDraft.status;
     if (bulkDraft.lastChecked) updates.lastChecked = bulkDraft.lastChecked;
+    if (bulkDraft.endDate) updates.endDate = bulkDraft.endDate;
     const historyEntry = bulkDraft.history.trim();
     if (Object.keys(updates).length === 0 && !historyEntry) return;
     const datePrefix = `${today} — `;
@@ -4744,7 +4948,17 @@ export default function App() {
         {activeTab==="archive" ? (
           <CampaignArchive archive={archive} onRestore={handleRestore} onClear={()=>setArchive([])}/>
         ) : activeTab==="ai" ? (
-          <AIAdvisor campaigns={campaigns} archive={archive} reminders={reminders} dateRange={dateRange}/>
+          <AIAdvisor
+            campaigns={campaigns}
+            archive={archive}
+            reminders={reminders}
+            dateRange={dateRange}
+            onAddCampaign={(c)=>{ setCampaigns(cs=>[...cs,c]); addLog({type:"created",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Added by Zeus",campaignId:c.id,prevSnapshot:null}); }}
+            onUpdateCampaign={(c)=>{ updateCampaign(c); }}
+            onArchiveCampaign={(c)=>{ const tod=getToday(); const [ay,am,ad]=tod.split("-"); const stamp=`${am}/${ad}/${ay}`; const note=`${stamp} — Archived by Zeus`; const hist=c.history&&c.history.trim()?`${note}\n${c.history}`:note; setArchive(prev=>[...prev,{...c,archivedDate:tod,history:hist}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Archived by Zeus",campaignId:c.id,prevSnapshot:{...c}}); }}
+            onRestoreCampaign={(c)=>{ const tod=getToday(); const [ay,am,ad]=tod.split("-"); const stamp=`${am}/${ad}/${ay}`; const note=`${stamp} — Restored by Zeus`; const hist=c.history&&c.history.trim()?`${note}\n${c.history}`:note; setCampaigns(cs=>[...cs,{...c,archivedDate:undefined,history:hist}]); setArchive(prev=>prev.filter(a=>a.id!==c.id)); }}
+            onSetReminder={(r)=>{ setReminders(prev=>[...prev,r]); }}
+          />
         ) : activeTab==="config" ? (
           <PlatformConfig campaigns={campaigns}
             metaSyncStatus={metaSyncStatus}   metaSyncInfo={metaSyncInfo}
@@ -4778,7 +4992,7 @@ export default function App() {
             ) : (
               <div style={{flex:1,background:"#0a1c2e",border:"1px solid #1e3a50",borderRadius:9,padding:"14px 18px",display:"flex",flexDirection:"column",gap:12}}>
                 <div style={{fontSize:12,color:"#00e5a0",fontWeight:700,marginBottom:2}}>Bulk Edit — changes apply to all {selectedIds.size} selected campaigns</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:10}}>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 1 <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
                     <input value={bulkDraft.note1} onChange={e=>setBulkDraft(p=>({...p,note1:e.target.value}))} placeholder="e.g. Creative updated 3/18" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
@@ -4795,8 +5009,12 @@ export default function App() {
                     </select>
                   </div>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Last Checked Date <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Last Checked <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
                     <DatePicker value={bulkDraft.lastChecked} onChange={v=>setBulkDraft(p=>({...p,lastChecked:v}))}/>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#fb923c",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>End Date <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
+                    <DatePicker value={bulkDraft.endDate||""} onChange={v=>setBulkDraft(p=>({...p,endDate:v}))}/>
                   </div>
                 </div>
                 <div>
@@ -4823,8 +5041,8 @@ export default function App() {
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={applyBulkEdit} style={{background:"#00c896",border:"none",borderRadius:7,padding:"8px 22px",color:"#000",fontWeight:700,fontSize:13,cursor:"pointer"}}>Apply to {selectedIds.size} Campaign{selectedIds.size!==1?"s":""}</button>
-                  <button onClick={()=>{ setShowBulkEdit(false); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",history:""}); }} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"8px 16px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>Cancel</button>
-                  <button onClick={()=>{ setShowBulkEdit(false); setSelectedIds(new Set()); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",history:""}); }} style={{background:"none",border:"1px solid #334155",borderRadius:7,padding:"8px 12px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>Clear selection</button>
+                  <button onClick={()=>{ setShowBulkEdit(false); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",endDate:"",history:""}); }} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"8px 16px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>Cancel</button>
+                  <button onClick={()=>{ setShowBulkEdit(false); setSelectedIds(new Set()); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",endDate:"",history:""}); }} style={{background:"none",border:"1px solid #334155",borderRadius:7,padding:"8px 12px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>Clear selection</button>
                 </div>
               </div>
             )}
