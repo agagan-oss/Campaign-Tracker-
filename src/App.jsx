@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, Fragment } from "react";
 
 const STORAGE_KEY = "campaign-tracker-v3";
+const ZEUS_KEY = "campaign-tracker-zeus";
 const EXPORT_KEY = "campaign-tracker-last-export";
 const REMINDERS_KEY = "campaign-tracker-reminders";
 const ACTIVITY_KEY = "campaign-tracker-activity";
@@ -10,7 +11,13 @@ const MAX_LOG_ENTRIES = 500;
 
 const initialCampaigns = [{"mediaPartner":"WVR","campaignName":"Harry Green CDJR","platform":"FB","goal":"750K (7/1/25 - 12/31/25)","endDate":"2026-06-30","note1":"125K/Mo","note2":"","lastChecked":"2026-03-02","id":1769125165003,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Compass TK","campaignName":"Farm Bureau Financial-Jim Waters","platform":"TD","goal":"1.58M (8/11/25 - 7/31/26)","endDate":"2026-07-31","note1":"131.6K/Mo","note2":"","lastChecked":"2026-03-02","id":1769125792921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Saginaw","campaignName":"Great Lakes Pace","platform":"FB","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-25","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209400165,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Palm Springs","campaignName":"Carpet Empire Plus","platform":"FB","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-31","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209535972,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Palm Springs","campaignName":"Carpet Empire Plus","platform":"DSP","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-31","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209663140,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"TD","goal":"143K (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"12K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214676416,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"FB","goal":"1.08M (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"90K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214678888,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"DSP","goal":"1.08M (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"90K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214712742,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Britestar Milwaukee Middle School","platform":"TD","goal":"100K Monthly","endDate":"2026-03-31","note1":"100K Monthly","note2":"","lastChecked":"2026-03-02","id":1769214781502,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"TD","goal":"40K Feb/March","endDate":"2026-03-31","note1":"40K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439021921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"FB","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439025194,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"FBV","goal":"20K Feb/March","endDate":"2026-03-31","note1":"20K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439086411,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"DSP","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439117040,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"SEM","goal":"Need New Budget for February","endDate":"2026-01-31","note1":"Need New Budget for February","note2":"","lastChecked":"2026-03-02","id":1769439141224,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"TD","goal":"40K Feb/March","endDate":"2026-03-31","note1":"40K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439175821,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"FB","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439200352,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"FBV","goal":"20K Feb/March","endDate":"2026-03-31","note1":"20K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439219988,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"DSP","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439236958,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"SEM","goal":"Need New Budget for February","endDate":"2026-01-31","note1":"Need New Budget for February","note2":"","lastChecked":"2026-03-02","id":1769439252985,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Noyes Development","platform":"TD","goal":"14.5K/Mo","endDate":"2026-03-31","note1":"14.5K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439379921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"TD","goal":"500K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"97K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439513145,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"CTV","goal":"291K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"66K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439528551,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"OTT","goal":"207K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"47K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439581123,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"EMAIL","goal":"5 Emails","endDate":"2026-03-31","note1":"1/Mo","note2":"","lastChecked":"2026-03-02","id":1769440542802,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"FB","goal":"283K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"41K/Mo (15-20% Oregon)","note2":"","lastChecked":"2026-03-02","id":1769440737136,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities ","platform":"FBV","goal":"175K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","id":1772483657607,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"DSP","goal":"460K (11/3/25 - 5/31/26) ","endDate":"2026-05-31","note1":"67K/Mo (15-20% Oregon)","note2":"","lastChecked":"2026-03-02","id":1772483749345,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"TD","goal":"70K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"10K/Mo","note2":"","lastChecked":"2026-03-02","id":1772483792126,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities Audio","platform":"TD","goal":"296K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"59.5K/Mo","note2":"","lastChecked":"2026-03-02","id":1772483819653,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America","platform":"FB","goal":"900K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"180K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484331559},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America","platform":"DSP","goal":"1.275M (11/4/25 - 3/31/26) ","endDate":"2026-03-31","status":"active","note1":"255K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484347656},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America ","platform":"SP","goal":"375K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"75K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484372498},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America  ","platform":"CTV","goal":"435K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"87K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484401165},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America ","platform":"OTT","goal":"298K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"60K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484418938},{"mediaPartner":"WVR","campaignName":"Concord University","platform":"FB","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484485079},{"mediaPartner":"WVR","campaignName":"Concord University ","platform":"SP","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484490232},{"mediaPartner":"WVR","campaignName":"Concord University ","platform":"DSP","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484503162},{"mediaPartner":"Enchanting Media","campaignName":"Waterview Casino","platform":"FB","goal":"95K March","endDate":"2026-03-31","status":"active","note1":"95K March ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484624626},{"mediaPartner":"Enchanting Media","campaignName":"Waterview Casino","platform":"DSP","goal":"95K March","endDate":"2026-03-31","status":"active","note1":"95K March ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484630475},{"mediaPartner":"Alpha Moberly","campaignName":"Right Rate Roofing","platform":"SEM","goal":"5,400 (12/4/25 - 7/30/26) ","endDate":"2026-07-31","status":"active","note1":"$900/Mo ","note2":" $1,564 March ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484709093},{"mediaPartner":"Compass","campaignName":"Bolz Chiro","platform":"FB","goal":"400K (1/1/26 - 4/30/26)","endDate":"2026-03-31","status":"active","note1":"100K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484763564},{"mediaPartner":"Compass","campaignName":"Brownstone","platform":"DSP","goal":"229K (12/12/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"58K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484790999},{"mediaPartner":"Compass","campaignName":"Brownstone ","platform":"FB","goal":"80K (12/12/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"20K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484798543},{"mediaPartner":"Compass","campaignName":"Brownstone  ","platform":"FBV","goal":"148K (12/12/25 - 3/31/26) ","endDate":"2026-03-31","status":"active","note1":"37K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484823373},{"mediaPartner":"Alpha Moberly","campaignName":"Specs Quincy","platform":"FB","goal":"300K (1/1/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484872046},{"mediaPartner":"Alpha Moberly","campaignName":"Specs Quincy","platform":"DSP","goal":"300K (1/1/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484887059},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Pearl Hawaii Federal Credit Union","platform":"SEM","goal":"$35,091 Media Spend (1/13/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"$2,925/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484925304},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Pearl Hawaii Federal Credit Union ","platform":"CTV","goal":"375K (1/14/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"31,250/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484928999},{"mediaPartner":"Alpha Moberly","campaignName":"Prairieland FS","platform":"DSP","goal":"445K (1/16/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"37.5K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484986463},{"mediaPartner":"Alpha Moberly","campaignName":"Prairieland FS ","platform":"FB","goal":"445K (1/16/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"40.5K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485011820},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Holo HIIT","platform":"FBV","goal":"63K (1/16/26 - 3/31/26)","endDate":"2026-03-31","status":"off","note1":"","note2":"FB Access ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485059494},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Holo HIIT ","platform":"FBV","goal":"63K (1/16/26 - 3/31/26)","endDate":"2026-03-31","status":"off","note1":"30K Feb/March","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485067041},{"mediaPartner":"Alpha Moberly","campaignName":"Culligan of Hanibal","platform":"DSP","goal":"758K (1/22/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485129272},{"mediaPartner":"Alpha Moberly","campaignName":"Quincy Catholic Elementary School","platform":"FB","goal":"125K (2/1/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"100K 2/1 - 4/30 (25K December)","note2":"FB Access/Creatives ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485194758},{"mediaPartner":"Alpha Moberly","campaignName":"Quincy Catholic Elementary School ","platform":"DSP","goal":"125K (2/1/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"100K 2/1 - 4/30 (25K December)","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485211288},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Leavitt Yamane & Soldner","platform":"DSP","goal":"1.025M (2/9/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"93.5K/Mo ","note2":"Streaming Orders/Mo","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485298961},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Leavitt Yamane & Soldner","platform":"FB","goal":"1.025M (2/9/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"93.5K/Mo ","note2":"FB Access","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485347220},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Aloha Sugarcane Juices","platform":"TD","goal":"172K (2/16/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"58K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485429793},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio)","platform":"DSP","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485804286},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio) ","platform":"FB","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485820512},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio) ","platform":"SP","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485828817},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA)","platform":"DSP","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485842011},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA)","platform":"FB","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485880132},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA) ","platform":"SP","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485887909},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV)","platform":"DSP","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485904806},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD)","platform":"DSP","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772486056686},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD) ","platform":"FB","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486135542},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD)  ","platform":"SP","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486155939},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV) ","platform":"FB","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486026268},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV) ","platform":"SP","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486034400},{"mediaPartner":"Allen Media Broadcasting","campaignName":"King Windward Nissan ","platform":"TD","goal":"179K (2/20/26 - 3/15/26)","endDate":"2026-03-15","status":"active","note1":"","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486199815},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque","platform":"FB","goal":"20K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"10K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486231814},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"FBV","goal":"12K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"6K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486241660},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"FBV","goal":"35K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"18K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486264350},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"YT","goal":"6K Views (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"3K Views/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486294122},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque  ","platform":"TD","goal":"91K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"46K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772486311325}];
 
-const ALL_PLATFORMS = ["FB","FBV","DSP","CTV","OTT","OTTD","SP","SEM","TD","TT","IG","YT","EMAIL"];
+const ALL_PLATFORMS_DEFAULT = ["FB","FBV","DSP","CTV","OTT","OTTD","SP","SEM","TD","TT","IG","YT","EMAIL"];
+const CUSTOM_PLATFORMS_KEY = "campaign-tracker-custom-platforms";
+const CUSTOM_BENCHMARKS_KEY = "campaign-tracker-zeus-benchmarks";
+function loadCustomPlatforms() { try{const s=localStorage.getItem(CUSTOM_PLATFORMS_KEY);return s?JSON.parse(s):{platforms:[],colors:{}}}catch{return{platforms:[],colors:{}}}}
+function saveCustomPlatforms(d){try{localStorage.setItem(CUSTOM_PLATFORMS_KEY,JSON.stringify(d))}catch(e){}}
+// ALL_PLATFORMS stays as a live array that includes custom additions
+const ALL_PLATFORMS = (()=>{const c=loadCustomPlatforms();return[...ALL_PLATFORMS_DEFAULT,...c.platforms.filter(p=>!ALL_PLATFORMS_DEFAULT.includes(p))];})();
 const REMINDER_TYPES = [
   { value:"ad-swap",      label:"🔄 Ad Swap",         color:"#f472b6" },
   { value:"budget-check", label:"💰 Budget Check",    color:"#fb923c" },
@@ -27,12 +34,13 @@ const STATUS_CFG = {
   "close-to-goal": { label:"Close to Goal", color:"#00e5c0", bg:"#00201a" },
   "":              { label:"Unknown",       color:"#a855f7", bg:"#071420" },
 };
-const PLT_COLORS = {
+const PLT_COLORS_DEFAULT = {
   SEM:"#b91c1c", TD:"#00ffb3", DSP:"#7dd3fc", FB:"#f472b6",
   FBV:"#a855f7", CTV:"#a8c4e0", OTT:"#6b7280", OTTD:"#003a5c",
   YT:"#6effd8", SP:"#fde047", EMAIL:"#fb923c", TT:"#7a9bbf",
   IG:"#e1306c", default:"#4d6e8a"
 };
+const PLT_COLORS = (()=>{const c=loadCustomPlatforms();return{...PLT_COLORS_DEFAULT,...c.colors};})();
 
 function getToday() { return new Date().toISOString().split("T")[0]; }
 function fmt(d) { return d.toISOString().split("T")[0]; }
@@ -1232,14 +1240,38 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange }) {
   const [chatHistory, setChatHistory] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [boltFrame, setBoltFrame] = useState(0);
-  const [activePanel, setActivePanel] = useState("chat"); // chat | watchlist | predict | playbook | autonomous
+  const [activePanel, setActivePanel] = useState("chat"); // chat | watchlist | predict | playbook | benchmarks | autonomous
   const [watchThresholds, setWatchThresholds] = useState({
-    ctrWarnPct: 80,   // % of benchmark before warning
+    ctrWarnPct: 80,
     pacingBehindPct: 80,
     creativeAgeDays: 21,
     spendBudgetPct: 80,
     daysToEndWarn: 7,
   });
+  // Editable KPI benchmarks — stored in state so user can adjust
+  const defaultBenchmarks = {
+    FB:    { metric:"CTR",  warn:0.10,  bad:0.05,  unit:"%", label:"CTR",             desc:"Meta Feed" },
+    FBV:   { metric:"VCR",  warn:50,    bad:30,    unit:"%", label:"Video Completion", desc:"Meta Video" },
+    IG:    { metric:"CTR",  warn:0.10,  bad:0.05,  unit:"%", label:"CTR",             desc:"Instagram" },
+    DSP:   { metric:"CTR",  warn:0.03,  bad:0.01,  unit:"%", label:"CTR",             desc:"DSP Display" },
+    TD:    { metric:"CTR",  warn:0.03,  bad:0.01,  unit:"%", label:"CTR",             desc:"The Trade Desk" },
+    SP:    { metric:"CTR",  warn:0.03,  bad:0.01,  unit:"%", label:"CTR",             desc:"Snapchat" },
+    SEM:   { metric:"CTR",  warn:2.0,   bad:1.0,   unit:"%", label:"CTR",             desc:"Search" },
+    CTV:   { metric:"VCR",  warn:85,    bad:70,    unit:"%", label:"Completion Rate", desc:"Connected TV" },
+    OTT:   { metric:"VCR",  warn:85,    bad:70,    unit:"%", label:"Completion Rate", desc:"OTT / Streaming" },
+    YT:    { metric:"VCR",  warn:20,    bad:10,    unit:"%", label:"View Rate",       desc:"YouTube" },
+    TT:    { metric:"VCR",  warn:20,    bad:10,    unit:"%", label:"Video Completion", desc:"TikTok" },
+    EMAIL: { metric:"CTR",  warn:1.0,   bad:0.5,   unit:"%", label:"Click Rate",      desc:"Email" },
+  };
+  const [kpiBenchmarks, setKpiBenchmarks] = useState(() => {
+    try {
+      const saved = localStorage.getItem("zeus-benchmarks");
+      return saved ? {...defaultBenchmarks, ...JSON.parse(saved)} : defaultBenchmarks;
+    } catch { return defaultBenchmarks; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("zeus-benchmarks", JSON.stringify(kpiBenchmarks)); } catch(e) {}
+  }, [kpiBenchmarks]);
   const [playbooks, setPlaybooks] = useState([
     { id:1, name:"End of Month Push", trigger:"pacing_behind_eom", active:true, description:"When a campaign is >15% behind pace with <5 days left in the month, alert immediately with recommended daily delivery targets." },
     { id:2, name:"Creative Staleness", trigger:"creative_age", active:true, description:"Flag when creatives haven't been updated in 21+ days on active campaigns." },
@@ -1264,21 +1296,63 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange }) {
     return () => clearInterval(iv);
   }, [loading]);
 
-  // ── KPI thresholds ────────────────────────────────────────────────────────
-  const KPI_THRESHOLDS = {
-    FB:    { metric:"CTR",  warn:0.001,  bad:0.0005, unit:"%", multiply:100, label:"CTR" },
-    FBV:   { metric:"VCR",  warn:0.50,   bad:0.30,   unit:"%", multiply:100, label:"Video Completion" },
-    IG:    { metric:"CTR",  warn:0.001,  bad:0.0005, unit:"%", multiply:100, label:"CTR" },
-    DSP:   { metric:"CTR",  warn:0.0003, bad:0.0001, unit:"%", multiply:100, label:"CTR" },
-    TD:    { metric:"CTR",  warn:0.0003, bad:0.0001, unit:"%", multiply:100, label:"CTR" },
-    SP:    { metric:"CTR",  warn:0.0003, bad:0.0001, unit:"%", multiply:100, label:"CTR" },
-    SEM:   { metric:"CTR",  warn:0.02,   bad:0.01,   unit:"%", multiply:100, label:"CTR" },
-    CTV:   { metric:"VCR",  warn:0.85,   bad:0.70,   unit:"%", multiply:100, label:"Completion Rate" },
-    OTT:   { metric:"VCR",  warn:0.85,   bad:0.70,   unit:"%", multiply:100, label:"Completion Rate" },
-    YT:    { metric:"VCR",  warn:0.20,   bad:0.10,   unit:"%", multiply:100, label:"View Rate" },
-    TT:    { metric:"VCR",  warn:0.20,   bad:0.10,   unit:"%", multiply:100, label:"Video Completion" },
-    EMAIL: { metric:"CTR",  warn:0.01,   bad:0.005,  unit:"%", multiply:100, label:"CTR" },
-  };
+  // ── KPI thresholds — derived from editable benchmarks ────────────────────
+  const KPI_THRESHOLDS = Object.fromEntries(
+    Object.entries(kpiBenchmarks).map(([plat, b]) => [plat, {
+      metric: b.metric,
+      warn: b.warn / 100,   // stored as % display value, convert to decimal
+      bad:  b.bad  / 100,
+      unit: b.unit,
+      multiply: 100,
+      label: b.label,
+    }])
+  );
+
+  // ── Month-over-month trend detection ─────────────────────────────────────
+  function getMoMTrends() {
+    const trends = [];
+    campaigns.filter(c => c.status === "active").forEach(c => {
+      const t = KPI_THRESHOLDS[c.platform];
+      if (!t) return;
+      // Compare MTD snapshot vs last30 snapshot to detect direction
+      const getSnap = (snapKey) => {
+        const sources = [c.metaSnapshots, c.ttdSnapshots, c.dspSnapshots, c.googleSnapshots, c.snapSnapshots];
+        for (const src of sources) {
+          if (src && src[snapKey]) return src[snapKey];
+        }
+        return null;
+      };
+      const mtd = getSnap("mtd");
+      const prev = getSnap("last30");
+      if (!mtd || !prev) return;
+
+      const getKpiVal = (snap) => {
+        if (t.metric === "CTR") return snap.ctr ? parseFloat(snap.ctr) : null;
+        if (t.metric === "VCR") return snap.vcr ? parseFloat(snap.vcr) : null;
+        return null;
+      };
+
+      const mtdVal = getKpiVal(mtd);
+      const prevVal = getKpiVal(prev);
+      if (!mtdVal || !prevVal || prevVal === 0) return;
+
+      const changePct = ((mtdVal - prevVal) / prevVal) * 100;
+      if (changePct < -15) {
+        trends.push({
+          level: changePct < -30 ? "danger" : "warn",
+          campaign: c.campaignName.trim(),
+          partner: c.mediaPartner,
+          platform: c.platform,
+          label: t.label,
+          mtdVal: (mtdVal * (t.metric === "CTR" ? 100 : 1)).toFixed(2) + t.unit,
+          prevVal: (prevVal * (t.metric === "CTR" ? 100 : 1)).toFixed(2) + t.unit,
+          changePct: Math.round(changePct),
+          id: c.id,
+        });
+      }
+    });
+    return trends.sort((a,b) => a.changePct - b.changePct);
+  }
 
   function getKpiAlerts() {
     const alerts = [];
@@ -1379,6 +1453,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange }) {
     });
     return { today, activeCampaignCount:active.length, kpiAlerts, predictions, campaigns:rows,
       overdueReminders:reminders.filter(r=>!r.dismissed&&r.date<today).length,
+      momTrends: getMoMTrends(),
       endingSoon:active.filter(c=>{const d=getDaysLeft(c.endDate);return d>=0&&d<=7;}).map(c=>({campaign:c.campaignName.trim(),platform:c.platform,partner:c.mediaPartner,daysLeft:getDaysLeft(c.endDate)})) };
   }
 
@@ -1525,11 +1600,12 @@ Deliver:
   }
 
   const PANELS = [
-    {key:"chat",    label:"⚡ Zeus",    badge:0},
-    {key:"watchlist",label:"🚨 Watchlist",badge:dangerAlerts.length+warnAlerts.length},
-    {key:"predict", label:"📡 Predictions",badge:predictions.filter(p=>p.status==="critical"||p.status==="at-risk").length},
-    {key:"playbook",label:"⚙️ Playbooks", badge:0},
-    {key:"autonomous",label:"🤖 Autonomous",badge:pendingActions.length},
+    {key:"chat",      label:"⚡ Zeus",      badge:0},
+    {key:"watchlist", label:"🚨 Watchlist", badge:dangerAlerts.length+warnAlerts.length},
+    {key:"predict",   label:"📡 Predictions",badge:predictions.filter(p=>p.status==="critical"||p.status==="at-risk").length},
+    {key:"benchmarks",label:"📊 Benchmarks", badge:0},
+    {key:"playbook",  label:"⚙️ Playbooks",  badge:0},
+    {key:"autonomous",label:"🤖 Autonomous", badge:pendingActions.length},
   ];
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1548,20 +1624,59 @@ Deliver:
       {/* ── Header ── */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
+          {/* Zeus pixel art */}
           <div style={{
-            width:56,height:56,borderRadius:16,
-            background:"linear-gradient(135deg,#1a1000,#2d1a00)",
-            border:`2px solid ${loading?"#f59e0b":"#f59e0b60"}`,
-            display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,
-            transition:"all .3s",
-            ...(loading?{boxShadow:"0 0 35px #f59e0b70,0 0 70px #f59e0b30",animation:"zeusGlow 1.5s ease-in-out infinite"}:{})
+            position:"relative",width:64,height:64,flexShrink:0,
+            filter:loading?"drop-shadow(0 0 12px #f59e0b) drop-shadow(0 0 24px #f59e0b80)":"drop-shadow(0 0 6px #f59e0b60)",
+            transition:"filter .3s",
+            ...(loading?{animation:"zeusGlow 1.5s ease-in-out infinite"}:{})
           }}>
-            <span style={{display:"inline-block",...(loading?{animation:"boltSpin .15s ease-in-out infinite"}:{})}}>
-              {loading ? boltChars[boltFrame] : "⚡"}
-            </span>
+            <svg viewBox="0 0 16 16" width="64" height="64" style={{imageRendering:"pixelated",display:"block",...(loading?{animation:"boltSpin .5s ease-in-out infinite"}:{})}}>
+              {/* White hair/crown */}
+              <rect x="4" y="0" width="8" height="1" fill="#e8e0c0"/>
+              <rect x="3" y="1" width="10" height="1" fill="#f0e8d0"/>
+              <rect x="2" y="2" width="12" height="1" fill="#f0e8d0"/>
+              {/* Gold laurel hints */}
+              <rect x="2" y="2" width="2" height="1" fill="#f59e0b"/>
+              <rect x="12" y="2" width="2" height="1" fill="#f59e0b"/>
+              <rect x="1" y="3" width="2" height="1" fill="#f59e0b"/>
+              <rect x="13" y="3" width="2" height="1" fill="#f59e0b"/>
+              {/* Face */}
+              <rect x="3" y="3" width="10" height="5" fill="#d4a876"/>
+              {/* Eyes */}
+              <rect x="5" y="5" width="2" height="1" fill="#1a1a2e"/>
+              <rect x="9" y="5" width="2" height="1" fill="#1a1a2e"/>
+              {/* Eye glow — electric blue */}
+              <rect x="5" y="5" width="1" height="1" fill="#60a5fa"/>
+              <rect x="9" y="5" width="1" height="1" fill="#60a5fa"/>
+              {/* Beard */}
+              <rect x="3" y="8" width="10" height="1" fill="#c8c0a0"/>
+              <rect x="4" y="9" width="8" height="1" fill="#d8d0b0"/>
+              <rect x="3" y="10" width="10" height="2" fill="#e8e0c8"/>
+              {/* Robe / body */}
+              <rect x="2" y="12" width="12" height="4" fill="#f0f0ff"/>
+              <rect x="2" y="12" width="3" height="4" fill="#d0d0f0"/>
+              <rect x="11" y="12" width="3" height="4" fill="#d0d0f0"/>
+              {/* Gold trim */}
+              <rect x="2" y="12" width="12" height="1" fill="#f59e0b"/>
+              {/* Lightning bolt in hand — right side */}
+              <rect x="12" y="9" width="1" height="1" fill="#fde047"/>
+              <rect x="13" y="10" width="1" height="1" fill="#f59e0b"/>
+              <rect x="12" y="11" width="1" height="1" fill="#fde047"/>
+              <rect x="13" y="12" width="1" height="1" fill="#f59e0b"/>
+              {/* Glow pixels */}
+              <rect x="14" y="9" width="1" height="1" fill="#fde04740"/>
+              <rect x="14" y="11" width="1" height="1" fill="#fde04740"/>
+            </svg>
+            {loading&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <span style={{fontSize:20,animation:"boltSpin .15s ease-in-out infinite",display:"inline-block"}}>{boltChars[boltFrame]}</span>
+            </div>}
           </div>
           <div>
-            <div style={{fontSize:20,fontWeight:900,color:"#f59e0b",letterSpacing:"-0.03em",lineHeight:1}}>Zeus</div>
+            <div style={{fontSize:20,fontWeight:900,color:"#f59e0b",letterSpacing:"-0.03em",lineHeight:1,display:"flex",alignItems:"center",gap:6}}>
+              Zeus
+              <span style={{fontSize:11,color:"#4d6e8a",fontWeight:400,letterSpacing:"0"}}>⚡ Greek God of Thunder</span>
+            </div>
             <div style={{fontSize:11,color:"#4d6e8a",marginTop:3}}>AI Performance Agent · {campaigns.filter(c=>c.status==="active").length} active campaigns</div>
             {dangerAlerts.length>0&&<div style={{fontSize:10,color:"#ef4444",fontWeight:700,marginTop:2,animation:"pulse 2s ease-in-out infinite"}}>🚨 {dangerAlerts.length} critical alert{dangerAlerts.length>1?"s":""} active</div>}
           </div>
@@ -2859,6 +2974,49 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
   const [copied, setCopied]   = useState("");
   const [search, setSearch]   = useState("");
 
+  // Custom platforms state
+  const [customData, setCustomData] = useState(()=>loadCustomPlatforms());
+  const [newPlatName, setNewPlatName] = useState("");
+  const [newPlatColor, setNewPlatColor] = useState("#e60069"); // Pinterest red default
+  const [platSaved, setPlatSaved] = useState(false);
+
+  function saveCustomPlatform() {
+    const name = newPlatName.trim().toUpperCase().replace(/[^A-Z0-9]/g,"");
+    if (!name || ALL_PLATFORMS_DEFAULT.includes(name)) return;
+    const updated = {
+      platforms: [...customData.platforms.filter(p=>p!==name), name],
+      colors: {...customData.colors, [name]: newPlatColor},
+    };
+    saveCustomPlatforms(updated);
+    setCustomData(updated);
+    // Also update runtime constants so the new platform shows immediately
+    if (!ALL_PLATFORMS.includes(name)) ALL_PLATFORMS.push(name);
+    PLT_COLORS[name] = newPlatColor;
+    setNewPlatName("");
+    setNewPlatColor("#e60069");
+    setPlatSaved(true);
+    setTimeout(()=>setPlatSaved(false), 2000);
+  }
+
+  function removeCustomPlatform(name) {
+    const updated = {
+      platforms: customData.platforms.filter(p=>p!==name),
+      colors: Object.fromEntries(Object.entries(customData.colors).filter(([k])=>k!==name)),
+    };
+    saveCustomPlatforms(updated);
+    setCustomData(updated);
+    const idx = ALL_PLATFORMS.indexOf(name);
+    if (idx > -1) ALL_PLATFORMS.splice(idx, 1);
+    delete PLT_COLORS[name];
+  }
+
+  function updateCustomColor(name, color) {
+    const updated = {...customData, colors:{...customData.colors, [name]:color}};
+    saveCustomPlatforms(updated);
+    setCustomData(updated);
+    PLT_COLORS[name] = color;
+  }
+
   useEffect(()=>{
     try { localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg)); } catch(e){}
   },[cfg]);
@@ -3148,6 +3306,7 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
         {sectionBtn("dsp","DSP","🖥️")}
         {sectionBtn("google","Google Ads (SEM / YT)","🔍")}
         {sectionBtn("snap","Snapchat (SP)","👻")}
+        {sectionBtn("platforms","Custom Platforms","🎨")}
         {sectionBtn("setup","GitHub Setup Guide","🛠️")}
         {sectionBtn("health","Sync Health","🩺")}
         {/* Download button — sits right next to Setup Guide, only on non-setup sections */}
@@ -3603,6 +3762,115 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
           </div>
         </div>
       </div>}
+
+      {activeSection==="platforms"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          <div style={{fontSize:12,color:"#4d6e8a",lineHeight:1.6}}>
+            Add platforms not in the default list — Pinterest, TikTok Shop, LinkedIn, etc. Custom platforms appear everywhere: campaign dropdowns, filters, pacing, and Zeus. Changes take effect immediately.
+          </div>
+
+          {/* Add new platform */}
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"20px 22px"}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:14}}>Add New Platform</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:10,alignItems:"end"}}>
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Platform Code</label>
+                <input
+                  value={newPlatName}
+                  onChange={e=>setNewPlatName(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,""))}
+                  onKeyDown={e=>e.key==="Enter"&&saveCustomPlatform()}
+                  placeholder="e.g. PIN, LI, TTSHOP"
+                  maxLength={8}
+                  style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit",boxSizing:"border-box",outline:"none"}}
+                />
+                <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Short code shown on campaign rows. Letters/numbers only, max 8 chars.</div>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Color</label>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <input
+                    type="color"
+                    value={newPlatColor}
+                    onChange={e=>setNewPlatColor(e.target.value)}
+                    style={{width:44,height:36,border:"1px solid #334155",borderRadius:6,background:"#162236",cursor:"pointer",padding:2}}
+                  />
+                  <span style={{fontSize:12,fontWeight:700,color:newPlatColor,background:newPlatColor+"22",border:`1px solid ${newPlatColor}60`,borderRadius:6,padding:"4px 10px",fontFamily:"monospace"}}>
+                    {newPlatName||"ABC"}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={saveCustomPlatform}
+                disabled={!newPlatName.trim()}
+                style={{background:newPlatName.trim()?"#002e24":"#0e1a2e",border:`1px solid ${newPlatName.trim()?"#00c89650":"#1e293b"}`,borderRadius:8,padding:"8px 20px",color:newPlatName.trim()?"#00e5a0":"#3d5a72",fontSize:13,fontWeight:700,cursor:newPlatName.trim()?"pointer":"default",whiteSpace:"nowrap",alignSelf:"flex-end",transition:"all .15s"}}>
+                {platSaved?"✓ Saved!":"+ Add Platform"}
+              </button>
+            </div>
+          </div>
+
+          {/* Quick add common platforms */}
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"16px 20px"}}>
+            <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Quick Add Common Platforms</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {[
+                {code:"PIN",color:"#e60069",name:"Pinterest"},
+                {code:"LI",color:"#0a66c2",name:"LinkedIn"},
+                {code:"TTSHOP",color:"#ff0050",name:"TikTok Shop"},
+                {code:"AMZN",color:"#ff9900",name:"Amazon DSP"},
+                {code:"RDDIT",color:"#ff4500",name:"Reddit"},
+                {code:"HULU",color:"#1ce783",name:"Hulu"},
+                {code:"NFLX",color:"#e50914",name:"Netflix Ads"},
+                {code:"PMAX",color:"#4285f4",name:"Google PMax"},
+              ].filter(p=>!ALL_PLATFORMS_DEFAULT.includes(p.code)&&!customData.platforms.includes(p.code)).map(p=>(
+                <button key={p.code} onClick={()=>{
+                  const updated={platforms:[...customData.platforms,p.code],colors:{...customData.colors,[p.code]:p.color}};
+                  saveCustomPlatforms(updated); setCustomData(updated);
+                  if(!ALL_PLATFORMS.includes(p.code)) ALL_PLATFORMS.push(p.code);
+                  PLT_COLORS[p.code]=p.color;
+                  setPlatSaved(true); setTimeout(()=>setPlatSaved(false),2000);
+                }}
+                  style={{background:p.color+"18",border:`1px solid ${p.color}50`,borderRadius:8,padding:"6px 14px",color:p.color,fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all .15s"}}>
+                  <span style={{fontSize:11,fontFamily:"monospace",background:p.color+"30",borderRadius:4,padding:"1px 5px"}}>{p.code}</span>
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Existing custom platforms */}
+          {customData.platforms.length > 0 && (
+            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"16px 20px"}}>
+              <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Your Custom Platforms</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {customData.platforms.map(name=>{
+                  const color = customData.colors[name]||"#7a9bbf";
+                  const count = campaigns.filter(c=>c.platform===name).length;
+                  return (
+                    <div key={name} style={{display:"flex",alignItems:"center",gap:12,background:"#07101c",border:`1px solid ${color}30`,borderRadius:8,padding:"10px 14px"}}>
+                      <span style={{fontWeight:800,color,background:color+"22",border:`1px solid ${color}50`,borderRadius:5,padding:"3px 10px",fontSize:13,fontFamily:"monospace",minWidth:60,textAlign:"center"}}>{name}</span>
+                      <span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{count} campaign{count!==1?"s":""} using this platform</span>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <input type="color" value={color} onChange={e=>updateCustomColor(name,e.target.value)}
+                          title="Change color" style={{width:32,height:28,border:"1px solid #334155",borderRadius:4,background:"#162236",cursor:"pointer",padding:1}}/>
+                        <button onClick={()=>removeCustomPlatform(name)}
+                          style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,padding:"4px 10px",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer"}}>Remove</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:10}}>⚠ Removing a platform doesn't affect existing campaigns that use it — they'll still show the platform code, it just won't appear in the add/edit dropdown.</div>
+            </div>
+          )}
+
+          {customData.platforms.length===0&&(
+            <div style={{background:"#07101c",border:"1px solid #1e293b",borderRadius:10,padding:"28px",textAlign:"center",color:"#3d5a72"}}>
+              <div style={{fontSize:24,marginBottom:8}}>🎨</div>
+              <div style={{fontSize:13,color:"#4d6e8a"}}>No custom platforms yet. Add Pinterest, LinkedIn, or any other platform above.</div>
+            </div>
+          )}
+        </div>
+      )}
 
       {activeSection==="setup"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
         {[
@@ -4859,18 +5127,6 @@ export default function App() {
 {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                           </div>
                           {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:3,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}} title={c.note1}>{c.note1.trim()}</div>}
-                          {(c.geoTarget||c.lastCreativeUpdate)&&(
-                            <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:3}}>
-                              {c.geoTarget&&c.geoTarget.trim()&&<span title={c.geoTarget.trim()} style={{display:"inline-flex",alignItems:"center",gap:3,background:"#0c1e38",border:"1px solid #60a5fa30",borderRadius:4,padding:"1px 6px",fontSize:9,color:"#60a5fa",whiteSpace:"nowrap",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis"}}>🌎 {c.geoTarget.trim().length>16?c.geoTarget.trim().slice(0,16)+"…":c.geoTarget.trim()}</span>}
-                              {c.lastCreativeUpdate&&(()=>{
-                                const days=Math.floor((new Date()-new Date(c.lastCreativeUpdate))/86400000);
-                                const color=days>30?"#f59e0b":days>14?"#fde047":"#a855f7";
-                                const bg=days>30?"#1a1000":days>14?"#151a00":"#1a0828";
-                                const border=days>30?"#f59e0b30":days>14?"#fde04730":"#a855f730";
-                                return <span title={`Last creative update: ${fmtDate(c.lastCreativeUpdate)}`} style={{display:"inline-flex",alignItems:"center",gap:3,background:bg,border:`1px solid ${border}`,borderRadius:4,padding:"1px 6px",fontSize:9,color,whiteSpace:"nowrap"}}>🎨 {days===0?"Today":days===1?"1d ago":`${days}d ago`}</span>;
-                              })()}
-                            </div>
-                          )}
 
                           {!open&&(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
