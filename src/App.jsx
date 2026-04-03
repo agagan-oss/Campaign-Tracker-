@@ -164,6 +164,36 @@ function computeMonthlyPacing(impressions, note1) {
   return { pct: Math.min(1, pct), expectedPct: timeElapsed, ratio, color, label, delivered, goal, expected };
 }
 
+// Daily target breakdown — for morning check against yesterday's stats
+function computeDailyTarget(impressions, note1, startDate, endDate) {
+  const now = new Date(); now.setHours(0,0,0,0);
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  const dayOfMonth  = now.getDate();
+  const daysLeft    = daysInMonth - dayOfMonth + 1; // include today
+
+  const goal = parseMonthlyGoal(note1);
+  const delivered = parseInt(impressions) || 0;
+  if (!goal || goal <= 0) return null;
+
+  const dailyTarget   = Math.round(goal / daysInMonth);
+  const remaining     = Math.max(0, goal - delivered);
+  const neededPerDay  = daysLeft > 0 ? Math.round(remaining / daysLeft) : 0;
+
+  // Estimated daily rate from what's been delivered so far this month
+  const daysSoFar     = dayOfMonth - 1; // days completed (not including today)
+  const actualDailyRate = daysSoFar > 0 ? Math.round(delivered / daysSoFar) : null;
+
+  // Status vs daily target
+  let status, color;
+  if (!actualDailyRate) { status = "No data yet"; color = "#4d6e8a"; }
+  else if (actualDailyRate >= dailyTarget * 1.05) { status = "Ahead of pace"; color = "#fb923c"; }
+  else if (actualDailyRate >= dailyTarget * 0.90) { status = "On pace"; color = "#00d48a"; }
+  else if (actualDailyRate >= dailyTarget * 0.75) { status = "Slightly behind"; color = "#fde047"; }
+  else { status = "Behind — needs push"; color = "#ef4444"; }
+
+  return { dailyTarget, neededPerDay, actualDailyRate, daysLeft, remaining, delivered, goal, status, color, daysInMonth, dayOfMonth };
+}
+
 
 // Flag a campaign as potentially stopped serving:
 // active status + within flight dates + zero/blank impressions
@@ -782,6 +812,63 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
             {!dirty && (c.impressions||c.ctr||c.cpm||c.spend) && <span style={{fontSize:11,color:"#00d48a",display:"flex",alignItems:"center",gap:4}}>✓ Metrics saved</span>}
             {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
           </div>
+
+          {/* ── Daily Target Panel ── */}
+          {(()=>{
+            const dt = computeDailyTarget(local.impressions||c.impressions, c.note1, c.startDate, c.endDate);
+            if (!dt) return null;
+            const hasDelivery = dt.delivered > 0;
+            return (
+              <div style={{marginTop:14,background:"#060d18",border:"1px solid #1a2744",borderRadius:10,padding:"12px 16px"}}>
+                <div style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>📅 Daily Pacing Check</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:10}}>
+                  {/* Daily target */}
+                  <div style={{background:"#0c1625",borderRadius:7,padding:"8px 10px",textAlign:"center"}}>
+                    <div style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:3}}>Target/Day</div>
+                    <div style={{fontSize:18,fontWeight:800,color:"#00e5a0",lineHeight:1}}>{dt.dailyTarget.toLocaleString()}</div>
+                    <div style={{fontSize:9,color:"#3d5a72",marginTop:2}}>{dt.daysInMonth}d month</div>
+                  </div>
+                  {/* Actual daily rate */}
+                  <div style={{background:"#0c1625",borderRadius:7,padding:"8px 10px",textAlign:"center"}}>
+                    <div style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:3}}>Actual/Day</div>
+                    <div style={{fontSize:18,fontWeight:800,color:dt.color,lineHeight:1}}>
+                      {dt.actualDailyRate ? dt.actualDailyRate.toLocaleString() : "—"}
+                    </div>
+                    <div style={{fontSize:9,color:"#3d5a72",marginTop:2}}>{dt.dayOfMonth > 1 ? `avg over ${dt.dayOfMonth-1}d` : "no data yet"}</div>
+                  </div>
+                  {/* Needed per day to finish */}
+                  <div style={{background:"#0c1625",borderRadius:7,padding:"8px 10px",textAlign:"center"}}>
+                    <div style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:3}}>Need/Day</div>
+                    <div style={{fontSize:18,fontWeight:800,color:dt.neededPerDay>dt.dailyTarget*1.2?"#ef4444":dt.neededPerDay>dt.dailyTarget?"#fde047":"#00d48a",lineHeight:1}}>
+                      {hasDelivery ? dt.neededPerDay.toLocaleString() : "—"}
+                    </div>
+                    <div style={{fontSize:9,color:"#3d5a72",marginTop:2}}>{dt.daysLeft}d left</div>
+                  </div>
+                  {/* Remaining */}
+                  <div style={{background:"#0c1625",borderRadius:7,padding:"8px 10px",textAlign:"center"}}>
+                    <div style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:3}}>Remaining</div>
+                    <div style={{fontSize:18,fontWeight:800,color:"#7a9bbf",lineHeight:1}}>
+                      {hasDelivery ? (dt.remaining >= 1000000 ? (dt.remaining/1000000).toFixed(1)+"M" : dt.remaining >= 1000 ? Math.round(dt.remaining/1000)+"K" : dt.remaining.toLocaleString()) : "—"}
+                    </div>
+                    <div style={{fontSize:9,color:"#3d5a72",marginTop:2}}>of {dt.goal>=1000000?(dt.goal/1000000).toFixed(1)+"M":dt.goal>=1000?Math.round(dt.goal/1000)+"K":dt.goal.toLocaleString()}</div>
+                  </div>
+                </div>
+                {/* Status bar */}
+                {hasDelivery && (
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{flex:1,background:"#0e1a2e",borderRadius:4,height:6,overflow:"hidden"}}>
+                      <div style={{background:dt.color,height:"100%",width:`${Math.min(100,dt.delivered/dt.goal*100)}%`,borderRadius:4,transition:"width .3s"}}/>
+                    </div>
+                    <span style={{fontSize:11,fontWeight:700,color:dt.color,whiteSpace:"nowrap"}}>{dt.status}</span>
+                    <span style={{fontSize:10,color:"#3d5a72",whiteSpace:"nowrap"}}>{Math.round(dt.delivered/dt.goal*100)}% of monthly goal</span>
+                  </div>
+                )}
+                {!hasDelivery && (
+                  <div style={{fontSize:11,color:"#3d5a72",textAlign:"center"}}>Enter today's impressions above to see daily pacing</div>
+                )}
+              </div>
+            );
+          })()}
           <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
               <span style={{fontSize:10,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>🔔 Reminders</span>
@@ -1232,6 +1319,75 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
 }
 
 
+const WORKER_CODE = `// Zeus Proxy — Cloudflare Worker
+// Deploy this at workers.cloudflare.com (free account)
+// Add your API key as a Secret in Worker Settings
+
+export default {
+  async fetch(request, env) {
+    // Allow requests from your GitHub Pages site
+    const ALLOWED_ORIGIN = "https://agagan-oss.github.io";
+    const origin = request.headers.get("Origin") || "";
+
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": origin.includes("github.io") || origin.includes("localhost") ? origin : ALLOWED_ORIGIN,
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    if (request.method !== "POST") {
+      return new Response("Method not allowed", { status: 405 });
+    }
+
+    try {
+      const body = await request.json();
+      const { messages, model, max_tokens } = body;
+
+      // ── OPTION A: Cloudflare Workers AI (free, no external key needed) ──
+      // Uncomment this block and comment out Option B
+      /*
+      const response = await env.AI.run(model || "@cf/google/gemma-3-12b-it", {
+        messages,
+        max_tokens: max_tokens || 1400,
+      });
+      return new Response(JSON.stringify({
+        choices: [{ message: { role: "assistant", content: response.response } }]
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      */
+
+      // ── OPTION B: Groq (free tier, faster, better models) ──
+      // Set Secret: GROQ_API_KEY in Worker settings
+      const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": \`Bearer \${env.GROQ_API_KEY}\`,
+        },
+        body: JSON.stringify({
+          model: model || "llama-3.3-70b-versatile",
+          messages,
+          max_tokens: max_tokens || 1400,
+        }),
+      });
+      const data = await groqRes.json();
+      return new Response(JSON.stringify(data), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: groqRes.status,
+      });
+
+    } catch (err) {
+      return new Response(JSON.stringify({ error: err.message }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
+};`;
+
 function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, onUpdateCampaign, onArchiveCampaign, onRestoreCampaign, onSetReminder }) {
   // ── Core state ─────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false);
@@ -1284,6 +1440,43 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     { id:6, name:"Auto Budget Reallocation", active:false, description:"[Autonomous] Shift budget between campaigns for same partner." },
   ]);
   const [autonomousMode, setAutonomousMode] = useState(false);
+
+  // ── LLM settings ─────────────────────────────────────────────────────────────
+  const [llmSettings, setLlmSettings] = useState(() => {
+    try { const s = localStorage.getItem("zeus-llm-settings"); return s ? JSON.parse(s) : { mode:"ollama", endpoint:"http://localhost:11434", model:"gemma3:27b", workerUrl:"" }; } catch { return { mode:"ollama", endpoint:"http://localhost:11434", model:"gemma3:27b", workerUrl:"" }; }
+  });
+  useEffect(() => { try { localStorage.setItem("zeus-llm-settings", JSON.stringify(llmSettings)); } catch(e) {} }, [llmSettings]);
+
+  // Unified LLM call — routes to Ollama or Cloudflare Worker
+  async function callLLM(messages, maxTokens=1400) {
+    if (llmSettings.mode === "worker") {
+      // Cloudflare Worker proxy — worker holds the real API key
+      if (!llmSettings.workerUrl) throw new Error("No Worker URL set. Add your Cloudflare Worker URL in Settings.");
+      const res = await fetch(llmSettings.workerUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [{ role:"system", content:SYSTEM }, ...messages], model: llmSettings.model, max_tokens: maxTokens }),
+      });
+      if (!res.ok) { const err = await res.text(); throw new Error(`Worker error ${res.status}: ${err.slice(0,200)}`); }
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content || data.content || "";
+      if (!text) throw new Error("Empty response from worker");
+      return text;
+    } else {
+      // Ollama local
+      const url = `${llmSettings.endpoint.replace(/\/$/, "")}/v1/chat/completions`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: llmSettings.model, max_tokens: maxTokens, messages: [{ role:"system", content:SYSTEM }, ...messages], stream: false }),
+      });
+      if (!res.ok) { const err = await res.text(); throw new Error(`Ollama error ${res.status}: ${err.slice(0,200)}`); }
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content || data.message?.content || "";
+      if (!text) throw new Error("Empty response from model");
+      return text;
+    }
+  }
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [chatHistory]);
 
@@ -1655,13 +1848,7 @@ Give me:
 ✅ SOLID — brief, what's working
 💡 TODAY'S 3 PRIORITIES — exactly 3 ranked actions to take right now`;
 
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1600, system:SYSTEM, messages:[{role:"user",content:prompt}] }),
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
-      const text = data.content?.find(b=>b.type==="text")?.text||"";
+      const text = await callLLM([{role:"user", content:prompt}], 1600);
       const actions = parseActionsFromResponse(text);
       setAnalysis(text);
       setChatHistory(h=>[...h,{role:"assistant",content:text,isAnalysis:true,actions}]);
@@ -1684,13 +1871,7 @@ Give me:
         {role:"assistant", content:"Got it. Full tracker access confirmed."},
         ...newHistory.map(m=>({role:m.role, content:m.content})),
       ];
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1400, system:SYSTEM, messages }),
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
-      const text = data.content?.find(b=>b.type==="text")?.text||"";
+      const text = await callLLM(messages, 1400);
       const actions = parseActionsFromResponse(text);
       setChatHistory(h=>[...h,{role:"assistant",content:text,actions}]);
       if (actions.length > 0) setPendingActions(prev=>[...prev,...actions]);
@@ -1728,6 +1909,7 @@ Give me:
     {key:"benchmarks", label:"📊 Benchmarks", badge:0},
     {key:"playbook",   label:"⚙️ Playbooks",  badge:0},
     {key:"autonomous", label:"🤖 Autonomous", badge:0},
+    {key:"settings",   label:"⚙️ Settings",   badge:0},
   ];
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -2167,6 +2349,157 @@ Give me:
                 ...(autonomousMode?{boxShadow:"0 0 14px #f59e0b30"}:{})
               }}>{autonomousMode?"⚡ ON":"OFF"}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ SETTINGS PANEL ══ */}
+      {activePanel==="settings"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+          {/* Mode toggle */}
+          <div style={{display:"flex",gap:8}}>
+            {[{key:"ollama",label:"🤖 Local Ollama",desc:"Run models on your machine"},{key:"worker",label:"☁️ Cloudflare Worker",desc:"Free proxy for GitHub Pages"}].map(m=>(
+              <button key={m.key} onClick={()=>setLlmSettings(p=>({...p,mode:m.key}))}
+                style={{flex:1,background:llmSettings.mode===m.key?"#002e24":"#0c1625",border:`2px solid ${llmSettings.mode===m.key?"#00c89650":"#1e293b"}`,borderRadius:10,padding:"12px 16px",cursor:"pointer",textAlign:"left",transition:"all .15s"}}>
+                <div style={{fontSize:13,fontWeight:700,color:llmSettings.mode===m.key?"#00e5a0":"#7a9bbf"}}>{m.label}</div>
+                <div style={{fontSize:11,color:"#3d5a72",marginTop:3}}>{m.desc}</div>
+              </button>
+            ))}
+          </div>
+
+          {/* ── OLLAMA MODE ── */}
+          {llmSettings.mode==="ollama"&&(<>
+            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"20px 22px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:14}}>Ollama Configuration</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <div>
+                  <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Endpoint</label>
+                  <input value={llmSettings.endpoint} onChange={e=>setLlmSettings(p=>({...p,endpoint:e.target.value}))} placeholder="http://localhost:11434"
+                    style={{width:"100%",background:"#07101c",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                  <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>Default: http://localhost:11434</div>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model</label>
+                  <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="gemma3:27b"
+                    style={{width:"100%",background:"#07101c",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                  <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>Run <code style={{fontSize:10,color:"#00e5a0"}}>ollama list</code> to see installed models</div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"18px 22px"}}>
+              <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Quick Select Model</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {[{label:"Gemma 4 27B",model:"gemma3:27b",desc:"Recommended"},{label:"Gemma 4 12B",model:"gemma3:12b",desc:"Faster"},{label:"Llama 3.3 70B",model:"llama3.3:70b",desc:"Best accuracy"},{label:"Qwen 2.5 32B",model:"qwen2.5:32b",desc:"Strong JSON"},{label:"Mistral 24B",model:"mistral-small:24b",desc:"Fast"},{label:"Phi-4 14B",model:"phi4:14b",desc:"Lightweight"}].map(m=>(
+                  <button key={m.model} onClick={()=>setLlmSettings(p=>({...p,model:m.model}))}
+                    style={{background:llmSettings.model===m.model?"#002e24":"#0e1a2e",border:`1px solid ${llmSettings.model===m.model?"#00c89650":"#1e293b"}`,borderRadius:8,padding:"7px 12px",cursor:"pointer",transition:"all .15s"}}>
+                    <div style={{fontSize:12,fontWeight:700,color:llmSettings.model===m.model?"#00e5a0":"#d8eaf8"}}>{m.label}</div>
+                    <div style={{fontSize:10,color:"#4d6e8a",marginTop:1}}>{m.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{background:"#0a1218",border:"1px solid #1e293b",borderRadius:12,padding:"16px 20px"}}>
+              <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Setup Commands</div>
+              {[{step:1,cmd:"ollama pull gemma3:27b",detail:"~17GB download"},{step:2,cmd:"OLLAMA_ORIGINS=* ollama serve",detail:"Allows browser requests (important)"},{step:3,cmd:"python -m http.server 8080",detail:"Serve tracker locally, open localhost:8080"}].map(s=>(
+                <div key={s.step} style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start"}}>
+                  <span style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:5,width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#f59e0b",flexShrink:0}}>{s.step}</span>
+                  <div><code style={{fontSize:11,color:"#00e5a0",background:"#07101c",borderRadius:4,padding:"2px 7px"}}>{s.cmd}</code>
+                  <div style={{fontSize:10,color:"#4d6e8a",marginTop:2}}>{s.detail}</div></div>
+                </div>
+              ))}
+            </div>
+          </>)}
+
+          {/* ── CLOUDFLARE WORKER MODE ── */}
+          {llmSettings.mode==="worker"&&(<>
+            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"20px 22px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:4}}>Your Worker URL</div>
+              <div style={{fontSize:11,color:"#4d6e8a",marginBottom:12,lineHeight:1.6}}>
+                After deploying your Worker (steps below), paste the URL here. It's stored in localStorage only — never in your code or GitHub.
+              </div>
+              <input value={llmSettings.workerUrl||""} onChange={e=>setLlmSettings(p=>({...p,workerUrl:e.target.value}))}
+                placeholder="https://zeus-proxy.YOUR-SUBDOMAIN.workers.dev"
+                style={{width:"100%",background:"#07101c",border:`1px solid ${llmSettings.workerUrl?"#00c89650":"#334155"}`,borderRadius:6,padding:"9px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+              <div style={{marginTop:10}}>
+                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model (passed to worker)</label>
+                <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="e.g. @cf/google/gemma-3-27b-it"
+                  style={{width:"100%",background:"#07101c",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>For Cloudflare Workers AI use <code style={{fontSize:10,color:"#f59e0b"}}>@cf/google/gemma-3-12b-it</code> (free). For Groq use <code style={{fontSize:10,color:"#f59e0b"}}>llama-3.3-70b-versatile</code></div>
+              </div>
+            </div>
+
+            {/* Worker code */}
+            <div style={{background:"#0a1218",border:"1px solid #1e293b",borderRadius:12,padding:"18px 22px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>Worker Code — Copy & Deploy</div>
+                <button onClick={()=>{
+                  navigator.clipboard.writeText(WORKER_CODE);
+                  setActionFeedback({type:"success",msg:"✓ Worker code copied to clipboard"});
+                }} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"4px 12px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>Copy Code 📋</button>
+              </div>
+              <pre style={{background:"#060d18",borderRadius:8,padding:"14px",fontSize:10,color:"#7a9bbf",lineHeight:1.6,overflowX:"auto",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all"}}>{WORKER_CODE}</pre>
+            </div>
+
+            {/* Deploy steps */}
+            <div style={{background:"#0a1218",border:"1px solid #1e293b",borderRadius:12,padding:"18px 22px"}}>
+              <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12}}>Deploy Steps (5 minutes, free)</div>
+              {[
+                {step:1, title:"Sign up at cloudflare.com", detail:"Free account, no credit card needed"},
+                {step:2, title:"Go to Workers & Pages → Create Worker", detail:"Name it zeus-proxy or anything you want"},
+                {step:3, title:"Paste the worker code above into the editor", detail:"Click Deploy"},
+                {step:4, title:"Add your API key as a Secret", detail:'Settings → Variables → Add: GROQ_API_KEY or CF_API_TOKEN (see note below)'},
+                {step:5, title:"Copy your worker URL and paste it above", detail:"Format: https://zeus-proxy.YOUR-SUBDOMAIN.workers.dev"},
+              ].map(s=>(
+                <div key={s.step} style={{display:"flex",gap:10,marginBottom:12,alignItems:"flex-start"}}>
+                  <span style={{background:"#001828",border:"1px solid #60a5fa40",borderRadius:5,width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#60a5fa",flexShrink:0}}>{s.step}</span>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:600,color:"#edf4ff"}}>{s.title}</div>
+                    <div style={{fontSize:10,color:"#4d6e8a",marginTop:2}}>{s.detail}</div>
+                  </div>
+                </div>
+              ))}
+
+              {/* API key options */}
+              <div style={{background:"#07101c",borderRadius:8,padding:"12px 14px",marginTop:4}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#f59e0b",marginBottom:8}}>Which API key should I use?</div>
+                {[
+                  {name:"Cloudflare Workers AI", key:"CF_API_TOKEN", free:"100k requests/day free", models:"@cf/google/gemma-3-12b-it, @cf/meta/llama-3.3-70b-instruct", note:"No credit card. Best free option."},
+                  {name:"Groq", key:"GROQ_API_KEY", free:"Free tier, generous limits", models:"llama-3.3-70b-versatile, gemma2-9b-it", note:"sign up at console.groq.com"},
+                  {name:"OpenRouter", key:"OPENROUTER_API_KEY", free:"Some free models", models:"google/gemma-3-27b-it:free, meta-llama/llama-3.3-70b", note:"Most model options"},
+                ].map(a=>(
+                  <div key={a.name} style={{marginBottom:10,paddingBottom:10,borderBottom:"1px solid #1a2744"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                      <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{a.name}</span>
+                      <span style={{fontSize:10,color:"#00d48a",background:"#001810",borderRadius:4,padding:"1px 6px"}}>{a.free}</span>
+                    </div>
+                    <div style={{fontSize:10,color:"#4d6e8a"}}>Secret name: <code style={{color:"#f59e0b"}}>{a.key}</code></div>
+                    <div style={{fontSize:10,color:"#4d6e8a",marginTop:1}}>Models: <code style={{color:"#7a9bbf"}}>{a.models}</code></div>
+                    <div style={{fontSize:10,color:"#3d5a72",marginTop:1}}>{a.note}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>)}
+
+          {/* Connection test — both modes */}
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+            <div style={{fontSize:11,color:"#7a9bbf"}}>
+              Active: <span style={{color:"#f59e0b",fontFamily:"monospace",fontWeight:700}}>{llmSettings.mode==="worker"?(llmSettings.workerUrl||"no URL set"):(`${llmSettings.endpoint} → ${llmSettings.model}`)}</span>
+            </div>
+            <button onClick={async()=>{
+              setError(null);
+              try {
+                const text = await callLLM([{role:"user",content:"Reply with exactly three words: Zeus is online."}], 30);
+                setActionFeedback({type:"success", msg:`✓ Connected — "${text.trim().slice(0,80)}"`});
+              } catch(e) {
+                setError(`Connection failed: ${e.message}`);
+              }
+            }} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:7,padding:"8px 18px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+              ⚡ Test Connection
+            </button>
           </div>
         </div>
       )}
@@ -5259,7 +5592,16 @@ export default function App() {
                                   {campReminders.length>0 && <button onClick={()=>setShowReminderModal(c.id)} style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>🔔 {campReminders.length}</button>}
                                   {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,whiteSpace:"nowrap"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                                 </div>
-                                {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:2,paddingLeft:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{c.note1.trim()}</div>}
+                                {c.note1&&c.note1.trim()&&(()=>{
+                                  const disp=resolveMetrics(c,dateRange.preset);
+                                  const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
+                                  return (
+                                    <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,paddingLeft:12,flexWrap:"wrap"}}>
+                                      <div style={{fontSize:11,color:"#00ffb3",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
+                                      {dt&&dt.dailyTarget>0&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#f472b6",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
+                                    </div>
+                                  );
+                                })()}
                               </TD>
                               <TD><StatusBadge status={c.status}/></TD>
                               <TD><span style={{fontSize:12,color:(PLT[c.platform]||PLT.default),fontWeight:700}}>{c.platform}</span></TD>
@@ -5344,7 +5686,16 @@ export default function App() {
                             )}
 {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                           </div>
-                          {c.note1&&c.note1.trim()&&<div style={{fontSize:11,color:"#00ffb3",marginTop:3,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}} title={c.note1}>{c.note1.trim()}</div>}
+                          {c.note1&&c.note1.trim()&&(()=>{
+                            const disp=resolveMetrics(c,dateRange.preset);
+                            const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
+                            return (
+                              <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,flexWrap:"wrap"}}>
+                                <div style={{fontSize:11,color:"#00ffb3",fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
+                                {dt&&dt.dailyTarget>0&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#f472b6",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
+                              </div>
+                            );
+                          })()}
 
                           {!open&&(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
