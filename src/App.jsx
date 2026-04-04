@@ -1442,19 +1442,48 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
   const [autonomousMode, setAutonomousMode] = useState(false);
 
   // ── LLM settings ─────────────────────────────────────────────────────────────
+  const LLM_DEFAULTS = {
+    mode: "ollama",
+    endpoint: "http://localhost:11434",
+    model: "gemma3:27b",
+    workerUrl: "",
+    superagentEndpoint: "http://localhost:11434",
+    superagentModel: "",
+    superagentApiKey: "",
+    capabilities: {
+      executeActions: false,
+      platformAccess: false,
+      continuousMonitor: false,
+      autoEmail: false,
+      memoryWrite: false,
+    }
+  };
   const [llmSettings, setLlmSettings] = useState(() => {
-    try { const s = localStorage.getItem("zeus-llm-settings"); return s ? JSON.parse(s) : { mode:"ollama", endpoint:"http://localhost:11434", model:"gemma3:27b", workerUrl:"" }; } catch { return { mode:"ollama", endpoint:"http://localhost:11434", model:"gemma3:27b", workerUrl:"" }; }
+    try { const s = localStorage.getItem("zeus-llm-settings"); return s ? {...LLM_DEFAULTS,...JSON.parse(s)} : LLM_DEFAULTS; } catch { return LLM_DEFAULTS; }
   });
   useEffect(() => { try { localStorage.setItem("zeus-llm-settings", JSON.stringify(llmSettings)); } catch(e) {} }, [llmSettings]);
 
-  // Unified LLM call — routes to Ollama or Cloudflare Worker
+  const activeModelLabel = llmSettings.mode==="superagent" ? (llmSettings.superagentModel||"Superagent (not configured)") : llmSettings.mode==="worker" ? "Cloudflare Worker" : (llmSettings.model||"Ollama");
+
+  // Unified LLM call — routes to correct backend
   async function callLLM(messages, maxTokens=1400) {
-    if (llmSettings.mode === "worker") {
-      // Cloudflare Worker proxy — worker holds the real API key
+    if (llmSettings.mode === "superagent") {
+      if (!llmSettings.superagentEndpoint) throw new Error("No superagent endpoint set. Configure in Settings.");
+      const headers = { "Content-Type": "application/json" };
+      if (llmSettings.superagentApiKey) headers["Authorization"] = `Bearer ${llmSettings.superagentApiKey}`;
+      const res = await fetch(`${llmSettings.superagentEndpoint.replace(/\/$/, "")}/v1/chat/completions`, {
+        method: "POST", headers,
+        body: JSON.stringify({ model: llmSettings.superagentModel||undefined, max_tokens: maxTokens, messages: [{ role:"system", content:SYSTEM }, ...messages], stream: false }),
+      });
+      if (!res.ok) { const err = await res.text(); throw new Error(`Superagent error ${res.status}: ${err.slice(0,200)}`); }
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content || data.message?.content || "";
+      if (!text) throw new Error("Empty response from superagent");
+      return text;
+    } else if (llmSettings.mode === "worker") {
       if (!llmSettings.workerUrl) throw new Error("No Worker URL set. Add your Cloudflare Worker URL in Settings.");
       const res = await fetch(llmSettings.workerUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: [{ role:"system", content:SYSTEM }, ...messages], model: llmSettings.model, max_tokens: maxTokens }),
       });
       if (!res.ok) { const err = await res.text(); throw new Error(`Worker error ${res.status}: ${err.slice(0,200)}`); }
@@ -1463,11 +1492,9 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       if (!text) throw new Error("Empty response from worker");
       return text;
     } else {
-      // Ollama local
       const url = `${llmSettings.endpoint.replace(/\/$/, "")}/v1/chat/completions`;
       const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: llmSettings.model, max_tokens: maxTokens, messages: [{ role:"system", content:SYSTEM }, ...messages], stream: false }),
       });
       if (!res.ok) { const err = await res.text(); throw new Error(`Ollama error ${res.status}: ${err.slice(0,200)}`); }
@@ -1907,7 +1934,7 @@ Give me:
     {key:"watchlist",  label:"🚨 Watchlist",  badge:dangerAlerts.length+warnAlerts.length},
     {key:"predict",    label:"📡 Predictions",badge:predictions.filter(p=>p.status==="critical"||p.status==="at-risk").length},
     {key:"benchmarks", label:"📊 Benchmarks", badge:0},
-    {key:"playbook",   label:"⚙️ Playbooks",  badge:0},
+    {key:"playbook",   label:"📋 Playbooks",  badge:0},
     {key:"autonomous", label:"🤖 Autonomous", badge:0},
     {key:"settings",   label:"⚙️ Settings",   badge:0},
   ];
@@ -2357,21 +2384,26 @@ Give me:
       {activePanel==="settings"&&(
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
-          {/* Mode toggle */}
-          <div style={{display:"flex",gap:8}}>
-            {[{key:"ollama",label:"🤖 Local Ollama",desc:"Run models on your machine"},{key:"worker",label:"☁️ Cloudflare Worker",desc:"Free proxy for GitHub Pages"}].map(m=>(
+          {/* Mode selector */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+            {[
+              {key:"ollama",   label:"🤖 Local Ollama",       desc:"Run on your machine",         color:"#00e5a0"},
+              {key:"worker",   label:"☁️ Cloudflare Worker",  desc:"Free proxy for GitHub Pages",  color:"#60a5fa"},
+              {key:"superagent",label:"⚡ Superagent",         desc:"Local superintelligence",      color:"#f59e0b"},
+            ].map(m=>(
               <button key={m.key} onClick={()=>setLlmSettings(p=>({...p,mode:m.key}))}
-                style={{flex:1,background:llmSettings.mode===m.key?"#002e24":"#0c1625",border:`2px solid ${llmSettings.mode===m.key?"#00c89650":"#1e293b"}`,borderRadius:10,padding:"12px 16px",cursor:"pointer",textAlign:"left",transition:"all .15s"}}>
-                <div style={{fontSize:13,fontWeight:700,color:llmSettings.mode===m.key?"#00e5a0":"#7a9bbf"}}>{m.label}</div>
-                <div style={{fontSize:11,color:"#3d5a72",marginTop:3}}>{m.desc}</div>
+                style={{background:llmSettings.mode===m.key?"#07101c":"#0c1625",border:`2px solid ${llmSettings.mode===m.key?m.color+"80":"#1e293b"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer",textAlign:"left",transition:"all .15s",boxShadow:llmSettings.mode===m.key?`0 0 12px ${m.color}20`:"none"}}>
+                <div style={{fontSize:13,fontWeight:700,color:llmSettings.mode===m.key?m.color:"#7a9bbf"}}>{m.label}</div>
+                <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>{m.desc}</div>
+                {llmSettings.mode===m.key&&<div style={{fontSize:9,color:m.color,marginTop:4,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>● ACTIVE</div>}
               </button>
             ))}
           </div>
 
-          {/* ── OLLAMA MODE ── */}
+          {/* ── OLLAMA ── */}
           {llmSettings.mode==="ollama"&&(<>
-            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"20px 22px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:14}}>Ollama Configuration</div>
+            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"18px 20px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12}}>Ollama Configuration</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
                 <div>
                   <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Endpoint</label>
@@ -2387,9 +2419,8 @@ Give me:
                 </div>
               </div>
             </div>
-
-            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"18px 22px"}}>
-              <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Quick Select Model</div>
+            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"16px 20px"}}>
+              <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Quick Select</div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 {[{label:"Gemma 4 27B",model:"gemma3:27b",desc:"Recommended"},{label:"Gemma 4 12B",model:"gemma3:12b",desc:"Faster"},{label:"Llama 3.3 70B",model:"llama3.3:70b",desc:"Best accuracy"},{label:"Qwen 2.5 32B",model:"qwen2.5:32b",desc:"Strong JSON"},{label:"Mistral 24B",model:"mistral-small:24b",desc:"Fast"},{label:"Phi-4 14B",model:"phi4:14b",desc:"Lightweight"}].map(m=>(
                   <button key={m.model} onClick={()=>setLlmSettings(p=>({...p,model:m.model}))}
@@ -2400,94 +2431,113 @@ Give me:
                 ))}
               </div>
             </div>
-
-            <div style={{background:"#0a1218",border:"1px solid #1e293b",borderRadius:12,padding:"16px 20px"}}>
-              <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Setup Commands</div>
-              {[{step:1,cmd:"ollama pull gemma3:27b",detail:"~17GB download"},{step:2,cmd:"OLLAMA_ORIGINS=* ollama serve",detail:"Allows browser requests (important)"},{step:3,cmd:"python -m http.server 8080",detail:"Serve tracker locally, open localhost:8080"}].map(s=>(
-                <div key={s.step} style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start"}}>
-                  <span style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:5,width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#f59e0b",flexShrink:0}}>{s.step}</span>
-                  <div><code style={{fontSize:11,color:"#00e5a0",background:"#07101c",borderRadius:4,padding:"2px 7px"}}>{s.cmd}</code>
-                  <div style={{fontSize:10,color:"#4d6e8a",marginTop:2}}>{s.detail}</div></div>
+            <div style={{background:"#0a1218",border:"1px solid #1e293b",borderRadius:10,padding:"14px 18px"}}>
+              <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Local Setup</div>
+              {[{step:1,cmd:"ollama pull gemma3:27b",detail:"~17GB download"},{step:2,cmd:"OLLAMA_ORIGINS=* ollama serve",detail:"Allow browser requests"},{step:3,cmd:"python -m http.server 8080",detail:"Serve tracker, open localhost:8080"}].map(s=>(
+                <div key={s.step} style={{display:"flex",gap:10,marginBottom:8,alignItems:"flex-start"}}>
+                  <span style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:5,width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#f59e0b",flexShrink:0}}>{s.step}</span>
+                  <div><code style={{fontSize:11,color:"#00e5a0",background:"#07101c",borderRadius:4,padding:"1px 6px"}}>{s.cmd}</code>
+                  <div style={{fontSize:10,color:"#4d6e8a",marginTop:1}}>{s.detail}</div></div>
                 </div>
               ))}
             </div>
           </>)}
 
-          {/* ── CLOUDFLARE WORKER MODE ── */}
+          {/* ── CLOUDFLARE WORKER ── */}
           {llmSettings.mode==="worker"&&(<>
-            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"20px 22px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:4}}>Your Worker URL</div>
-              <div style={{fontSize:11,color:"#4d6e8a",marginBottom:12,lineHeight:1.6}}>
-                After deploying your Worker (steps below), paste the URL here. It's stored in localStorage only — never in your code or GitHub.
-              </div>
+            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"18px 20px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:10}}>Worker URL</div>
               <input value={llmSettings.workerUrl||""} onChange={e=>setLlmSettings(p=>({...p,workerUrl:e.target.value}))}
                 placeholder="https://zeus-proxy.YOUR-SUBDOMAIN.workers.dev"
-                style={{width:"100%",background:"#07101c",border:`1px solid ${llmSettings.workerUrl?"#00c89650":"#334155"}`,borderRadius:6,padding:"9px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                style={{width:"100%",background:"#07101c",border:`1px solid ${llmSettings.workerUrl?"#60a5fa50":"#334155"}`,borderRadius:6,padding:"9px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
               <div style={{marginTop:10}}>
-                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model (passed to worker)</label>
-                <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="e.g. @cf/google/gemma-3-27b-it"
+                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model</label>
+                <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="llama-3.3-70b-versatile"
                   style={{width:"100%",background:"#07101c",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
-                <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>For Cloudflare Workers AI use <code style={{fontSize:10,color:"#f59e0b"}}>@cf/google/gemma-3-12b-it</code> (free). For Groq use <code style={{fontSize:10,color:"#f59e0b"}}>llama-3.3-70b-versatile</code></div>
+                <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>Groq: <code style={{color:"#60a5fa"}}>llama-3.3-70b-versatile</code> · CF Workers AI: <code style={{color:"#60a5fa"}}>@cf/google/gemma-3-12b-it</code></div>
               </div>
             </div>
-
-            {/* Worker code */}
-            <div style={{background:"#0a1218",border:"1px solid #1e293b",borderRadius:12,padding:"18px 22px"}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-                <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>Worker Code — Copy & Deploy</div>
-                <button onClick={()=>{
-                  navigator.clipboard.writeText(WORKER_CODE);
-                  setActionFeedback({type:"success",msg:"✓ Worker code copied to clipboard"});
-                }} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"4px 12px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>Copy Code 📋</button>
+            <div style={{background:"#0a1218",border:"1px solid #1e293b",borderRadius:12,padding:"16px 20px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>Worker Code</div>
+                <button onClick={()=>{navigator.clipboard.writeText(WORKER_CODE);setActionFeedback({type:"success",msg:"✓ Copied to clipboard"});}}
+                  style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"3px 10px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>Copy 📋</button>
               </div>
-              <pre style={{background:"#060d18",borderRadius:8,padding:"14px",fontSize:10,color:"#7a9bbf",lineHeight:1.6,overflowX:"auto",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all"}}>{WORKER_CODE}</pre>
-            </div>
-
-            {/* Deploy steps */}
-            <div style={{background:"#0a1218",border:"1px solid #1e293b",borderRadius:12,padding:"18px 22px"}}>
-              <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12}}>Deploy Steps (5 minutes, free)</div>
-              {[
-                {step:1, title:"Sign up at cloudflare.com", detail:"Free account, no credit card needed"},
-                {step:2, title:"Go to Workers & Pages → Create Worker", detail:"Name it zeus-proxy or anything you want"},
-                {step:3, title:"Paste the worker code above into the editor", detail:"Click Deploy"},
-                {step:4, title:"Add your API key as a Secret", detail:'Settings → Variables → Add: GROQ_API_KEY or CF_API_TOKEN (see note below)'},
-                {step:5, title:"Copy your worker URL and paste it above", detail:"Format: https://zeus-proxy.YOUR-SUBDOMAIN.workers.dev"},
-              ].map(s=>(
-                <div key={s.step} style={{display:"flex",gap:10,marginBottom:12,alignItems:"flex-start"}}>
-                  <span style={{background:"#001828",border:"1px solid #60a5fa40",borderRadius:5,width:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#60a5fa",flexShrink:0}}>{s.step}</span>
-                  <div>
-                    <div style={{fontSize:12,fontWeight:600,color:"#edf4ff"}}>{s.title}</div>
-                    <div style={{fontSize:10,color:"#4d6e8a",marginTop:2}}>{s.detail}</div>
-                  </div>
-                </div>
-              ))}
-
-              {/* API key options */}
-              <div style={{background:"#07101c",borderRadius:8,padding:"12px 14px",marginTop:4}}>
-                <div style={{fontSize:11,fontWeight:700,color:"#f59e0b",marginBottom:8}}>Which API key should I use?</div>
-                {[
-                  {name:"Cloudflare Workers AI", key:"CF_API_TOKEN", free:"100k requests/day free", models:"@cf/google/gemma-3-12b-it, @cf/meta/llama-3.3-70b-instruct", note:"No credit card. Best free option."},
-                  {name:"Groq", key:"GROQ_API_KEY", free:"Free tier, generous limits", models:"llama-3.3-70b-versatile, gemma2-9b-it", note:"sign up at console.groq.com"},
-                  {name:"OpenRouter", key:"OPENROUTER_API_KEY", free:"Some free models", models:"google/gemma-3-27b-it:free, meta-llama/llama-3.3-70b", note:"Most model options"},
-                ].map(a=>(
-                  <div key={a.name} style={{marginBottom:10,paddingBottom:10,borderBottom:"1px solid #1a2744"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
-                      <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{a.name}</span>
-                      <span style={{fontSize:10,color:"#00d48a",background:"#001810",borderRadius:4,padding:"1px 6px"}}>{a.free}</span>
-                    </div>
-                    <div style={{fontSize:10,color:"#4d6e8a"}}>Secret name: <code style={{color:"#f59e0b"}}>{a.key}</code></div>
-                    <div style={{fontSize:10,color:"#4d6e8a",marginTop:1}}>Models: <code style={{color:"#7a9bbf"}}>{a.models}</code></div>
-                    <div style={{fontSize:10,color:"#3d5a72",marginTop:1}}>{a.note}</div>
-                  </div>
-                ))}
+              <pre style={{background:"#060d18",borderRadius:6,padding:"10px",fontSize:10,color:"#7a9bbf",lineHeight:1.5,overflowX:"auto",margin:0,maxHeight:160}}>{WORKER_CODE.slice(0,600)}…</pre>
+              <div style={{marginTop:10,fontSize:11,color:"#4d6e8a",lineHeight:1.6}}>
+                Deploy at <strong style={{color:"#60a5fa"}}>workers.cloudflare.com</strong> → Create Worker → paste code → add <code style={{color:"#f59e0b"}}>GROQ_API_KEY</code> secret → copy URL above.
               </div>
             </div>
           </>)}
 
-          {/* Connection test — both modes */}
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
-            <div style={{fontSize:11,color:"#7a9bbf"}}>
-              Active: <span style={{color:"#f59e0b",fontFamily:"monospace",fontWeight:700}}>{llmSettings.mode==="worker"?(llmSettings.workerUrl||"no URL set"):(`${llmSettings.endpoint} → ${llmSettings.model}`)}</span>
+          {/* ── SUPERAGENT ── */}
+          {llmSettings.mode==="superagent"&&(<>
+            <div style={{background:"linear-gradient(135deg,#0a0e00,#100d00)",border:"1px solid #f59e0b40",borderRadius:12,padding:"18px 20px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+                <span style={{fontSize:20}}>⚡</span>
+                <div>
+                  <div style={{fontSize:13,fontWeight:800,color:"#f59e0b"}}>Superagent Mode</div>
+                  <div style={{fontSize:11,color:"#4d6e8a",marginTop:1}}>For local superintelligent models. Same OpenAI-compatible API — just point it at your endpoint and go.</div>
+                </div>
+              </div>
+            </div>
+            <div style={{background:"#0c1625",border:"1px solid #f59e0b30",borderRadius:12,padding:"18px 20px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12}}>Model Configuration</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+                <div>
+                  <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Endpoint</label>
+                  <input value={llmSettings.superagentEndpoint} onChange={e=>setLlmSettings(p=>({...p,superagentEndpoint:e.target.value}))} placeholder="http://localhost:11434"
+                    style={{width:"100%",background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model Name</label>
+                  <input value={llmSettings.superagentModel} onChange={e=>setLlmSettings(p=>({...p,superagentModel:e.target.value}))} placeholder="e.g. superintelligence-v1"
+                    style={{width:"100%",background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                </div>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>API Key <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(optional — stored locally only, never in code)</span></label>
+                <input type="password" value={llmSettings.superagentApiKey} onChange={e=>setLlmSettings(p=>({...p,superagentApiKey:e.target.value}))} placeholder="sk-... or leave blank"
+                  style={{width:"100%",background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+              </div>
+            </div>
+
+            {/* Capability toggles */}
+            <div style={{background:"#0c1625",border:"1px solid #f59e0b30",borderRadius:12,padding:"18px 20px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#f59e0b",marginBottom:4}}>⚡ Capability Unlocks</div>
+              <div style={{fontSize:11,color:"#4d6e8a",marginBottom:14,lineHeight:1.6}}>Toggle on when your model is capable enough to handle each capability. These gate Zeus's behavior — start conservative and unlock as you gain confidence.</div>
+              {[
+                {key:"executeActions",   label:"Auto-Execute Actions",     desc:"Zeus executes campaign changes without waiting for your approval",         warn:true},
+                {key:"platformAccess",   label:"Platform API Access",       desc:"Direct calls to Meta, TTD, DSP APIs on your behalf",                       warn:true},
+                {key:"continuousMonitor",label:"Continuous Monitoring",     desc:"Zeus polls your campaigns in the background and alerts proactively",        warn:false},
+                {key:"autoEmail",        label:"Autonomous Emails",         desc:"Zeus drafts and sends partner emails without review",                       warn:true},
+                {key:"memoryWrite",      label:"Persistent Memory",         desc:"Zeus remembers context across sessions and builds knowledge about you",      warn:false},
+              ].map(cap=>{
+                const active = llmSettings.capabilities?.[cap.key];
+                return (
+                  <div key={cap.key} style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:12,padding:"10px 12px",background:active?"#0a1500":"#07101c",border:`1px solid ${active?"#f59e0b30":"#1a2744"}`,borderRadius:8,transition:"all .2s"}}>
+                    <button onClick={()=>setLlmSettings(p=>({...p,capabilities:{...p.capabilities,[cap.key]:!active}}))}
+                      style={{width:22,height:22,borderRadius:6,flexShrink:0,marginTop:1,cursor:"pointer",background:active?"#f59e0b":"#162236",border:`1.5px solid ${active?"#f59e0b":"#334155"}`,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>
+                      {active&&<span style={{color:"#000",fontSize:12,fontWeight:900}}>✓</span>}
+                    </button>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:12,fontWeight:700,color:active?"#f59e0b":"#7a9bbf"}}>{cap.label}</span>
+                        {cap.warn&&<span style={{fontSize:9,color:"#ef4444",background:"#1a0808",border:"1px solid #ef444430",borderRadius:4,padding:"1px 5px",fontWeight:700}}>HIGH TRUST</span>}
+                        {active&&<span style={{fontSize:9,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 5px",fontWeight:700}}>ENABLED</span>}
+                      </div>
+                      <div style={{fontSize:11,color:"#4d6e8a",marginTop:2}}>{cap.desc}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>)}
+
+          {/* Connection test — all modes */}
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+            <div style={{fontSize:11,color:"#4d6e8a",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              Active: <span style={{color:"#f59e0b",fontFamily:"monospace",fontWeight:700}}>{activeModelLabel}</span>
             </div>
             <button onClick={async()=>{
               setError(null);
