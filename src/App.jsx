@@ -1440,6 +1440,9 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     { id:6, name:"Auto Budget Reallocation", active:false, description:"[Autonomous] Shift budget between campaigns for same partner." },
   ]);
   const [autonomousMode, setAutonomousMode] = useState(false);
+  const [briefing, setBriefing] = useState(null);
+  const [briefingLoading, setBriefingLoading] = useState(false);
+  const [briefingCopied, setBriefingCopied] = useState(false);
 
   // ── LLM settings ─────────────────────────────────────────────────────────────
   const LLM_DEFAULTS = {
@@ -1885,7 +1888,211 @@ Give me:
     setLoading(false);
   }
 
-  // ── Chat ────────────────────────────────────────────────────────────────────
+  // ── Morning Briefing ─────────────────────────────────────────────────────────
+  async function runBriefing() {
+    setBriefingLoading(true); setError(null); setBriefing(null);
+    setActivePanel("briefing");
+    try {
+      const ctx = buildContext();
+      const now = new Date();
+      const dayName = now.toLocaleDateString("en-US", {weekday:"long"});
+      const dateStr = now.toLocaleDateString("en-US", {month:"long", day:"numeric", year:"numeric"});
+
+      // Build daily pacing snapshot for all active campaigns with goals
+      const dailySnap = ctx.campaigns.filter(c=>c.note1).map(c => {
+        const dt = computeDailyTarget(c.impressions, c.note1, c.startDate, c.endDate);
+        return dt ? { campaign:c.campaign, partner:c.partner, platform:c.platform,
+          dailyTarget:dt.dailyTarget, neededPerDay:dt.neededPerDay,
+          delivered:dt.delivered, goal:dt.goal, pct:Math.round(dt.delivered/dt.goal*100),
+          status:dt.status, daysLeft:dt.daysLeft } : null;
+      }).filter(Boolean);
+
+      const prompt = `Today is ${dayName}, ${dateStr}. Generate Austin's morning campaign briefing.
+
+Full tracker data:
+${JSON.stringify({...ctx, dailyPacing: dailySnap}, null, 2)}
+
+Write a clean morning briefing in this EXACT format — no extra sections, no fluff:
+
+GOOD MORNING, AUSTIN ☀️
+${dayName}, ${dateStr}
+
+🚨 NEEDS ATTENTION TODAY
+[List any campaigns that are behind pace, have critical KPIs, are ending this week, or have stale creatives. One line each: Campaign name · Partner · issue · specific number. If nothing urgent, write "All clear — no critical flags."]
+
+📊 PACING SNAPSHOT
+[For each campaign with impression data, one line: Campaign name (Platform) — X delivered, needs Y/day, [On Track / Behind / Ahead]. Group by partner. Skip campaigns with no impressions.]
+
+⏰ ENDING THIS WEEK
+[Campaigns ending in 7 days. Name · Partner · end date · days left. If none, skip this section entirely.]
+
+💡 3 THINGS TO DO TODAY
+[Exactly 3 specific actions, ranked by priority. Be direct — "Call Alpha Jackson about Job Corps CTR" not "Consider reviewing performance".]
+
+---
+Briefing by Zeus ⚡
+
+Rules: Use real campaign names and numbers from the data. Keep each line short and scannable. No corporate language. If a section has nothing to report, skip it entirely except PACING SNAPSHOT and 3 THINGS TO DO TODAY which are always included.`;
+
+      const text = await callLLM([{role:"user", content:prompt}], 1200);
+      setBriefing(text);
+    } catch(e) { setError(e.message); }
+    setBriefingLoading(false);
+  }
+
+  // ── Pattern Recognition ──────────────────────────────────────────────────────
+  const [patterns, setPatterns] = useState(null);
+  const [patternsLoading, setPatternsLoading] = useState(false);
+
+  // Compute local (non-LLM) patterns from campaign data
+  function computeLocalPatterns() {
+    const found = [];
+    const now = new Date(); now.setHours(0,0,0,0);
+
+    // Group campaigns by partner
+    const byPartner = {};
+    campaigns.forEach(c => {
+      if (!byPartner[c.mediaPartner]) byPartner[c.mediaPartner] = [];
+      byPartner[c.mediaPartner].push(c);
+    });
+
+    // Pattern 1: Partner with multiple campaigns all behind
+    Object.entries(byPartner).forEach(([partner, camps]) => {
+      const active = camps.filter(c=>c.status==="active");
+      if (active.length < 2) return;
+      const behind = active.filter(c => {
+        const disp = resolveMetrics(c, dateRange.preset);
+        const p = computeMonthlyPacing(disp.impressions, c.note1);
+        return p && p.label === "Behind";
+      });
+      if (behind.length >= 2 && behind.length === active.length) {
+        found.push({ type:"partner_all_behind", severity:"warn",
+          title:`All ${partner} campaigns behind pace`,
+          detail:`${behind.length} of ${active.length} active campaigns are behind monthly goal. May indicate a systemic issue — creative fatigue, targeting, or budget.`,
+          partner, campaigns: behind.map(c=>c.campaignName.trim()),
+          action:`Diagnose why all ${partner} campaigns are underdelivering` });
+      }
+    });
+
+    // Pattern 2: Same campaign name, multiple platforms, only some behind
+    const byName = {};
+    campaigns.filter(c=>c.status==="active").forEach(c => {
+      const key = c.campaignName.trim().toLowerCase().replace(/\s+/g," ");
+      if (!byName[key]) byName[key] = [];
+      byName[key].push(c);
+    });
+    Object.entries(byName).forEach(([,group]) => {
+      if (group.length < 2) return;
+      const behind = group.filter(c => {
+        const disp = resolveMetrics(c, dateRange.preset);
+        const p = computeMonthlyPacing(disp.impressions, c.note1);
+        return p && p.label === "Behind";
+      });
+      const ahead = group.filter(c => {
+        const disp = resolveMetrics(c, dateRange.preset);
+        const p = computeMonthlyPacing(disp.impressions, c.note1);
+        return p && p.label === "Ahead";
+      });
+      if (behind.length > 0 && ahead.length > 0) {
+        found.push({ type:"cross_platform_imbalance", severity:"info",
+          title:`${group[0].campaignName.trim()} — uneven cross-platform delivery`,
+          detail:`${ahead.map(c=>c.platform).join(", ")} ahead of pace while ${behind.map(c=>c.platform).join(", ")} is behind. Budget may need rebalancing.`,
+          partner: group[0].mediaPartner,
+          campaigns: group.map(c=>c.campaignName.trim()),
+          action:`Review budget allocation across platforms for ${group[0].campaignName.trim()}` });
+      }
+    });
+
+    // Pattern 3: Stale check-ins across a partner
+    Object.entries(byPartner).forEach(([partner, camps]) => {
+      const stale = camps.filter(c => {
+        if (!c.lastChecked) return true;
+        const days = Math.floor((now - new Date(c.lastChecked)) / 86400000);
+        return days >= 5;
+      });
+      if (stale.length >= 3) {
+        const maxDays = Math.max(...stale.map(c => c.lastChecked ? Math.floor((now - new Date(c.lastChecked)) / 86400000) : 999));
+        found.push({ type:"partner_stale", severity:"info",
+          title:`${partner} — ${stale.length} campaigns not checked in ${maxDays}+ days`,
+          detail:`You haven't checked in on ${stale.length} campaigns for this partner recently.`,
+          partner, campaigns: stale.map(c=>c.campaignName.trim()),
+          action:`Do a pass on all ${partner} campaigns` });
+      }
+    });
+
+    // Pattern 4: Campaigns with same end date (possible flight group)
+    const byEndDate = {};
+    campaigns.filter(c=>c.status==="active"&&c.endDate).forEach(c => {
+      if (!byEndDate[c.endDate]) byEndDate[c.endDate] = [];
+      byEndDate[c.endDate].push(c);
+    });
+    Object.entries(byEndDate).forEach(([date, group]) => {
+      if (group.length < 3) return;
+      const daysLeft = getDaysLeft(date);
+      if (daysLeft >= 0 && daysLeft <= 14) {
+        found.push({ type:"batch_ending", severity: daysLeft<=7?"warn":"info",
+          title:`${group.length} campaigns ending ${daysLeft===0?"today":daysLeft===1?"tomorrow":"in "+daysLeft+" days"} (${date})`,
+          detail:`${group.map(c=>c.campaignName.trim()).slice(0,4).join(", ")}${group.length>4?" +"+(group.length-4)+" more":""}`,
+          partner: [...new Set(group.map(c=>c.mediaPartner))].join(", "),
+          campaigns: group.map(c=>c.campaignName.trim()),
+          action:`Review final delivery and renewal status for this batch` });
+      }
+    });
+
+    // Pattern 5: Consistently stale creatives across campaigns
+    const staleCreatives = campaigns.filter(c => {
+      if (!c.lastCreativeUpdate||c.status!=="active") return false;
+      return Math.floor((now-new Date(c.lastCreativeUpdate))/86400000) > 30;
+    });
+    if (staleCreatives.length >= 3) {
+      found.push({ type:"creative_fatigue", severity:"warn",
+        title:`${staleCreatives.length} campaigns with creatives 30+ days old`,
+        detail:`Creative fatigue may be hurting CTR across these campaigns: ${staleCreatives.map(c=>c.campaignName.trim()).slice(0,4).join(", ")}${staleCreatives.length>4?` +${staleCreatives.length-4} more`:""}`,
+        partner: "Multiple",
+        campaigns: staleCreatives.map(c=>c.campaignName.trim()),
+        action:`Schedule a creative refresh pass — prioritize highest-spend campaigns` });
+    }
+
+    return found.sort((a,b) => {
+      const order = {warn:0, info:1};
+      return (order[a.severity]||1) - (order[b.severity]||1);
+    });
+  }
+
+  async function runPatternAnalysis() {
+    setPatternsLoading(true); setActivePanel("patterns");
+    const localPatterns = computeLocalPatterns();
+    try {
+      const ctx = buildContext();
+      const prompt = `Analyze these campaigns for patterns, trends, and systemic issues that Austin should know about. Look beyond individual campaign performance — find connections across campaigns, partners, and platforms.
+
+Campaign data:
+${JSON.stringify(ctx, null, 2)}
+
+Local patterns already detected:
+${JSON.stringify(localPatterns, null, 2)}
+
+Find and report on:
+1. **Partner-level trends** — is one partner's whole portfolio underperforming? Why might that be?
+2. **Platform patterns** — is one platform (e.g. DSP, FB) consistently underdelivering across multiple partners?
+3. **Timing patterns** — are campaigns that started around the same time all struggling?
+4. **Creative patterns** — campaigns with stale creatives that correlate with CTR drops
+5. **Seasonal/cyclical** — based on campaign history notes, anything recurring?
+6. **Anomalies** — anything that stands out as unexpected or worth investigating?
+
+For each pattern: name it clearly, explain what the data shows, and give one specific recommendation. Be direct. Skip patterns you don't see evidence for.
+
+Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
+
+      const text = await callLLM([{role:"user",content:prompt}], 1400);
+      setPatterns({ local: localPatterns, ai: text, ts: new Date().toLocaleTimeString() });
+    } catch(e) {
+      setPatterns({ local: localPatterns, ai: null, error: e.message, ts: new Date().toLocaleTimeString() });
+    }
+    setPatternsLoading(false);
+  }
+
+  // ── Chat ─────────────────────────────────────────────────────────────────────
   async function sendQuestion() {
     if (!question.trim() || chatLoading) return;
     const q = question.trim(); setQuestion(""); setChatLoading(true);
@@ -1930,8 +2137,10 @@ Give me:
 
   const PANELS = [
     {key:"chat",       label:"⚡ Zeus",       badge:0},
+    {key:"briefing",   label:"☀️ Briefing",   badge:0},
     {key:"actions",    label:"🎯 Actions",    badge:pendingActions.length},
     {key:"watchlist",  label:"🚨 Watchlist",  badge:dangerAlerts.length+warnAlerts.length},
+    {key:"patterns",   label:"🔍 Patterns",   badge:0},
     {key:"predict",    label:"📡 Predictions",badge:predictions.filter(p=>p.status==="critical"||p.status==="at-risk").length},
     {key:"benchmarks", label:"📊 Benchmarks", badge:0},
     {key:"playbook",   label:"📋 Playbooks",  badge:0},
@@ -2004,16 +2213,27 @@ Give me:
             {pendingActions.length>0&&<div style={{fontSize:10,color:"#f59e0b",fontWeight:700,marginTop:1}}>🎯 {pendingActions.length} action{pendingActions.length>1?"s":""} awaiting approval</div>}
           </div>
         </div>
-        <button onClick={runAnalysis} disabled={loading} style={{
-          background:loading?"#1a1000":"linear-gradient(135deg,#1a1000,#2d1a00)",
-          border:`1px solid ${loading?"#f59e0b80":"#f59e0b60"}`,
-          borderRadius:10,padding:"11px 26px",color:loading?"#f59e0b80":"#f59e0b",
-          fontSize:13,fontWeight:800,cursor:loading?"default":"pointer",
-          display:"flex",alignItems:"center",gap:8,whiteSpace:"nowrap",
-          transition:"all .2s",...(loading?{}:{boxShadow:"0 0 14px #f59e0b20"}),
-        }}>
-          {loading?<><span style={{animation:"boltSpin .2s ease-in-out infinite",display:"inline-block"}}>{boltChars[boltFrame]}</span>Analyzing…</>:<>{analysis?"⚡ Re-analyze":"⚡ Run Analysis"}</>}
-        </button>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          <button onClick={runBriefing} disabled={briefingLoading||loading}
+            style={{background:"#0a1828",border:"1px solid #60a5fa40",borderRadius:10,padding:"11px 20px",
+              color:briefingLoading?"#3d5a72":"#60a5fa",fontSize:13,fontWeight:700,
+              cursor:briefingLoading||loading?"default":"pointer",
+              display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",transition:"all .2s"}}>
+            {briefingLoading
+              ? <><span style={{animation:"boltSpin .2s ease-in-out infinite",display:"inline-block"}}>⚡</span>Generating…</>
+              : <>☀️ Morning Brief</>}
+          </button>
+          <button onClick={runAnalysis} disabled={loading} style={{
+            background:loading?"#1a1000":"linear-gradient(135deg,#1a1000,#2d1a00)",
+            border:`1px solid ${loading?"#f59e0b80":"#f59e0b60"}`,
+            borderRadius:10,padding:"11px 26px",color:loading?"#f59e0b80":"#f59e0b",
+            fontSize:13,fontWeight:800,cursor:loading?"default":"pointer",
+            display:"flex",alignItems:"center",gap:8,whiteSpace:"nowrap",
+            transition:"all .2s",...(loading?{}:{boxShadow:"0 0 14px #f59e0b20"}),
+          }}>
+            {loading?<><span style={{animation:"boltSpin .2s ease-in-out infinite",display:"inline-block"}}>{boltChars[boltFrame]}</span>Analyzing…</>:<>{analysis?"⚡ Re-analyze":"⚡ Run Analysis"}</>}
+          </button>
+        </div>
       </div>
 
       {/* ── Panel tabs ── */}
@@ -2051,6 +2271,212 @@ Give me:
               background:"linear-gradient(90deg,#1a1000 0%,#f59e0b20 50%,#1a1000 100%)",
               backgroundSize:"200% 100%",animation:"shimmer 1.5s ease-in-out infinite",animationDelay:`${i*0.1}s`}}/>
           ))}
+        </div>
+      )}
+
+      {/* ══ BRIEFING PANEL ══ */}
+      {activePanel==="briefing"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          {briefingLoading&&(
+            <div style={{background:"linear-gradient(135deg,#060d18,#0a1428)",border:"1px solid #60a5fa30",borderRadius:14,padding:"24px"}}>
+              <div style={{fontSize:12,color:"#60a5fa",fontWeight:700,marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
+                <span style={{animation:"boltSpin .2s linear infinite",display:"inline-block"}}>⚡</span>
+                Zeus is writing your briefing…
+              </div>
+              {[85,65,75,50,80,55,70].map((w,i)=>(
+                <div key={i} style={{height:9,marginBottom:8,borderRadius:5,width:`${w}%`,
+                  background:"linear-gradient(90deg,#0a1428 0%,#60a5fa15 50%,#0a1428 100%)",
+                  backgroundSize:"200% 100%",animation:"shimmer 1.5s ease-in-out infinite",animationDelay:`${i*0.1}s`}}/>
+              ))}
+            </div>
+          )}
+
+          {!briefing&&!briefingLoading&&(
+            <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:14,padding:"48px 32px",textAlign:"center"}}>
+              <div style={{fontSize:36,marginBottom:12}}>☀️</div>
+              <div style={{fontSize:15,fontWeight:700,color:"#edf4ff",marginBottom:8}}>Morning Briefing</div>
+              <div style={{fontSize:12,color:"#4d6e8a",maxWidth:400,margin:"0 auto 20px",lineHeight:1.7}}>
+                Hit <strong style={{color:"#60a5fa"}}>☀️ Morning Brief</strong> and Zeus will generate your full daily summary — pacing status, what needs attention, campaigns ending this week, and exactly 3 things to do today.
+              </div>
+              <div style={{fontSize:11,color:"#3d5a72"}}>Takes about 10–15 seconds with a local model.</div>
+            </div>
+          )}
+
+          {briefing&&!briefingLoading&&(
+            <>
+              <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:14,overflow:"hidden"}}>
+                {/* Briefing toolbar */}
+                <div style={{background:"#060d18",borderBottom:"1px solid #1a2744",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+                  <div style={{fontSize:11,color:"#4d6e8a",display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{color:"#60a5fa",fontWeight:700}}>☀️ Morning Briefing</span>
+                    <span>·</span>
+                    <span>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}</span>
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>{
+                      navigator.clipboard.writeText(briefing);
+                      setBriefingCopied(true);
+                      setTimeout(()=>setBriefingCopied(false), 2000);
+                    }} style={{background:briefingCopied?"#002e24":"#0e1a2e",border:`1px solid ${briefingCopied?"#00c89650":"#334155"}`,borderRadius:6,padding:"4px 12px",color:briefingCopied?"#00e5a0":"#7a9bbf",fontSize:11,fontWeight:700,cursor:"pointer",transition:"all .15s"}}>
+                      {briefingCopied?"✓ Copied!":"📋 Copy"}
+                    </button>
+                    <button onClick={runBriefing} disabled={briefingLoading}
+                      style={{background:"#0a1828",border:"1px solid #60a5fa40",borderRadius:6,padding:"4px 12px",color:"#60a5fa",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                      ↺ Refresh
+                    </button>
+                  </div>
+                </div>
+                {/* Briefing content */}
+                <div style={{padding:"20px 24px",whiteSpace:"pre-wrap",fontSize:13,color:"#a8c4e0",lineHeight:1.8,fontFamily:"inherit"}}>
+                  {briefing.split("\n").map((line,i)=>{
+                    if (!line.trim()) return <div key={i} style={{height:6}}/>;
+                    // Section headers
+                    if (/^(🚨|📊|⏰|💡|GOOD MORNING|---)/i.test(line.trim())) {
+                      if (line.trim().startsWith("---")) return <div key={i} style={{borderTop:"1px solid #1a2744",margin:"12px 0"}}/>;
+                      if (line.trim().startsWith("GOOD MORNING")) return <div key={i} style={{fontSize:16,fontWeight:800,color:"#edf4ff",marginBottom:2}}>{line}</div>;
+                      return <div key={i} style={{fontSize:13,fontWeight:800,color:"#edf4ff",marginTop:16,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>{line}</div>;
+                    }
+                    // Italic date line under header
+                    if (/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/i.test(line.trim())) {
+                      return <div key={i} style={{fontSize:12,color:"#4d6e8a",marginBottom:12}}>{line}</div>;
+                    }
+                    // Bullet items
+                    if (/^[-•·]/.test(line.trim())||/^\d+\./.test(line.trim())) {
+                      const text = line.replace(/^[-•·]\s*/,"").replace(/^\d+\.\s*/,"");
+                      const num = line.match(/^(\d+)\./)?.[1];
+                      return (
+                        <div key={i} style={{display:"flex",gap:10,marginBottom:5,paddingLeft:4,alignItems:"flex-start"}}>
+                          <span style={{color:"#60a5fa",flexShrink:0,fontWeight:700,minWidth:16,marginTop:1}}>{num?`${num}.`:"›"}</span>
+                          <span style={{fontSize:13,color:"#a8c4e0",lineHeight:1.6}}>{text}</span>
+                        </div>
+                      );
+                    }
+                    // Sub-items / indented
+                    if (line.startsWith("  ")) {
+                      return <div key={i} style={{fontSize:12,color:"#7a9bbf",paddingLeft:22,marginBottom:3,lineHeight:1.5}}>{line.trim()}</div>;
+                    }
+                    // "Briefing by Zeus" footer
+                    if (line.includes("Briefing by Zeus")) {
+                      return <div key={i} style={{fontSize:11,color:"#3d5a72",marginTop:4,fontStyle:"italic"}}>{line}</div>;
+                    }
+                    return <div key={i} style={{fontSize:13,color:"#a8c4e0",marginBottom:3,lineHeight:1.6}}>{line}</div>;
+                  })}
+                </div>
+              </div>
+
+              {/* Ask Zeus about briefing */}
+              <div style={{display:"flex",gap:8}}>
+                <input
+                  placeholder="Ask Zeus about anything in the briefing…"
+                  style={{flex:1,background:"#07101c",border:"1px solid #1a2744",borderRadius:8,padding:"9px 14px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit",outline:"none"}}
+                  onKeyDown={e=>{
+                    if (e.key==="Enter"&&e.target.value.trim()) {
+                      setQuestion(e.target.value.trim());
+                      setActivePanel("chat");
+                      e.target.value="";
+                    }
+                  }}
+                />
+                <button onClick={()=>setActivePanel("chat")} style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:8,padding:"9px 16px",color:"#f59e0b",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                  Open Zeus ⚡
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ══ PATTERNS PANEL ══ */}
+      {activePanel==="patterns"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+            <div style={{fontSize:11,color:"#4d6e8a",lineHeight:1.6}}>
+              Zeus analyzes your campaigns for cross-campaign patterns, partner trends, platform habits, and anomalies — things that only show up when you look across the whole portfolio.
+              {patterns?.ts&&<span style={{marginLeft:8,color:"#3d5a72"}}>Last run: {patterns.ts}</span>}
+            </div>
+            <button onClick={runPatternAnalysis} disabled={patternsLoading}
+              style={{background:patternsLoading?"#1a1000":"linear-gradient(135deg,#1a1000,#2d1a00)",border:`1px solid ${patternsLoading?"#f59e0b80":"#f59e0b60"}`,borderRadius:9,padding:"9px 20px",color:patternsLoading?"#f59e0b80":"#f59e0b",fontSize:12,fontWeight:800,cursor:patternsLoading?"default":"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",transition:"all .2s"}}>
+              {patternsLoading?<><span style={{animation:"boltSpin .2s ease-in-out infinite",display:"inline-block"}}>⚡</span>Analyzing…</>:<>🔍 {patterns?"Re-run Analysis":"Run Pattern Analysis"}</>}
+            </button>
+          </div>
+
+          {patternsLoading&&(
+            <div style={{background:"linear-gradient(135deg,#0c1218,#100d00)",border:"1px solid #f59e0b30",borderRadius:14,padding:"24px",animation:"zeusGlow 1.5s ease-in-out infinite"}}>
+              <div style={{fontSize:12,color:"#f59e0b",fontWeight:700,marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
+                <span style={{animation:"boltSpin .2s linear infinite",display:"inline-block"}}>⚡</span>
+                Zeus scanning {campaigns.length} campaigns for patterns…
+              </div>
+              {[75,55,85,45,65].map((w,i)=>(
+                <div key={i} style={{height:9,marginBottom:8,borderRadius:5,width:`${w}%`,background:"linear-gradient(90deg,#1a1000 0%,#f59e0b20 50%,#1a1000 100%)",backgroundSize:"200% 100%",animation:"shimmer 1.5s ease-in-out infinite",animationDelay:`${i*0.1}s`}}/>
+              ))}
+            </div>
+          )}
+
+          {!patterns&&!patternsLoading&&(
+            <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:14,padding:"48px 32px",textAlign:"center"}}>
+              <div style={{fontSize:36,marginBottom:12}}>🔍</div>
+              <div style={{fontSize:15,fontWeight:700,color:"#edf4ff",marginBottom:8}}>Pattern Recognition</div>
+              <div style={{fontSize:12,color:"#4d6e8a",maxWidth:440,margin:"0 auto",lineHeight:1.7}}>
+                Zeus looks across your entire portfolio to find things you'd never catch checking campaigns one by one — partner-wide delivery problems, platform underperformance, creative fatigue clusters, suspicious timing patterns.
+              </div>
+            </div>
+          )}
+
+          {patterns&&!patternsLoading&&(<>
+            {/* Local patterns — instant, no LLM */}
+            {patterns.local.length > 0 && (
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>⚡ Detected Patterns</div>
+                {patterns.local.map((p,i)=>{
+                  const sevColor = p.severity==="warn"?"#f59e0b":"#60a5fa";
+                  const sevBg = p.severity==="warn"?"#120e00":"#060d18";
+                  const sevBorder = p.severity==="warn"?"#f59e0b30":"#60a5fa25";
+                  return (
+                    <div key={i} style={{background:sevBg,border:`1px solid ${sevBorder}`,borderRadius:10,padding:"12px 16px"}}>
+                      <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:6}}>
+                        <span style={{fontSize:16,flexShrink:0}}>{p.severity==="warn"?"⚠️":"💡"}</span>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:13,fontWeight:700,color:"#edf4ff",marginBottom:2}}>{p.title}</div>
+                          <div style={{fontSize:11,color:"#7a9bbf",lineHeight:1.5,marginBottom:6}}>{p.detail}</div>
+                          {p.campaigns&&p.campaigns.length>0&&(
+                            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:6}}>
+                              {p.campaigns.slice(0,5).map((name,j)=>(
+                                <span key={j} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"1px 7px",fontSize:10,color:"#4d6e8a"}}>{name}</span>
+                              ))}
+                              {p.campaigns.length>5&&<span style={{fontSize:10,color:"#3d5a72",alignSelf:"center"}}>+{p.campaigns.length-5} more</span>}
+                            </div>
+                          )}
+                          <div style={{fontSize:11,color:sevColor,fontWeight:600}}>→ {p.action}</div>
+                        </div>
+                        <button onClick={()=>{ setQuestion(`Tell me more about this pattern: ${p.title}. ${p.detail}`); setActivePanel("chat"); }}
+                          style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:6,padding:"4px 10px",color:"#f59e0b",fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                          Ask Zeus ⚡
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {patterns.local.length===0&&<div style={{fontSize:12,color:"#3d5a72",padding:"12px 0"}}>No structural patterns detected in current data.</div>}
+              </div>
+            )}
+
+            {/* AI deep analysis */}
+            {patterns.ai&&(
+              <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:12,overflow:"hidden"}}>
+                <div style={{background:"#060d18",borderBottom:"1px solid #1a2744",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.07em"}}>⚡ Zeus · Deep Pattern Analysis</div>
+                  <button onClick={()=>{ navigator.clipboard.writeText(patterns.ai); setActionFeedback({type:"success",msg:"✓ Copied"}); }}
+                    style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:5,padding:"3px 9px",color:"#4d6e8a",fontSize:10,fontWeight:600,cursor:"pointer"}}>Copy 📋</button>
+                </div>
+                <div style={{padding:"16px 20px"}}>{renderMarkdown(patterns.ai)}</div>
+              </div>
+            )}
+            {patterns.error&&(
+              <div style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:10,padding:"12px 16px",fontSize:12,color:"#ef4444"}}>
+                AI analysis failed: {patterns.error} — local patterns above are still valid.
+              </div>
+            )}
+          </>)}
         </div>
       )}
 
@@ -4747,6 +5173,7 @@ export default function App() {
   const [fGoalHit, setFGoalHit]                 = useState(false);
   const [fCloseToGoal, setFCloseToGoal]         = useState(false);
   const [fExcludeGoalHit, setFExcludeGoalHit]   = useState(false);
+  const [showDailyGoal, setShowDailyGoal]       = useState(true);
   const [collapsedClients, setCollapsedClients] = useState(new Set());
   const [dragId, setDragId]       = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
@@ -5509,6 +5936,16 @@ export default function App() {
             {fExcludeGoalHit?"🎯 Hiding Goal Hit":"🎯 Exclude Goal Hit"}
           </button>
           <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
+          <button onClick={()=>setShowDailyGoal(v=>!v)}
+            style={{background:showDailyGoal?"#1a0a2e":"#0e1a2e",
+              border:`1px solid ${showDailyGoal?"#a855f780":"#1e293b"}`,
+              borderRadius:7,padding:"7px 11px",
+              color:showDailyGoal?"#a855f7":"#4d6e8a",
+              fontSize:12,fontWeight:showDailyGoal?700:400,
+              cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s",
+            }} title={showDailyGoal?"Hide daily impression target":"Show daily impression target"}>
+            {showDailyGoal?"🎯 Daily Goal On":"🎯 Daily Goal Off"}
+          </button>
           <span style={{fontSize:11,color:"#3d5a72"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
         </div>
 
@@ -5648,7 +6085,7 @@ export default function App() {
                                   return (
                                     <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,paddingLeft:12,flexWrap:"wrap"}}>
                                       <div style={{fontSize:11,color:"#00ffb3",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
-                                      {dt&&dt.dailyTarget>0&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#f472b6",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
+                                      {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                                     </div>
                                   );
                                 })()}
@@ -5742,7 +6179,7 @@ export default function App() {
                             return (
                               <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,flexWrap:"wrap"}}>
                                 <div style={{fontSize:11,color:"#00ffb3",fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
-                                {dt&&dt.dailyTarget>0&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#f472b6",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
+                                {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                               </div>
                             );
                           })()}
