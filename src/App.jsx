@@ -1448,7 +1448,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
   const LLM_DEFAULTS = {
     mode: "ollama",
     endpoint: "http://localhost:11434",
-    model: "gemma3:27b",
+    model: "gemma4:e4b",
     workerUrl: "",
     superagentEndpoint: "http://localhost:11434",
     superagentModel: "",
@@ -2839,7 +2839,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                 </div>
                 <div>
                   <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model</label>
-                  <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="gemma3:27b"
+                  <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="gemma4:e4b"
                     style={{width:"100%",background:"#07101c",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
                   <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>Run <code style={{fontSize:10,color:"#00e5a0"}}>ollama list</code> to see installed models</div>
                 </div>
@@ -2859,7 +2859,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
             </div>
             <div style={{background:"#0a1218",border:"1px solid #1e293b",borderRadius:10,padding:"14px 18px"}}>
               <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Local Setup</div>
-              {[{step:1,cmd:"ollama pull gemma3:27b",detail:"~17GB download"},{step:2,cmd:"OLLAMA_ORIGINS=* ollama serve",detail:"Allow browser requests"},{step:3,cmd:"python -m http.server 8080",detail:"Serve tracker, open localhost:8080"}].map(s=>(
+              {[{step:1,cmd:"ollama pull gemma4:e4b",detail:"Your current model"},{step:2,cmd:"OLLAMA_ORIGINS=* ollama serve",detail:"Allow browser requests"},{step:3,cmd:"python -m http.server 8080",detail:"Serve tracker, open localhost:8080"}].map(s=>(
                 <div key={s.step} style={{display:"flex",gap:10,marginBottom:8,alignItems:"flex-start"}}>
                   <span style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:5,width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#f59e0b",flexShrink:0}}>{s.step}</span>
                   <div><code style={{fontSize:11,color:"#00e5a0",background:"#07101c",borderRadius:4,padding:"1px 6px"}}>{s.cmd}</code>
@@ -5944,7 +5944,7 @@ export default function App() {
               fontSize:12,fontWeight:showDailyGoal?700:400,
               cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s",
             }} title={showDailyGoal?"Hide daily impression target":"Show daily impression target"}>
-            {showDailyGoal?"🎯 Daily Goal On":"🎯 Daily Goal Off"}
+            {showDailyGoal?"🟣 Daily Goal":"⬛ Daily Goal"}
           </button>
           <span style={{fontSize:11,color:"#3d5a72"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
         </div>
