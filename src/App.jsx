@@ -1152,7 +1152,7 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
 }
 
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[] }) {
-  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:""};
+  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",clientWebsite:""};
   const [f, setF] = useState(campaign?{...campaign}:blank);
   const blankR = { type:"ad-swap", note:"", date:"", repeat:"none" };
   const [newReminder, setNewReminder] = useState(blankR);
@@ -1225,6 +1225,16 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
         </div>
         {/* Projection URL — full width */}
         <div style={{marginBottom:12,gridColumn:"1 / -1"}}>
+          {/* Client Website — for logo auto-fetch */}
+          <div style={{marginBottom:12,gridColumn:"1 / -1",display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+            <div>
+              <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌐 Client Website <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(for logo auto-fetch in reports)</span></label>
+              <input type="url" value={f.clientWebsite||""} onChange={e=>set("clientWebsite",e.target.value)} placeholder="https://fairmontstate.edu"
+                style={{width:"100%",background:"#162236",border:`1px solid ${f.clientWebsite?"#34d39960":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit",outline:"none"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Zeus will pull the favicon as the client logo in reports</div>
+            </div>
+            <div/>
+          </div>
           <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📎 Projection Sheet URL</label>
           <div style={{display:"flex",gap:6}}>
             <input type="url" value={f.projectionUrl||""} onChange={e=>set("projectionUrl",e.target.value)} placeholder="https://docs.google.com/..." style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
@@ -3975,46 +3985,81 @@ function spreadRevenue(c) {
   return months;
 }
 
+
 function ReportingDashboard({ campaigns=[], archive=[] }) {
   const all = [...campaigns, ...archive];
   const partners = [...new Set(all.map(c=>c.mediaPartner).filter(Boolean))].sort();
 
-  const [selectedPartner, setSelectedPartner] = useState(partners[0]||"");
-  const [reportType, setReportType] = useState("monthly"); // monthly | custom | lifetime
+  // ── Campaign selector state ─────────────────────────────────────────────────
+  const [search, setSearch] = useState("");
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [filterPartner, setFilterPartner] = useState("all");
+  const [sortByPartner, setSortByPartner] = useState(true);
+
+  // ── Report config ────────────────────────────────────────────────────────────
+  const [reportType, setReportType] = useState("monthly");
   const [reportMonth, setReportMonth] = useState(()=>getToday().slice(0,7));
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
-  const [logoUrl, setLogoUrl] = useState("");
-  const [logoDataUrl, setLogoDataUrl] = useState("");
   const [reportTitle, setReportTitle] = useState("");
-  const [printing, setPrinting] = useState(false);
-  const reportRef = useRef(null);
+  const [logoDataUrl, setLogoDataUrl] = useState("");
+  const [logoFetchUrl, setLogoFetchUrl] = useState("");
+  const [generatingReport, setGeneratingReport] = useState(false);
 
-  // Get campaigns for selected partner
-  const partnerCamps = all.filter(c=>c.mediaPartner===selectedPartner);
+  // Filtered campaign list for selector
+  const filteredCamps = all.filter(c => {
+    const q = search.toLowerCase();
+    const matchQ = !q || c.campaignName.toLowerCase().includes(q) || c.mediaPartner.toLowerCase().includes(q) || c.platform.toLowerCase().includes(q);
+    const matchP = filterPartner==="all" || c.mediaPartner===filterPartner;
+    return matchQ && matchP;
+  });
 
-  // Date range for report
+  const grouped = sortByPartner ? (() => {
+    const g = {};
+    filteredCamps.forEach(c => { if(!g[c.mediaPartner]) g[c.mediaPartner]=[]; g[c.mediaPartner].push(c); });
+    return g;
+  })() : null;
+
+  const selectedCamps = all.filter(c => selectedIds.has(c.id));
+
+  function toggleCamp(id) {
+    setSelectedIds(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
+  }
+
+  function selectAllFiltered() {
+    setSelectedIds(prev => { const n=new Set(prev); filteredCamps.forEach(c=>n.add(c.id)); return n; });
+  }
+
+  function clearSelection() { setSelectedIds(new Set()); }
+
+  function selectPartner(partner) {
+    const partnerCamps = all.filter(c=>c.mediaPartner===partner);
+    const allSelected = partnerCamps.every(c=>selectedIds.has(c.id));
+    setSelectedIds(prev => {
+      const n=new Set(prev);
+      if(allSelected) partnerCamps.forEach(c=>n.delete(c.id));
+      else partnerCamps.forEach(c=>n.add(c.id));
+      return n;
+    });
+  }
+
+  // ── Date range ────────────────────────────────────────────────────────────────
   function getDateRange() {
     if (reportType==="monthly") {
       const [y,m] = reportMonth.split("-");
-      const start = `${y}-${m}-01`;
       const daysInMo = new Date(parseInt(y), parseInt(m), 0).getDate();
-      const end = `${y}-${m}-${String(daysInMo).padStart(2,"0")}`;
-      return {start, end, label: new Date(parseInt(y),parseInt(m)-1,1).toLocaleDateString("en-US",{month:"long",year:"numeric"})};
+      return { start:`${y}-${m}-01`, end:`${y}-${m}-${String(daysInMo).padStart(2,"0")}`,
+        label: new Date(parseInt(y),parseInt(m)-1,1).toLocaleDateString("en-US",{month:"long",year:"numeric"}) };
     }
-    if (reportType==="custom" && customStart && customEnd) {
-      return {start:customStart, end:customEnd, label:`${fmtDate(customStart)} – ${fmtDate(customEnd)}`};
-    }
-    // lifetime
-    const starts = partnerCamps.map(c=>c.startDate||c.endDate).filter(Boolean).sort();
-    const ends = partnerCamps.map(c=>c.endDate||c.startDate).filter(Boolean).sort();
-    return {start:starts[0]||"", end:ends[ends.length-1]||"", label:"Full Campaign Lifetime"};
+    if (reportType==="custom" && customStart && customEnd)
+      return { start:customStart, end:customEnd, label:`${fmtDate(customStart)} – ${fmtDate(customEnd)}` };
+    const starts = selectedCamps.map(c=>c.startDate||c.endDate).filter(Boolean).sort();
+    const ends = selectedCamps.map(c=>c.endDate||c.startDate).filter(Boolean).sort();
+    return { start:starts[0]||"", end:ends[ends.length-1]||"", label:"Full Campaign Period" };
   }
 
-  const dr = getDateRange();
-
-  // Aggregate metrics per campaign (use manually entered data)
-  function getCampMetrics(c) {
+  // ── Metrics ────────────────────────────────────────────────────────────────
+  function getMetrics(c) {
     return {
       impressions: parseInt(c.impressions)||0,
       clicks:      parseInt(c.clicks)||0,
@@ -4024,31 +4069,19 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
       reach:       parseInt(c.reach)||0,
       completionRate: parseFloat(c.completionRate)||0,
       videoViews:  parseInt(c.videoViews)||0,
+      contractValue: parseFloat(c.contractValue)||0,
     };
   }
 
-  // Build report rows — one per campaign tactic
-  const rows = partnerCamps.map(c=>({...c, metrics: getCampMetrics(c)}));
+  // ── Logo helpers ────────────────────────────────────────────────────────────
+  function getFaviconUrl(website) {
+    if (!website) return null;
+    try {
+      const url = new URL(website.startsWith("http") ? website : "https://"+website);
+      return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=128`;
+    } catch { return null; }
+  }
 
-  // Totals
-  const totals = rows.reduce((acc,r)=>({
-    impressions: acc.impressions + r.metrics.impressions,
-    clicks:      acc.clicks      + r.metrics.clicks,
-    spend:       acc.spend       + r.metrics.spend,
-    reach:       acc.reach       + r.metrics.reach,
-    videoViews:  acc.videoViews  + r.metrics.videoViews,
-    contractValue: acc.contractValue + (parseFloat(r.contractValue)||0),
-  }), {impressions:0,clicks:0,spend:0,reach:0,videoViews:0,contractValue:0});
-
-  const overallCTR = totals.clicks > 0 && totals.impressions > 0
-    ? (totals.clicks / totals.impressions * 100).toFixed(2) : "—";
-  const overallCPM = totals.impressions > 0 && totals.spend > 0
-    ? (totals.spend / totals.impressions * 1000).toFixed(2) : "—";
-
-  // Platform colors for chart
-  function platColor(p) { return PLT_COLORS[p]||PLT_COLORS.default||"#7a9bbf"; }
-
-  // Handle logo upload
   function handleLogoUpload(e) {
     const file = e.target.files[0]; if(!file) return;
     const reader = new FileReader();
@@ -4056,287 +4089,475 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
     reader.readAsDataURL(file);
   }
 
-  // Print / export as PDF
-  async function exportPDF() {
-    setPrinting(true);
-    await new Promise(r=>setTimeout(r,100));
-    window.print();
-    setTimeout(()=>setPrinting(false), 1000);
+  // Auto-detect website from selected campaigns
+  const detectedWebsite = selectedCamps.find(c=>c.clientWebsite)?.clientWebsite || "";
+  const faviconUrl = logoDataUrl ? null : getFaviconUrl(logoFetchUrl||detectedWebsite);
+
+  const fmtN = n => n>=1000000?(n/1000000).toFixed(2)+"M":n>=1000?(n/1000).toFixed(1)+"K":String(n||0);
+  const fmtMoney = n => n>0?"$"+n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";
+  const platCol = p => PLT_COLORS[p]||PLT_COLORS.default||"#7a9bbf";
+
+  // ── Generate report in new window ──────────────────────────────────────────
+  function generateReport() {
+    if (selectedIds.size===0) return;
+    setGeneratingReport(true);
+    const dr = getDateRange();
+    const rows = selectedCamps.map(c=>({...c, m:getMetrics(c)}));
+    const totals = rows.reduce((a,r)=>({
+      impressions:a.impressions+r.m.impressions, clicks:a.clicks+r.m.clicks,
+      spend:a.spend+r.m.spend, reach:a.reach+r.m.reach,
+      videoViews:a.videoViews+r.m.videoViews, contractValue:a.contractValue+r.m.contractValue,
+    }),{impressions:0,clicks:0,spend:0,reach:0,videoViews:0,contractValue:0});
+
+    const overallCTR = totals.clicks>0&&totals.impressions>0?(totals.clicks/totals.impressions*100).toFixed(2)+"%" : "—";
+    const overallCPM = totals.impressions>0&&totals.spend>0?("$"+(totals.spend/totals.impressions*1000).toFixed(2)):"—";
+
+    const logoHtml = logoDataUrl
+      ? `<img src="${logoDataUrl}" class="client-logo" alt="logo"/>`
+      : faviconUrl
+      ? `<img src="${faviconUrl}" class="client-logo-small" alt="logo"/>`
+      : `<div class="logo-placeholder">📊</div>`;
+
+    const title = reportTitle || `${[...new Set(selectedCamps.map(c=>c.mediaPartner))].join(" / ")} — Campaign Performance Report`;
+
+    // Build table rows HTML
+    const tableRows = rows.map((r,i)=>{
+      const bg = i%2===0?"#f8f9ff":"#ffffff";
+      const pc = platCol(r.platform);
+      return `<tr style="background:${bg}">
+        <td><strong>${r.campaignName.trim()}</strong>${r.goal?`<br/><span class="small-text">${r.goal}</span>`:""}</td>
+        <td><span class="plat-tag" style="background:${pc}22;color:${pc};border:1px solid ${pc}50">${r.platform}</span></td>
+        <td class="num">${r.m.impressions>0?fmtN(r.m.impressions):"—"}</td>
+        <td class="num">${r.m.clicks>0?fmtN(r.m.clicks):"—"}</td>
+        <td class="num bold">${r.m.ctr>0?r.m.ctr.toFixed(2)+"%":"—"}</td>
+        <td class="num">${r.m.cpm>0?"$"+r.m.cpm.toFixed(2):"—"}</td>
+        <td class="num">${r.m.spend>0?fmtMoney(r.m.spend):"—"}</td>
+        <td class="num">${r.m.reach>0?fmtN(r.m.reach):"—"}</td>
+        <td class="num">${r.m.completionRate>0?r.m.completionRate.toFixed(1)+"%":r.m.videoViews>0?fmtN(r.m.videoViews):"—"}</td>
+      </tr>`;
+    }).join("");
+
+    // KPI cards HTML
+    const kpis = [
+      {label:"Impressions", val:fmtN(totals.impressions), color:"#1a73e8", show:totals.impressions>0},
+      {label:"Clicks", val:fmtN(totals.clicks), color:"#0f9d58", show:totals.clicks>0},
+      {label:"Overall CTR", val:overallCTR, color:"#f4b400", show:overallCTR!=="—"},
+      {label:"Avg CPM", val:overallCPM, color:"#db4437", show:overallCPM!=="—"},
+      {label:"Total Spend", val:fmtMoney(totals.spend), color:"#7b1fa2", show:totals.spend>0},
+      {label:"Total Reach", val:fmtN(totals.reach), color:"#00838f", show:totals.reach>0},
+    ].filter(k=>k.show);
+
+    const kpiHtml = kpis.map(k=>`
+      <div class="kpi-card">
+        <div class="kpi-val" style="color:${k.color}">${k.val}</div>
+        <div class="kpi-label">${k.label}</div>
+      </div>`).join("");
+
+    // Bar chart SVG
+    const chartRows = rows.filter(r=>r.m.impressions>0);
+    const maxI = Math.max(...chartRows.map(r=>r.m.impressions),1);
+    const barW = Math.max(30, Math.floor(560/Math.max(chartRows.length,1))-8);
+    const bars = chartRows.map((r,i)=>{
+      const h = Math.max(4, Math.round((r.m.impressions/maxI)*120));
+      const x = i*(barW+8)+20;
+      const y = 140-h;
+      const pc = platCol(r.platform);
+      const label = r.platform;
+      return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${pc}" rx="3"/>
+        <text x="${x+barW/2}" y="155" text-anchor="middle" font-size="9" fill="#666">${label}</text>
+        <text x="${x+barW/2}" y="${y-4}" text-anchor="middle" font-size="8" fill="${pc}" font-weight="700">${fmtN(r.m.impressions)}</text>`;
+    }).join("");
+    const svgW = chartRows.length*(barW+8)+40;
+
+    // CTR bar chart
+    const ctrRows = rows.filter(r=>r.m.ctr>0);
+    const maxCTR = Math.max(...ctrRows.map(r=>r.m.ctr),0.01);
+    const ctrBars = ctrRows.map((r,i)=>{
+      const w = Math.round((r.m.ctr/maxCTR)*300);
+      const y = i*28+8;
+      const pc = platCol(r.platform);
+      const label = r.campaignName.trim().length>28?r.campaignName.trim().slice(0,28)+"…":r.campaignName.trim();
+      return `<text x="0" y="${y+13}" font-size="9" fill="#555">${label} (${r.platform})</text>
+        <rect x="200" y="${y}" width="${w}" height="16" fill="${pc}" rx="3" opacity="0.85"/>
+        <text x="${200+w+6}" y="${y+12}" font-size="9" fill="${pc}" font-weight="700">${r.m.ctr.toFixed(2)}%</text>`;
+    }).join("");
+    const ctrSvgH = ctrRows.length*28+20;
+
+    // Budget bar
+    const budgetHtml = totals.contractValue>0 ? `
+      <div class="section">
+        <h3>Budget Overview</h3>
+        <div class="budget-row">
+          <div class="budget-card"><div class="budget-val green">${fmtMoney(totals.contractValue)}</div><div class="budget-label">Contract Value</div></div>
+          <div class="budget-card"><div class="budget-val purple">${fmtMoney(totals.spend)}</div><div class="budget-label">Total Spend</div></div>
+          <div class="budget-card"><div class="budget-val blue">${fmtMoney(totals.contractValue-totals.spend)}</div><div class="budget-label">Remaining</div></div>
+        </div>
+        <div class="budget-bar-wrap">
+          <div class="budget-bar-fill" style="width:${Math.min(100,(totals.spend/totals.contractValue)*100).toFixed(1)}%"></div>
+        </div>
+        <div class="budget-bar-label">${Math.round((totals.spend/totals.contractValue)*100)}% of budget used</div>
+      </div>` : "";
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>${title}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #ffffff; color: #1a1a2e; font-size: 13px; }
+  .page { max-width: 960px; margin: 0 auto; padding: 0; }
+
+  /* Header */
+  .report-header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; padding: 28px 36px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+  .header-left { display: flex; align-items: center; gap: 20px; }
+  .client-logo { height: 64px; max-width: 200px; object-fit: contain; background: white; padding: 8px; border-radius: 8px; }
+  .client-logo-small { height: 48px; width: 48px; object-fit: contain; background: white; padding: 6px; border-radius: 8px; }
+  .logo-placeholder { width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+  .report-title { font-size: 22px; font-weight: 900; color: white; line-height: 1.1; letter-spacing: -0.02em; }
+  .report-subtitle { font-size: 13px; color: #00c896; margin-top: 5px; font-weight: 600; }
+  .report-meta { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 3px; }
+  .header-right { text-align: right; flex-shrink: 0; }
+  .prepared-by { font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.07em; }
+  .agency-name { font-size: 15px; font-weight: 700; color: white; }
+  .tactic-count { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+  .accent-bar { height: 4px; background: linear-gradient(90deg, #00c896, #0066ff); }
+
+  /* Body */
+  .body { padding: 28px 36px; }
+  .section { margin-bottom: 28px; }
+  h3 { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+
+  /* KPI cards */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+  .kpi-card { background: #f8f9ff; border: 1px solid #e8eaf0; border-radius: 10px; padding: 14px 16px; text-align: center; }
+  .kpi-val { font-size: 26px; font-weight: 900; line-height: 1; letter-spacing: -0.02em; }
+  .kpi-label { font-size: 10px; color: #888; margin-top: 5px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; }
+  thead th { background: #1a1a2e; color: white; padding: 10px 12px; text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+  thead th.num { text-align: right; }
+  tbody td { padding: 9px 12px; border-bottom: 1px solid #f0f0f5; vertical-align: middle; }
+  tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody td.bold { font-weight: 700; }
+  tfoot td { padding: 10px 12px; background: #1a1a2e; color: white; font-weight: 800; font-size: 12px; border: none; }
+  tfoot td.num { text-align: right; }
+  .small-text { font-size: 10px; color: #999; }
+  .plat-tag { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+
+  /* Charts */
+  .chart-wrap { background: #f8f9ff; border: 1px solid #e8eaf0; border-radius: 10px; padding: 18px 20px; overflow-x: auto; }
+  .chart-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #eee; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: #666; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+  /* Budget */
+  .budget-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .budget-card { background: #f8f9ff; border: 1px solid #e8eaf0; border-radius: 8px; padding: 12px 16px; text-align: center; }
+  .budget-val { font-size: 20px; font-weight: 800; }
+  .budget-val.green { color: #0f9d58; }
+  .budget-val.purple { color: #7b1fa2; }
+  .budget-val.blue { color: #1a73e8; }
+  .budget-label { font-size: 10px; color: #888; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .budget-bar-wrap { background: #e8eaf0; border-radius: 6px; height: 8px; overflow: hidden; }
+  .budget-bar-fill { background: linear-gradient(90deg, #0f9d58, #7b1fa2); height: 100%; border-radius: 6px; transition: width 0.3s; }
+  .budget-bar-label { font-size: 11px; color: #888; margin-top: 5px; }
+
+  /* Footer */
+  .report-footer { background: #f8f9ff; padding: 16px 36px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #eee; font-size: 10px; color: #aaa; }
+
+  @media print {
+    @page { margin: 0.5in; size: letter; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .no-print { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="report-header">
+    <div class="header-left">
+      ${logoHtml}
+      <div>
+        <div class="report-title">${title}</div>
+        <div class="report-subtitle">${dr.label}</div>
+        <div class="report-meta">Created ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="prepared-by">Prepared by</div>
+      <div class="agency-name">Recrue Media</div>
+      <div class="tactic-count">${rows.length} campaign tactic${rows.length!==1?"s":""}</div>
+    </div>
+  </div>
+  <div class="accent-bar"></div>
+
+  <div class="body">
+    <!-- KPIs -->
+    <div class="section">
+      <h3>Overall Performance KPIs</h3>
+      <div class="kpi-grid">${kpiHtml}</div>
+    </div>
+
+    ${chartRows.length>0?`<!-- Impressions chart -->
+    <div class="section">
+      <h3>Impressions by Tactic</h3>
+      <div class="chart-wrap">
+        <svg width="${Math.max(560,svgW)}" height="165" xmlns="http://www.w3.org/2000/svg">
+          <line x1="0" y1="140" x2="${Math.max(560,svgW)}" y2="140" stroke="#ddd" stroke-width="1"/>
+          ${bars}
+        </svg>
+        <div class="chart-legend">
+          ${chartRows.map(r=>`<div class="legend-item"><div class="legend-dot" style="background:${platCol(r.platform)}"></div><span>${r.campaignName.trim()} (${r.platform})</span></div>`).join("")}
+        </div>
+      </div>
+    </div>`:""}
+
+    ${ctrRows.length>1?`<!-- CTR chart -->
+    <div class="section">
+      <h3>CTR by Tactic</h3>
+      <div class="chart-wrap">
+        <svg width="560" height="${ctrSvgH}" xmlns="http://www.w3.org/2000/svg">${ctrBars}</svg>
+      </div>
+    </div>`:""}
+
+    <!-- Performance table -->
+    <div class="section">
+      <h3>Campaign Performance by Tactic</h3>
+      <table>
+        <thead><tr>
+          <th>Campaign</th><th>Platform</th>
+          <th class="num">Impressions</th><th class="num">Clicks</th><th class="num">CTR</th>
+          <th class="num">CPM</th><th class="num">Spend</th><th class="num">Reach</th><th class="num">VCR/CR</th>
+        </tr></thead>
+        <tbody>${tableRows}</tbody>
+        <tfoot><tr>
+          <td colspan="2">TOTAL</td>
+          <td class="num">${totals.impressions>0?fmtN(totals.impressions):"—"}</td>
+          <td class="num">${totals.clicks>0?fmtN(totals.clicks):"—"}</td>
+          <td class="num">${overallCTR}</td>
+          <td class="num">${overallCPM}</td>
+          <td class="num">${totals.spend>0?fmtMoney(totals.spend):"—"}</td>
+          <td class="num">${totals.reach>0?fmtN(totals.reach):"—"}</td>
+          <td class="num">—</td>
+        </tr></tfoot>
+      </table>
+    </div>
+
+    ${budgetHtml}
+  </div>
+
+  <div class="report-footer">
+    <span>Recrue Media · ${title} · ${dr.label}</span>
+    <span>Confidential — For Client Use Only</span>
+  </div>
+</div>
+<script>window.onload=()=>{ setTimeout(()=>{ window.print(); }, 400); }</script>
+</body></html>`;
+
+    const win = window.open("","_blank","width=1000,height=800");
+    win.document.write(html);
+    win.document.close();
+    setTimeout(()=>setGeneratingReport(false), 500);
   }
 
-  const fmtNum = (n) => n >= 1000000 ? (n/1000000).toFixed(2)+"M" : n >= 1000 ? (n/1000).toFixed(1)+"K" : String(n);
-  const fmtMoney = (n) => n > 0 ? "$"+n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—";
-  const maxImpr = Math.max(...rows.map(r=>r.metrics.impressions), 1);
-
   const iS = {background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit",outline:"none"};
+  const PLT = PLT_COLORS;
 
   return (
-    <div style={{color:"#d8eaf8"}}>
-      <style>{`
-        @media print {
-          body { background: white !important; color: #111 !important; }
-          .no-print { display: none !important; }
-          .report-container { background: white !important; color: #111 !important; padding: 0 !important; }
-          .report-card { background: #f8f9fa !important; border: 1px solid #dee2e6 !important; color: #111 !important; }
-          .report-kpi-val { color: #1a1a2e !important; }
-          .report-kpi-label { color: #666 !important; }
-          .report-table th { background: #1a1a2e !important; color: white !important; }
-          .report-table td { border-bottom: 1px solid #dee2e6 !important; color: #111 !important; }
-          .report-header { background: #1a1a2e !important; color: white !important; }
-          .platform-tag { filter: none !important; }
-        }
-      `}</style>
+    <div style={{color:"#d8eaf8",display:"grid",gridTemplateColumns:"380px 1fr",gap:20,alignItems:"start"}}>
 
-      {/* ── Controls ── */}
-      <div className="no-print" style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end",marginBottom:20,padding:"16px 20px",background:"#0c1625",borderRadius:12,border:"1px solid #1e293b"}}>
-        <div>
-          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Partner</label>
-          <select value={selectedPartner} onChange={e=>setSelectedPartner(e.target.value)} style={{...iS,minWidth:200}}>
-            {partners.map(p=><option key={p} value={p}>{p}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Report Type</label>
-          <div style={{display:"flex",gap:4}}>
-            {[{key:"monthly",label:"Monthly"},{key:"custom",label:"Custom"},{key:"lifetime",label:"Lifetime"}].map(rt=>(
-              <button key={rt.key} onClick={()=>setReportType(rt.key)}
-                style={{background:reportType===rt.key?"#002e24":"#0e1a2e",border:`1px solid ${reportType===rt.key?"#00c89650":"#1e293b"}`,borderRadius:6,padding:"7px 14px",color:reportType===rt.key?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:reportType===rt.key?700:400,cursor:"pointer",transition:"all .15s"}}>
-                {rt.label}
-              </button>
-            ))}
+      {/* ── Left panel: Campaign selector ── */}
+      <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,overflow:"hidden",position:"sticky",top:0}}>
+        <div style={{background:"#07101c",padding:"14px 16px",borderBottom:"1px solid #1a2744"}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#edf4ff",marginBottom:10}}>Select Campaigns</div>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…"
+            style={{...iS,width:"100%",marginBottom:8,padding:"7px 10px"}}/>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <select value={filterPartner} onChange={e=>setFilterPartner(e.target.value)} style={{...iS,flex:1,fontSize:12}}>
+              <option value="all">All Partners</option>
+              {partners.map(p=><option key={p} value={p}>{p}</option>)}
+            </select>
+            <button onClick={()=>setSortByPartner(v=>!v)} title={sortByPartner?"Show flat list":"Group by partner"}
+              style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"6px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>
+              {sortByPartner?"Grouped":"Flat"}
+            </button>
+          </div>
+          <div style={{display:"flex",gap:6,marginTop:8}}>
+            <button onClick={selectAllFiltered} style={{flex:1,background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"5px 0",color:"#00e5a0",fontSize:11,fontWeight:600,cursor:"pointer"}}>+ Select All</button>
+            <button onClick={clearSelection} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 0",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>Clear</button>
           </div>
         </div>
-        {reportType==="monthly"&&(
-          <div>
-            <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Month</label>
-            <input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{...iS}}/>
-          </div>
-        )}
-        {reportType==="custom"&&(<>
-          <div>
-            <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Start Date</label>
-            <DatePicker value={customStart} onChange={setCustomStart}/>
-          </div>
-          <div>
-            <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>End Date</label>
-            <DatePicker value={customEnd} onChange={setCustomEnd}/>
-          </div>
-        </>)}
-        <div>
-          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Report Title (optional)</label>
-          <input value={reportTitle} onChange={e=>setReportTitle(e.target.value)} placeholder={`${selectedPartner} Performance Report`} style={{...iS,width:260}}/>
+
+        {/* Campaign list */}
+        <div style={{maxHeight:440,overflowY:"auto"}}>
+          {sortByPartner ? Object.entries(grouped||{}).map(([partner,camps])=>(
+            <div key={partner}>
+              <div style={{background:"#07101c",padding:"6px 14px",display:"flex",alignItems:"center",gap:8,borderBottom:"1px solid #1a2744",cursor:"pointer"}}
+                onClick={()=>selectPartner(partner)}>
+                <div style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${camps.every(c=>selectedIds.has(c.id))?"#00c896":"#334155"}`,background:camps.every(c=>selectedIds.has(c.id))?"#00c896":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {camps.every(c=>selectedIds.has(c.id))&&<span style={{color:"#000",fontSize:9,fontWeight:900}}>✓</span>}
+                </div>
+                <span style={{fontSize:11,fontWeight:700,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.05em"}}>{partner}</span>
+                <span style={{fontSize:10,color:"#3d5a72",marginLeft:"auto"}}>{camps.length} campaigns</span>
+              </div>
+              {camps.map(c=>{
+                const sel = selectedIds.has(c.id);
+                const pc = PLT[c.platform]||PLT.default||"#7a9bbf";
+                return (
+                  <div key={c.id} onClick={()=>toggleCamp(c.id)}
+                    style={{padding:"8px 14px 8px 28px",borderBottom:"1px solid #0d1525",cursor:"pointer",background:sel?"#001810":"transparent",display:"flex",alignItems:"center",gap:8,transition:"background .1s"}}>
+                    <div style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${sel?"#00c896":"#334155"}`,background:sel?"#00c896":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      {sel&&<span style={{color:"#000",fontSize:9,fontWeight:900}}>✓</span>}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,color:sel?"#edf4ff":"#a8c4e0",fontWeight:sel?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
+                      <div style={{fontSize:10,color:"#3d5a72",marginTop:1}}>{c.startDate||"?"} → {c.endDate||"?"}</div>
+                    </div>
+                    <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:3,padding:"1px 6px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )) : filteredCamps.map(c=>{
+            const sel = selectedIds.has(c.id);
+            const pc = PLT[c.platform]||PLT.default||"#7a9bbf";
+            return (
+              <div key={c.id} onClick={()=>toggleCamp(c.id)}
+                style={{padding:"9px 14px",borderBottom:"1px solid #0d1525",cursor:"pointer",background:sel?"#001810":"transparent",display:"flex",alignItems:"center",gap:8,transition:"background .1s"}}>
+                <div style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${sel?"#00c896":"#334155"}`,background:sel?"#00c896":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {sel&&<span style={{color:"#000",fontSize:9,fontWeight:900}}>✓</span>}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,color:sel?"#edf4ff":"#a8c4e0",fontWeight:sel?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
+                  <div style={{fontSize:10,color:"#3d5a72"}}>{c.mediaPartner} · {c.startDate||"?"} → {c.endDate||"?"}</div>
+                </div>
+                <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:3,padding:"1px 6px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+              </div>
+            );
+          })}
+          {filteredCamps.length===0&&<div style={{padding:"24px",textAlign:"center",color:"#3d5a72",fontSize:12}}>No campaigns match your search.</div>}
         </div>
-        <div>
-          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Client Logo</label>
-          <label style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 14px",color:"#4d6e8a",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
-            {logoDataUrl ? "✓ Logo uploaded" : "📎 Upload logo"}
-            <input type="file" accept="image/*" onChange={handleLogoUpload} style={{display:"none"}}/>
-          </label>
-          {logoDataUrl&&<button onClick={()=>setLogoDataUrl("")} style={{background:"none",border:"none",color:"#ef4444",fontSize:11,cursor:"pointer",marginTop:2}}>Remove</button>}
+
+        {/* Selected summary */}
+        <div style={{padding:"10px 14px",borderTop:"1px solid #1a2744",background:"#07101c",fontSize:11,color:selectedIds.size>0?"#00e5a0":"#3d5a72",fontWeight:selectedIds.size>0?700:400}}>
+          {selectedIds.size>0?`✓ ${selectedIds.size} campaign${selectedIds.size!==1?"s":""} selected`:"No campaigns selected yet"}
         </div>
-        <button onClick={exportPDF} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"9px 22px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",marginLeft:"auto",alignSelf:"flex-end"}}>
-          ↓ Export PDF
-        </button>
       </div>
 
-      {/* ── Report ── */}
-      <div ref={reportRef} className="report-container" style={{background:"#07101c",borderRadius:12,overflow:"hidden",border:"1px solid #1e293b"}}>
+      {/* ── Right panel: Report config + preview ── */}
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
-        {/* Header */}
-        <div className="report-header" style={{background:"linear-gradient(135deg,#0e2038,#0a1420)",padding:"28px 32px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20,borderBottom:"3px solid #00c896"}}>
-          <div style={{display:"flex",alignItems:"center",gap:20}}>
-            {logoDataUrl
-              ? <img src={logoDataUrl} alt="logo" style={{height:64,maxWidth:180,objectFit:"contain",borderRadius:8,background:"white",padding:8}}/>
-              : <div style={{width:64,height:64,borderRadius:12,background:"#162236",border:"1px solid #334155",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                  <span style={{fontSize:24}}>📊</span>
-                </div>
-            }
+        {/* Report settings */}
+        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"18px 20px"}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#edf4ff",marginBottom:14}}>Report Settings</div>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
             <div>
-              <div style={{fontSize:22,fontWeight:900,color:"#edf4ff",letterSpacing:"-0.02em",lineHeight:1}}>{reportTitle||`${selectedPartner} Performance Report`}</div>
-              <div style={{fontSize:13,color:"#00e5a0",marginTop:5,fontWeight:600}}>{dr.label}</div>
-              <div style={{fontSize:11,color:"#4d6e8a",marginTop:2}}>Created {new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
+              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Report Title</label>
+              <input value={reportTitle} onChange={e=>setReportTitle(e.target.value)}
+                placeholder="e.g. Fairmont University — March 2026"
+                style={{...iS,width:"100%"}}/>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Date Range</label>
+              <div style={{display:"flex",gap:4}}>
+                {[{key:"monthly",label:"Monthly"},{key:"custom",label:"Custom"},{key:"lifetime",label:"Lifetime"}].map(rt=>(
+                  <button key={rt.key} onClick={()=>setReportType(rt.key)}
+                    style={{flex:1,background:reportType===rt.key?"#002e24":"#162236",border:`1px solid ${reportType===rt.key?"#00c89650":"#1e293b"}`,borderRadius:6,padding:"6px 0",color:reportType===rt.key?"#00e5a0":"#4d6e8a",fontSize:11,fontWeight:reportType===rt.key?700:400,cursor:"pointer"}}>
+                    {rt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-          <div style={{textAlign:"right",flexShrink:0}}>
-            <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.07em"}}>Prepared by</div>
-            <div style={{fontSize:14,fontWeight:700,color:"#edf4ff"}}>Recrue Media</div>
-            <div style={{fontSize:11,color:"#4d6e8a",marginTop:2}}>{partnerCamps.length} campaign tactic{partnerCamps.length!==1?"s":""}</div>
+
+          {reportType==="monthly"&&(
+            <div style={{marginBottom:12}}>
+              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Month</label>
+              <input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{...iS}}/>
+            </div>
+          )}
+          {reportType==="custom"&&(
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Start</label>
+                <DatePicker value={customStart} onChange={setCustomStart}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>End</label>
+                <DatePicker value={customEnd} onChange={setCustomEnd}/>
+              </div>
+            </div>
+          )}
+
+          {/* Logo section */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:4}}>
+            <div>
+              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Client Logo</label>
+              <label style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"8px 14px",color:"#4d6e8a",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+                {logoDataUrl?"✓ Logo uploaded — click to replace":"📎 Upload logo image"}
+                <input type="file" accept="image/*" onChange={handleLogoUpload} style={{display:"none"}}/>
+              </label>
+              {logoDataUrl&&<button onClick={()=>setLogoDataUrl("")} style={{background:"none",border:"none",color:"#ef4444",fontSize:11,cursor:"pointer",marginTop:4}}>× Remove</button>}
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Or website for auto-logo</label>
+              <input value={logoFetchUrl||detectedWebsite} onChange={e=>setLogoFetchUrl(e.target.value)}
+                placeholder={detectedWebsite||"https://client.com"}
+                style={{...iS,width:"100%",fontSize:12,fontFamily:"monospace"}}/>
+              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Pulls favicon automatically from the domain</div>
+            </div>
           </div>
         </div>
 
-        <div style={{padding:"24px 32px"}}>
-
-          {/* KPI summary cards */}
-          <div style={{marginBottom:24}}>
-            <div style={{fontSize:11,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:12}}>Overall Performance KPIs</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12}}>
-              {[
-                {label:"Impressions",  val:fmtNum(totals.impressions), color:"#00e5a0", show: totals.impressions>0},
-                {label:"Clicks",       val:fmtNum(totals.clicks),      color:"#60a5fa", show: totals.clicks>0},
-                {label:"Overall CTR",  val:overallCTR+"%",             color:"#00ffb3", show: overallCTR!=="—"},
-                {label:"Avg CPM",      val:"$"+overallCPM,             color:"#fb923c", show: overallCPM!=="—"},
-                {label:"Total Spend",  val:fmtMoney(totals.spend),     color:"#f472b6", show: totals.spend>0},
-                {label:"Total Reach",  val:fmtNum(totals.reach),       color:"#a855f7", show: totals.reach>0},
-                {label:"Video Views",  val:fmtNum(totals.videoViews),  color:"#818cf8", show: totals.videoViews>0},
-                {label:"Contract Value",val:fmtMoney(totals.contractValue),color:"#34d399",show:totals.contractValue>0},
-              ].filter(k=>k.show).map(k=>(
-                <div key={k.label} className="report-card" style={{background:"#0c1625",border:`1px solid ${k.color}25`,borderRadius:10,padding:"14px 16px",textAlign:"center"}}>
-                  <div className="report-kpi-val" style={{fontSize:24,fontWeight:900,color:k.color,lineHeight:1,letterSpacing:"-0.02em"}}>{k.val}</div>
-                  <div className="report-kpi-label" style={{fontSize:10,color:"#4d6e8a",marginTop:5,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{k.label}</div>
-                </div>
-              ))}
+        {/* Selected campaigns summary */}
+        {selectedIds.size>0&&(
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"16px 20px"}}>
+            <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>
+              Report will include — {selectedIds.size} campaign{selectedIds.size!==1?"s":""}
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {selectedCamps.map(c=>{
+                const m = getMetrics(c);
+                const pc = PLT[c.platform]||PLT.default||"#7a9bbf";
+                return (
+                  <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:"1px solid #0d1525"}}>
+                    <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:3,padding:"1px 6px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+                    <span style={{fontSize:12,color:"#a8c4e0",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</span>
+                    {m.impressions>0&&<span style={{fontSize:10,color:"#00e5a0",flexShrink:0}}>{fmtN(m.impressions)} impr</span>}
+                    {m.ctr>0&&<span style={{fontSize:10,color:"#00ffb3",flexShrink:0}}>{m.ctr.toFixed(2)}% CTR</span>}
+                    <button onClick={()=>toggleCamp(c.id)} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13,flexShrink:0}}>×</button>
+                  </div>
+                );
+              })}
             </div>
           </div>
+        )}
 
-          {/* Visual bar chart — impressions per tactic */}
-          {rows.some(r=>r.metrics.impressions>0)&&(
-            <div style={{marginBottom:24}}>
-              <div style={{fontSize:11,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:12}}>Campaign Performance by Tactic</div>
-              <div className="report-card" style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"20px 20px 8px"}}>
-                {/* Bar chart */}
-                <div style={{display:"flex",alignItems:"flex-end",gap:8,height:140,paddingBottom:4}}>
-                  {rows.filter(r=>r.metrics.impressions>0).map((r,i)=>{
-                    const pct = r.metrics.impressions / maxImpr;
-                    const col = platColor(r.platform);
-                    return (
-                      <div key={r.id} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,minWidth:0}}>
-                        <div style={{fontSize:9,color:col,fontWeight:700,textAlign:"center",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>
-                          {fmtNum(r.metrics.impressions)}
-                        </div>
-                        <div style={{width:"100%",background:col,borderRadius:"4px 4px 0 0",height:`${Math.max(4,pct*110)}px`,transition:"height .3s",minHeight:4}}/>
-                        <div style={{fontSize:9,color:"#4d6e8a",textAlign:"center",lineHeight:1.2,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.campaignName}>
-                          {r.platform}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {/* Legend */}
-                <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:12,paddingTop:10,borderTop:"1px solid #1a2744"}}>
-                  {rows.filter(r=>r.metrics.impressions>0).map(r=>(
-                    <div key={r.id} style={{display:"flex",alignItems:"center",gap:5}}>
-                      <div style={{width:10,height:10,borderRadius:2,background:platColor(r.platform),flexShrink:0}}/>
-                      <span style={{fontSize:10,color:"#7a9bbf"}}>{r.campaignName.trim().length>30?r.campaignName.trim().slice(0,30)+"…":r.campaignName.trim()} ({r.platform})</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
+        {/* Generate button */}
+        <button onClick={generateReport} disabled={selectedIds.size===0||generatingReport}
+          style={{background:selectedIds.size>0?"linear-gradient(135deg,#002e24,#004d3a)":"#0c1625",
+            border:`1px solid ${selectedIds.size>0?"#00c89650":"#1e293b"}`,
+            borderRadius:10,padding:"14px 28px",color:selectedIds.size>0?"#00e5a0":"#3d5a72",
+            fontSize:14,fontWeight:800,cursor:selectedIds.size>0?"pointer":"default",
+            display:"flex",alignItems:"center",justifyContent:"center",gap:10,
+            transition:"all .2s",...(selectedIds.size>0?{boxShadow:"0 0 14px #00c89620"}:{})}}>
+          {generatingReport
+            ? <>⟳ Generating…</>
+            : selectedIds.size===0
+            ? "← Select campaigns to generate report"
+            : <>📄 Generate Report ({selectedIds.size} tactic{selectedIds.size!==1?"s":""})</>
+          }
+        </button>
 
-          {/* CTR comparison chart */}
-          {rows.some(r=>r.metrics.ctr>0)&&(
-            <div style={{marginBottom:24}}>
-              <div style={{fontSize:11,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:12}}>CTR by Platform</div>
-              <div className="report-card" style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px"}}>
-                {rows.filter(r=>r.metrics.ctr>0).map(r=>{
-                  const col = platColor(r.platform);
-                  const maxCTR = Math.max(...rows.map(x=>x.metrics.ctr),0.01);
-                  return (
-                    <div key={r.id} style={{marginBottom:10}}>
-                      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:3}}>
-                        <span style={{fontSize:11,color:"#7a9bbf",minWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.campaignName}>{r.campaignName.trim()} ({r.platform})</span>
-                        <div style={{flex:1,background:"#07101c",borderRadius:4,height:18,overflow:"hidden",position:"relative"}}>
-                          <div style={{background:col,height:"100%",width:`${(r.metrics.ctr/maxCTR)*100}%`,borderRadius:4,transition:"width .3s"}}/>
-                          <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:10,fontWeight:700,color:"#edf4ff"}}>{r.metrics.ctr.toFixed(2)}%</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Campaign performance table */}
-          <div style={{marginBottom:24}}>
-            <div style={{fontSize:11,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:12}}>Campaign Performance by Tactic</div>
-            <div className="report-card" style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,overflow:"hidden"}}>
-              <table className="report-table" style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed"}}>
-                <colgroup>
-                  <col style={{width:"28%"}}/><col style={{width:"8%"}}/><col style={{width:"10%"}}/>
-                  <col style={{width:"9%"}}/><col style={{width:"9%"}}/><col style={{width:"9%"}}/>
-                  <col style={{width:"9%"}}/><col style={{width:"9%"}}/><col style={{width:"9%"}}/>
-                </colgroup>
-                <thead>
-                  <tr style={{background:"#0e2038"}}>
-                    {["Campaign","Platform","Impressions","Clicks","CTR","CPM","Spend","Reach","VCR/CR"].map(h=>(
-                      <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.06em",borderBottom:"1px solid #1e293b"}}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r,i)=>{
-                    const m = r.metrics;
-                    const bg = i%2===0?"#0c1625":"#090f1c";
-                    const pc = platColor(r.platform);
-                    return (
-                      <tr key={r.id} style={{background:bg}}>
-                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18"}}>
-                          <div style={{fontSize:12,fontWeight:600,color:"#edf4ff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.campaignName.trim()}</div>
-                          {r.goal&&<div style={{fontSize:10,color:"#4d6e8a",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.goal}</div>}
-                        </td>
-                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18"}}>
-                          <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:4,padding:"1px 6px",fontSize:10,fontWeight:700}}>{r.platform}</span>
-                        </td>
-                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#00e5a0",fontWeight:600}}>{m.impressions>0?fmtNum(m.impressions):"—"}</td>
-                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#60a5fa"}}>{m.clicks>0?fmtNum(m.clicks):"—"}</td>
-                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#00ffb3",fontWeight:m.ctr>0?700:400}}>{m.ctr>0?m.ctr.toFixed(2)+"%":"—"}</td>
-                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#fb923c"}}>{m.cpm>0?"$"+m.cpm.toFixed(2):"—"}</td>
-                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#f472b6"}}>{m.spend>0?fmtMoney(m.spend):"—"}</td>
-                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#a855f7"}}>{m.reach>0?fmtNum(m.reach):"—"}</td>
-                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#818cf8"}}>{m.completionRate>0?m.completionRate.toFixed(1)+"%":m.videoViews>0?fmtNum(m.videoViews):"—"}</td>
-                      </tr>
-                    );
-                  })}
-                  {/* Totals row */}
-                  <tr style={{background:"#0e2038",borderTop:"2px solid #1e293b"}}>
-                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#edf4ff"}} colSpan={2}>TOTAL</td>
-                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#00e5a0"}}>{totals.impressions>0?fmtNum(totals.impressions):"—"}</td>
-                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#60a5fa"}}>{totals.clicks>0?fmtNum(totals.clicks):"—"}</td>
-                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#00ffb3"}}>{overallCTR!=="—"?overallCTR+"%":"—"}</td>
-                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#fb923c"}}>{overallCPM!=="—"?"$"+overallCPM:"—"}</td>
-                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#f472b6"}}>{totals.spend>0?fmtMoney(totals.spend):"—"}</td>
-                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#a855f7"}}>{totals.reach>0?fmtNum(totals.reach):"—"}</td>
-                    <td style={{padding:"10px 12px",fontSize:12,color:"#3d5a72"}}>—</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+        {selectedIds.size>0&&(
+          <div style={{fontSize:11,color:"#3d5a72",textAlign:"center",lineHeight:1.6}}>
+            Report opens in a new window and auto-triggers the print dialog.<br/>
+            Choose <strong style={{color:"#4d6e8a"}}>Save as PDF</strong> in the print dialog to export.
           </div>
-
-          {/* Contract vs Spend */}
-          {totals.contractValue>0&&(
-            <div style={{marginBottom:24}}>
-              <div style={{fontSize:11,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:12}}>Budget Overview</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
-                <div className="report-card" style={{background:"#0c1625",border:"1px solid #34d39930",borderRadius:10,padding:"14px 18px"}}>
-                  <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Contract Value</div>
-                  <div style={{fontSize:22,fontWeight:800,color:"#34d399"}}>{fmtMoney(totals.contractValue)}</div>
-                </div>
-                <div className="report-card" style={{background:"#0c1625",border:"1px solid #f472b630",borderRadius:10,padding:"14px 18px"}}>
-                  <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Total Spend</div>
-                  <div style={{fontSize:22,fontWeight:800,color:"#f472b6"}}>{fmtMoney(totals.spend)}</div>
-                </div>
-                <div className="report-card" style={{background:"#0c1625",border:"1px solid #60a5fa30",borderRadius:10,padding:"14px 18px"}}>
-                  <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Remaining</div>
-                  <div style={{fontSize:22,fontWeight:800,color:"#60a5fa"}}>{fmtMoney(totals.contractValue-totals.spend)}</div>
-                  {totals.contractValue>0&&<div style={{marginTop:6,background:"#07101c",borderRadius:4,height:6,overflow:"hidden"}}>
-                    <div style={{background:"#f472b6",height:"100%",width:`${Math.min(100,(totals.spend/totals.contractValue)*100)}%`,borderRadius:4}}/>
-                  </div>}
-                  {totals.contractValue>0&&<div style={{fontSize:10,color:"#4d6e8a",marginTop:3}}>{Math.round((totals.spend/totals.contractValue)*100)}% of budget used</div>}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Footer */}
-          <div style={{borderTop:"1px solid #1a2744",paddingTop:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <div style={{fontSize:10,color:"#3d5a72"}}>Recrue Media · Campaign Performance Report · {dr.label}</div>
-            <div style={{fontSize:10,color:"#3d5a72"}}>Confidential</div>
-          </div>
-
-        </div>
+        )}
       </div>
     </div>
   );
