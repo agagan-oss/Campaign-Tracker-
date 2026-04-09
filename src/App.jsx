@@ -1445,20 +1445,19 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
   const [briefingCopied, setBriefingCopied] = useState(false);
 
   // ── LLM settings ─────────────────────────────────────────────────────────────
+  // ── LLM Settings ─────────────────────────────────────────────────────────────
   const LLM_DEFAULTS = {
-    mode: "ollama",
+    mode: "groq",          // "groq" | "ollama" | "superagent"
+    groqApiKey: "",        // stored in localStorage only — never in code
+    groqModel: "llama-3.3-70b-versatile",
     endpoint: "http://localhost:11434",
     model: "gemma4:e4b",
-    workerUrl: "",
     superagentEndpoint: "http://localhost:11434",
     superagentModel: "",
     superagentApiKey: "",
     capabilities: {
-      executeActions: false,
-      platformAccess: false,
-      continuousMonitor: false,
-      autoEmail: false,
-      memoryWrite: false,
+      executeActions: false, platformAccess: false,
+      continuousMonitor: false, autoEmail: false, memoryWrite: false,
     }
   };
   const [llmSettings, setLlmSettings] = useState(() => {
@@ -1466,12 +1465,34 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
   });
   useEffect(() => { try { localStorage.setItem("zeus-llm-settings", JSON.stringify(llmSettings)); } catch(e) {} }, [llmSettings]);
 
-  const activeModelLabel = llmSettings.mode==="superagent" ? (llmSettings.superagentModel||"Superagent (not configured)") : llmSettings.mode==="worker" ? "Cloudflare Worker" : (llmSettings.model||"Ollama");
+  const activeModelLabel =
+    llmSettings.mode === "groq" ? `Groq · ${llmSettings.groqModel||"llama-3.3-70b-versatile"}` :
+    llmSettings.mode === "superagent" ? (llmSettings.superagentModel||"Superagent") :
+    `Ollama · ${llmSettings.model||"gemma4:e4b"}`;
 
-  // Unified LLM call — routes to correct backend
+  // Unified LLM call
   async function callLLM(messages, maxTokens=1400) {
-    if (llmSettings.mode === "superagent") {
-      if (!llmSettings.superagentEndpoint) throw new Error("No superagent endpoint set. Configure in Settings.");
+    if (llmSettings.mode === "groq") {
+      const key = llmSettings.groqApiKey;
+      if (!key) throw new Error("No Groq API key set. Add it in Zeus ⚙️ Settings.");
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+        body: JSON.stringify({
+          model: llmSettings.groqModel || "llama-3.3-70b-versatile",
+          max_tokens: maxTokens,
+          messages: [{ role:"system", content:SYSTEM }, ...messages],
+        }),
+      });
+      if (!res.ok) { const err = await res.text(); throw new Error(`Groq error ${res.status}: ${err.slice(0,200)}`); }
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      const text = data.choices?.[0]?.message?.content || "";
+      if (!text) throw new Error("Empty response from Groq");
+      return text;
+
+    } else if (llmSettings.mode === "superagent") {
+      if (!llmSettings.superagentEndpoint) throw new Error("No superagent endpoint set.");
       const headers = { "Content-Type": "application/json" };
       if (llmSettings.superagentApiKey) headers["Authorization"] = `Bearer ${llmSettings.superagentApiKey}`;
       const res = await fetch(`${llmSettings.superagentEndpoint.replace(/\/$/, "")}/v1/chat/completions`, {
@@ -1480,21 +1501,12 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       });
       if (!res.ok) { const err = await res.text(); throw new Error(`Superagent error ${res.status}: ${err.slice(0,200)}`); }
       const data = await res.json();
-      const text = data.choices?.[0]?.message?.content || data.message?.content || "";
+      const text = data.choices?.[0]?.message?.content || "";
       if (!text) throw new Error("Empty response from superagent");
       return text;
-    } else if (llmSettings.mode === "worker") {
-      if (!llmSettings.workerUrl) throw new Error("No Worker URL set. Add your Cloudflare Worker URL in Settings.");
-      const res = await fetch(llmSettings.workerUrl, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [{ role:"system", content:SYSTEM }, ...messages], model: llmSettings.model, max_tokens: maxTokens }),
-      });
-      if (!res.ok) { const err = await res.text(); throw new Error(`Worker error ${res.status}: ${err.slice(0,200)}`); }
-      const data = await res.json();
-      const text = data.choices?.[0]?.message?.content || data.content || "";
-      if (!text) throw new Error("Empty response from worker");
-      return text;
+
     } else {
+      // Ollama local
       const url = `${llmSettings.endpoint.replace(/\/$/, "")}/v1/chat/completions`;
       const res = await fetch(url, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1503,7 +1515,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       if (!res.ok) { const err = await res.text(); throw new Error(`Ollama error ${res.status}: ${err.slice(0,200)}`); }
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content || data.message?.content || "";
-      if (!text) throw new Error("Empty response from model");
+      if (!text) throw new Error("Empty response from Ollama");
       return text;
     }
   }
@@ -2810,6 +2822,184 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
       {activePanel==="settings"&&(
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
+          {/* Mode tabs */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+            {[
+              {key:"groq",       label:"⚡ Groq",        desc:"Free cloud API — recommended", color:"#f97316"},
+              {key:"ollama",     label:"🤖 Local Ollama", desc:"Your PC, runs offline",        color:"#00e5a0"},
+              {key:"superagent", label:"🌩 Superagent",   desc:"Future superintelligence slot", color:"#f59e0b"},
+            ].map(m=>(
+              <button key={m.key} onClick={()=>setLlmSettings(p=>({...p,mode:m.key}))}
+                style={{background:llmSettings.mode===m.key?"#07101c":"#0c1625",
+                  border:`2px solid ${llmSettings.mode===m.key?m.color+"80":"#1e293b"}`,
+                  borderRadius:10,padding:"11px 14px",cursor:"pointer",textAlign:"left",transition:"all .15s",
+                  boxShadow:llmSettings.mode===m.key?`0 0 12px ${m.color}15`:"none"}}>
+                <div style={{fontSize:13,fontWeight:700,color:llmSettings.mode===m.key?m.color:"#7a9bbf"}}>{m.label}</div>
+                <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>{m.desc}</div>
+                {llmSettings.mode===m.key&&<div style={{fontSize:9,color:m.color,marginTop:4,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>● ACTIVE</div>}
+              </button>
+            ))}
+          </div>
+
+          {/* ── GROQ ── */}
+          {llmSettings.mode==="groq"&&(
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{background:"#0c1625",border:"1px solid #f97316",borderRadius:12,padding:"20px 22px"}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#edf4ff",marginBottom:4}}>Groq API Key</div>
+                <div style={{fontSize:11,color:"#4d6e8a",marginBottom:14,lineHeight:1.6}}>
+                  Stored in your browser only — never in your code or GitHub. Free account at <strong style={{color:"#f97316"}}>console.groq.com</strong>.
+                </div>
+                <div style={{position:"relative"}}>
+                  <input
+                    type="password"
+                    value={llmSettings.groqApiKey||""}
+                    onChange={e=>setLlmSettings(p=>({...p,groqApiKey:e.target.value}))}
+                    placeholder="gsk_..."
+                    style={{width:"100%",background:"#07101c",border:`1px solid ${llmSettings.groqApiKey?"#f97316":"#334155"}`,borderRadius:7,padding:"10px 14px",color:"#d8eaf8",fontSize:13,fontFamily:"monospace",boxSizing:"border-box",outline:"none",transition:"border-color .15s"}}
+                  />
+                  {llmSettings.groqApiKey&&<span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:11,color:"#00d48a",fontWeight:700}}>✓</span>}
+                </div>
+              </div>
+
+              <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"18px 20px"}}>
+                <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Model</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {[
+                    {model:"llama-3.3-70b-versatile", label:"Llama 3.3 70B",  desc:"Best for Zeus — recommended"},
+                    {model:"llama-3.1-8b-instant",    label:"Llama 3.1 8B",   desc:"Fastest, lighter"},
+                    {model:"gemma2-9b-it",             label:"Gemma 2 9B",    desc:"Google model"},
+                    {model:"mixtral-8x7b-32768",       label:"Mixtral 8x7B",  desc:"Long context"},
+                  ].map(m=>(
+                    <button key={m.model} onClick={()=>setLlmSettings(p=>({...p,groqModel:m.model}))}
+                      style={{background:(llmSettings.groqModel||"llama-3.3-70b-versatile")===m.model?"#1a0e00":"#0e1a2e",
+                        border:`1px solid ${(llmSettings.groqModel||"llama-3.3-70b-versatile")===m.model?"#f9731650":"#1e293b"}`,
+                        borderRadius:8,padding:"8px 13px",cursor:"pointer",transition:"all .15s",textAlign:"left"}}>
+                      <div style={{fontSize:12,fontWeight:700,color:(llmSettings.groqModel||"llama-3.3-70b-versatile")===m.model?"#f97316":"#d8eaf8"}}>{m.label}</div>
+                      <div style={{fontSize:10,color:"#4d6e8a",marginTop:1}}>{m.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{background:"#061810",border:"1px solid #22c55e20",borderRadius:10,padding:"14px 16px",fontSize:11,color:"#4d6e8a",lineHeight:1.7}}>
+                <strong style={{color:"#00d48a"}}>Free tier includes:</strong> 100 requests/day on 70B model, 6,000 tokens/minute.
+                More than enough for daily tracker use. No credit card required.
+                <br/><strong style={{color:"#00d48a",marginTop:4,display:"block"}}>Speed:</strong> Groq runs on custom AI chips — responses are typically 2–5 seconds, much faster than local models.
+              </div>
+            </div>
+          )}
+
+          {/* ── OLLAMA ── */}
+          {llmSettings.mode==="ollama"&&(
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"18px 20px"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Endpoint</label>
+                    <input value={llmSettings.endpoint} onChange={e=>setLlmSettings(p=>({...p,endpoint:e.target.value}))} placeholder="http://localhost:11434"
+                      style={{width:"100%",background:"#07101c",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model</label>
+                    <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="gemma4:e4b"
+                      style={{width:"100%",background:"#07101c",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                  </div>
+                </div>
+              </div>
+              <div style={{background:"#0a1218",border:"1px solid #1e293b",borderRadius:10,padding:"14px 18px"}}>
+                <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,marginBottom:8}}>Windows startup commands</div>
+                {[
+                  {cmd:"set OLLAMA_ORIGINS=* && ollama serve", label:"Terminal 1 — start Ollama with CORS"},
+                  {cmd:"python -m http.server 8080",           label:"Terminal 2 — serve tracker locally"},
+                ].map((s,i)=>(
+                  <div key={i} style={{display:"flex",gap:10,marginBottom:8,alignItems:"flex-start"}}>
+                    <span style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:5,width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#f59e0b",flexShrink:0,marginTop:1}}>{i+1}</span>
+                    <div>
+                      <code style={{fontSize:11,color:"#00e5a0",background:"#07101c",borderRadius:4,padding:"2px 7px"}}>{s.cmd}</code>
+                      <div style={{fontSize:10,color:"#4d6e8a",marginTop:2}}>{s.label}</div>
+                    </div>
+                  </div>
+                ))}
+                <div style={{fontSize:10,color:"#3d5a72",marginTop:4}}>Then open <code style={{color:"#00e5a0"}}>http://localhost:8080</code> instead of GitHub Pages</div>
+              </div>
+            </div>
+          )}
+
+          {/* ── SUPERAGENT ── */}
+          {llmSettings.mode==="superagent"&&(
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{background:"linear-gradient(135deg,#0a0e00,#100d00)",border:"1px solid #f59e0b40",borderRadius:12,padding:"16px 20px"}}>
+                <div style={{fontSize:13,fontWeight:800,color:"#f59e0b",marginBottom:4}}>⚡ Superagent Slot</div>
+                <div style={{fontSize:11,color:"#4d6e8a",lineHeight:1.6}}>Reserved for when local superintelligence drops. Same OpenAI-compatible API — just point it here and flip the capability switches.</div>
+              </div>
+              <div style={{background:"#0c1625",border:"1px solid #f59e0b30",borderRadius:12,padding:"18px 20px"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Endpoint</label>
+                    <input value={llmSettings.superagentEndpoint} onChange={e=>setLlmSettings(p=>({...p,superagentEndpoint:e.target.value}))} placeholder="http://localhost:11434"
+                      style={{width:"100%",background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model</label>
+                    <input value={llmSettings.superagentModel} onChange={e=>setLlmSettings(p=>({...p,superagentModel:e.target.value}))} placeholder="e.g. superintelligence-v1"
+                      style={{width:"100%",background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                  </div>
+                </div>
+                <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>API Key <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(stored locally only)</span></label>
+                <input type="password" value={llmSettings.superagentApiKey} onChange={e=>setLlmSettings(p=>({...p,superagentApiKey:e.target.value}))} placeholder="sk-... or leave blank"
+                  style={{width:"100%",background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+              </div>
+              <div style={{background:"#0c1625",border:"1px solid #f59e0b30",borderRadius:12,padding:"16px 20px"}}>
+                <div style={{fontSize:11,color:"#f59e0b",fontWeight:700,marginBottom:10}}>⚡ Capability Unlocks</div>
+                {[
+                  {key:"executeActions",    label:"Auto-Execute Actions",  warn:true,  desc:"Zeus acts without approval"},
+                  {key:"platformAccess",    label:"Platform API Access",   warn:true,  desc:"Direct Meta/TTD/DSP calls"},
+                  {key:"continuousMonitor", label:"Continuous Monitoring", warn:false, desc:"Background campaign polling"},
+                  {key:"autoEmail",         label:"Autonomous Emails",     warn:true,  desc:"Sends partner emails directly"},
+                  {key:"memoryWrite",       label:"Persistent Memory",     warn:false, desc:"Remembers you across sessions"},
+                ].map(cap=>{
+                  const active = llmSettings.capabilities?.[cap.key];
+                  return (
+                    <div key={cap.key} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"8px 10px",background:active?"#0a1500":"#07101c",border:`1px solid ${active?"#f59e0b30":"#1a2744"}`,borderRadius:7,transition:"all .2s"}}>
+                      <button onClick={()=>setLlmSettings(p=>({...p,capabilities:{...p.capabilities,[cap.key]:!active}}))}
+                        style={{width:20,height:20,borderRadius:5,flexShrink:0,cursor:"pointer",background:active?"#f59e0b":"#162236",border:`1.5px solid ${active?"#f59e0b":"#334155"}`,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>
+                        {active&&<span style={{color:"#000",fontSize:11,fontWeight:900}}>✓</span>}
+                      </button>
+                      <div style={{flex:1}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontSize:11,fontWeight:700,color:active?"#f59e0b":"#7a9bbf"}}>{cap.label}</span>
+                          {cap.warn&&<span style={{fontSize:9,color:"#ef4444",background:"#1a0808",border:"1px solid #ef444330",borderRadius:3,padding:"0 4px",fontWeight:700}}>HIGH TRUST</span>}
+                        </div>
+                        <div style={{fontSize:10,color:"#3d5a72"}}>{cap.desc}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Connection test */}
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"12px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <div style={{flex:1,fontSize:11,color:"#4d6e8a",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              Active: <span style={{color:"#f97316",fontFamily:"monospace",fontWeight:700}}>{activeModelLabel}</span>
+              {llmSettings.mode==="groq"&&!llmSettings.groqApiKey&&<span style={{color:"#ef4444",marginLeft:8}}>⚠ No API key set</span>}
+            </div>
+            <button onClick={async()=>{
+              setError(null);
+              try {
+                const text = await callLLM([{role:"user",content:"Reply with exactly three words: Zeus is online."}], 30);
+                setActionFeedback({type:"success", msg:`✓ Connected — "${text.trim().slice(0,60)}"`});
+              } catch(e) { setError(`Connection failed: ${e.message}`); }
+            }} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:7,padding:"8px 18px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+              ⚡ Test Connection
+            </button>
+          </div>
+        </div>
+      )}
+      {activePanel==="settings"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
           {/* Mode selector */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
             {[
@@ -3784,6 +3974,374 @@ function spreadRevenue(c) {
   }
   return months;
 }
+
+function ReportingDashboard({ campaigns=[], archive=[] }) {
+  const all = [...campaigns, ...archive];
+  const partners = [...new Set(all.map(c=>c.mediaPartner).filter(Boolean))].sort();
+
+  const [selectedPartner, setSelectedPartner] = useState(partners[0]||"");
+  const [reportType, setReportType] = useState("monthly"); // monthly | custom | lifetime
+  const [reportMonth, setReportMonth] = useState(()=>getToday().slice(0,7));
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [logoDataUrl, setLogoDataUrl] = useState("");
+  const [reportTitle, setReportTitle] = useState("");
+  const [printing, setPrinting] = useState(false);
+  const reportRef = useRef(null);
+
+  // Get campaigns for selected partner
+  const partnerCamps = all.filter(c=>c.mediaPartner===selectedPartner);
+
+  // Date range for report
+  function getDateRange() {
+    if (reportType==="monthly") {
+      const [y,m] = reportMonth.split("-");
+      const start = `${y}-${m}-01`;
+      const daysInMo = new Date(parseInt(y), parseInt(m), 0).getDate();
+      const end = `${y}-${m}-${String(daysInMo).padStart(2,"0")}`;
+      return {start, end, label: new Date(parseInt(y),parseInt(m)-1,1).toLocaleDateString("en-US",{month:"long",year:"numeric"})};
+    }
+    if (reportType==="custom" && customStart && customEnd) {
+      return {start:customStart, end:customEnd, label:`${fmtDate(customStart)} – ${fmtDate(customEnd)}`};
+    }
+    // lifetime
+    const starts = partnerCamps.map(c=>c.startDate||c.endDate).filter(Boolean).sort();
+    const ends = partnerCamps.map(c=>c.endDate||c.startDate).filter(Boolean).sort();
+    return {start:starts[0]||"", end:ends[ends.length-1]||"", label:"Full Campaign Lifetime"};
+  }
+
+  const dr = getDateRange();
+
+  // Aggregate metrics per campaign (use manually entered data)
+  function getCampMetrics(c) {
+    return {
+      impressions: parseInt(c.impressions)||0,
+      clicks:      parseInt(c.clicks)||0,
+      ctr:         parseFloat(c.ctr)||0,
+      cpm:         parseFloat(c.cpm)||0,
+      spend:       parseFloat(c.spend)||0,
+      reach:       parseInt(c.reach)||0,
+      completionRate: parseFloat(c.completionRate)||0,
+      videoViews:  parseInt(c.videoViews)||0,
+    };
+  }
+
+  // Build report rows — one per campaign tactic
+  const rows = partnerCamps.map(c=>({...c, metrics: getCampMetrics(c)}));
+
+  // Totals
+  const totals = rows.reduce((acc,r)=>({
+    impressions: acc.impressions + r.metrics.impressions,
+    clicks:      acc.clicks      + r.metrics.clicks,
+    spend:       acc.spend       + r.metrics.spend,
+    reach:       acc.reach       + r.metrics.reach,
+    videoViews:  acc.videoViews  + r.metrics.videoViews,
+    contractValue: acc.contractValue + (parseFloat(r.contractValue)||0),
+  }), {impressions:0,clicks:0,spend:0,reach:0,videoViews:0,contractValue:0});
+
+  const overallCTR = totals.clicks > 0 && totals.impressions > 0
+    ? (totals.clicks / totals.impressions * 100).toFixed(2) : "—";
+  const overallCPM = totals.impressions > 0 && totals.spend > 0
+    ? (totals.spend / totals.impressions * 1000).toFixed(2) : "—";
+
+  // Platform colors for chart
+  function platColor(p) { return PLT_COLORS[p]||PLT_COLORS.default||"#7a9bbf"; }
+
+  // Handle logo upload
+  function handleLogoUpload(e) {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = evt => setLogoDataUrl(evt.target.result);
+    reader.readAsDataURL(file);
+  }
+
+  // Print / export as PDF
+  async function exportPDF() {
+    setPrinting(true);
+    await new Promise(r=>setTimeout(r,100));
+    window.print();
+    setTimeout(()=>setPrinting(false), 1000);
+  }
+
+  const fmtNum = (n) => n >= 1000000 ? (n/1000000).toFixed(2)+"M" : n >= 1000 ? (n/1000).toFixed(1)+"K" : String(n);
+  const fmtMoney = (n) => n > 0 ? "$"+n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—";
+  const maxImpr = Math.max(...rows.map(r=>r.metrics.impressions), 1);
+
+  const iS = {background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit",outline:"none"};
+
+  return (
+    <div style={{color:"#d8eaf8"}}>
+      <style>{`
+        @media print {
+          body { background: white !important; color: #111 !important; }
+          .no-print { display: none !important; }
+          .report-container { background: white !important; color: #111 !important; padding: 0 !important; }
+          .report-card { background: #f8f9fa !important; border: 1px solid #dee2e6 !important; color: #111 !important; }
+          .report-kpi-val { color: #1a1a2e !important; }
+          .report-kpi-label { color: #666 !important; }
+          .report-table th { background: #1a1a2e !important; color: white !important; }
+          .report-table td { border-bottom: 1px solid #dee2e6 !important; color: #111 !important; }
+          .report-header { background: #1a1a2e !important; color: white !important; }
+          .platform-tag { filter: none !important; }
+        }
+      `}</style>
+
+      {/* ── Controls ── */}
+      <div className="no-print" style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end",marginBottom:20,padding:"16px 20px",background:"#0c1625",borderRadius:12,border:"1px solid #1e293b"}}>
+        <div>
+          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Partner</label>
+          <select value={selectedPartner} onChange={e=>setSelectedPartner(e.target.value)} style={{...iS,minWidth:200}}>
+            {partners.map(p=><option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Report Type</label>
+          <div style={{display:"flex",gap:4}}>
+            {[{key:"monthly",label:"Monthly"},{key:"custom",label:"Custom"},{key:"lifetime",label:"Lifetime"}].map(rt=>(
+              <button key={rt.key} onClick={()=>setReportType(rt.key)}
+                style={{background:reportType===rt.key?"#002e24":"#0e1a2e",border:`1px solid ${reportType===rt.key?"#00c89650":"#1e293b"}`,borderRadius:6,padding:"7px 14px",color:reportType===rt.key?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:reportType===rt.key?700:400,cursor:"pointer",transition:"all .15s"}}>
+                {rt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {reportType==="monthly"&&(
+          <div>
+            <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Month</label>
+            <input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{...iS}}/>
+          </div>
+        )}
+        {reportType==="custom"&&(<>
+          <div>
+            <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Start Date</label>
+            <DatePicker value={customStart} onChange={setCustomStart}/>
+          </div>
+          <div>
+            <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>End Date</label>
+            <DatePicker value={customEnd} onChange={setCustomEnd}/>
+          </div>
+        </>)}
+        <div>
+          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Report Title (optional)</label>
+          <input value={reportTitle} onChange={e=>setReportTitle(e.target.value)} placeholder={`${selectedPartner} Performance Report`} style={{...iS,width:260}}/>
+        </div>
+        <div>
+          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Client Logo</label>
+          <label style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 14px",color:"#4d6e8a",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+            {logoDataUrl ? "✓ Logo uploaded" : "📎 Upload logo"}
+            <input type="file" accept="image/*" onChange={handleLogoUpload} style={{display:"none"}}/>
+          </label>
+          {logoDataUrl&&<button onClick={()=>setLogoDataUrl("")} style={{background:"none",border:"none",color:"#ef4444",fontSize:11,cursor:"pointer",marginTop:2}}>Remove</button>}
+        </div>
+        <button onClick={exportPDF} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"9px 22px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",marginLeft:"auto",alignSelf:"flex-end"}}>
+          ↓ Export PDF
+        </button>
+      </div>
+
+      {/* ── Report ── */}
+      <div ref={reportRef} className="report-container" style={{background:"#07101c",borderRadius:12,overflow:"hidden",border:"1px solid #1e293b"}}>
+
+        {/* Header */}
+        <div className="report-header" style={{background:"linear-gradient(135deg,#0e2038,#0a1420)",padding:"28px 32px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20,borderBottom:"3px solid #00c896"}}>
+          <div style={{display:"flex",alignItems:"center",gap:20}}>
+            {logoDataUrl
+              ? <img src={logoDataUrl} alt="logo" style={{height:64,maxWidth:180,objectFit:"contain",borderRadius:8,background:"white",padding:8}}/>
+              : <div style={{width:64,height:64,borderRadius:12,background:"#162236",border:"1px solid #334155",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  <span style={{fontSize:24}}>📊</span>
+                </div>
+            }
+            <div>
+              <div style={{fontSize:22,fontWeight:900,color:"#edf4ff",letterSpacing:"-0.02em",lineHeight:1}}>{reportTitle||`${selectedPartner} Performance Report`}</div>
+              <div style={{fontSize:13,color:"#00e5a0",marginTop:5,fontWeight:600}}>{dr.label}</div>
+              <div style={{fontSize:11,color:"#4d6e8a",marginTop:2}}>Created {new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
+            </div>
+          </div>
+          <div style={{textAlign:"right",flexShrink:0}}>
+            <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.07em"}}>Prepared by</div>
+            <div style={{fontSize:14,fontWeight:700,color:"#edf4ff"}}>Recrue Media</div>
+            <div style={{fontSize:11,color:"#4d6e8a",marginTop:2}}>{partnerCamps.length} campaign tactic{partnerCamps.length!==1?"s":""}</div>
+          </div>
+        </div>
+
+        <div style={{padding:"24px 32px"}}>
+
+          {/* KPI summary cards */}
+          <div style={{marginBottom:24}}>
+            <div style={{fontSize:11,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:12}}>Overall Performance KPIs</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12}}>
+              {[
+                {label:"Impressions",  val:fmtNum(totals.impressions), color:"#00e5a0", show: totals.impressions>0},
+                {label:"Clicks",       val:fmtNum(totals.clicks),      color:"#60a5fa", show: totals.clicks>0},
+                {label:"Overall CTR",  val:overallCTR+"%",             color:"#00ffb3", show: overallCTR!=="—"},
+                {label:"Avg CPM",      val:"$"+overallCPM,             color:"#fb923c", show: overallCPM!=="—"},
+                {label:"Total Spend",  val:fmtMoney(totals.spend),     color:"#f472b6", show: totals.spend>0},
+                {label:"Total Reach",  val:fmtNum(totals.reach),       color:"#a855f7", show: totals.reach>0},
+                {label:"Video Views",  val:fmtNum(totals.videoViews),  color:"#818cf8", show: totals.videoViews>0},
+                {label:"Contract Value",val:fmtMoney(totals.contractValue),color:"#34d399",show:totals.contractValue>0},
+              ].filter(k=>k.show).map(k=>(
+                <div key={k.label} className="report-card" style={{background:"#0c1625",border:`1px solid ${k.color}25`,borderRadius:10,padding:"14px 16px",textAlign:"center"}}>
+                  <div className="report-kpi-val" style={{fontSize:24,fontWeight:900,color:k.color,lineHeight:1,letterSpacing:"-0.02em"}}>{k.val}</div>
+                  <div className="report-kpi-label" style={{fontSize:10,color:"#4d6e8a",marginTop:5,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{k.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Visual bar chart — impressions per tactic */}
+          {rows.some(r=>r.metrics.impressions>0)&&(
+            <div style={{marginBottom:24}}>
+              <div style={{fontSize:11,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:12}}>Campaign Performance by Tactic</div>
+              <div className="report-card" style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"20px 20px 8px"}}>
+                {/* Bar chart */}
+                <div style={{display:"flex",alignItems:"flex-end",gap:8,height:140,paddingBottom:4}}>
+                  {rows.filter(r=>r.metrics.impressions>0).map((r,i)=>{
+                    const pct = r.metrics.impressions / maxImpr;
+                    const col = platColor(r.platform);
+                    return (
+                      <div key={r.id} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,minWidth:0}}>
+                        <div style={{fontSize:9,color:col,fontWeight:700,textAlign:"center",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>
+                          {fmtNum(r.metrics.impressions)}
+                        </div>
+                        <div style={{width:"100%",background:col,borderRadius:"4px 4px 0 0",height:`${Math.max(4,pct*110)}px`,transition:"height .3s",minHeight:4}}/>
+                        <div style={{fontSize:9,color:"#4d6e8a",textAlign:"center",lineHeight:1.2,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.campaignName}>
+                          {r.platform}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Legend */}
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:12,paddingTop:10,borderTop:"1px solid #1a2744"}}>
+                  {rows.filter(r=>r.metrics.impressions>0).map(r=>(
+                    <div key={r.id} style={{display:"flex",alignItems:"center",gap:5}}>
+                      <div style={{width:10,height:10,borderRadius:2,background:platColor(r.platform),flexShrink:0}}/>
+                      <span style={{fontSize:10,color:"#7a9bbf"}}>{r.campaignName.trim().length>30?r.campaignName.trim().slice(0,30)+"…":r.campaignName.trim()} ({r.platform})</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* CTR comparison chart */}
+          {rows.some(r=>r.metrics.ctr>0)&&(
+            <div style={{marginBottom:24}}>
+              <div style={{fontSize:11,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:12}}>CTR by Platform</div>
+              <div className="report-card" style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px"}}>
+                {rows.filter(r=>r.metrics.ctr>0).map(r=>{
+                  const col = platColor(r.platform);
+                  const maxCTR = Math.max(...rows.map(x=>x.metrics.ctr),0.01);
+                  return (
+                    <div key={r.id} style={{marginBottom:10}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:3}}>
+                        <span style={{fontSize:11,color:"#7a9bbf",minWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.campaignName}>{r.campaignName.trim()} ({r.platform})</span>
+                        <div style={{flex:1,background:"#07101c",borderRadius:4,height:18,overflow:"hidden",position:"relative"}}>
+                          <div style={{background:col,height:"100%",width:`${(r.metrics.ctr/maxCTR)*100}%`,borderRadius:4,transition:"width .3s"}}/>
+                          <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:10,fontWeight:700,color:"#edf4ff"}}>{r.metrics.ctr.toFixed(2)}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Campaign performance table */}
+          <div style={{marginBottom:24}}>
+            <div style={{fontSize:11,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:12}}>Campaign Performance by Tactic</div>
+            <div className="report-card" style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,overflow:"hidden"}}>
+              <table className="report-table" style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed"}}>
+                <colgroup>
+                  <col style={{width:"28%"}}/><col style={{width:"8%"}}/><col style={{width:"10%"}}/>
+                  <col style={{width:"9%"}}/><col style={{width:"9%"}}/><col style={{width:"9%"}}/>
+                  <col style={{width:"9%"}}/><col style={{width:"9%"}}/><col style={{width:"9%"}}/>
+                </colgroup>
+                <thead>
+                  <tr style={{background:"#0e2038"}}>
+                    {["Campaign","Platform","Impressions","Clicks","CTR","CPM","Spend","Reach","VCR/CR"].map(h=>(
+                      <th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.06em",borderBottom:"1px solid #1e293b"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r,i)=>{
+                    const m = r.metrics;
+                    const bg = i%2===0?"#0c1625":"#090f1c";
+                    const pc = platColor(r.platform);
+                    return (
+                      <tr key={r.id} style={{background:bg}}>
+                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18"}}>
+                          <div style={{fontSize:12,fontWeight:600,color:"#edf4ff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.campaignName.trim()}</div>
+                          {r.goal&&<div style={{fontSize:10,color:"#4d6e8a",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.goal}</div>}
+                        </td>
+                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18"}}>
+                          <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:4,padding:"1px 6px",fontSize:10,fontWeight:700}}>{r.platform}</span>
+                        </td>
+                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#00e5a0",fontWeight:600}}>{m.impressions>0?fmtNum(m.impressions):"—"}</td>
+                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#60a5fa"}}>{m.clicks>0?fmtNum(m.clicks):"—"}</td>
+                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#00ffb3",fontWeight:m.ctr>0?700:400}}>{m.ctr>0?m.ctr.toFixed(2)+"%":"—"}</td>
+                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#fb923c"}}>{m.cpm>0?"$"+m.cpm.toFixed(2):"—"}</td>
+                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#f472b6"}}>{m.spend>0?fmtMoney(m.spend):"—"}</td>
+                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#a855f7"}}>{m.reach>0?fmtNum(m.reach):"—"}</td>
+                        <td style={{padding:"10px 12px",borderBottom:"1px solid #060c18",fontSize:12,color:"#818cf8"}}>{m.completionRate>0?m.completionRate.toFixed(1)+"%":m.videoViews>0?fmtNum(m.videoViews):"—"}</td>
+                      </tr>
+                    );
+                  })}
+                  {/* Totals row */}
+                  <tr style={{background:"#0e2038",borderTop:"2px solid #1e293b"}}>
+                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#edf4ff"}} colSpan={2}>TOTAL</td>
+                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#00e5a0"}}>{totals.impressions>0?fmtNum(totals.impressions):"—"}</td>
+                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#60a5fa"}}>{totals.clicks>0?fmtNum(totals.clicks):"—"}</td>
+                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#00ffb3"}}>{overallCTR!=="—"?overallCTR+"%":"—"}</td>
+                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#fb923c"}}>{overallCPM!=="—"?"$"+overallCPM:"—"}</td>
+                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#f472b6"}}>{totals.spend>0?fmtMoney(totals.spend):"—"}</td>
+                    <td style={{padding:"10px 12px",fontSize:12,fontWeight:800,color:"#a855f7"}}>{totals.reach>0?fmtNum(totals.reach):"—"}</td>
+                    <td style={{padding:"10px 12px",fontSize:12,color:"#3d5a72"}}>—</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Contract vs Spend */}
+          {totals.contractValue>0&&(
+            <div style={{marginBottom:24}}>
+              <div style={{fontSize:11,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:12}}>Budget Overview</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+                <div className="report-card" style={{background:"#0c1625",border:"1px solid #34d39930",borderRadius:10,padding:"14px 18px"}}>
+                  <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Contract Value</div>
+                  <div style={{fontSize:22,fontWeight:800,color:"#34d399"}}>{fmtMoney(totals.contractValue)}</div>
+                </div>
+                <div className="report-card" style={{background:"#0c1625",border:"1px solid #f472b630",borderRadius:10,padding:"14px 18px"}}>
+                  <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Total Spend</div>
+                  <div style={{fontSize:22,fontWeight:800,color:"#f472b6"}}>{fmtMoney(totals.spend)}</div>
+                </div>
+                <div className="report-card" style={{background:"#0c1625",border:"1px solid #60a5fa30",borderRadius:10,padding:"14px 18px"}}>
+                  <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Remaining</div>
+                  <div style={{fontSize:22,fontWeight:800,color:"#60a5fa"}}>{fmtMoney(totals.contractValue-totals.spend)}</div>
+                  {totals.contractValue>0&&<div style={{marginTop:6,background:"#07101c",borderRadius:4,height:6,overflow:"hidden"}}>
+                    <div style={{background:"#f472b6",height:"100%",width:`${Math.min(100,(totals.spend/totals.contractValue)*100)}%`,borderRadius:4}}/>
+                  </div>}
+                  {totals.contractValue>0&&<div style={{fontSize:10,color:"#4d6e8a",marginTop:3}}>{Math.round((totals.spend/totals.contractValue)*100)}% of budget used</div>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Footer */}
+          <div style={{borderTop:"1px solid #1a2744",paddingTop:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{fontSize:10,color:"#3d5a72"}}>Recrue Media · Campaign Performance Report · {dr.label}</div>
+            <div style={{fontSize:10,color:"#3d5a72"}}>Confidential</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 function RevenueDashboard({ campaigns=[] }) {
   const [filterPartner, setFilterPartner] = useState("all");
@@ -5739,6 +6297,7 @@ export default function App() {
               {key:"campaigns", label:"📋 Campaigns"},
               {key:"pacing",    label:"📈 Pacing", badge: behindCount},
               {key:"revenue",   label:"💰 Revenue"},
+              {key:"reports",    label:"📄 Reports"},
               {key:"activity",  label:"📜 Activity Log"},
               {key:"archive",   label:"🗄️ Archive"},
               {key:"config",    label:"⚙️ Config"},
@@ -5781,6 +6340,8 @@ export default function App() {
           <ActivityLog log={activityLog} campaigns={campaigns} onUndo={handleUndo} onClear={async()=>{ if(await confirm({title:"Clear activity log?",message:"This cannot be undone.",confirmLabel:"Clear",danger:true})){ setActivityLog([]); try{localStorage.removeItem(ACTIVITY_KEY);}catch(e){} }}} />
         ) : activeTab==="pacing" ? (
           <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} onEdit={(camp)=>setEditTarget(camp)}/>
+        ) : activeTab==="reports" ? (
+          <ReportingDashboard campaigns={campaigns} archive={archive}/>
         ) : activeTab==="revenue" ? (
           <RevenueDashboard campaigns={[...campaigns,...archive]}/>
         ) : (<>
