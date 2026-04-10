@@ -954,6 +954,38 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
               </div>
             </div>
           </div>
+          {/* ── Report Data Fields ── */}
+          <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
+            <div style={{fontSize:10,color:"#34d399",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:8}}>📄 Report Data <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400,fontSize:9}}>— optional fields for client reports</span></div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div>
+                <label style={{display:"block",fontSize:9,color:"#4d6e8a",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Age Breakdown <span style={{color:"#3d5a72",textTransform:"none"}}>(JSON)</span></label>
+                <input value={c.demoAge||""} onChange={e=>onUpdate({...c,demoAge:e.target.value})} placeholder='[{"label":"18-24","pct":32},{"label":"25-34","pct":28}]'
+                  style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:10,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:9,color:"#4d6e8a",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Gender Breakdown <span style={{color:"#3d5a72",textTransform:"none"}}>(JSON)</span></label>
+                <input value={c.demoGender||""} onChange={e=>onUpdate({...c,demoGender:e.target.value})} placeholder='[{"label":"Female","pct":62},{"label":"Male","pct":38}]'
+                  style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:10,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:9,color:"#4d6e8a",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Device Breakdown <span style={{color:"#3d5a72",textTransform:"none"}}>(JSON)</span></label>
+                <input value={c.deviceData||""} onChange={e=>onUpdate({...c,deviceData:e.target.value})} placeholder='[{"label":"Android","pct":65},{"label":"iOS","pct":34}]'
+                  style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:10,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:9,color:"#4d6e8a",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Geo Breakdown <span style={{color:"#3d5a72",textTransform:"none"}}>(JSON)</span></label>
+                <input value={c.geoData||""} onChange={e=>onUpdate({...c,geoData:e.target.value})} placeholder='[{"label":"West Virginia","pct":45},{"label":"Ohio","pct":22}]'
+                  style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:10,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+              </div>
+              <div style={{gridColumn:"1 / -1"}}>
+                <label style={{display:"block",fontSize:9,color:"#4d6e8a",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Top Creatives <span style={{color:"#3d5a72",textTransform:"none"}}>(JSON)</span></label>
+                <input value={c.topCreatives||""} onChange={e=>onUpdate({...c,topCreatives:e.target.value})} placeholder='[{"name":"Aviation (WV)","impressions":76182,"clicks":337,"ctr":0.44}]'
+                  style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:10,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+              </div>
+            </div>
+          </div>
+
           <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
               <span style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>📋 Change History</span>
@@ -1152,7 +1184,14 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
 }
 
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[] }) {
-  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",clientWebsite:""};
+  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",clientWebsite:"",
+    // Report data fields
+    demoAge:"",       // JSON: [{label:"18-24",pct:32},{label:"25-34",pct:28}...]
+    demoGender:"",    // JSON: [{label:"Female",pct:62},{label:"Male",pct:38}]
+    deviceData:"",    // JSON: [{label:"Android",pct:65},{label:"iOS",pct:34}]
+    topCreatives:"",  // JSON: [{name:"Aviation (WV)",impressions:76182,clicks:337,ctr:0.44}...]
+    geoData:"",       // JSON: [{label:"West Virginia",pct:45},{label:"Ohio",pct:22}...]
+  };
   const [f, setF] = useState(campaign?{...campaign}:blank);
   const blankR = { type:"ad-swap", note:"", date:"", repeat:"none" };
   const [newReminder, setNewReminder] = useState(blankR);
@@ -3986,578 +4025,741 @@ function spreadRevenue(c) {
 }
 
 
-function ReportingDashboard({ campaigns=[], archive=[] }) {
-  const all = [...campaigns, ...archive];
-  const partners = [...new Set(all.map(c=>c.mediaPartner).filter(Boolean))].sort();
 
-  // ── Campaign selector state ─────────────────────────────────────────────────
-  const [search, setSearch] = useState("");
-  const [selectedIds, setSelectedIds] = useState(new Set());
-  const [filterPartner, setFilterPartner] = useState("all");
-  const [sortByPartner, setSortByPartner] = useState(true);
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return {r,g,b};
+}
+function luminance({r,g,b}) {
+  const [rs,gs,bs] = [r,g,b].map(c => { c/=255; return c<=0.03928?c/12.92:Math.pow((c+0.055)/1.055,2.4); });
+  return 0.2126*rs+0.7152*gs+0.0722*bs;
+}
+function contrastRatio(hex1, hex2) {
+  const l1 = luminance(hexToRgb(hex1)), l2 = luminance(hexToRgb(hex2));
+  return (Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05);
+}
+function bestTextColor(bg) { return contrastRatio(bg,"#ffffff") >= 4.5 ? "#ffffff" : "#1a1a2e"; }
+function lighten(hex, amt) {
+  const {r,g,b} = hexToRgb(hex);
+  const l = v => Math.min(255,Math.round(v+(255-v)*amt));
+  return "#"+[l(r),l(g),l(b)].map(v=>v.toString(16).padStart(2,"0")).join("");
+}
+function darken(hex, amt) {
+  const {r,g,b} = hexToRgb(hex);
+  const d = v => Math.max(0,Math.round(v*(1-amt)));
+  return "#"+[d(r),d(g),d(b)].map(v=>v.toString(16).padStart(2,"0")).join("");
+}
 
-  // ── Report config ────────────────────────────────────────────────────────────
-  const [reportType, setReportType] = useState("monthly");
-  const [reportMonth, setReportMonth] = useState(()=>getToday().slice(0,7));
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
-  const [reportTitle, setReportTitle] = useState("");
-  const [logoDataUrl, setLogoDataUrl] = useState("");
-  const [logoFetchUrl, setLogoFetchUrl] = useState("");
-  const [generatingReport, setGeneratingReport] = useState(false);
-
-  // Filtered campaign list for selector
-  const filteredCamps = all.filter(c => {
-    const q = search.toLowerCase();
-    const matchQ = !q || c.campaignName.toLowerCase().includes(q) || c.mediaPartner.toLowerCase().includes(q) || c.platform.toLowerCase().includes(q);
-    const matchP = filterPartner==="all" || c.mediaPartner===filterPartner;
-    return matchQ && matchP;
-  });
-
-  const grouped = sortByPartner ? (() => {
-    const g = {};
-    filteredCamps.forEach(c => { if(!g[c.mediaPartner]) g[c.mediaPartner]=[]; g[c.mediaPartner].push(c); });
-    return g;
-  })() : null;
-
-  const selectedCamps = all.filter(c => selectedIds.has(c.id));
-
-  function toggleCamp(id) {
-    setSelectedIds(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
-  }
-
-  function selectAllFiltered() {
-    setSelectedIds(prev => { const n=new Set(prev); filteredCamps.forEach(c=>n.add(c.id)); return n; });
-  }
-
-  function clearSelection() { setSelectedIds(new Set()); }
-
-  function selectPartner(partner) {
-    const partnerCamps = all.filter(c=>c.mediaPartner===partner);
-    const allSelected = partnerCamps.every(c=>selectedIds.has(c.id));
-    setSelectedIds(prev => {
-      const n=new Set(prev);
-      if(allSelected) partnerCamps.forEach(c=>n.delete(c.id));
-      else partnerCamps.forEach(c=>n.add(c.id));
-      return n;
-    });
-  }
-
-  // ── Date range ────────────────────────────────────────────────────────────────
-  function getDateRange() {
-    if (reportType==="monthly") {
-      const [y,m] = reportMonth.split("-");
-      const daysInMo = new Date(parseInt(y), parseInt(m), 0).getDate();
-      return { start:`${y}-${m}-01`, end:`${y}-${m}-${String(daysInMo).padStart(2,"0")}`,
-        label: new Date(parseInt(y),parseInt(m)-1,1).toLocaleDateString("en-US",{month:"long",year:"numeric"}) };
+// Extract dominant color from an image element
+function extractDominantColor(imgEl) {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = imgEl.naturalWidth || 64;
+    canvas.height = imgEl.naturalHeight || 64;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(imgEl, 0, 0, canvas.width, canvas.height);
+    const data = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+    const buckets = {};
+    for (let i=0; i<data.length; i+=4) {
+      const r=data[i], g=data[i+1], b=data[i+2], a=data[i+3];
+      if (a<128) continue;
+      // Skip near-white and near-black
+      const brightness = (r+g+b)/3;
+      if (brightness>230 || brightness<20) continue;
+      // Quantize to 32-step buckets
+      const key = `${Math.round(r/32)*32},${Math.round(g/32)*32},${Math.round(b/32)*32}`;
+      buckets[key] = (buckets[key]||0)+1;
     }
-    if (reportType==="custom" && customStart && customEnd)
-      return { start:customStart, end:customEnd, label:`${fmtDate(customStart)} – ${fmtDate(customEnd)}` };
-    const starts = selectedCamps.map(c=>c.startDate||c.endDate).filter(Boolean).sort();
-    const ends = selectedCamps.map(c=>c.endDate||c.startDate).filter(Boolean).sort();
-    return { start:starts[0]||"", end:ends[ends.length-1]||"", label:"Full Campaign Period" };
+    const [best] = Object.entries(buckets).sort((a,b)=>b[1]-a[1]);
+    if (!best) return null;
+    const [r,g,b] = best[0].split(",").map(Number);
+    return "#"+[r,g,b].map(v=>v.toString(16).padStart(2,"0")).join("");
+  } catch(e) { return null; }
+}
+
+function tryParseJson(str) {
+  if (!str || !str.trim()) return null;
+  try { return JSON.parse(str); } catch { return null; }
+}
+
+// ── Mini donut chart as SVG string ───────────────────────────────────────────
+function donutSVG(data, color, size=90) {
+  if (!data || !data.length) return "";
+  const total = data.reduce((s,d)=>s+(d.pct||0),0)||1;
+  const cx=size/2, cy=size/2, r=(size*0.38), ir=(size*0.24);
+  let angle=-Math.PI/2;
+  const palette=["#1a73e8","#34a853","#fbbc04","#ea4335","#9c27b0","#00838f","#ff6d00","#795548"];
+  const slices = data.map((d,i)=>{
+    const pct=(d.pct||0)/total;
+    const sweep=pct*2*Math.PI;
+    const x1=cx+r*Math.cos(angle), y1=cy+r*Math.sin(angle);
+    angle+=sweep;
+    const x2=cx+r*Math.cos(angle), y2=cy+r*Math.sin(angle);
+    const ix1=cx+ir*Math.cos(angle-sweep), iy1=cy+ir*Math.sin(angle-sweep);
+    const ix2=cx+ir*Math.cos(angle), iy2=cy+ir*Math.sin(angle);
+    const large=sweep>Math.PI?1:0;
+    const fill=palette[i%palette.length];
+    return `<path d="M${x1.toFixed(1)},${y1.toFixed(1)} A${r},${r} 0 ${large},1 ${x2.toFixed(1)},${y2.toFixed(1)} L${ix2.toFixed(1)},${iy2.toFixed(1)} A${ir},${ir} 0 ${large},0 ${ix1.toFixed(1)},${iy1.toFixed(1)} Z" fill="${fill}" stroke="white" stroke-width="1.5"/>`;
+  }).join("");
+  const legendItems = data.map((d,i)=>`<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:#555"><div style="width:9px;height:9px;border-radius:2px;background:${palette[i%palette.length]};flex-shrink:0"></div>${d.label}: ${d.pct}%</div>`).join("");
+  return `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <svg width="${size}" height="${size}">${slices}</svg>
+    <div style="display:flex;flex-direction:column;gap:4px">${legendItems}</div>
+  </div>`;
+}
+
+// ── Horizontal bar chart as HTML string ──────────────────────────────────────
+function hbarHTML(data, color) {
+  if (!data||!data.length) return "";
+  const max = Math.max(...data.map(d=>d.pct||0),1);
+  return data.map(d=>`
+    <div style="margin-bottom:7px">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#555;margin-bottom:2px">
+        <span>${d.label}</span><strong>${d.pct}%</strong>
+      </div>
+      <div style="background:#e8eaf0;border-radius:4px;height:12px;overflow:hidden">
+        <div style="background:${color};height:100%;width:${(d.pct/max*100).toFixed(1)}%;border-radius:4px;transition:width .3s"></div>
+      </div>
+    </div>`).join("");
+}
+
+function fmtN(n) { return n>=1000000?(n/1000000).toFixed(2)+"M":n>=1000?(n/1000).toFixed(1)+"K":String(n||0); }
+function fmtMoney(n) { return n>0?"$"+n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—"; }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+function ReportingDashboard({ campaigns=[], archive=[] }) {
+  const all = useMemo(()=>[...campaigns,...archive],[campaigns,archive]);
+  const partners = useMemo(()=>[...new Set(all.map(c=>c.mediaPartner).filter(Boolean))].sort(),[all]);
+
+  // ── Selector state ──────────────────────────────────────────────────────────
+  const [search,       setSearch]       = useState("");
+  const [selectedIds,  setSelectedIds]  = useState(new Set());
+  const [filterPartner,setFilterPartner]= useState("all");
+  const [sortByPartner,setSortByPartner]= useState(true);
+
+  // ── Report config ───────────────────────────────────────────────────────────
+  const [reportType,   setReportType]   = useState("monthly");
+  const [reportMonth,  setReportMonth]  = useState(()=>getToday().slice(0,7));
+  const [customStart,  setCustomStart]  = useState("");
+  const [customEnd,    setCustomEnd]    = useState("");
+  const [reportTitle,  setReportTitle]  = useState("");
+  const [editingTitle, setEditingTitle] = useState(false);
+
+  // ── Branding ────────────────────────────────────────────────────────────────
+  const [logoDataUrl,  setLogoDataUrl]  = useState("");
+  const [logoFetchUrl, setLogoFetchUrl] = useState("");
+  const [brandColor,   setBrandColor]   = useState("#1a73e8");
+  const [colorOverride,setColorOverride]= useState(false);
+  const [colorFetching,setColorFetching]= useState(false);
+  const logoImgRef = useRef(null);
+
+  // ── Section toggles ─────────────────────────────────────────────────────────
+  const [sections, setSections] = useState({
+    kpis: true, impressionChart: true, ctrChart: true,
+    table: true, budget: true, creatives: true,
+    demographics: true, devices: true, geo: true,
+  });
+  function toggleSection(key) { setSections(p=>({...p,[key]:!p[key]})); }
+
+  // ── Computed ────────────────────────────────────────────────────────────────
+  const filteredCamps = useMemo(()=>all.filter(c=>{
+    const q=search.toLowerCase();
+    return (!q||c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||(c.platform||"").toLowerCase().includes(q))
+      && (filterPartner==="all"||c.mediaPartner===filterPartner);
+  }),[all,search,filterPartner]);
+
+  const grouped = useMemo(()=>{
+    const g={};
+    filteredCamps.forEach(c=>{if(!g[c.mediaPartner])g[c.mediaPartner]=[];g[c.mediaPartner].push(c);});
+    return g;
+  },[filteredCamps]);
+
+  const selectedCamps = useMemo(()=>all.filter(c=>selectedIds.has(c.id)),[all,selectedIds]);
+
+  function toggleCamp(id) { setSelectedIds(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;}); }
+  function selectPartner(partner) {
+    const pc=all.filter(c=>c.mediaPartner===partner);
+    const allSel=pc.every(c=>selectedIds.has(c.id));
+    setSelectedIds(p=>{const n=new Set(p);if(allSel)pc.forEach(c=>n.delete(c.id));else pc.forEach(c=>n.add(c.id));return n;});
   }
 
-  // ── Metrics ────────────────────────────────────────────────────────────────
-  function getMetrics(c) {
+  // ── Date range ──────────────────────────────────────────────────────────────
+  const dr = useMemo(()=>{
+    if (reportType==="monthly") {
+      const [y,m]=reportMonth.split("-");
+      const dim=new Date(parseInt(y),parseInt(m),0).getDate();
+      return {start:`${y}-${m}-01`,end:`${y}-${m}-${String(dim).padStart(2,"0")}`,
+        label:new Date(parseInt(y),parseInt(m)-1,1).toLocaleDateString("en-US",{month:"long",year:"numeric"})};
+    }
+    if (reportType==="custom"&&customStart&&customEnd)
+      return {start:customStart,end:customEnd,label:`${fmtDate(customStart)} – ${fmtDate(customEnd)}`};
+    const starts=selectedCamps.map(c=>c.startDate).filter(Boolean).sort();
+    const ends=selectedCamps.map(c=>c.endDate).filter(Boolean).sort();
+    return {start:starts[0]||"",end:ends[ends.length-1]||"",label:"Full Campaign Period"};
+  },[reportType,reportMonth,customStart,customEnd,selectedCamps]);
+
+  // ── Metrics ─────────────────────────────────────────────────────────────────
+  function getM(c) {
     return {
-      impressions: parseInt(c.impressions)||0,
-      clicks:      parseInt(c.clicks)||0,
-      ctr:         parseFloat(c.ctr)||0,
-      cpm:         parseFloat(c.cpm)||0,
-      spend:       parseFloat(c.spend)||0,
-      reach:       parseInt(c.reach)||0,
-      completionRate: parseFloat(c.completionRate)||0,
-      videoViews:  parseInt(c.videoViews)||0,
-      contractValue: parseFloat(c.contractValue)||0,
+      impressions:parseInt(c.impressions)||0, clicks:parseInt(c.clicks)||0,
+      ctr:parseFloat(c.ctr)||0,               cpm:parseFloat(c.cpm)||0,
+      spend:parseFloat(c.spend)||0,            reach:parseInt(c.reach)||0,
+      completionRate:parseFloat(c.completionRate)||0, videoViews:parseInt(c.videoViews)||0,
+      contractValue:parseFloat(c.contractValue)||0,
     };
   }
+  const rows = useMemo(()=>selectedCamps.map(c=>({...c,m:getM(c)})),[selectedCamps]);
+  const totals = useMemo(()=>rows.reduce((a,r)=>({
+    impressions:a.impressions+r.m.impressions, clicks:a.clicks+r.m.clicks,
+    spend:a.spend+r.m.spend, reach:a.reach+r.m.reach,
+    videoViews:a.videoViews+r.m.videoViews, contractValue:a.contractValue+r.m.contractValue,
+  }),{impressions:0,clicks:0,spend:0,reach:0,videoViews:0,contractValue:0}),[rows]);
+  const overallCTR = totals.clicks>0&&totals.impressions>0?(totals.clicks/totals.impressions*100).toFixed(2)+"%" :"—";
+  const overallCPM = totals.impressions>0&&totals.spend>0?"$"+(totals.spend/totals.impressions*1000).toFixed(2):"—";
 
-  // ── Logo helpers ────────────────────────────────────────────────────────────
-  function getFaviconUrl(website) {
-    if (!website) return null;
+  // ── Auto-brand color from logo ───────────────────────────────────────────────
+  const detectedWebsite = selectedCamps.find(c=>c.clientWebsite)?.clientWebsite||"";
+  const effectiveFaviconUrl = useMemo(()=>{
+    const src = logoFetchUrl||detectedWebsite;
+    if (!src||logoDataUrl) return null;
     try {
-      const url = new URL(website.startsWith("http") ? website : "https://"+website);
-      return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=128`;
+      const u=new URL(src.startsWith("http")?src:"https://"+src);
+      return `https://www.google.com/s2/favicons?domain=${u.hostname}&sz=128`;
     } catch { return null; }
+  },[logoFetchUrl,detectedWebsite,logoDataUrl]);
+
+  function handleLogoLoad(e) {
+    if (colorOverride) return;
+    setColorFetching(true);
+    // Small delay to ensure image is painted
+    setTimeout(()=>{
+      const col = extractDominantColor(e.target);
+      if (col) setBrandColor(col);
+      setColorFetching(false);
+    },100);
   }
 
   function handleLogoUpload(e) {
-    const file = e.target.files[0]; if(!file) return;
-    const reader = new FileReader();
-    reader.onload = evt => setLogoDataUrl(evt.target.result);
+    const file=e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=evt=>{
+      setLogoDataUrl(evt.target.result);
+      setColorOverride(false); // re-extract from new logo
+    };
     reader.readAsDataURL(file);
   }
 
-  // Auto-detect website from selected campaigns
-  const detectedWebsite = selectedCamps.find(c=>c.clientWebsite)?.clientWebsite || "";
-  const faviconUrl = logoDataUrl ? null : getFaviconUrl(logoFetchUrl||detectedWebsite);
+  // Colors derived from brand color
+  const accent       = brandColor;
+  const accentLight  = lighten(accent,0.88);
+  const accentMid    = lighten(accent,0.60);
+  const accentDark   = darken(accent,0.25);
+  const headerBg     = darken(accent,0.55)||"#1a1a2e";
+  const headerText   = "#ffffff";
+  const accentOnWhite= accent;
 
-  const fmtN = n => n>=1000000?(n/1000000).toFixed(2)+"M":n>=1000?(n/1000).toFixed(1)+"K":String(n||0);
-  const fmtMoney = n => n>0?"$"+n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}):"—";
-  const platCol = p => PLT_COLORS[p]||PLT_COLORS.default||"#7a9bbf";
+  // ── Report title ─────────────────────────────────────────────────────────────
+  const autoTitle = useMemo(()=>{
+    if (selectedCamps.length===0) return "Campaign Performance Report";
+    const partners=[...new Set(selectedCamps.map(c=>c.mediaPartner))];
+    return partners.length===1 ? `${partners[0]} — Campaign Performance Report` : "Campaign Performance Report";
+  },[selectedCamps]);
+  const displayTitle = reportTitle||autoTitle;
 
-  // ── Generate report in new window ──────────────────────────────────────────
-  function generateReport() {
-    if (selectedIds.size===0) return;
-    setGeneratingReport(true);
-    const dr = getDateRange();
-    const rows = selectedCamps.map(c=>({...c, m:getMetrics(c)}));
-    const totals = rows.reduce((a,r)=>({
-      impressions:a.impressions+r.m.impressions, clicks:a.clicks+r.m.clicks,
-      spend:a.spend+r.m.spend, reach:a.reach+r.m.reach,
-      videoViews:a.videoViews+r.m.videoViews, contractValue:a.contractValue+r.m.contractValue,
-    }),{impressions:0,clicks:0,spend:0,reach:0,videoViews:0,contractValue:0});
+  // ── Section control helper ───────────────────────────────────────────────────
+  const SectionToggle = ({k,label})=>(
+    <button onClick={()=>toggleSection(k)}
+      style={{background:sections[k]?"#001810":"#0e1a2e",border:`1px solid ${sections[k]?"#00c89650":"#1e293b"}`,
+        borderRadius:6,padding:"4px 10px",color:sections[k]?"#00e5a0":"#3d5a72",fontSize:10,fontWeight:sections[k]?700:400,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap"}}>
+      {sections[k]?"✓":""} {label}
+    </button>
+  );
 
-    const overallCTR = totals.clicks>0&&totals.impressions>0?(totals.clicks/totals.impressions*100).toFixed(2)+"%" : "—";
-    const overallCPM = totals.impressions>0&&totals.spend>0?("$"+(totals.spend/totals.impressions*1000).toFixed(2)):"—";
+  const iS={background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit",outline:"none"};
+  const PLT=PLT_COLORS;
+  const platCol=p=>PLT[p]||PLT.default||"#7a9bbf";
 
-    const logoHtml = logoDataUrl
-      ? `<img src="${logoDataUrl}" class="client-logo" alt="logo"/>`
-      : faviconUrl
-      ? `<img src="${faviconUrl}" class="client-logo-small" alt="logo"/>`
-      : `<div class="logo-placeholder">📊</div>`;
-
-    const title = reportTitle || `${[...new Set(selectedCamps.map(c=>c.mediaPartner))].join(" / ")} — Campaign Performance Report`;
-
-    // Build table rows HTML
-    const tableRows = rows.map((r,i)=>{
-      const bg = i%2===0?"#f8f9ff":"#ffffff";
-      const pc = platCol(r.platform);
-      return `<tr style="background:${bg}">
-        <td><strong>${r.campaignName.trim()}</strong>${r.goal?`<br/><span class="small-text">${r.goal}</span>`:""}</td>
-        <td><span class="plat-tag" style="background:${pc}22;color:${pc};border:1px solid ${pc}50">${r.platform}</span></td>
-        <td class="num">${r.m.impressions>0?fmtN(r.m.impressions):"—"}</td>
-        <td class="num">${r.m.clicks>0?fmtN(r.m.clicks):"—"}</td>
-        <td class="num bold">${r.m.ctr>0?r.m.ctr.toFixed(2)+"%":"—"}</td>
-        <td class="num">${r.m.cpm>0?"$"+r.m.cpm.toFixed(2):"—"}</td>
-        <td class="num">${r.m.spend>0?fmtMoney(r.m.spend):"—"}</td>
-        <td class="num">${r.m.reach>0?fmtN(r.m.reach):"—"}</td>
-        <td class="num">${r.m.completionRate>0?r.m.completionRate.toFixed(1)+"%":r.m.videoViews>0?fmtN(r.m.videoViews):"—"}</td>
-      </tr>`;
-    }).join("");
-
-    // KPI cards HTML
-    const kpis = [
-      {label:"Impressions", val:fmtN(totals.impressions), color:"#1a73e8", show:totals.impressions>0},
-      {label:"Clicks", val:fmtN(totals.clicks), color:"#0f9d58", show:totals.clicks>0},
-      {label:"Overall CTR", val:overallCTR, color:"#f4b400", show:overallCTR!=="—"},
-      {label:"Avg CPM", val:overallCPM, color:"#db4437", show:overallCPM!=="—"},
-      {label:"Total Spend", val:fmtMoney(totals.spend), color:"#7b1fa2", show:totals.spend>0},
-      {label:"Total Reach", val:fmtN(totals.reach), color:"#00838f", show:totals.reach>0},
-    ].filter(k=>k.show);
-
-    const kpiHtml = kpis.map(k=>`
-      <div class="kpi-card">
-        <div class="kpi-val" style="color:${k.color}">${k.val}</div>
-        <div class="kpi-label">${k.label}</div>
-      </div>`).join("");
-
-    // Bar chart SVG
-    const chartRows = rows.filter(r=>r.m.impressions>0);
-    const maxI = Math.max(...chartRows.map(r=>r.m.impressions),1);
-    const barW = Math.max(30, Math.floor(560/Math.max(chartRows.length,1))-8);
-    const bars = chartRows.map((r,i)=>{
-      const h = Math.max(4, Math.round((r.m.impressions/maxI)*120));
-      const x = i*(barW+8)+20;
-      const y = 140-h;
-      const pc = platCol(r.platform);
-      const label = r.platform;
-      return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${pc}" rx="3"/>
-        <text x="${x+barW/2}" y="155" text-anchor="middle" font-size="9" fill="#666">${label}</text>
-        <text x="${x+barW/2}" y="${y-4}" text-anchor="middle" font-size="8" fill="${pc}" font-weight="700">${fmtN(r.m.impressions)}</text>`;
-    }).join("");
-    const svgW = chartRows.length*(barW+8)+40;
-
-    // CTR bar chart
-    const ctrRows = rows.filter(r=>r.m.ctr>0);
-    const maxCTR = Math.max(...ctrRows.map(r=>r.m.ctr),0.01);
-    const ctrBars = ctrRows.map((r,i)=>{
-      const w = Math.round((r.m.ctr/maxCTR)*300);
-      const y = i*28+8;
-      const pc = platCol(r.platform);
-      const label = r.campaignName.trim().length>28?r.campaignName.trim().slice(0,28)+"…":r.campaignName.trim();
-      return `<text x="0" y="${y+13}" font-size="9" fill="#555">${label} (${r.platform})</text>
-        <rect x="200" y="${y}" width="${w}" height="16" fill="${pc}" rx="3" opacity="0.85"/>
-        <text x="${200+w+6}" y="${y+12}" font-size="9" fill="${pc}" font-weight="700">${r.m.ctr.toFixed(2)}%</text>`;
-    }).join("");
-    const ctrSvgH = ctrRows.length*28+20;
-
-    // Budget bar
-    const budgetHtml = totals.contractValue>0 ? `
-      <div class="section">
-        <h3>Budget Overview</h3>
-        <div class="budget-row">
-          <div class="budget-card"><div class="budget-val green">${fmtMoney(totals.contractValue)}</div><div class="budget-label">Contract Value</div></div>
-          <div class="budget-card"><div class="budget-val purple">${fmtMoney(totals.spend)}</div><div class="budget-label">Total Spend</div></div>
-          <div class="budget-card"><div class="budget-val blue">${fmtMoney(totals.contractValue-totals.spend)}</div><div class="budget-label">Remaining</div></div>
-        </div>
-        <div class="budget-bar-wrap">
-          <div class="budget-bar-fill" style="width:${Math.min(100,(totals.spend/totals.contractValue)*100).toFixed(1)}%"></div>
-        </div>
-        <div class="budget-bar-label">${Math.round((totals.spend/totals.contractValue)*100)}% of budget used</div>
-      </div>` : "";
-
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<title>${title}</title>
+  // ── Export: open clean print window ─────────────────────────────────────────
+  function exportReport() {
+    const previewEl = document.getElementById("report-preview-body");
+    if (!previewEl) return;
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+<title>${displayTitle}</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; background: #ffffff; color: #1a1a2e; font-size: 13px; }
-  .page { max-width: 960px; margin: 0 auto; padding: 0; }
-
-  /* Header */
-  .report-header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; padding: 28px 36px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-  .header-left { display: flex; align-items: center; gap: 20px; }
-  .client-logo { height: 64px; max-width: 200px; object-fit: contain; background: white; padding: 8px; border-radius: 8px; }
-  .client-logo-small { height: 48px; width: 48px; object-fit: contain; background: white; padding: 6px; border-radius: 8px; }
-  .logo-placeholder { width: 64px; height: 64px; background: rgba(255,255,255,0.1); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 28px; }
-  .report-title { font-size: 22px; font-weight: 900; color: white; line-height: 1.1; letter-spacing: -0.02em; }
-  .report-subtitle { font-size: 13px; color: #00c896; margin-top: 5px; font-weight: 600; }
-  .report-meta { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 3px; }
-  .header-right { text-align: right; flex-shrink: 0; }
-  .prepared-by { font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.07em; }
-  .agency-name { font-size: 15px; font-weight: 700; color: white; }
-  .tactic-count { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px; }
-  .accent-bar { height: 4px; background: linear-gradient(90deg, #00c896, #0066ff); }
-
-  /* Body */
-  .body { padding: 28px 36px; }
-  .section { margin-bottom: 28px; }
-  h3 { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; border-bottom: 1px solid #eee; padding-bottom: 6px; }
-
-  /* KPI cards */
-  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
-  .kpi-card { background: #f8f9ff; border: 1px solid #e8eaf0; border-radius: 10px; padding: 14px 16px; text-align: center; }
-  .kpi-val { font-size: 26px; font-weight: 900; line-height: 1; letter-spacing: -0.02em; }
-  .kpi-label { font-size: 10px; color: #888; margin-top: 5px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
-
-  /* Table */
-  table { width: 100%; border-collapse: collapse; }
-  thead th { background: #1a1a2e; color: white; padding: 10px 12px; text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
-  thead th.num { text-align: right; }
-  tbody td { padding: 9px 12px; border-bottom: 1px solid #f0f0f5; vertical-align: middle; }
-  tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  tbody td.bold { font-weight: 700; }
-  tfoot td { padding: 10px 12px; background: #1a1a2e; color: white; font-weight: 800; font-size: 12px; border: none; }
-  tfoot td.num { text-align: right; }
-  .small-text { font-size: 10px; color: #999; }
-  .plat-tag { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; }
-
-  /* Charts */
-  .chart-wrap { background: #f8f9ff; border: 1px solid #e8eaf0; border-radius: 10px; padding: 18px 20px; overflow-x: auto; }
-  .chart-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #eee; }
-  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: #666; }
-  .legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
-
-  /* Budget */
-  .budget-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px; }
-  .budget-card { background: #f8f9ff; border: 1px solid #e8eaf0; border-radius: 8px; padding: 12px 16px; text-align: center; }
-  .budget-val { font-size: 20px; font-weight: 800; }
-  .budget-val.green { color: #0f9d58; }
-  .budget-val.purple { color: #7b1fa2; }
-  .budget-val.blue { color: #1a73e8; }
-  .budget-label { font-size: 10px; color: #888; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
-  .budget-bar-wrap { background: #e8eaf0; border-radius: 6px; height: 8px; overflow: hidden; }
-  .budget-bar-fill { background: linear-gradient(90deg, #0f9d58, #7b1fa2); height: 100%; border-radius: 6px; transition: width 0.3s; }
-  .budget-bar-label { font-size: 11px; color: #888; margin-top: 5px; }
-
-  /* Footer */
-  .report-footer { background: #f8f9ff; padding: 16px 36px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #eee; font-size: 10px; color: #aaa; }
-
-  @media print {
-    @page { margin: 0.5in; size: letter; }
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .no-print { display: none; }
-  }
-</style>
-</head>
-<body>
-<div class="page">
-  <div class="report-header">
-    <div class="header-left">
-      ${logoHtml}
-      <div>
-        <div class="report-title">${title}</div>
-        <div class="report-subtitle">${dr.label}</div>
-        <div class="report-meta">Created ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
-      </div>
-    </div>
-    <div class="header-right">
-      <div class="prepared-by">Prepared by</div>
-      <div class="agency-name">Recrue Media</div>
-      <div class="tactic-count">${rows.length} campaign tactic${rows.length!==1?"s":""}</div>
-    </div>
-  </div>
-  <div class="accent-bar"></div>
-
-  <div class="body">
-    <!-- KPIs -->
-    <div class="section">
-      <h3>Overall Performance KPIs</h3>
-      <div class="kpi-grid">${kpiHtml}</div>
-    </div>
-
-    ${chartRows.length>0?`<!-- Impressions chart -->
-    <div class="section">
-      <h3>Impressions by Tactic</h3>
-      <div class="chart-wrap">
-        <svg width="${Math.max(560,svgW)}" height="165" xmlns="http://www.w3.org/2000/svg">
-          <line x1="0" y1="140" x2="${Math.max(560,svgW)}" y2="140" stroke="#ddd" stroke-width="1"/>
-          ${bars}
-        </svg>
-        <div class="chart-legend">
-          ${chartRows.map(r=>`<div class="legend-item"><div class="legend-dot" style="background:${platCol(r.platform)}"></div><span>${r.campaignName.trim()} (${r.platform})</span></div>`).join("")}
-        </div>
-      </div>
-    </div>`:""}
-
-    ${ctrRows.length>1?`<!-- CTR chart -->
-    <div class="section">
-      <h3>CTR by Tactic</h3>
-      <div class="chart-wrap">
-        <svg width="560" height="${ctrSvgH}" xmlns="http://www.w3.org/2000/svg">${ctrBars}</svg>
-      </div>
-    </div>`:""}
-
-    <!-- Performance table -->
-    <div class="section">
-      <h3>Campaign Performance by Tactic</h3>
-      <table>
-        <thead><tr>
-          <th>Campaign</th><th>Platform</th>
-          <th class="num">Impressions</th><th class="num">Clicks</th><th class="num">CTR</th>
-          <th class="num">CPM</th><th class="num">Spend</th><th class="num">Reach</th><th class="num">VCR/CR</th>
-        </tr></thead>
-        <tbody>${tableRows}</tbody>
-        <tfoot><tr>
-          <td colspan="2">TOTAL</td>
-          <td class="num">${totals.impressions>0?fmtN(totals.impressions):"—"}</td>
-          <td class="num">${totals.clicks>0?fmtN(totals.clicks):"—"}</td>
-          <td class="num">${overallCTR}</td>
-          <td class="num">${overallCPM}</td>
-          <td class="num">${totals.spend>0?fmtMoney(totals.spend):"—"}</td>
-          <td class="num">${totals.reach>0?fmtN(totals.reach):"—"}</td>
-          <td class="num">—</td>
-        </tr></tfoot>
-      </table>
-    </div>
-
-    ${budgetHtml}
-  </div>
-
-  <div class="report-footer">
-    <span>Recrue Media · ${title} · ${dr.label}</span>
-    <span>Confidential — For Client Use Only</span>
-  </div>
-</div>
-<script>window.onload=()=>{ setTimeout(()=>{ window.print(); }, 400); }</script>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:white;color:#1a1a2e;font-size:13px}
+@media print{@page{margin:.5in;size:letter}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style></head>
+<body>${previewEl.outerHTML}
+<script>window.onload=()=>setTimeout(()=>window.print(),300)</script>
 </body></html>`;
-
-    const win = window.open("","_blank","width=1000,height=800");
-    win.document.write(html);
-    win.document.close();
-    setTimeout(()=>setGeneratingReport(false), 500);
+    const w=window.open("","_blank","width=1000,height=800");
+    w.document.write(html); w.document.close();
   }
-
-  const iS = {background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit",outline:"none"};
-  const PLT = PLT_COLORS;
 
   return (
-    <div style={{color:"#d8eaf8",display:"grid",gridTemplateColumns:"380px 1fr",gap:20,alignItems:"start"}}>
+    <div style={{color:"#d8eaf8"}}>
+      {/* Hidden logo for color extraction */}
+      {(logoDataUrl||effectiveFaviconUrl)&&(
+        <img ref={logoImgRef} crossOrigin="anonymous"
+          src={logoDataUrl||effectiveFaviconUrl} onLoad={handleLogoLoad}
+          style={{display:"none"}} alt=""/>
+      )}
 
-      {/* ── Left panel: Campaign selector ── */}
-      <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,overflow:"hidden",position:"sticky",top:0}}>
-        <div style={{background:"#07101c",padding:"14px 16px",borderBottom:"1px solid #1a2744"}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#edf4ff",marginBottom:10}}>Select Campaigns</div>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…"
-            style={{...iS,width:"100%",marginBottom:8,padding:"7px 10px"}}/>
-          <div style={{display:"flex",gap:6,alignItems:"center"}}>
-            <select value={filterPartner} onChange={e=>setFilterPartner(e.target.value)} style={{...iS,flex:1,fontSize:12}}>
-              <option value="all">All Partners</option>
-              {partners.map(p=><option key={p} value={p}>{p}</option>)}
-            </select>
-            <button onClick={()=>setSortByPartner(v=>!v)} title={sortByPartner?"Show flat list":"Group by partner"}
-              style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"6px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>
-              {sortByPartner?"Grouped":"Flat"}
-            </button>
-          </div>
-          <div style={{display:"flex",gap:6,marginTop:8}}>
-            <button onClick={selectAllFiltered} style={{flex:1,background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"5px 0",color:"#00e5a0",fontSize:11,fontWeight:600,cursor:"pointer"}}>+ Select All</button>
-            <button onClick={clearSelection} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 0",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>Clear</button>
-          </div>
-        </div>
+      <div style={{display:"grid",gridTemplateColumns:"340px 1fr",gap:16,alignItems:"start"}}>
 
-        {/* Campaign list */}
-        <div style={{maxHeight:440,overflowY:"auto"}}>
-          {sortByPartner ? Object.entries(grouped||{}).map(([partner,camps])=>(
-            <div key={partner}>
-              <div style={{background:"#07101c",padding:"6px 14px",display:"flex",alignItems:"center",gap:8,borderBottom:"1px solid #1a2744",cursor:"pointer"}}
-                onClick={()=>selectPartner(partner)}>
-                <div style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${camps.every(c=>selectedIds.has(c.id))?"#00c896":"#334155"}`,background:camps.every(c=>selectedIds.has(c.id))?"#00c896":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                  {camps.every(c=>selectedIds.has(c.id))&&<span style={{color:"#000",fontSize:9,fontWeight:900}}>✓</span>}
-                </div>
-                <span style={{fontSize:11,fontWeight:700,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.05em"}}>{partner}</span>
-                <span style={{fontSize:10,color:"#3d5a72",marginLeft:"auto"}}>{camps.length} campaigns</span>
+        {/* ══ LEFT: Campaign Selector ══ */}
+        <div style={{display:"flex",flexDirection:"column",gap:12,position:"sticky",top:0}}>
+
+          {/* Search + filter */}
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,overflow:"hidden"}}>
+            <div style={{padding:"12px 14px",background:"#07101c",borderBottom:"1px solid #1a2744"}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:8}}>1. Select Campaigns</div>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name, partner, platform…"
+                style={{...iS,width:"100%",marginBottom:6,padding:"7px 10px",fontSize:12}}/>
+              <div style={{display:"flex",gap:5}}>
+                <select value={filterPartner} onChange={e=>setFilterPartner(e.target.value)} style={{...iS,flex:1,fontSize:11}}>
+                  <option value="all">All Partners</option>
+                  {partners.map(p=><option key={p} value={p}>{p}</option>)}
+                </select>
+                <button onClick={()=>setSortByPartner(v=>!v)}
+                  style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 9px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>
+                  {sortByPartner?"Grouped":"Flat"}
+                </button>
               </div>
-              {camps.map(c=>{
-                const sel = selectedIds.has(c.id);
-                const pc = PLT[c.platform]||PLT.default||"#7a9bbf";
-                return (
-                  <div key={c.id} onClick={()=>toggleCamp(c.id)}
-                    style={{padding:"8px 14px 8px 28px",borderBottom:"1px solid #0d1525",cursor:"pointer",background:sel?"#001810":"transparent",display:"flex",alignItems:"center",gap:8,transition:"background .1s"}}>
-                    <div style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${sel?"#00c896":"#334155"}`,background:sel?"#00c896":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                      {sel&&<span style={{color:"#000",fontSize:9,fontWeight:900}}>✓</span>}
-                    </div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:12,color:sel?"#edf4ff":"#a8c4e0",fontWeight:sel?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
-                      <div style={{fontSize:10,color:"#3d5a72",marginTop:1}}>{c.startDate||"?"} → {c.endDate||"?"}</div>
-                    </div>
-                    <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:3,padding:"1px 6px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )) : filteredCamps.map(c=>{
-            const sel = selectedIds.has(c.id);
-            const pc = PLT[c.platform]||PLT.default||"#7a9bbf";
-            return (
-              <div key={c.id} onClick={()=>toggleCamp(c.id)}
-                style={{padding:"9px 14px",borderBottom:"1px solid #0d1525",cursor:"pointer",background:sel?"#001810":"transparent",display:"flex",alignItems:"center",gap:8,transition:"background .1s"}}>
-                <div style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${sel?"#00c896":"#334155"}`,background:sel?"#00c896":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                  {sel&&<span style={{color:"#000",fontSize:9,fontWeight:900}}>✓</span>}
-                </div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:12,color:sel?"#edf4ff":"#a8c4e0",fontWeight:sel?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
-                  <div style={{fontSize:10,color:"#3d5a72"}}>{c.mediaPartner} · {c.startDate||"?"} → {c.endDate||"?"}</div>
-                </div>
-                <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:3,padding:"1px 6px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+              <div style={{display:"flex",gap:5,marginTop:6}}>
+                <button onClick={()=>setSelectedIds(new Set(filteredCamps.map(c=>c.id)))}
+                  style={{flex:1,background:"#002e24",border:"1px solid #00c89640",borderRadius:5,padding:"4px 0",color:"#00e5a0",fontSize:10,fontWeight:600,cursor:"pointer"}}>+ All</button>
+                <button onClick={()=>setSelectedIds(new Set())}
+                  style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 0",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>Clear</button>
               </div>
-            );
-          })}
-          {filteredCamps.length===0&&<div style={{padding:"24px",textAlign:"center",color:"#3d5a72",fontSize:12}}>No campaigns match your search.</div>}
-        </div>
-
-        {/* Selected summary */}
-        <div style={{padding:"10px 14px",borderTop:"1px solid #1a2744",background:"#07101c",fontSize:11,color:selectedIds.size>0?"#00e5a0":"#3d5a72",fontWeight:selectedIds.size>0?700:400}}>
-          {selectedIds.size>0?`✓ ${selectedIds.size} campaign${selectedIds.size!==1?"s":""} selected`:"No campaigns selected yet"}
-        </div>
-      </div>
-
-      {/* ── Right panel: Report config + preview ── */}
-      <div style={{display:"flex",flexDirection:"column",gap:14}}>
-
-        {/* Report settings */}
-        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"18px 20px"}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#edf4ff",marginBottom:14}}>Report Settings</div>
-
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-            <div>
-              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Report Title</label>
-              <input value={reportTitle} onChange={e=>setReportTitle(e.target.value)}
-                placeholder="e.g. Fairmont University — March 2026"
-                style={{...iS,width:"100%"}}/>
             </div>
-            <div>
-              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Date Range</label>
-              <div style={{display:"flex",gap:4}}>
+
+            {/* Campaign list */}
+            <div style={{maxHeight:380,overflowY:"auto"}}>
+              {Object.entries(grouped).map(([partner,camps])=>(
+                <div key={partner}>
+                  {sortByPartner&&(
+                    <div style={{background:"#060d18",padding:"5px 12px",display:"flex",alignItems:"center",gap:7,borderBottom:"1px solid #1a2744",cursor:"pointer"}}
+                      onClick={()=>selectPartner(partner)}>
+                      <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${camps.every(c=>selectedIds.has(c.id))?"#00c896":"#334155"}`,background:camps.every(c=>selectedIds.has(c.id))?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                        {camps.every(c=>selectedIds.has(c.id))&&<span style={{color:"#000",fontSize:8,fontWeight:900}}>✓</span>}
+                      </div>
+                      <span style={{fontSize:10,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.05em"}}>{partner}</span>
+                      <span style={{fontSize:9,color:"#3d5a72",marginLeft:"auto"}}>{camps.length}</span>
+                    </div>
+                  )}
+                  {camps.map(c=>{
+                    const sel=selectedIds.has(c.id);
+                    const pc=platCol(c.platform);
+                    return (
+                      <div key={c.id} onClick={()=>toggleCamp(c.id)}
+                        style={{padding:"7px 12px 7px "+(sortByPartner?"24px":"12px"),borderBottom:"1px solid #0a1018",cursor:"pointer",background:sel?"#001810":"transparent",display:"flex",alignItems:"center",gap:7,transition:"background .1s"}}>
+                        <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${sel?"#00c896":"#334155"}`,background:sel?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                          {sel&&<span style={{color:"#000",fontSize:8,fontWeight:900}}>✓</span>}
+                        </div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:11,color:sel?"#edf4ff":"#7a9bbf",fontWeight:sel?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
+                          {!sortByPartner&&<div style={{fontSize:9,color:"#3d5a72"}}>{c.mediaPartner}</div>}
+                        </div>
+                        <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              {filteredCamps.length===0&&<div style={{padding:"20px",textAlign:"center",color:"#3d5a72",fontSize:11}}>No campaigns match</div>}
+            </div>
+            <div style={{padding:"8px 12px",background:"#07101c",borderTop:"1px solid #1a2744",fontSize:10,color:selectedIds.size>0?"#00e5a0":"#3d5a72",fontWeight:selectedIds.size>0?700:400}}>
+              {selectedIds.size>0?`✓ ${selectedIds.size} campaign${selectedIds.size!==1?"s":""} selected`:"Nothing selected yet"}
+            </div>
+          </div>
+
+          {/* Report settings */}
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"14px"}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:10}}>2. Configure Report</div>
+
+            {/* Date range */}
+            <div style={{marginBottom:10}}>
+              <div style={{fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5}}>Date Range</div>
+              <div style={{display:"flex",gap:4,marginBottom:6}}>
                 {[{key:"monthly",label:"Monthly"},{key:"custom",label:"Custom"},{key:"lifetime",label:"Lifetime"}].map(rt=>(
                   <button key={rt.key} onClick={()=>setReportType(rt.key)}
-                    style={{flex:1,background:reportType===rt.key?"#002e24":"#162236",border:`1px solid ${reportType===rt.key?"#00c89650":"#1e293b"}`,borderRadius:6,padding:"6px 0",color:reportType===rt.key?"#00e5a0":"#4d6e8a",fontSize:11,fontWeight:reportType===rt.key?700:400,cursor:"pointer"}}>
+                    style={{flex:1,background:reportType===rt.key?"#002e24":"#162236",border:`1px solid ${reportType===rt.key?"#00c89650":"#1e293b"}`,borderRadius:5,padding:"5px 0",color:reportType===rt.key?"#00e5a0":"#4d6e8a",fontSize:10,fontWeight:reportType===rt.key?700:400,cursor:"pointer"}}>
                     {rt.label}
                   </button>
                 ))}
               </div>
+              {reportType==="monthly"&&<input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{...iS,width:"100%",fontSize:11}}/>}
+              {reportType==="custom"&&(
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                  <DatePicker value={customStart} onChange={setCustomStart}/>
+                  <DatePicker value={customEnd} onChange={setCustomEnd}/>
+                </div>
+              )}
             </div>
-          </div>
 
-          {reportType==="monthly"&&(
-            <div style={{marginBottom:12}}>
-              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Month</label>
-              <input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{...iS}}/>
-            </div>
-          )}
-          {reportType==="custom"&&(
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-              <div>
-                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Start</label>
-                <DatePicker value={customStart} onChange={setCustomStart}/>
-              </div>
-              <div>
-                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>End</label>
-                <DatePicker value={customEnd} onChange={setCustomEnd}/>
-              </div>
-            </div>
-          )}
-
-          {/* Logo section */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:4}}>
-            <div>
-              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Client Logo</label>
-              <label style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"8px 14px",color:"#4d6e8a",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-                {logoDataUrl?"✓ Logo uploaded — click to replace":"📎 Upload logo image"}
+            {/* Logo + brand color */}
+            <div style={{marginBottom:10}}>
+              <div style={{fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5}}>Branding</div>
+              <label style={{background:"#162236",border:`1px solid ${logoDataUrl?"#00c89650":"#334155"}`,borderRadius:6,padding:"6px 10px",color:logoDataUrl?"#00e5a0":"#4d6e8a",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                {logoDataUrl?"✓ Logo uploaded — click to replace":"📎 Upload client logo"}
                 <input type="file" accept="image/*" onChange={handleLogoUpload} style={{display:"none"}}/>
               </label>
-              {logoDataUrl&&<button onClick={()=>setLogoDataUrl("")} style={{background:"none",border:"none",color:"#ef4444",fontSize:11,cursor:"pointer",marginTop:4}}>× Remove</button>}
+              {!logoDataUrl&&(
+                <input value={logoFetchUrl||detectedWebsite} onChange={e=>setLogoFetchUrl(e.target.value)}
+                  placeholder={detectedWebsite||"https://client.com (auto-pulls logo)"}
+                  style={{...iS,width:"100%",fontSize:10,fontFamily:"monospace",marginBottom:6}}/>
+              )}
+              {logoDataUrl&&<button onClick={()=>{setLogoDataUrl("");setColorOverride(false);}} style={{background:"none",border:"none",color:"#ef4444",fontSize:10,cursor:"pointer",marginBottom:6}}>× Remove logo</button>}
+              {/* Brand color */}
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,flex:1}}>
+                  {colorFetching?"Extracting color…":"Brand Color"}
+                  {!colorOverride&&(logoDataUrl||effectiveFaviconUrl)&&!colorFetching&&<span style={{color:"#00e5a0",marginLeft:4}}>(auto)</span>}
+                </div>
+                <input type="color" value={brandColor} onChange={e=>{setBrandColor(e.target.value);setColorOverride(true);}}
+                  style={{width:32,height:24,borderRadius:4,border:"1px solid #334155",cursor:"pointer",background:"none",padding:0}}/>
+                <button onClick={()=>{setColorOverride(false);if(logoImgRef.current){const c=extractDominantColor(logoImgRef.current);if(c)setBrandColor(c);}}}
+                  style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"3px 7px",color:"#4d6e8a",fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>Reset</button>
+              </div>
+              <div style={{marginTop:6,height:20,borderRadius:4,background:`linear-gradient(90deg,${headerBg},${accent},${accentMid})`,display:"flex",alignItems:"center",paddingLeft:8}}>
+                <span style={{fontSize:9,color:"#fff",fontWeight:600,opacity:0.9}}>Color preview</span>
+              </div>
             </div>
+
+            {/* Section toggles */}
             <div>
-              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Or website for auto-logo</label>
-              <input value={logoFetchUrl||detectedWebsite} onChange={e=>setLogoFetchUrl(e.target.value)}
-                placeholder={detectedWebsite||"https://client.com"}
-                style={{...iS,width:"100%",fontSize:12,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Pulls favicon automatically from the domain</div>
+              <div style={{fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:6}}>Sections</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                <SectionToggle k="kpis"           label="KPIs"/>
+                <SectionToggle k="impressionChart" label="Impr. Chart"/>
+                <SectionToggle k="ctrChart"        label="CTR Chart"/>
+                <SectionToggle k="table"           label="Table"/>
+                <SectionToggle k="budget"          label="Budget"/>
+                <SectionToggle k="creatives"       label="Creatives"/>
+                <SectionToggle k="demographics"    label="Demographics"/>
+                <SectionToggle k="devices"         label="Devices"/>
+                <SectionToggle k="geo"             label="Geo"/>
+              </div>
             </div>
           </div>
+
+          {/* Export button */}
+          <button onClick={exportReport} disabled={selectedIds.size===0}
+            style={{background:selectedIds.size>0?`linear-gradient(135deg,${darken(accent,0.4)},${darken(accent,0.2)})`:"#0c1625",
+              border:`1px solid ${selectedIds.size>0?accent+"60":"#1e293b"}`,borderRadius:10,padding:"13px",
+              color:selectedIds.size>0?bestTextColor(darken(accent,0.3))||"#fff":"#3d5a72",fontSize:13,fontWeight:800,
+              cursor:selectedIds.size>0?"pointer":"default",transition:"all .2s",
+              boxShadow:selectedIds.size>0?`0 0 16px ${accent}25`:"none"}}>
+            {selectedIds.size===0?"← Select campaigns first":"⬇ Export as PDF"}
+          </button>
+          {selectedIds.size>0&&<div style={{fontSize:10,color:"#3d5a72",textAlign:"center"}}>Saves as PDF via browser print dialog</div>}
         </div>
 
-        {/* Selected campaigns summary */}
-        {selectedIds.size>0&&(
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"16px 20px"}}>
-            <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>
-              Report will include — {selectedIds.size} campaign{selectedIds.size!==1?"s":""}
+        {/* ══ RIGHT: Live Preview ══ */}
+        <div>
+          {selectedIds.size===0 ? (
+            <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:14,padding:"60px 40px",textAlign:"center"}}>
+              <div style={{fontSize:36,marginBottom:12}}>📄</div>
+              <div style={{fontSize:15,fontWeight:700,color:"#edf4ff",marginBottom:8}}>Report Preview</div>
+              <div style={{fontSize:12,color:"#3d5a72",lineHeight:1.7,maxWidth:380,margin:"0 auto"}}>
+                Select campaigns on the left to see a live preview of your client report. You can tweak the title, colors, and which sections appear before exporting.
+              </div>
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:4}}>
-              {selectedCamps.map(c=>{
-                const m = getMetrics(c);
-                const pc = PLT[c.platform]||PLT.default||"#7a9bbf";
-                return (
-                  <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderBottom:"1px solid #0d1525"}}>
-                    <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:3,padding:"1px 6px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
-                    <span style={{fontSize:12,color:"#a8c4e0",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</span>
-                    {m.impressions>0&&<span style={{fontSize:10,color:"#00e5a0",flexShrink:0}}>{fmtN(m.impressions)} impr</span>}
-                    {m.ctr>0&&<span style={{fontSize:10,color:"#00ffb3",flexShrink:0}}>{m.ctr.toFixed(2)}% CTR</span>}
-                    <button onClick={()=>toggleCamp(c.id)} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13,flexShrink:0}}>×</button>
+          ) : (
+
+            // ── LIVE PREVIEW ──────────────────────────────────────────────────
+            <div style={{background:"white",borderRadius:12,overflow:"hidden",boxShadow:"0 4px 32px rgba(0,0,0,.4)"}}>
+
+              {/* Hidden img for color extraction */}
+              {effectiveFaviconUrl&&!logoDataUrl&&(
+                <img crossOrigin="anonymous" src={effectiveFaviconUrl} onLoad={handleLogoLoad}
+                  style={{display:"none"}} alt=""/>
+              )}
+
+              {/* ─ Header ─ */}
+              <div style={{background:`linear-gradient(135deg,${headerBg} 0%,${darken(accent,0.35)} 100%)`,padding:"24px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
+                <div style={{display:"flex",alignItems:"center",gap:16}}>
+                  {logoDataUrl
+                    ? <img src={logoDataUrl} alt="logo" style={{height:56,maxWidth:160,objectFit:"contain",background:"white",padding:6,borderRadius:8}}/>
+                    : effectiveFaviconUrl
+                    ? <img crossOrigin="anonymous" src={effectiveFaviconUrl} alt="logo" style={{height:48,width:48,objectFit:"contain",background:"white",padding:5,borderRadius:8}} onLoad={handleLogoLoad}/>
+                    : <div style={{width:52,height:52,background:"rgba(255,255,255,.1)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>📊</div>
+                  }
+                  <div>
+                    {editingTitle
+                      ? <input autoFocus value={reportTitle||autoTitle} onChange={e=>setReportTitle(e.target.value)}
+                          onBlur={()=>setEditingTitle(false)} onKeyDown={e=>e.key==="Enter"&&setEditingTitle(false)}
+                          style={{fontSize:18,fontWeight:900,color:"white",background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.4)",borderRadius:6,padding:"4px 10px",outline:"none",width:320}}/>
+                      : <div onClick={()=>setEditingTitle(true)} title="Click to edit title"
+                          style={{fontSize:18,fontWeight:900,color:"white",lineHeight:1.1,cursor:"text",padding:"2px 0",borderBottom:"1px dashed rgba(255,255,255,.3)"}}>
+                          {displayTitle}
+                        </div>
+                    }
+                    <div style={{fontSize:12,color:accentMid,marginTop:4,fontWeight:600}}>{dr.label}</div>
+                    <div style={{fontSize:10,color:"rgba(255,255,255,.45)",marginTop:2}}>
+                      Created {new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}
+                      <span style={{marginLeft:6,color:"rgba(255,255,255,.3)"}}>· click title to edit</span>
+                    </div>
                   </div>
-                );
-              })}
+                </div>
+                <div style={{textAlign:"right",flexShrink:0}}>
+                  <div style={{fontSize:10,color:"rgba(255,255,255,.45)",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:2}}>Prepared by</div>
+                  <div style={{fontSize:14,fontWeight:700,color:"white"}}>Recrue Media</div>
+                  <div style={{fontSize:10,color:"rgba(255,255,255,.4)",marginTop:2}}>{rows.length} tactic{rows.length!==1?"s":""}</div>
+                </div>
+              </div>
+              <div style={{height:3,background:`linear-gradient(90deg,${accent},${accentMid})`}}/>
+
+              {/* ─ Body ─ */}
+              <div id="report-preview-body" style={{padding:"22px 28px",background:"white",color:"#1a1a2e"}}>
+
+                {/* KPI cards */}
+                {sections.kpis&&(()=>{
+                  const kpis=[
+                    {label:"Impressions",   val:fmtN(totals.impressions),  show:totals.impressions>0},
+                    {label:"Clicks",        val:fmtN(totals.clicks),       show:totals.clicks>0},
+                    {label:"Overall CTR",   val:overallCTR,                show:overallCTR!=="—"},
+                    {label:"Avg CPM",       val:overallCPM,                show:overallCPM!=="—"},
+                    {label:"Total Spend",   val:fmtMoney(totals.spend),    show:totals.spend>0},
+                    {label:"Total Reach",   val:fmtN(totals.reach),        show:totals.reach>0},
+                    {label:"Video Views",   val:fmtN(totals.videoViews),   show:totals.videoViews>0},
+                  ].filter(k=>k.show);
+                  return (
+                    <div style={{marginBottom:22}}>
+                      <div style={{fontSize:10,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10,paddingBottom:5,borderBottom:`2px solid ${accent}`}}>Overall Performance KPIs</div>
+                      <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(kpis.length,4)},1fr)`,gap:10}}>
+                        {kpis.map(k=>(
+                          <div key={k.label} style={{background:accentLight,border:`1px solid ${accentMid}`,borderRadius:8,padding:"12px 14px",textAlign:"center"}}>
+                            <div style={{fontSize:22,fontWeight:900,color:accentOnWhite,lineHeight:1,letterSpacing:"-0.02em"}}>{k.val}</div>
+                            <div style={{fontSize:9,color:"#888",marginTop:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{k.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Impressions bar chart */}
+                {sections.impressionChart&&rows.some(r=>r.m.impressions>0)&&(()=>{
+                  const chartRows=rows.filter(r=>r.m.impressions>0);
+                  const maxI=Math.max(...chartRows.map(r=>r.m.impressions),1);
+                  return (
+                    <div style={{marginBottom:22}}>
+                      <div style={{fontSize:10,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10,paddingBottom:5,borderBottom:`2px solid ${accent}`}}>Impressions by Tactic</div>
+                      <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"16px 16px 8px"}}>
+                        <div style={{display:"flex",alignItems:"flex-end",gap:8,height:120}}>
+                          {chartRows.map((r,i)=>{
+                            const pct=r.m.impressions/maxI;
+                            const col=platCol(r.platform);
+                            return (
+                              <div key={r.id} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:0}}>
+                                <div style={{fontSize:8,color:col,fontWeight:700,textAlign:"center"}}>{fmtN(r.m.impressions)}</div>
+                                <div style={{width:"100%",background:col,borderRadius:"3px 3px 0 0",height:`${Math.max(4,pct*90)}px`,minHeight:4}}/>
+                                <div style={{fontSize:8,color:"#999",textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{r.platform}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:8,paddingTop:8,borderTop:"1px solid #eee"}}>
+                          {chartRows.map(r=>(
+                            <div key={r.id} style={{display:"flex",alignItems:"center",gap:4}}>
+                              <div style={{width:8,height:8,borderRadius:2,background:platCol(r.platform),flexShrink:0}}/>
+                              <span style={{fontSize:9,color:"#666"}}>{r.campaignName.trim().slice(0,30)} ({r.platform})</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* CTR chart */}
+                {sections.ctrChart&&rows.filter(r=>r.m.ctr>0).length>0&&(()=>{
+                  const ctrRows=rows.filter(r=>r.m.ctr>0);
+                  const maxCTR=Math.max(...ctrRows.map(r=>r.m.ctr),0.01);
+                  return (
+                    <div style={{marginBottom:22}}>
+                      <div style={{fontSize:10,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10,paddingBottom:5,borderBottom:`2px solid ${accent}`}}>CTR by Tactic</div>
+                      <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px 16px"}}>
+                        {ctrRows.map(r=>(
+                          <div key={r.id} style={{marginBottom:8}}>
+                            <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#555",marginBottom:2}}>
+                              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"75%"}}>{r.campaignName.trim()} ({r.platform})</span>
+                              <strong style={{color:accentOnWhite,flexShrink:0}}>{r.m.ctr.toFixed(2)}%</strong>
+                            </div>
+                            <div style={{background:"#e8eaf0",borderRadius:3,height:12,overflow:"hidden"}}>
+                              <div style={{background:accent,height:"100%",width:`${(r.m.ctr/maxCTR*100).toFixed(1)}%`,borderRadius:3}}/>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Performance table */}
+                {sections.table&&(
+                  <div style={{marginBottom:22}}>
+                    <div style={{fontSize:10,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10,paddingBottom:5,borderBottom:`2px solid ${accent}`}}>Campaign Performance by Tactic</div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead>
+                          <tr style={{background:headerBg,color:"white"}}>
+                            {["Campaign","Platform","Impressions","Clicks","CTR","CPM","Spend","Reach","VCR/CR"].map(h=>(
+                              <th key={h} style={{padding:"8px 10px",textAlign:h==="Campaign"||h==="Platform"?"left":"right",fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((r,i)=>(
+                            <tr key={r.id} style={{background:i%2===0?"#f9faff":"white",fontSize:12}}>
+                              <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8"}}>
+                                <div style={{fontWeight:600,color:"#1a1a2e",fontSize:12}}>{r.campaignName.trim()}</div>
+                                {r.goal&&<div style={{fontSize:9,color:"#999",marginTop:1}}>{r.goal}</div>}
+                              </td>
+                              <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8"}}>
+                                <span style={{background:platCol(r.platform)+"22",color:platCol(r.platform),border:"1px solid "+platCol(r.platform)+"50",borderRadius:4,padding:"1px 6px",fontSize:9,fontWeight:700}}>{r.platform}</span>
+                              </td>
+                              <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",color:accentOnWhite,fontWeight:600}}>{r.m.impressions>0?fmtN(r.m.impressions):"—"}</td>
+                              <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.clicks>0?fmtN(r.m.clicks):"—"}</td>
+                              <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",fontWeight:r.m.ctr>0?700:400,color:r.m.ctr>0?accentOnWhite:"#999"}}>{r.m.ctr>0?r.m.ctr.toFixed(2)+"%":"—"}</td>
+                              <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.cpm>0?"$"+r.m.cpm.toFixed(2):"—"}</td>
+                              <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.spend>0?fmtMoney(r.m.spend):"—"}</td>
+                              <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.reach>0?fmtN(r.m.reach):"—"}</td>
+                              <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.completionRate>0?r.m.completionRate.toFixed(1)+"%":r.m.videoViews>0?fmtN(r.m.videoViews):"—"}</td>
+                            </tr>
+                          ))}
+                          <tr style={{background:headerBg,color:"white",fontWeight:800}}>
+                            <td style={{padding:"8px 10px"}} colSpan={2}>TOTAL</td>
+                            <td style={{padding:"8px 10px",textAlign:"right"}}>{totals.impressions>0?fmtN(totals.impressions):"—"}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right"}}>{totals.clicks>0?fmtN(totals.clicks):"—"}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right"}}>{overallCTR}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right"}}>{overallCPM}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right"}}>{totals.spend>0?fmtMoney(totals.spend):"—"}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right"}}>{totals.reach>0?fmtN(totals.reach):"—"}</td>
+                            <td style={{padding:"8px 10px",textAlign:"right"}}>—</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Budget */}
+                {sections.budget&&totals.contractValue>0&&(
+                  <div style={{marginBottom:22}}>
+                    <div style={{fontSize:10,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10,paddingBottom:5,borderBottom:`2px solid ${accent}`}}>Budget Overview</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:8}}>
+                      {[
+                        {label:"Contract Value", val:fmtMoney(totals.contractValue)},
+                        {label:"Total Spend",     val:fmtMoney(totals.spend)},
+                        {label:"Remaining",       val:fmtMoney(totals.contractValue-totals.spend)},
+                      ].map(b=>(
+                        <div key={b.label} style={{background:accentLight,border:`1px solid ${accentMid}`,borderRadius:8,padding:"12px 14px",textAlign:"center"}}>
+                          <div style={{fontSize:18,fontWeight:800,color:accentOnWhite}}>{b.val}</div>
+                          <div style={{fontSize:9,color:"#888",marginTop:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>{b.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{background:"#e8eaf0",borderRadius:6,height:8,overflow:"hidden"}}>
+                      <div style={{background:`linear-gradient(90deg,${accent},${accentDark})`,height:"100%",width:`${Math.min(100,(totals.spend/totals.contractValue*100)).toFixed(1)}%`,borderRadius:6}}/>
+                    </div>
+                    <div style={{fontSize:10,color:"#888",marginTop:4}}>{Math.round(totals.spend/totals.contractValue*100)}% of budget used</div>
+                  </div>
+                )}
+
+                {/* Top Creatives */}
+                {sections.creatives&&(()=>{
+                  const allCreatives=rows.flatMap(r=>{ const d=tryParseJson(r.topCreatives); return d?d.map(c=>({...c,platform:r.platform,campaign:r.campaignName.trim()})):[] });
+                  if (!allCreatives.length) return null;
+                  const maxI=Math.max(...allCreatives.map(c=>c.impressions||0),1);
+                  return (
+                    <div style={{marginBottom:22}}>
+                      <div style={{fontSize:10,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10,paddingBottom:5,borderBottom:`2px solid ${accent}`}}>Top Performing Creatives</div>
+                      <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,overflow:"hidden"}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                          <thead><tr style={{background:headerBg,color:"white"}}>
+                            {["Ad / Creative","Platform","Impressions","Clicks","CTR"].map(h=>(
+                              <th key={h} style={{padding:"7px 10px",textAlign:h==="Ad / Creative"?"left":"right",fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
+                            ))}
+                          </tr></thead>
+                          <tbody>
+                            {allCreatives.sort((a,b)=>(b.impressions||0)-(a.impressions||0)).slice(0,8).map((c,i)=>(
+                              <tr key={i} style={{background:i%2===0?"white":"#f9faff"}}>
+                                <td style={{padding:"7px 10px",borderBottom:"1px solid #eef0f8"}}>
+                                  <div style={{fontWeight:500,color:"#1a1a2e"}}>{c.name}</div>
+                                  <div style={{fontSize:9,color:"#999"}}>{c.campaign}</div>
+                                </td>
+                                <td style={{padding:"7px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>
+                                  <span style={{background:platCol(c.platform)+"22",color:platCol(c.platform),border:"1px solid "+platCol(c.platform)+"50",borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700}}>{c.platform}</span>
+                                </td>
+                                <td style={{padding:"7px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",fontWeight:600,color:accentOnWhite}}>{fmtN(c.impressions||0)}</td>
+                                <td style={{padding:"7px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{fmtN(c.clicks||0)}</td>
+                                <td style={{padding:"7px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",fontWeight:700,color:accentOnWhite}}>{c.ctr?c.ctr.toFixed(2)+"%":"—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Demographics + Devices + Geo */}
+                {(()=>{
+                  const allDemo  = rows.flatMap(r=>tryParseJson(r.demoAge)||[]);
+                  const allGender= rows.flatMap(r=>tryParseJson(r.demoGender)||[]);
+                  const allDevice= rows.flatMap(r=>tryParseJson(r.deviceData)||[]);
+                  const allGeo   = rows.flatMap(r=>tryParseJson(r.geoData)||[]);
+                  const hasDemo  = sections.demographics&&(allDemo.length>0||allGender.length>0);
+                  const hasDevice= sections.devices&&allDevice.length>0;
+                  const hasGeo   = sections.geo&&allGeo.length>0;
+                  if (!hasDemo&&!hasDevice&&!hasGeo) return null;
+                  return (
+                    <div style={{marginBottom:22}}>
+                      <div style={{fontSize:10,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10,paddingBottom:5,borderBottom:`2px solid ${accent}`}}>Audience Insights</div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14}}>
+                        {hasDemo&&allDemo.length>0&&(
+                          <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px"}}>
+                            <div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.05em"}}>Age Breakdown</div>
+                            <div dangerouslySetInnerHTML={{__html:hbarHTML(allDemo,accent)}}/>
+                          </div>
+                        )}
+                        {hasDemo&&allGender.length>0&&(
+                          <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px"}}>
+                            <div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.05em"}}>Gender</div>
+                            <div dangerouslySetInnerHTML={{__html:donutSVG(allGender,accent)}}/>
+                          </div>
+                        )}
+                        {hasDevice&&(
+                          <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px"}}>
+                            <div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.05em"}}>Device Breakdown</div>
+                            <div dangerouslySetInnerHTML={{__html:donutSVG(allDevice,accent)}}/>
+                          </div>
+                        )}
+                        {hasGeo&&(
+                          <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px"}}>
+                            <div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:10,textTransform:"uppercase",letterSpacing:"0.05em"}}>Geo Breakdown</div>
+                            <div dangerouslySetInnerHTML={{__html:hbarHTML(allGeo,accent)}}/>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Footer */}
+                <div style={{borderTop:`1px solid ${accentMid}`,paddingTop:12,display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
+                  <div style={{fontSize:9,color:"#aaa"}}>Recrue Media · {displayTitle} · {dr.label}</div>
+                  <div style={{fontSize:9,color:"#aaa"}}>Confidential — For Client Use Only</div>
+                </div>
+              </div>
             </div>
-          </div>
-        )}
-
-        {/* Generate button */}
-        <button onClick={generateReport} disabled={selectedIds.size===0||generatingReport}
-          style={{background:selectedIds.size>0?"linear-gradient(135deg,#002e24,#004d3a)":"#0c1625",
-            border:`1px solid ${selectedIds.size>0?"#00c89650":"#1e293b"}`,
-            borderRadius:10,padding:"14px 28px",color:selectedIds.size>0?"#00e5a0":"#3d5a72",
-            fontSize:14,fontWeight:800,cursor:selectedIds.size>0?"pointer":"default",
-            display:"flex",alignItems:"center",justifyContent:"center",gap:10,
-            transition:"all .2s",...(selectedIds.size>0?{boxShadow:"0 0 14px #00c89620"}:{})}}>
-          {generatingReport
-            ? <>⟳ Generating…</>
-            : selectedIds.size===0
-            ? "← Select campaigns to generate report"
-            : <>📄 Generate Report ({selectedIds.size} tactic{selectedIds.size!==1?"s":""})</>
-          }
-        </button>
-
-        {selectedIds.size>0&&(
-          <div style={{fontSize:11,color:"#3d5a72",textAlign:"center",lineHeight:1.6}}>
-            Report opens in a new window and auto-triggers the print dialog.<br/>
-            Choose <strong style={{color:"#4d6e8a"}}>Save as PDF</strong> in the print dialog to export.
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
