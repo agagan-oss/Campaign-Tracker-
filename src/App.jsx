@@ -4321,27 +4321,35 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
   // ── Inline editable field ─────────────────────────────────────────────────────
   function InlineEdit({field, value, onChange, style={}, placeholder="Click to edit"}) {
-    const [draft,setDraft]=useState(value);
+    const draftRef = useRef(value);
+    const inputRef = useRef(null);
     if(editingField===field) return (
-      <input autoFocus value={draft} onChange={e=>setDraft(e.target.value)}
-        onBlur={()=>{onChange(draft);setEditingField(null);}}
-        onKeyDown={e=>{if(e.key==="Enter"){onChange(draft);setEditingField(null);}if(e.key==="Escape")setEditingField(null);}}
-        style={{...style,outline:"none",border:"1px dashed rgba(255,255,255,.5)",background:"rgba(255,255,255,.1)",borderRadius:4,padding:"2px 6px",color:"white",fontFamily:"inherit"}}/>
+      <input ref={inputRef} autoFocus defaultValue={value}
+        onChange={e=>{ draftRef.current=e.target.value; }}
+        onBlur={()=>{onChange(draftRef.current);setEditingField(null);}}
+        onKeyDown={e=>{if(e.key==="Enter"){onChange(draftRef.current);setEditingField(null);}if(e.key==="Escape")setEditingField(null);}}
+        style={{...style,outline:"none",border:"1px dashed rgba(255,255,255,.5)",background:"rgba(255,255,255,.1)",borderRadius:4,padding:"2px 6px",color:"white",fontFamily:"inherit",minWidth:200}}/>
     );
-    return <span onClick={()=>{setDraft(value);setEditingField(field);}} title="Click to edit" style={{...style,cursor:"text",borderBottom:"1px dashed rgba(255,255,255,.35)",paddingBottom:1}}>{value||<span style={{opacity:.4}}>{placeholder}</span>}</span>;
+    return <span onClick={()=>setEditingField(field)} title="Click to edit" style={{...style,cursor:"text",borderBottom:"1px dashed rgba(255,255,255,.35)",paddingBottom:1}}>{value||<span style={{opacity:.4}}>{placeholder}</span>}</span>;
   }
 
-  // ── Section note editor ───────────────────────────────────────────────────────
+  // ── Section note editor — uses uncontrolled input to avoid backwards typing ──
   function SectionNote({skey}) {
     const note=sectionNotes[skey]||"";
-    if(editingNote===skey) return (
-      <textarea autoFocus value={note} onChange={e=>setSectionNotes(p=>({...p,[skey]:e.target.value}))}
-        onBlur={()=>setEditingNote(null)} placeholder="Add a note for this section (appears in report)…"
-        style={{width:"100%",background:"#fffbe6",border:"1px solid #f0c040",borderRadius:5,padding:"6px 8px",fontSize:11,color:"#333",resize:"vertical",minHeight:48,fontFamily:"inherit",outline:"none",marginTop:4}}/>
+    const draftRef = useRef(note);
+    const [isEditing, setIsEditing] = useState(false);
+    function commit() { setSectionNotes(p=>({...p,[skey]:draftRef.current})); setIsEditing(false); }
+    if(isEditing) return (
+      <textarea autoFocus defaultValue={note}
+        onChange={e=>{ draftRef.current=e.target.value; }}
+        onBlur={commit}
+        onKeyDown={e=>{ if(e.key==="Escape") commit(); }}
+        placeholder="Add a note for this section (appears in the exported report)…"
+        style={{width:"100%",background:"#fffbe6",border:"1px solid #f0c040",borderRadius:5,padding:"6px 8px",fontSize:11,color:"#333",resize:"vertical",minHeight:56,fontFamily:"inherit",outline:"none",marginTop:5,display:"block"}}/>
     );
     return note
-      ? <div onClick={()=>setEditingNote(skey)} style={{marginTop:6,padding:"6px 10px",background:"#fffbe6",border:"1px solid #f0e030",borderRadius:5,fontSize:11,color:"#555",cursor:"text",lineHeight:1.5}}>{note} <span style={{color:"#aaa",fontSize:9}}>✎</span></div>
-      : <button onClick={()=>setEditingNote(skey)} style={{background:"none",border:"none",color:"#bbb",fontSize:10,cursor:"pointer",marginTop:4,padding:0}}>+ add note</button>;
+      ? <div onClick={()=>setIsEditing(true)} style={{marginTop:5,padding:"6px 10px",background:"#fffbe6",border:"1px solid #f0e030",borderRadius:5,fontSize:11,color:"#555",cursor:"text",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{note} <span style={{color:"#bbb",fontSize:9}}>✎ edit</span></div>
+      : <button onClick={()=>setIsEditing(true)} style={{background:"none",border:"none",color:"#bbb",fontSize:10,cursor:"pointer",marginTop:4,padding:0}}>+ add note to this section</button>;
   }
 
   // ── Section header (preview) ─────────────────────────────────────────────────
@@ -4350,7 +4358,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
       <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${accent}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <span>{title}</span>
         <button onClick={()=>setSections(p=>({...p,[skey]:!p[skey]}))} title="Hide section"
-          style={{background:"none",border:"none",color:"#ccc",fontSize:11,cursor:"pointer",lineHeight:1}}>×</button>
+          style={{background:"none",border:"none",color:"#ccc",fontSize:11,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>×</button>
       </div>
     );
   }
@@ -4404,7 +4412,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
           style={{display:"none"}} alt=""/>
       )}
 
-      <div style={{display:"grid",gridTemplateColumns:"320px 1fr",gap:16,alignItems:"start"}}>
+      <div style={{display:"grid",gridTemplateColumns:"400px 1fr",gap:16,alignItems:"start"}}>
 
         {/* ════════════════════════════════════════
             LEFT PANEL
@@ -4506,58 +4514,81 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
           <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"14px"}}>
             <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:10}}>④ Branding</div>
 
-            {/* Website input + fetch */}
-            <div style={{marginBottom:10}}>
-              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Client Website</label>
-              <div style={{display:"flex",gap:5}}>
-                <input value={websiteInput} onChange={e=>setWebsiteInput(e.target.value)} placeholder="https://fairmontstate.edu"
-                  style={{...iS,flex:1,fontFamily:"monospace",fontSize:11}}/>
-                <button onClick={fetchBrandFromWebsite} disabled={!websiteInput||logoFetching}
-                  style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 9px",color:logoFetching?"#3d5a72":"#60a5fa",fontSize:10,cursor:logoFetching?"default":"pointer",whiteSpace:"nowrap"}}>
-                  {logoFetching?"…":"Pull"}
-                </button>
-              </div>
-              {logoError&&<div style={{fontSize:9,color:"#ef4444",marginTop:3}}>{logoError}</div>}
-              {clearbitLogoUrl&&!logoDataUrl&&(
-                <div style={{marginTop:6,display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"#07101c",borderRadius:6,border:"1px solid #1a2744"}}>
-                  <img crossOrigin="anonymous" src={clearbitLogoUrl} onLoad={handleLogoImgLoad} onError={()=>setLogoError("No logo found — try uploading manually")}
-                    style={{height:28,maxWidth:80,objectFit:"contain",background:"white",padding:3,borderRadius:4}} alt="logo"/>
-                  <span style={{fontSize:10,color:"#00e5a0"}}>Logo found via Clearbit</span>
+            {/* Logo upload — drag & drop + click */}
+            <div style={{marginBottom:12}}>
+              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:5}}>Client Logo</label>
+              <label
+                onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor=accent;}}
+                onDragLeave={e=>{e.currentTarget.style.borderColor="#334155";}}
+                onDrop={e=>{
+                  e.preventDefault(); e.currentTarget.style.borderColor="#334155";
+                  const file=e.dataTransfer.files[0]; if(!file||!file.type.startsWith("image/")) return;
+                  const r=new FileReader(); r.onload=ev=>{setLogoDataUrl(ev.target.result);setColorOverride(false);}; r.readAsDataURL(file);
+                }}
+                style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6,background:logoDataUrl?"#001810":"#0e1a2e",border:`2px dashed ${logoDataUrl?"#00c896":"#334155"}`,borderRadius:8,padding:"12px",cursor:"pointer",transition:"border-color .15s",minHeight:72}}>
+                {logoDataUrl
+                  ? <><img src={logoDataUrl} alt="logo" style={{height:44,maxWidth:140,objectFit:"contain",background:"white",padding:5,borderRadius:5}}/><span style={{fontSize:9,color:"#00e5a0"}}>✓ Logo set — drag new image or click to replace</span></>
+                  : <><span style={{fontSize:22}}>📎</span><span style={{fontSize:11,color:"#4d6e8a",textAlign:"center"}}>Drag & drop logo here<br/><span style={{fontSize:10,color:"#3d5a72"}}>or click to browse (PNG, JPG, SVG)</span></span></>
+                }
+                <input type="file" accept="image/*" onChange={handleManualLogoUpload} style={{display:"none"}}/>
+              </label>
+              {logoDataUrl&&(
+                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:5}}>
+                  <button onClick={()=>{setLogoDataUrl("");setColorOverride(false);}} style={{background:"none",border:"none",color:"#ef4444",fontSize:10,cursor:"pointer",padding:0}}>× Remove logo</button>
+                  {!colorOverride&&<span style={{fontSize:9,color:"#00e5a0"}}>Brand color auto-extracted ✓</span>}
                 </div>
               )}
             </div>
 
-            {/* Manual upload */}
-            <div style={{marginBottom:10}}>
-              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Upload Logo Manually</label>
-              <label style={{background:"#162236",border:`1px solid ${logoDataUrl?"#00c89650":"#334155"}`,borderRadius:6,padding:"7px 10px",color:logoDataUrl?"#00e5a0":"#4d6e8a",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-                {logoDataUrl?"✓ Uploaded — click to replace":"📎 Upload image (PNG/JPG/SVG)"}
-                <input type="file" accept="image/*" onChange={handleManualLogoUpload} style={{display:"none"}}/>
+            {/* Website — just for favicon preview, no auto-color-fetch */}
+            <div style={{marginBottom:12}}>
+              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:4}}>
+                Client Website <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(shows favicon if no logo uploaded)</span>
               </label>
-              {logoDataUrl&&<button onClick={()=>{setLogoDataUrl("");setColorOverride(false);}} style={{background:"none",border:"none",color:"#ef4444",fontSize:10,cursor:"pointer",marginTop:3}}>× Remove</button>}
+              <input value={websiteInput} onChange={e=>setWebsiteInput(e.target.value)} placeholder="https://fairmontstate.edu"
+                style={{...iS,width:"100%",fontFamily:"monospace",fontSize:11}}/>
+              {websiteInput&&!logoDataUrl&&(()=>{
+                try {
+                  const domain=new URL(websiteInput.startsWith("http")?websiteInput:"https://"+websiteInput).hostname;
+                  const favUrl=`https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+                  return (
+                    <div style={{marginTop:6,display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"#07101c",borderRadius:6,border:"1px solid #1a2744"}}>
+                      <img src={favUrl} alt="" onLoad={handleLogoImgLoad}
+                        style={{width:24,height:24,objectFit:"contain",background:"white",padding:2,borderRadius:3}} crossOrigin="anonymous"/>
+                      <span style={{fontSize:10,color:"#4d6e8a"}}>Favicon preview — upload a full logo above for better results</span>
+                    </div>
+                  );
+                } catch { return null; }
+              })()}
             </div>
 
-            {/* Brand color */}
+            {/* Brand color — manual picker + quick presets */}
             <div>
-              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:5}}>
-                Brand Color {!colorOverride&&(logoDataUrl||clearbitLogoUrl)&&<span style={{color:"#00e5a0"}}>(auto-extracted)</span>}
-              </label>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:6}}>Brand Color</label>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                 <input type="color" value={brandColor} onChange={e=>{setBrandColor(e.target.value);setColorOverride(true);}}
-                  style={{width:36,height:28,borderRadius:4,border:"1px solid #334155",cursor:"pointer",padding:0,background:"none"}}/>
-                <span style={{fontSize:12,fontFamily:"monospace",color:"#7a9bbf"}}>{brandColor}</span>
-                {colorOverride&&(
+                  style={{width:40,height:32,borderRadius:5,border:"1px solid #334155",cursor:"pointer",padding:0,background:"none"}}/>
+                <input value={brandColor} onChange={e=>{ if(/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)){setBrandColor(e.target.value);setColorOverride(true);}}}
+                  style={{...iS,width:90,fontFamily:"monospace",fontSize:12,padding:"5px 8px"}}/>
+                {colorOverride&&logoDataUrl&&(
                   <button onClick={()=>{setColorOverride(false);if(logoRef.current){const c=extractDominantColor(logoRef.current);if(c)setBrandColor(saturate(c));}}}
-                    style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"3px 7px",color:"#4d6e8a",fontSize:9,cursor:"pointer"}}>Reset auto</button>
+                    style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#4d6e8a",fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>↺ From logo</button>
                 )}
               </div>
+              {/* Common brand color presets */}
+              <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
+                {["#1a73e8","#c41230","#8B1538","#004990","#00843D","#E31837","#FF6900","#6B2D8B","#1D3557","#2B6CB0","#000000","#1a1a2e"].map(c=>(
+                  <button key={c} onClick={()=>{setBrandColor(c);setColorOverride(true);}}
+                    title={c} style={{width:22,height:22,borderRadius:4,background:c,border:`2px solid ${brandColor===c?"white":"transparent"}`,cursor:"pointer",padding:0,flexShrink:0}}/>
+                ))}
+              </div>
               {/* Color preview strip */}
-              <div style={{marginTop:8,borderRadius:6,overflow:"hidden",display:"flex",height:22}}>
+              <div style={{borderRadius:5,overflow:"hidden",display:"flex",height:18}}>
                 {[headerBg,darken(accent,.3),accent,accentMid,accentLight].map((c,i)=>(
                   <div key={i} style={{flex:1,background:c}}/>
                 ))}
               </div>
-              <div style={{fontSize:9,color:"#3d5a72",marginTop:3}}>Header → Accent → Light — all auto-derived</div>
+              <div style={{fontSize:9,color:"#3d5a72",marginTop:3}}>Header dark → accent → light — auto-generated from your color</div>
             </div>
           </div>
 
@@ -4575,28 +4606,50 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
             <div style={{fontSize:9,color:"#3d5a72",marginTop:6}}>Click any section in the preview to hide it. Sections with no data are ignored automatically.</div>
           </div>
 
-          {/* ── Creative screenshots ── */}
+          {/* ── Creative screenshots — drag & drop ── */}
           {selectedCamps.length>0&&(
             <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"14px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:8}}>⑥ Ad Screenshots</div>
-              <div style={{fontSize:10,color:"#4d6e8a",marginBottom:8,lineHeight:1.5}}>Upload ad creative screenshots. They'll appear in the Creatives section of the report.</div>
-              {selectedCamps.map(c=>(
-                <div key={c.id} style={{marginBottom:8,borderBottom:"1px solid #1a2744",paddingBottom:8}}>
-                  <div style={{fontSize:10,color:"#7a9bbf",marginBottom:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()} <span style={{color:platCol(c.platform)}}>{c.platform}</span></div>
-                  <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:4}}>
-                    {(creativeImages[c.id]||[]).map((url,idx)=>(
-                      <div key={idx} style={{position:"relative"}}>
-                        <img src={url} alt="" style={{height:40,width:40,objectFit:"cover",borderRadius:4,border:"1px solid #334155"}}/>
-                        <button onClick={()=>removeCreativeImage(c.id,idx)}
-                          style={{position:"absolute",top:-4,right:-4,width:14,height:14,borderRadius:"50%",background:"#ef4444",border:"none",color:"white",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>×</button>
+              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:4}}>⑥ Ad Screenshots</div>
+              <div style={{fontSize:10,color:"#4d6e8a",marginBottom:10,lineHeight:1.5}}>Drag & drop screenshots onto each campaign, or click + to browse. They appear in the Creatives section.</div>
+              {selectedCamps.map(c=>{
+                const imgs = creativeImages[c.id]||[];
+                const pc = platCol(c.platform);
+                return (
+                  <div key={c.id} style={{marginBottom:10,paddingBottom:10,borderBottom:"1px solid #1a2744"}}>
+                    <div style={{fontSize:10,color:"#7a9bbf",marginBottom:5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,marginRight:5}}>{c.platform}</span>
+                      {c.campaignName.trim()}
+                    </div>
+                    {/* Drop zone */}
+                    <div
+                      onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor=accent;e.currentTarget.style.background="#001810";}}
+                      onDragLeave={e=>{e.currentTarget.style.borderColor="#334155";e.currentTarget.style.background="#0e1a2e";}}
+                      onDrop={e=>{
+                        e.preventDefault();
+                        e.currentTarget.style.borderColor="#334155";e.currentTarget.style.background="#0e1a2e";
+                        const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith("image/"));
+                        files.forEach(f=>{const r=new FileReader();r.onload=ev=>addCreativeImage(c.id,ev.target.result);r.readAsDataURL(f);});
+                      }}
+                      style={{background:"#0e1a2e",border:"1px dashed #334155",borderRadius:7,padding:"8px",transition:"all .15s",minHeight:56}}>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                        {imgs.map((url,idx)=>(
+                          <div key={idx} style={{position:"relative",flexShrink:0}}>
+                            <img src={url} alt="" style={{height:52,width:52,objectFit:"cover",borderRadius:5,border:"1px solid #334155",display:"block"}}/>
+                            <button onClick={()=>removeCreativeImage(c.id,idx)}
+                              style={{position:"absolute",top:-5,right:-5,width:16,height:16,borderRadius:"50%",background:"#ef4444",border:"2px solid #0c1625",color:"white",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1,fontWeight:700}}>×</button>
+                          </div>
+                        ))}
+                        <label style={{width:52,height:52,background:"#162236",border:"1px dashed #334155",borderRadius:5,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#4d6e8a",fontSize:18,gap:2,flexShrink:0}}>
+                          <span>+</span>
+                          <span style={{fontSize:8,textAlign:"center",lineHeight:1}}>browse</span>
+                          <input type="file" accept="image/*" multiple style={{display:"none"}} onChange={e=>{[...e.target.files].forEach(f=>{const r=new FileReader();r.onload=ev=>addCreativeImage(c.id,ev.target.result);r.readAsDataURL(f);});}}/>
+                        </label>
+                        {imgs.length===0&&<span style={{fontSize:10,color:"#3d5a72",marginLeft:4}}>Drop images here or click +</span>}
                       </div>
-                    ))}
-                    <label style={{width:40,height:40,background:"#162236",border:"1px dashed #334155",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#4d6e8a",fontSize:16}}>
-                      +<input type="file" accept="image/*" multiple style={{display:"none"}} onChange={e=>{[...e.target.files].forEach(f=>{const r=new FileReader();r.onload=ev=>addCreativeImage(c.id,ev.target.result);r.readAsDataURL(f);});}}/>
-                    </label>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
