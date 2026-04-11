@@ -4195,6 +4195,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   const [colorOverride, setColorOverride] = useState(false);
   const [logoFetching,  setLogoFetching]  = useState(false);
   const [logoError,     setLogoError]     = useState("");
+  const [logoLoaded,    setLogoLoaded]    = useState(false);
   const logoRef = useRef(null);
 
   // ── Section config ───────────────────────────────────────────────────────────
@@ -4263,31 +4264,58 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   // ── Auto-populate identity from selected campaigns ──────────────────────────
   useEffect(()=>{
     if(selectedCamps.length===0) return;
-    // Client name = unique campaign names (this is what goes to the actual client)
     const names=[...new Set(selectedCamps.map(c=>c.campaignName.trim()))];
     if(!clientName) setClientName(names.length===1?names[0]:names.slice(0,2).join(" / "));
-    // Website from first campaign that has one
     const site=selectedCamps.find(c=>c.clientWebsite)?.clientWebsite;
     if(site&&!websiteInput) setWebsiteInput(site);
   },[selectedCamps]);
 
-  // ── Logo fetching ─────────────────────────────────────────────────────────────
-  const clearbitLogoUrl = useMemo(()=>{
-    const src=websiteInput;
-    if(!src||logoDataUrl) return null;
-    try{ const domain=new URL(src.startsWith("http")?src:"https://"+src).hostname.replace(/^www\./,""); return `https://logo.clearbit.com/${domain}`; }
-    catch{ return null; }
-  },[websiteInput,logoDataUrl]);
-
-  async function fetchBrandFromWebsite() {
-    if(!websiteInput) return;
-    setLogoFetching(true); setLogoError("");
+  // Auto-derive client name from website URL when typed
+  useEffect(()=>{
+    if(!websiteInput||clientName) return;
     try {
-      const col = await fetchBrandColor(websiteInput);
-      if(col&&!colorOverride) setBrandColor(saturate(col));
-    } catch(e){}
-    setLogoFetching(false);
+      const domain = new URL(websiteInput.startsWith("http")?websiteInput:"https://"+websiteInput).hostname.replace(/^www\./,"");
+      // Convert domain to readable name e.g. "fairmontstate.edu" → "Fairmontstate"
+      const name = domain.split(".")[0];
+      const pretty = name.charAt(0).toUpperCase() + name.slice(1);
+      setClientName(pretty);
+    } catch {}
+  },[websiteInput]);
+
+  // ── Logo fetching — multiple sources with fallbacks ────────────────────────
+  // Returns array of URLs to try in order
+  function getLogoUrls(website) {
+    if(!website) return [];
+    try {
+      const url = new URL(website.startsWith("http")?website:"https://"+website);
+      const domain = url.hostname.replace(/^www\./,"");
+      const rootDomain = domain.split(".").slice(-2).join(".");
+      return [
+        // Google favicon — most reliable, always works, small but crisp
+        `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
+        // DuckDuckGo favicon service
+        `https://icons.duckduckgo.com/ip3/${domain}.ico`,
+        // Direct favicon attempt
+        `https://${domain}/favicon.ico`,
+      ];
+    } catch { return []; }
   }
+
+  const detectedWebsite = useMemo(()=>selectedCamps.find(c=>c.clientWebsite)?.clientWebsite||"",[selectedCamps]);
+
+  const logoUrls = useMemo(()=>{
+    if(logoDataUrl) return [];
+    return getLogoUrls(websiteInput||detectedWebsite);
+  },[websiteInput,detectedWebsite,logoDataUrl]);
+
+  const [logoUrlIndex, setLogoUrlIndex] = useState(0);
+  const activeFaviconUrl = logoUrls[logoUrlIndex]||null;
+
+  // Reset index when urls change
+  useEffect(()=>{ setLogoUrlIndex(0); },[logoUrls.join(",")]);
+
+  // Alias for render clarity
+  const clearbitLogoUrl = activeFaviconUrl;
 
   function handleLogoImgLoad(e) {
     if(colorOverride) return;
@@ -4297,6 +4325,11 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
     },50);
   }
 
+  function handleLogoImgError() {
+    // Try next URL in fallback chain
+    setLogoUrlIndex(i=>i+1);
+  }
+
   function handleManualLogoUpload(e) {
     const file=e.target.files[0]; if(!file) return;
     const reader=new FileReader();
@@ -4304,12 +4337,15 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
     reader.readAsDataURL(file);
   }
 
-  // ── Brand color palette ───────────────────────────────────────────────────────
-  const accent     = brandColor;
-  const accentText = textOnBg(accent);
-  const headerBg   = darken(accent,0.55);
-  const accentLight= lighten(accent,0.90);
-  const accentMid  = lighten(accent,0.65);
+  // ── Brand color palette — accent IS the exact chosen color ─────────────────
+  const accent      = brandColor;                  // EXACT brand color — used for KPI numbers, bars, accents, borders
+  const accentText  = textOnBg(accent);            // white or dark text on accent bg
+  const accentDark  = darken(accent, 0.18);        // one shade darker — totals row, pressed states
+  const accentLight = lighten(accent, 0.88);       // very light tint — KPI card backgrounds
+  const accentMid   = lighten(accent, 0.60);       // mid tint — dividers, subtle borders
+  // Header: always dark regardless of brand color so white text is readable
+  const headerBg    = darken(accent, 0.55);        // dark header bg
+  const headerLight = darken(accent, 0.35);        // gradient end — slightly less dark
 
   // ── Display names ─────────────────────────────────────────────────────────────
   const autoClientName = useMemo(()=>{
@@ -4364,20 +4400,116 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   }
 
   const iS={background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",outline:"none"};
-  const platCol=p=>PLT_COLORS[p]||PLT_COLORS.default||"#7a9bbf";
+  // Platform colors for report — derived from brand color so everything looks cohesive
+  // We generate a palette of shades from the brand color rather than using the tracker's neon colors
+  const reportPlatPalette = useMemo(()=>{
+    const base = brandColor;
+    // Generate 8 distinct but harmonious shades from the brand color
+    const shades = [
+      base,
+      darken(base, 0.2),
+      lighten(base, 0.3),
+      darken(base, 0.4),
+      lighten(base, 0.5),
+      darken(base, 0.6),
+      lighten(base, 0.15),
+      darken(base, 0.1),
+    ];
+    return shades;
+  }, [brandColor]);
+
+  // Assign a consistent color per platform within the selected campaigns
+  const platColorMap = useMemo(()=>{
+    const platforms = [...new Set(rows.map(r=>r.platform))];
+    const map = {};
+    platforms.forEach((p,i) => { map[p] = reportPlatPalette[i % reportPlatPalette.length]; });
+    return map;
+  }, [rows, reportPlatPalette]);
+
+  const platCol = p => platColorMap[p] || brandColor;
+
+  // ── Logo URL — Google favicon is 100% reliable, no CORS, no token ────────────
+  const previewLogoUrl = useMemo(()=>{
+    if(logoDataUrl) return {src:logoDataUrl, fallback:null};
+    const site = websiteInput||detectedWebsite;
+    if(!site) return null;
+    try {
+      const domain = new URL(site.startsWith("http")?site:"https://"+site).hostname.replace(/^www\./,"");
+      return {
+        src: `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
+        fallback: `https://icons.duckduckgo.com/ip3/${domain}.ico`,
+        domain,
+      };
+    } catch { return null; }
+  },[logoDataUrl, websiteInput, detectedWebsite]);
+
+  // Fetch brand color from website meta theme-color tag via CORS proxy
+  const [fetchingColor, setFetchingColor] = useState(false);
+  async function fetchColorFromSite(site) {
+    if(!site) return;
+    setFetchingColor(true);
+    let found = false;
+    try {
+      const url = site.startsWith("http")?site:"https://"+site;
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+      const res = await fetch(proxyUrl, {signal:AbortSignal.timeout(6000)});
+      if(res.ok) {
+        const json = await res.json();
+        const html = json?.contents||"";
+        if(html) {
+          // Match theme-color in any attribute order
+          const patterns = [
+            /name=["']theme-color["'][^>]*content=["']\s*(#[0-9a-fA-F]{3,8})\s*["']/i,
+            /content=["']\s*(#[0-9a-fA-F]{3,8})\s*["'][^>]*name=["']theme-color["']/i,
+            /<meta[^>]+theme-color[^>]+content=["']([^"']+)["']/i,
+          ];
+          for(const pat of patterns) {
+            const m = html.match(pat);
+            if(m && m[1] && m[1].startsWith("#")) {
+              setBrandColor(saturate(m[1]));
+              found = true;
+              break;
+            }
+          }
+          if(!found) {
+            // Try manifest theme_color
+            const mf = html.match(/"theme_color"\s*:\s*"(#[0-9a-fA-F]{3,8})"/);
+            if(mf && mf[1]) { setBrandColor(saturate(mf[1])); found = true; }
+          }
+        }
+      }
+    } catch(e) {}
+    setFetchingColor(false);
+  }
+
+  // Auto-fetch color when URL is entered (debounced)
+  useEffect(()=>{
+    if(!websiteInput) return;
+    const t = setTimeout(()=>fetchColorFromSite(websiteInput), 900);
+    return ()=>clearTimeout(t);
+  },[websiteInput]);
+
 
   // ── PDF Export ────────────────────────────────────────────────────────────────
   function exportPDF() {
     const body=document.getElementById("rpt-preview-body");
     if(!body) return;
-    const logoHtml=logoDataUrl?`<img src="${logoDataUrl}" style="height:60px;max-width:180px;object-fit:contain;background:white;padding:8px;border-radius:8px" alt="logo"/>`
-      :clearbitLogoUrl?`<img src="${clearbitLogoUrl}" style="height:56px;max-width:160px;object-fit:contain;background:white;padding:6px;border-radius:8px" alt="logo" crossorigin="anonymous"/>`
-      :`<div style="width:54px;height:54px;background:rgba(255,255,255,.12);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:26px">📊</div>`;
+    const site = websiteInput||detectedWebsite;
+    let logoHtml = `<div style="width:54px;height:54px;background:rgba(255,255,255,.12);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:26px">📊</div>`;
+    if(logoDataUrl) {
+      logoHtml = `<img src="${logoDataUrl}" style="height:60px;max-width:180px;object-fit:contain;background:white;padding:8px;border-radius:8px" alt="logo"/>`;
+    } else if(site) {
+      try {
+        const domain = new URL(site.startsWith("http")?site:"https://"+site).hostname.replace(/^www\./,"");
+        const favUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+        logoHtml = `<img src="${favUrl}" style="height:48px;max-width:48px;object-fit:contain;background:white;padding:5px;border-radius:6px" alt="logo"/>`;
+      } catch {}
+    }
     const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>${displayTitle}</title>
 <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:white;color:#1a1a2e;font-size:13px}
 @media print{@page{margin:.45in;size:letter}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
 </head><body>
-<div style="background:linear-gradient(135deg,${headerBg} 0%,${darken(accent,0.3)} 100%);padding:24px 28px;display:flex;align-items:center;justify-content:space-between;gap:16px">
+<div style="background:linear-gradient(135deg,${headerBg} 0%,${headerLight} 100%);padding:24px 28px;display:flex;align-items:center;justify-content:space-between;gap:16px">
   <div style="display:flex;align-items:center;gap:16px">${logoHtml}
     <div>
       <div style="font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">${displayClient}</div>
@@ -4405,10 +4537,9 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
   return (
     <div style={{color:"#d8eaf8"}}>
-      {/* Hidden img for logo/color extraction */}
-      {(logoDataUrl||clearbitLogoUrl)&&(
-        <img ref={logoRef} crossOrigin="anonymous" src={logoDataUrl||clearbitLogoUrl}
-          onLoad={handleLogoImgLoad} onError={()=>setLogoError("Logo not found for this domain")}
+      {/* Hidden img for color extraction from uploaded logo only */}
+      {logoDataUrl&&(
+        <img ref={logoRef} src={logoDataUrl} onLoad={handleLogoImgLoad}
           style={{display:"none"}} alt=""/>
       )}
 
@@ -4540,22 +4671,36 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
               )}
             </div>
 
-            {/* Website — just for favicon preview, no auto-color-fetch */}
+            {/* Website — Google favicon (reliable) + theme-color fetch */}
             <div style={{marginBottom:12}}>
               <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:4}}>
-                Client Website <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(shows favicon if no logo uploaded)</span>
+                Client Website <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(auto-pulls logo & brand color)</span>
               </label>
-              <input value={websiteInput} onChange={e=>setWebsiteInput(e.target.value)} placeholder="https://fairmontstate.edu"
-                style={{...iS,width:"100%",fontFamily:"monospace",fontSize:11}}/>
-              {websiteInput&&!logoDataUrl&&(()=>{
+              <input value={websiteInput} onChange={e=>{setWebsiteInput(e.target.value); setLogoError(""); setLogoLoaded(false); setColorOverride(false);}}
+                placeholder="https://fairmontstate.edu"
+                style={{...iS,width:"100%",fontFamily:"monospace",fontSize:11,marginBottom:6}}/>
+              {websiteInput&&(()=>{
                 try {
-                  const domain=new URL(websiteInput.startsWith("http")?websiteInput:"https://"+websiteInput).hostname;
-                  const favUrl=`https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+                  const domain = new URL(websiteInput.startsWith("http")?websiteInput:"https://"+websiteInput).hostname.replace(/^www\./,"");
+                  const favUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
                   return (
-                    <div style={{marginTop:6,display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:"#07101c",borderRadius:6,border:"1px solid #1a2744"}}>
-                      <img src={favUrl} alt="" onLoad={handleLogoImgLoad}
-                        style={{width:24,height:24,objectFit:"contain",background:"white",padding:2,borderRadius:3}} crossOrigin="anonymous"/>
-                      <span style={{fontSize:10,color:"#4d6e8a"}}>Favicon preview — upload a full logo above for better results</span>
+                    <div style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",background:"#07101c",borderRadius:8,border:`1px solid ${logoLoaded?"#00c89640":"#1a2744"}`}}>
+                      {!logoDataUrl&&(
+                        <img src={favUrl} alt="favicon"
+                          onLoad={()=>setLogoLoaded(true)}
+                          onError={()=>setLogoError("Couldn't load favicon")}
+                          style={{width:32,height:32,objectFit:"contain",background:"white",padding:4,borderRadius:5,flexShrink:0,border:"1px solid #eee"}}/>
+                      )}
+                      {logoDataUrl&&<img src={logoDataUrl} alt="logo" style={{height:36,maxWidth:100,objectFit:"contain",background:"white",padding:4,borderRadius:5,flexShrink:0,border:"1px solid #eee"}}/>}
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:10,color:"#00e5a0",fontWeight:600,marginBottom:2}}>✓ {domain}</div>
+                        {fetchingColor
+                          ? <div style={{fontSize:10,color:"#60a5fa"}}>⟳ Fetching brand color…</div>
+                          : colorOverride
+                          ? <div style={{fontSize:10,color:"#4d6e8a"}}>Color manually set — <button onClick={()=>{setColorOverride(false);fetchColorFromSite(websiteInput);}} style={{background:"none",border:"none",color:"#60a5fa",cursor:"pointer",fontSize:10,padding:0}}>re-fetch from site</button></div>
+                          : <div style={{fontSize:10,color:"#4d6e8a"}}>Brand color auto-fetched from site ✓</div>
+                        }
+                      </div>
                     </div>
                   );
                 } catch { return null; }
@@ -4564,15 +4709,17 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
             {/* Brand color — manual picker + quick presets */}
             <div>
-              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:6}}>Brand Color</label>
+              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:6}}>
+                Brand Color {fetchingColor&&<span style={{color:"#60a5fa",fontWeight:400}}>— fetching…</span>}
+              </label>
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                 <input type="color" value={brandColor} onChange={e=>{setBrandColor(e.target.value);setColorOverride(true);}}
                   style={{width:40,height:32,borderRadius:5,border:"1px solid #334155",cursor:"pointer",padding:0,background:"none"}}/>
                 <input value={brandColor} onChange={e=>{ if(/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)){setBrandColor(e.target.value);setColorOverride(true);}}}
                   style={{...iS,width:90,fontFamily:"monospace",fontSize:12,padding:"5px 8px"}}/>
-                {colorOverride&&logoDataUrl&&(
-                  <button onClick={()=>{setColorOverride(false);if(logoRef.current){const c=extractDominantColor(logoRef.current);if(c)setBrandColor(saturate(c));}}}
-                    style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#4d6e8a",fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>↺ From logo</button>
+                {colorOverride&&(
+                  <button onClick={()=>{setColorOverride(false);if(websiteInput)fetchColorFromSite(websiteInput);}}
+                    style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#60a5fa",fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>↺ Re-fetch</button>
                 )}
               </div>
               {/* Common brand color presets */}
@@ -4676,16 +4823,17 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
             </div>
           </div>
         ) : (
-          <div style={{background:"white",borderRadius:12,overflow:"hidden",boxShadow:"0 4px 32px rgba(0,0,0,.5)"}}>
+          <div key={brandColor+previewLogoUrl?.src} style={{background:"white",borderRadius:12,overflow:"hidden",boxShadow:"0 4px 32px rgba(0,0,0,.5)"}}>
 
             {/* ── Report Header ── */}
-            <div style={{background:`linear-gradient(135deg,${headerBg} 0%,${darken(accent,.3)} 100%)`,padding:"24px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
+            <div style={{background:`linear-gradient(135deg,${headerBg} 0%,${headerLight} 100%)`,padding:"24px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
               <div style={{display:"flex",alignItems:"center",gap:16}}>
-                {logoDataUrl
-                  ? <img src={logoDataUrl} alt="logo" style={{height:60,maxWidth:180,objectFit:"contain",background:"white",padding:8,borderRadius:8}}/>
-                  : clearbitLogoUrl
-                  ? <img crossOrigin="anonymous" src={clearbitLogoUrl} alt="logo" onLoad={handleLogoImgLoad} onError={()=>setLogoError("No logo found")} style={{height:56,maxWidth:160,objectFit:"contain",background:"white",padding:6,borderRadius:8}}/>
-                  : <div style={{width:54,height:54,background:"rgba(255,255,255,.12)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>📊</div>
+                {previewLogoUrl
+                  ? <img key={previewLogoUrl.src} src={previewLogoUrl.src} alt="logo"
+                      onLoad={handleLogoImgLoad}
+                      onError={e=>{ if(previewLogoUrl.fallback&&e.currentTarget.src!==previewLogoUrl.fallback){ e.currentTarget.onerror=null; e.currentTarget.src=previewLogoUrl.fallback; } }}
+                      style={{height:52,width:52,objectFit:"contain",background:"white",padding:6,borderRadius:8,flexShrink:0}}/>
+                  : <div style={{width:52,height:52,background:"rgba(255,255,255,.12)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>📊</div>
                 }
                 <div>
                   <div style={{fontSize:11,color:"rgba(255,255,255,.5)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:2}}>
@@ -4716,8 +4864,6 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                   {label:"Impressions",val:fmtN(totals.impressions),show:totals.impressions>0},
                   {label:"Clicks",val:fmtN(totals.clicks),show:totals.clicks>0},
                   {label:"Overall CTR",val:overallCTR,show:overallCTR!=="—"},
-                  {label:"Avg CPM",val:overallCPM,show:overallCPM!=="—"},
-                  {label:"Total Spend",val:fmtMoney(totals.spend),show:totals.spend>0},
                   {label:"Total Reach",val:fmtN(totals.reach),show:totals.reach>0},
                   {label:"Video Views",val:fmtN(totals.videoViews),show:totals.videoViews>0},
                 ].filter(k=>k.show);
@@ -4805,7 +4951,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                       <thead>
                         <tr style={{background:headerBg,color:"white"}}>
-                          {["Campaign","Platform","Impressions","Clicks","CTR","CPM","Spend","Reach","VCR/CR"].map(h=>(
+                          {["Campaign","Platform","Impressions","Clicks","CTR","Reach","VCR/CR"].map(h=>(
                             <th key={h} style={{padding:"8px 10px",textAlign:h==="Campaign"||h==="Platform"?"left":"right",fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".05em"}}>{h}</th>
                           ))}
                         </tr>
@@ -4823,8 +4969,6 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                             <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",color:accent,fontWeight:600}}>{r.m.impressions>0?fmtN(r.m.impressions):"—"}</td>
                             <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.clicks>0?fmtN(r.m.clicks):"—"}</td>
                             <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",fontWeight:r.m.ctr>0?700:400,color:r.m.ctr>0?accent:"#aaa"}}>{r.m.ctr>0?r.m.ctr.toFixed(2)+"%":"—"}</td>
-                            <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.cpm>0?"$"+r.m.cpm.toFixed(2):"—"}</td>
-                            <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.spend>0?fmtMoney(r.m.spend):"—"}</td>
                             <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.reach>0?fmtN(r.m.reach):"—"}</td>
                             <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.completionRate>0?r.m.completionRate.toFixed(1)+"%":r.m.videoViews>0?fmtN(r.m.videoViews):"—"}</td>
                           </tr>
@@ -4834,8 +4978,6 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                           <td style={{padding:"8px 10px",textAlign:"right"}}>{totals.impressions>0?fmtN(totals.impressions):"—"}</td>
                           <td style={{padding:"8px 10px",textAlign:"right"}}>{totals.clicks>0?fmtN(totals.clicks):"—"}</td>
                           <td style={{padding:"8px 10px",textAlign:"right"}}>{overallCTR}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right"}}>{overallCPM}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right"}}>{totals.spend>0?fmtMoney(totals.spend):"—"}</td>
                           <td style={{padding:"8px 10px",textAlign:"right"}}>{totals.reach>0?fmtN(totals.reach):"—"}</td>
                           <td style={{padding:"8px 10px",textAlign:"right"}}>—</td>
                         </tr>
@@ -4850,18 +4992,12 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
               {sections.budget&&totals.contractValue>0&&(
                 <div style={{marginBottom:22}}>
                   <SectionHeader title="Budget Overview" skey="budget"/>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:8}}>
-                    {[{l:"Contract Value",v:fmtMoney(totals.contractValue)},{l:"Total Spend",v:fmtMoney(totals.spend)},{l:"Remaining",v:fmtMoney(totals.contractValue-totals.spend)}].map(b=>(
-                      <div key={b.l} style={{background:accentLight,border:`1px solid ${accentMid}`,borderRadius:8,padding:"12px 14px",textAlign:"center"}}>
-                        <div style={{fontSize:20,fontWeight:800,color:accent}}>{b.v}</div>
-                        <div style={{fontSize:9,color:"#888",marginTop:3,textTransform:"uppercase",letterSpacing:".05em"}}>{b.l}</div>
-                      </div>
-                    ))}
+                  <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:8,padding:"14px 18px",background:accentLight,border:`1px solid ${accentMid}`,borderRadius:8}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:4}}>Total Campaign Budget</div>
+                      <div style={{fontSize:28,fontWeight:900,color:accent,lineHeight:1}}>{fmtMoney(totals.contractValue)}</div>
+                    </div>
                   </div>
-                  <div style={{background:"#e8eaf0",borderRadius:5,height:8,overflow:"hidden"}}>
-                    <div style={{background:`linear-gradient(90deg,${accent},${accentMid})`,height:"100%",width:`${Math.min(100,totals.spend/totals.contractValue*100).toFixed(1)}%`,borderRadius:5}}/>
-                  </div>
-                  <div style={{fontSize:10,color:"#888",marginTop:4}}>{Math.round(totals.spend/totals.contractValue*100)}% of budget used</div>
                   <SectionNote skey="budget"/>
                 </div>
               )}
