@@ -4336,12 +4336,15 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   // ── Style constants & helpers ────────────────────────────────────────────────
   const iS = {background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"};
 
-  // ── Brand color palette — accent IS the exact chosen color ──────────────────
-  const accent      = brandColor;
-  const accentLight = lighten(accent, 0.88);
-  const accentMid   = lighten(accent, 0.60);
-  const headerBg    = darken(accent, 0.55);
-  const headerLight = darken(accent, 0.35);
+  // ── Brand color palette — header IS the exact chosen color ──────────────────
+  const accent      = brandColor;                   // exact brand color — header bg, KPI numbers
+  const accentLight = lighten(accent, 0.88);        // very light tint — KPI card backgrounds
+  const accentMid   = lighten(accent, 0.60);        // mid tint — dividers, borders, date text
+  const headerBg    = brandColor;                   // EXACT brand color for header
+  const headerLight = lighten(accent, 0.15);        // slightly lighter for gradient end
+  const headerText  = textOnBg(brandColor);         // white or dark depending on brand color
+  const headerMuted = headerText==="#ffffff" ? "rgba(255,255,255,.55)" : "rgba(0,0,0,.5)";
+  const headerFaint = headerText==="#ffffff" ? "rgba(255,255,255,.35)" : "rgba(0,0,0,.3)";
 
   // ── Display names ─────────────────────────────────────────────────────────────
   const autoClientName = useMemo(()=>{
@@ -4433,16 +4436,16 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 <div style="background:linear-gradient(135deg,${headerBg} 0%,${headerLight} 100%);padding:24px 28px;display:flex;align-items:center;justify-content:space-between;gap:16px">
   <div style="display:flex;align-items:center;gap:16px">${logoHtml}
     <div>
-      <div style="font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">${displayClient}</div>
-      <div style="font-size:20px;font-weight:900;color:white;line-height:1.1">${displayTitle}</div>
+      <div style="font-size:11px;color:${headerMuted};text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">${displayClient}</div>
+      <div style="font-size:20px;font-weight:900;color:${headerText};line-height:1.1">${displayTitle}</div>
       <div style="font-size:12px;color:${accentMid};margin-top:4px;font-weight:600">${dr.label}</div>
-      <div style="font-size:10px;color:rgba(255,255,255,.4);margin-top:2px">Created ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
+      <div style="font-size:10px;color:${headerFaint};margin-top:2px">Created ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
     </div>
   </div>
   <div style="text-align:right;flex-shrink:0">
-    <div style="font-size:10px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px">Prepared by</div>
-    <div style="font-size:15px;font-weight:700;color:white">${preparedBy}</div>
-    <div style="font-size:10px;color:rgba(255,255,255,.35);margin-top:2px">${rows.length} campaign tactic${rows.length!==1?"s":""}</div>
+    <div style="font-size:10px;color:${headerMuted};text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px">Prepared by</div>
+    <div style="font-size:15px;font-weight:700;color:${headerText}">${preparedBy}</div>
+    <div style="font-size:10px;color:${headerFaint};margin-top:2px">${rows.length} campaign tactic${rows.length!==1?"s":""}</div>
   </div>
 </div>
 <div style="height:3px;background:linear-gradient(90deg,${accent},${accentMid})"></div>
@@ -4632,50 +4635,128 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
               })()}
             </div>
 
-            {/* Brand color — manual picker + quick presets */}
+            {/* Brand color — eyedropper, image drop, hex entry */}
             <div>
-              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:6}}>
-                Brand Color {fetchingColor&&<span style={{color:"#60a5fa",fontWeight:400}}>— fetching…</span>}
+              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:8}}>
+                Brand Color
               </label>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+
+              {/* Primary tools row */}
+              <div style={{display:"flex",gap:6,marginBottom:10,alignItems:"stretch"}}>
+
+                {/* Color picker swatch */}
                 <input type="color" value={brandColor} onChange={e=>{setBrandColor(e.target.value);setColorOverride(true);}}
-                  style={{width:40,height:32,borderRadius:5,border:"1px solid #334155",cursor:"pointer",padding:0,background:"none"}}/>
-                <input value={brandColor} onChange={e=>{ if(/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)){setBrandColor(e.target.value);setColorOverride(true);}}}
-                  style={{...iS,width:90,fontFamily:"monospace",fontSize:12,padding:"5px 8px"}}/>
-                {colorOverride&&(
-                  <button onClick={()=>{setColorOverride(false);if(websiteInput)fetchColorFromSite(websiteInput);}}
-                    style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#60a5fa",fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>↺ Re-fetch</button>
+                  title="Color picker"
+                  style={{width:44,height:44,borderRadius:6,border:"2px solid #334155",cursor:"pointer",padding:0,background:"none",flexShrink:0}}/>
+
+                {/* Hex input */}
+                <input value={brandColor}
+                  onChange={e=>{ if(/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)){setBrandColor(e.target.value);setColorOverride(true);}}}
+                  style={{...iS,width:96,fontFamily:"monospace",fontSize:13,padding:"5px 10px",flexShrink:0}}/>
+
+                {/* Eyedropper — pick any color from your screen */}
+                {typeof EyeDropper !== "undefined" && (
+                  <button onClick={async()=>{
+                    try {
+                      const eyeDropper = new EyeDropper();
+                      const result = await eyeDropper.open();
+                      setBrandColor(result.sRGBHex);
+                      setColorOverride(true);
+                    } catch(e) {}
+                  }}
+                    title="Pick color from screen — open client website then use this"
+                    style={{flex:1,background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"8px",color:"#60a5fa",fontSize:11,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                    <span style={{fontSize:18}}>🖱️</span>
+                    <span style={{fontSize:9,fontWeight:700,whiteSpace:"nowrap"}}>Pick from screen</span>
+                  </button>
                 )}
+
+                {/* Drop image to extract color */}
+                <label
+                  onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor="#a855f7";}}
+                  onDragLeave={e=>{e.currentTarget.style.borderColor="#334155";}}
+                  onDrop={e=>{
+                    e.preventDefault(); e.currentTarget.style.borderColor="#334155";
+                    const file=e.dataTransfer.files[0];
+                    if(!file||!file.type.startsWith("image/")) return;
+                    const reader=new FileReader();
+                    reader.onload=ev=>{
+                      const img=new Image();
+                      img.onload=()=>{
+                        const col=extractDominantColor(img);
+                        if(col){setBrandColor(saturate(col));setColorOverride(true);}
+                      };
+                      img.src=ev.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                  title="Drop client logo/screenshot to extract color"
+                  style={{flex:1,background:"#0e1a2e",border:"1px dashed #334155",borderRadius:6,padding:"8px",color:"#a855f7",fontSize:9,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,transition:"border-color .15s"}}>
+                  <span style={{fontSize:18}}>🎨</span>
+                  <span style={{fontWeight:700,whiteSpace:"nowrap"}}>Drop image</span>
+                  <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
+                    const file=e.target.files[0]; if(!file) return;
+                    const reader=new FileReader();
+                    reader.onload=ev=>{
+                      const img=new Image();
+                      img.onload=()=>{
+                        const col=extractDominantColor(img);
+                        if(col){setBrandColor(saturate(col));setColorOverride(true);}
+                      };
+                      img.src=ev.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                  }}/>
+                </label>
               </div>
-              {/* Common brand color presets */}
-              <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
-                {["#1a73e8","#c41230","#8B1538","#004990","#00843D","#E31837","#FF6900","#6B2D8B","#1D3557","#2B6CB0","#000000","#1a1a2e"].map(c=>(
-                  <button key={c} onClick={()=>{setBrandColor(c);setColorOverride(true);}}
-                    title={c} style={{width:22,height:22,borderRadius:4,background:c,border:`2px solid ${brandColor===c?"white":"transparent"}`,cursor:"pointer",padding:0,flexShrink:0}}/>
-                ))}
+
+              {/* Instructions */}
+              <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#4d6e8a",lineHeight:1.6,marginBottom:8}}>
+                {typeof EyeDropper !== "undefined"
+                  ? <><strong style={{color:"#60a5fa"}}>🖱️ Easiest:</strong> Open the client's website in another tab, click <strong style={{color:"#60a5fa"}}>Pick from screen</strong>, then click their logo or header color.<br/></>
+                  : <><strong style={{color:"#f59e0b"}}>Tip:</strong> Eyedropper not available in this browser (works in Chrome/Edge). <br/></>
+                }
+                <strong style={{color:"#a855f7"}}>🎨 Also works:</strong> Drag a screenshot or logo onto the drop zone to extract the color.<br/>
+                <strong style={{color:"#7a9bbf"}}>Hex:</strong> Paste exact hex from brand guidelines directly into the # field.
               </div>
-              {/* Live color preview — mini report header */}
-              <div style={{borderRadius:6,overflow:"hidden",marginTop:6}}>
+
+              {/* Preset swatches */}
+              <div style={{marginBottom:8}}>
+                <div style={{fontSize:9,color:"#3d5a72",marginBottom:5}}>Common university/brand colors:</div>
+                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                  {[
+                    {c:"#003087",l:"Navy"},     {c:"#8B0000",l:"Crimson"},  {c:"#004B23",l:"Forest"},
+                    {c:"#8B1538",l:"Maroon"},   {c:"#CC5500",l:"Burnt Org"},{c:"#4B0082",l:"Indigo"},
+                    {c:"#1a73e8",l:"Blue"},     {c:"#c41230",l:"Red"},      {c:"#005F73",l:"Teal"},
+                    {c:"#000000",l:"Black"},    {c:"#2d2d2d",l:"Charcoal"}, {c:"#8B6914",l:"Gold"},
+                  ].map(({c,l})=>(
+                    <button key={c} onClick={()=>{setBrandColor(c);setColorOverride(true);}}
+                      title={l+" "+c}
+                      style={{width:24,height:24,borderRadius:4,background:c,border:`2px solid ${brandColor===c?"white":"transparent"}`,cursor:"pointer",padding:0,flexShrink:0}}/>
+                  ))}
+                </div>
+              </div>
+
+              {/* Live mini preview */}
+              <div style={{borderRadius:6,overflow:"hidden"}}>
                 <div style={{background:`linear-gradient(135deg,${headerBg},${headerLight})`,padding:"8px 12px",display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{width:20,height:20,background:"white",borderRadius:3,opacity:.9}}/>
+                  <div style={{width:20,height:20,background:"white",borderRadius:3,opacity:.9,flexShrink:0}}/>
                   <div>
-                    <div style={{fontSize:9,fontWeight:800,color:"white",opacity:.9}}>Client Name</div>
-                    <div style={{fontSize:7,color:accentMid,marginTop:1}}>March 2026</div>
+                    <div style={{fontSize:9,fontWeight:800,color:headerText}}>Client Name</div>
+                    <div style={{fontSize:7,color:accentMid,marginTop:1}}>Report Period</div>
                   </div>
                 </div>
-                <div style={{display:"flex",height:3}}>
-                  {[accent,accentMid,accentLight].map((c,i)=><div key={i} style={{flex:1,background:c}}/>)}
-                </div>
-                <div style={{background:"white",padding:"6px 12px",display:"flex",gap:6}}>
-                  {[accent,darken(accent,.15),accentMid].map((c,i)=>(
+                <div style={{height:3,background:`linear-gradient(90deg,${accent},${accentMid})`}}/>
+                <div style={{background:"white",padding:"6px 10px",display:"flex",gap:5}}>
+                  {["Impressions","Clicks","CTR"].map((l,i)=>(
                     <div key={i} style={{flex:1,background:accentLight,border:`1px solid ${accentMid}`,borderRadius:3,padding:"4px 0",textAlign:"center"}}>
-                      <div style={{fontSize:10,fontWeight:800,color:accent}}>—</div>
-                      <div style={{fontSize:7,color:"#888"}}>KPI</div>
+                      <div style={{fontSize:11,fontWeight:800,color:accent}}>—</div>
+                      <div style={{fontSize:7,color:"#888"}}>{l}</div>
                     </div>
                   ))}
                 </div>
               </div>
-              <div style={{fontSize:9,color:"#3d5a72",marginTop:3}}>↑ Live preview of how your brand color will look in the report</div>
+              <div style={{fontSize:9,color:"#3d5a72",marginTop:3}}>↑ Live preview updates as you change the color</div>
             </div>
           </div>
 
@@ -4766,7 +4847,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
           <div key={brandColor+logoKey} style={{background:"white",borderRadius:12,overflow:"hidden",boxShadow:"0 4px 32px rgba(0,0,0,.5)"}}>
 
             {/* ── Report Header ── */}
-            <div style={{background:`linear-gradient(135deg,${headerBg} 0%,${headerLight} 100%)`,padding:"24px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
+            <div style={{background:`linear-gradient(160deg,${headerBg} 0%,${headerLight} 100%)`,padding:"24px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
               <div style={{display:"flex",alignItems:"center",gap:16}}>
                 {previewLogoUrl
                   ? <img key={previewLogoUrl.src+logoKey} src={previewLogoUrl.src} alt="logo"
@@ -4775,21 +4856,21 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                   : <div style={{width:52,height:52,background:"rgba(255,255,255,.12)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>📊</div>
                 }
                 <div>
-                  <div style={{fontSize:11,color:"rgba(255,255,255,.5)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:2}}>
+                  <div style={{fontSize:11,color:headerMuted,textTransform:"uppercase",letterSpacing:".06em",marginBottom:2}}>
                     <InlineEdit field="clientName" value={displayClient} onChange={setClientName}
-                      style={{fontSize:11,color:"rgba(255,255,255,.55)",letterSpacing:".06em"}} placeholder="Client name"/>
+                      style={{fontSize:11,color:headerMuted,letterSpacing:".06em"}} placeholder="Client name"/>
                   </div>
                   <InlineEdit field="reportTitle" value={displayTitle} onChange={v=>{setReportTitle(v);}}
-                    style={{fontSize:19,fontWeight:900,lineHeight:1.1,display:"block"}} placeholder="Report title"/>
+                    style={{fontSize:19,fontWeight:900,lineHeight:1.1,display:"block",color:headerText}} placeholder="Report title"/>
                   <div style={{fontSize:12,color:accentMid,marginTop:4,fontWeight:600}}>{dr.label}</div>
-                  <div style={{fontSize:9,color:"rgba(255,255,255,.35)",marginTop:2}}>Created {new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})} · <span style={{opacity:.6}}>click text to edit</span></div>
+                  <div style={{fontSize:9,color:headerFaint,marginTop:2}}>Created {new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})} · <span style={{opacity:.6}}>click text to edit</span></div>
                 </div>
               </div>
               <div style={{textAlign:"right",flexShrink:0}}>
-                <div style={{fontSize:9,color:"rgba(255,255,255,.45)",textTransform:"uppercase",letterSpacing:".07em",marginBottom:2}}>Prepared by</div>
+                <div style={{fontSize:9,color:headerMuted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:2}}>Prepared by</div>
                 <InlineEdit field="preparedBy" value={preparedBy} onChange={setPreparedBy}
                   style={{fontSize:14,fontWeight:700}} placeholder="Agency name"/>
-                <div style={{fontSize:9,color:"rgba(255,255,255,.35)",marginTop:2}}>{rows.length} tactic{rows.length!==1?"s":""}</div>
+                <div style={{fontSize:9,color:headerFaint,marginTop:2}}>{rows.length} tactic{rows.length!==1?"s":""}</div>
               </div>
             </div>
             <div style={{height:3,background:`linear-gradient(90deg,${accent},${accentMid})`}}/>
