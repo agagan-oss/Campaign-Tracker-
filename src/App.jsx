@@ -4287,9 +4287,11 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
   // Fetch brand color from website meta theme-color tag via CORS proxy
   const [fetchingColor, setFetchingColor] = useState(false);
+  const [colorFetched,  setColorFetched]  = useState(false); // true = color was actually found
   async function fetchColorFromSite(site) {
     if(!site) return;
     setFetchingColor(true);
+    setColorFetched(false);
     let found = false;
     try {
       const url = site.startsWith("http")?site:"https://"+site;
@@ -4299,7 +4301,6 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
         const json = await res.json();
         const html = json?.contents||"";
         if(html) {
-          // Match theme-color in any attribute order
           const patterns = [
             /name=["']theme-color["'][^>]*content=["']\s*(#[0-9a-fA-F]{3,8})\s*["']/i,
             /content=["']\s*(#[0-9a-fA-F]{3,8})\s*["'][^>]*name=["']theme-color["']/i,
@@ -4314,7 +4315,6 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
             }
           }
           if(!found) {
-            // Try manifest theme_color
             const mf = html.match(/"theme_color"\s*:\s*"(#[0-9a-fA-F]{3,8})"/);
             if(mf && mf[1]) { setBrandColor(saturate(mf[1])); found = true; }
           }
@@ -4322,6 +4322,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
       }
     } catch(e) {}
     setFetchingColor(false);
+    setColorFetched(found);
   }
 
   // Auto-fetch color when URL is entered (debounced)
@@ -4596,7 +4597,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
               <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:4}}>
                 Client Website <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(auto-pulls logo & brand color)</span>
               </label>
-              <input value={websiteInput} onChange={e=>{setWebsiteInput(e.target.value); setLogoError(""); setLogoLoaded(false); setColorOverride(false); setLogoKey(k=>k+1);}}
+              <input value={websiteInput} onChange={e=>{setWebsiteInput(e.target.value); setLogoError(""); setLogoLoaded(false); setColorOverride(false); setColorFetched(false); setLogoKey(k=>k+1);}}
                 placeholder="https://fairmontstate.edu"
                 style={{...iS,width:"100%",fontFamily:"monospace",fontSize:11,marginBottom:6}}/>
               {websiteInput&&(()=>{
@@ -4617,8 +4618,12 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                         {fetchingColor
                           ? <div style={{fontSize:10,color:"#60a5fa"}}>⟳ Fetching brand color…</div>
                           : colorOverride
-                          ? <div style={{fontSize:10,color:"#4d6e8a"}}>Color manually set — <button onClick={()=>{setColorOverride(false);fetchColorFromSite(websiteInput);}} style={{background:"none",border:"none",color:"#60a5fa",cursor:"pointer",fontSize:10,padding:0}}>re-fetch from site</button></div>
-                          : <div style={{fontSize:10,color:"#4d6e8a"}}>Brand color auto-fetched from site ✓</div>
+                          ? <div style={{fontSize:10,color:"#4d6e8a"}}>Color set manually — <button onClick={()=>{setColorOverride(false);setColorFetched(false);fetchColorFromSite(websiteInput);}} style={{background:"none",border:"none",color:"#60a5fa",cursor:"pointer",fontSize:10,padding:0}}>re-fetch from site</button></div>
+                          : colorFetched
+                          ? <div style={{fontSize:10,color:"#00e5a0",fontWeight:600}}>✓ Brand color pulled from site — preview updated</div>
+                          : websiteInput
+                          ? <div style={{fontSize:10,color:"#f59e0b"}}>No theme-color found on site — pick color manually below</div>
+                          : null
                         }
                       </div>
                     </div>
