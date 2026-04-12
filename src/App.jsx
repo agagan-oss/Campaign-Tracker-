@@ -954,37 +954,6 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
               </div>
             </div>
           </div>
-          {/* ── Report Data Fields ── */}
-          <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
-            <div style={{fontSize:10,color:"#34d399",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:8}}>📄 Report Data <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400,fontSize:9}}>— optional fields for client reports</span></div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              <div>
-                <label style={{display:"block",fontSize:9,color:"#4d6e8a",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Age Breakdown <span style={{color:"#3d5a72",textTransform:"none"}}>(JSON)</span></label>
-                <input value={c.demoAge||""} onChange={e=>onUpdate({...c,demoAge:e.target.value})} placeholder='[{"label":"18-24","pct":32},{"label":"25-34","pct":28}]'
-                  style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:10,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
-              </div>
-              <div>
-                <label style={{display:"block",fontSize:9,color:"#4d6e8a",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Gender Breakdown <span style={{color:"#3d5a72",textTransform:"none"}}>(JSON)</span></label>
-                <input value={c.demoGender||""} onChange={e=>onUpdate({...c,demoGender:e.target.value})} placeholder='[{"label":"Female","pct":62},{"label":"Male","pct":38}]'
-                  style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:10,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
-              </div>
-              <div>
-                <label style={{display:"block",fontSize:9,color:"#4d6e8a",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Device Breakdown <span style={{color:"#3d5a72",textTransform:"none"}}>(JSON)</span></label>
-                <input value={c.deviceData||""} onChange={e=>onUpdate({...c,deviceData:e.target.value})} placeholder='[{"label":"Android","pct":65},{"label":"iOS","pct":34}]'
-                  style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:10,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
-              </div>
-              <div>
-                <label style={{display:"block",fontSize:9,color:"#4d6e8a",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Geo Breakdown <span style={{color:"#3d5a72",textTransform:"none"}}>(JSON)</span></label>
-                <input value={c.geoData||""} onChange={e=>onUpdate({...c,geoData:e.target.value})} placeholder='[{"label":"West Virginia","pct":45},{"label":"Ohio","pct":22}]'
-                  style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:10,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
-              </div>
-              <div style={{gridColumn:"1 / -1"}}>
-                <label style={{display:"block",fontSize:9,color:"#4d6e8a",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Top Creatives <span style={{color:"#3d5a72",textTransform:"none"}}>(JSON)</span></label>
-                <input value={c.topCreatives||""} onChange={e=>onUpdate({...c,topCreatives:e.target.value})} placeholder='[{"name":"Aviation (WV)","impressions":76182,"clicks":337,"ctr":0.44}]'
-                  style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:10,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
-              </div>
-            </div>
-          </div>
 
           <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
@@ -4193,22 +4162,41 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   const [websiteInput,  setWebsiteInput]  = useState("");
   const [brandColor,    setBrandColor]    = useState("#1a73e8");
   const [colorOverride, setColorOverride] = useState(false);
-  const [logoFetching,  setLogoFetching]  = useState(false);
   const [logoError,     setLogoError]     = useState("");
   const [logoLoaded,    setLogoLoaded]    = useState(false);
+  const [logoKey,       setLogoKey]       = useState(0); // increment to force logo remount
   const logoRef = useRef(null);
 
-  // ── Section config ───────────────────────────────────────────────────────────
+  function handleLogoImgLoad(e) {
+    // Extract dominant color from uploaded logo (not from external URLs due to CORS)
+    if(colorOverride||!logoDataUrl) return;
+    setTimeout(()=>{
+      try {
+        const col = extractDominantColor(e.target);
+        if(col) setBrandColor(saturate(col));
+      } catch(err) {}
+    }, 50);
+  }
+
+  function handleManualLogoUpload(e) {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      setLogoDataUrl(evt.target.result);
+      setColorOverride(false); // allow re-extraction from new logo
+    };
+    reader.readAsDataURL(file);
+  }
+
+
   const [sections, setSections] = useState({
     kpis:true, impChart:true, ctrChart:true, table:true,
     budget:true, creatives:true, demographics:true, devices:true, geo:true,
   });
   const [sectionNotes, setSectionNotes] = useState({});
-  const [editingNote, setEditingNote] = useState(null);
 
   // ── Creative screenshots (per-campaign image uploads) ───────────────────────
   const [creativeImages, setCreativeImages] = useState({}); // {campaignId: [dataUrl,...]}
-  const [showCreativeUpload, setShowCreativeUpload] = useState(null);
 
   function addCreativeImage(campId, dataUrl) {
     setCreativeImages(p=>({...p,[campId]:[...(p[campId]||[]),dataUrl]}));
@@ -4231,6 +4219,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   },[filteredCamps]);
 
   const selectedCamps = useMemo(()=>all.filter(c=>selectedIds.has(c.id)),[all,selectedIds]);
+  const detectedWebsite = useMemo(()=>selectedCamps.find(c=>c.clientWebsite)?.clientWebsite||"",[selectedCamps]);
 
   function toggleCamp(id){ setSelectedIds(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;}); }
   function selectAllPartner(partner){
@@ -4282,153 +4271,6 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
     } catch {}
   },[websiteInput]);
 
-  // ── Logo fetching — multiple sources with fallbacks ────────────────────────
-  // Returns array of URLs to try in order
-  function getLogoUrls(website) {
-    if(!website) return [];
-    try {
-      const url = new URL(website.startsWith("http")?website:"https://"+website);
-      const domain = url.hostname.replace(/^www\./,"");
-      const rootDomain = domain.split(".").slice(-2).join(".");
-      return [
-        // Google favicon — most reliable, always works, small but crisp
-        `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
-        // DuckDuckGo favicon service
-        `https://icons.duckduckgo.com/ip3/${domain}.ico`,
-        // Direct favicon attempt
-        `https://${domain}/favicon.ico`,
-      ];
-    } catch { return []; }
-  }
-
-  const detectedWebsite = useMemo(()=>selectedCamps.find(c=>c.clientWebsite)?.clientWebsite||"",[selectedCamps]);
-
-  const logoUrls = useMemo(()=>{
-    if(logoDataUrl) return [];
-    return getLogoUrls(websiteInput||detectedWebsite);
-  },[websiteInput,detectedWebsite,logoDataUrl]);
-
-  const [logoUrlIndex, setLogoUrlIndex] = useState(0);
-  const activeFaviconUrl = logoUrls[logoUrlIndex]||null;
-
-  // Reset index when urls change
-  useEffect(()=>{ setLogoUrlIndex(0); },[logoUrls.join(",")]);
-
-  // Alias for render clarity
-  const clearbitLogoUrl = activeFaviconUrl;
-
-  function handleLogoImgLoad(e) {
-    if(colorOverride) return;
-    setTimeout(()=>{
-      const col=extractDominantColor(e.target);
-      if(col) setBrandColor(saturate(col));
-    },50);
-  }
-
-  function handleLogoImgError() {
-    // Try next URL in fallback chain
-    setLogoUrlIndex(i=>i+1);
-  }
-
-  function handleManualLogoUpload(e) {
-    const file=e.target.files[0]; if(!file) return;
-    const reader=new FileReader();
-    reader.onload=evt=>{ setLogoDataUrl(evt.target.result); setColorOverride(false); };
-    reader.readAsDataURL(file);
-  }
-
-  // ── Brand color palette — accent IS the exact chosen color ─────────────────
-  const accent      = brandColor;                  // EXACT brand color — used for KPI numbers, bars, accents, borders
-  const accentText  = textOnBg(accent);            // white or dark text on accent bg
-  const accentDark  = darken(accent, 0.18);        // one shade darker — totals row, pressed states
-  const accentLight = lighten(accent, 0.88);       // very light tint — KPI card backgrounds
-  const accentMid   = lighten(accent, 0.60);       // mid tint — dividers, subtle borders
-  // Header: always dark regardless of brand color so white text is readable
-  const headerBg    = darken(accent, 0.55);        // dark header bg
-  const headerLight = darken(accent, 0.35);        // gradient end — slightly less dark
-
-  // ── Display names ─────────────────────────────────────────────────────────────
-  const autoClientName = useMemo(()=>{
-    if(selectedCamps.length===0) return "Client";
-    return [...new Set(selectedCamps.map(c=>c.campaignName.trim()))].slice(0,2).join(" / ");
-  },[selectedCamps]);
-  const displayClient = clientName||autoClientName;
-  const displayTitle  = reportTitle||(displayClient+" — Performance Report");
-
-  // ── Inline editable field ─────────────────────────────────────────────────────
-  function InlineEdit({field, value, onChange, style={}, placeholder="Click to edit"}) {
-    const draftRef = useRef(value);
-    const inputRef = useRef(null);
-    if(editingField===field) return (
-      <input ref={inputRef} autoFocus defaultValue={value}
-        onChange={e=>{ draftRef.current=e.target.value; }}
-        onBlur={()=>{onChange(draftRef.current);setEditingField(null);}}
-        onKeyDown={e=>{if(e.key==="Enter"){onChange(draftRef.current);setEditingField(null);}if(e.key==="Escape")setEditingField(null);}}
-        style={{...style,outline:"none",border:"1px dashed rgba(255,255,255,.5)",background:"rgba(255,255,255,.1)",borderRadius:4,padding:"2px 6px",color:"white",fontFamily:"inherit",minWidth:200}}/>
-    );
-    return <span onClick={()=>setEditingField(field)} title="Click to edit" style={{...style,cursor:"text",borderBottom:"1px dashed rgba(255,255,255,.35)",paddingBottom:1}}>{value||<span style={{opacity:.4}}>{placeholder}</span>}</span>;
-  }
-
-  // ── Section note editor — uses uncontrolled input to avoid backwards typing ──
-  function SectionNote({skey}) {
-    const note=sectionNotes[skey]||"";
-    const draftRef = useRef(note);
-    const [isEditing, setIsEditing] = useState(false);
-    function commit() { setSectionNotes(p=>({...p,[skey]:draftRef.current})); setIsEditing(false); }
-    if(isEditing) return (
-      <textarea autoFocus defaultValue={note}
-        onChange={e=>{ draftRef.current=e.target.value; }}
-        onBlur={commit}
-        onKeyDown={e=>{ if(e.key==="Escape") commit(); }}
-        placeholder="Add a note for this section (appears in the exported report)…"
-        style={{width:"100%",background:"#fffbe6",border:"1px solid #f0c040",borderRadius:5,padding:"6px 8px",fontSize:11,color:"#333",resize:"vertical",minHeight:56,fontFamily:"inherit",outline:"none",marginTop:5,display:"block"}}/>
-    );
-    return note
-      ? <div onClick={()=>setIsEditing(true)} style={{marginTop:5,padding:"6px 10px",background:"#fffbe6",border:"1px solid #f0e030",borderRadius:5,fontSize:11,color:"#555",cursor:"text",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{note} <span style={{color:"#bbb",fontSize:9}}>✎ edit</span></div>
-      : <button onClick={()=>setIsEditing(true)} style={{background:"none",border:"none",color:"#bbb",fontSize:10,cursor:"pointer",marginTop:4,padding:0}}>+ add note to this section</button>;
-  }
-
-  // ── Section header (preview) ─────────────────────────────────────────────────
-  function SectionHeader({title,skey}) {
-    return (
-      <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${accent}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <span>{title}</span>
-        <button onClick={()=>setSections(p=>({...p,[skey]:!p[skey]}))} title="Hide section"
-          style={{background:"none",border:"none",color:"#ccc",fontSize:11,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>×</button>
-      </div>
-    );
-  }
-
-  const iS={background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",outline:"none"};
-  // Platform colors for report — derived from brand color so everything looks cohesive
-  // We generate a palette of shades from the brand color rather than using the tracker's neon colors
-  const reportPlatPalette = useMemo(()=>{
-    const base = brandColor;
-    // Generate 8 distinct but harmonious shades from the brand color
-    const shades = [
-      base,
-      darken(base, 0.2),
-      lighten(base, 0.3),
-      darken(base, 0.4),
-      lighten(base, 0.5),
-      darken(base, 0.6),
-      lighten(base, 0.15),
-      darken(base, 0.1),
-    ];
-    return shades;
-  }, [brandColor]);
-
-  // Assign a consistent color per platform within the selected campaigns
-  const platColorMap = useMemo(()=>{
-    const platforms = [...new Set(rows.map(r=>r.platform))];
-    const map = {};
-    platforms.forEach((p,i) => { map[p] = reportPlatPalette[i % reportPlatPalette.length]; });
-    return map;
-  }, [rows, reportPlatPalette]);
-
-  const platCol = p => platColorMap[p] || brandColor;
-
-  // ── Logo URL — Google favicon is 100% reliable, no CORS, no token ────────────
   const previewLogoUrl = useMemo(()=>{
     if(logoDataUrl) return {src:logoDataUrl, fallback:null};
     const site = websiteInput||detectedWebsite;
@@ -4489,6 +4331,84 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
     return ()=>clearTimeout(t);
   },[websiteInput]);
 
+
+  // ── Style constants & helpers ────────────────────────────────────────────────
+  const iS = {background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"};
+
+  // ── Brand color palette — accent IS the exact chosen color ──────────────────
+  const accent      = brandColor;
+  const accentLight = lighten(accent, 0.88);
+  const accentMid   = lighten(accent, 0.60);
+  const headerBg    = darken(accent, 0.55);
+  const headerLight = darken(accent, 0.35);
+
+  // ── Display names ─────────────────────────────────────────────────────────────
+  const autoClientName = useMemo(()=>{
+    if(selectedCamps.length===0) return "Client";
+    return [...new Set(selectedCamps.map(c=>c.campaignName.trim()))].slice(0,2).join(" / ");
+  },[selectedCamps]);
+  const displayClient = clientName||autoClientName;
+  const displayTitle  = reportTitle||(displayClient+" — Performance Report");
+
+  // ── Inline editable header field ─────────────────────────────────────────────
+  function InlineEdit({field, value, onChange, style={}, placeholder="Click to edit"}) {
+    const draftRef = useRef(value);
+    if(editingField===field) return (
+      <input autoFocus defaultValue={value}
+        onChange={e=>{ draftRef.current=e.target.value; }}
+        onBlur={()=>{onChange(draftRef.current);setEditingField(null);}}
+        onKeyDown={e=>{if(e.key==="Enter"){onChange(draftRef.current);setEditingField(null);}if(e.key==="Escape")setEditingField(null);}}
+        style={{...style,outline:"none",border:"1px dashed rgba(255,255,255,.5)",background:"rgba(255,255,255,.1)",borderRadius:4,padding:"2px 6px",color:"white",fontFamily:"inherit",minWidth:160}}/>
+    );
+    return <span onClick={()=>setEditingField(field)} title="Click to edit" style={{...style,cursor:"text",borderBottom:"1px dashed rgba(255,255,255,.3)",paddingBottom:1}}>{value||<span style={{opacity:.35}}>{placeholder}</span>}</span>;
+  }
+
+  // ── Section note (uncontrolled to avoid backwards typing) ────────────────────
+  function SectionNote({skey}) {
+    const note = sectionNotes[skey]||"";
+    const draftRef = useRef(note);
+    const [isEditing, setIsEditing] = useState(false);
+    function commit() { setSectionNotes(p=>({...p,[skey]:draftRef.current})); setIsEditing(false); }
+    if(isEditing) return (
+      <textarea autoFocus defaultValue={note}
+        onChange={e=>{ draftRef.current=e.target.value; }}
+        onBlur={commit} onKeyDown={e=>{ if(e.key==="Escape") commit(); }}
+        placeholder="Add a note for this section (appears in exported report)…"
+        style={{width:"100%",background:"#fffbe6",border:"1px solid #f0c040",borderRadius:5,padding:"6px 8px",fontSize:11,color:"#333",resize:"vertical",minHeight:52,fontFamily:"inherit",outline:"none",marginTop:5,display:"block"}}/>
+    );
+    return note
+      ? <div onClick={()=>setIsEditing(true)} style={{marginTop:5,padding:"6px 10px",background:"#fffbe6",border:"1px solid #f0e030",borderRadius:5,fontSize:11,color:"#555",cursor:"text",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{note} <span style={{color:"#bbb",fontSize:9}}>✎</span></div>
+      : <button onClick={()=>setIsEditing(true)} style={{background:"none",border:"none",color:"#bbb",fontSize:10,cursor:"pointer",marginTop:4,padding:0}}>+ add note to this section</button>;
+  }
+
+  // ── Section header with × to hide ────────────────────────────────────────────
+  function SectionHeader({title, skey}) {
+    return (
+      <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${accent}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <span>{title}</span>
+        <button onClick={()=>setSections(p=>({...p,[skey]:!p[skey]}))} title="Hide section"
+          style={{background:"none",border:"none",color:"#ccc",fontSize:13,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>×</button>
+      </div>
+    );
+  }
+
+  // Platform colors in report — derived from brand palette, not tracker neon colors
+  const reportPlatPalette = useMemo(()=>[
+    brandColor,
+    darken(brandColor,0.20), lighten(brandColor,0.30),
+    darken(brandColor,0.40), lighten(brandColor,0.50),
+    darken(brandColor,0.60), lighten(brandColor,0.15),
+    darken(brandColor,0.10),
+  ],[brandColor]);
+
+  const platColorMap = useMemo(()=>{
+    const platforms=[...new Set(rows.map(r=>r.platform))];
+    const map={};
+    platforms.forEach((p,i)=>{ map[p]=reportPlatPalette[i%reportPlatPalette.length]; });
+    return map;
+  },[rows,reportPlatPalette]);
+
+  const platCol = p => platColorMap[p]||brandColor;
 
   // ── PDF Export ────────────────────────────────────────────────────────────────
   function exportPDF() {
@@ -4654,7 +4574,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                 onDrop={e=>{
                   e.preventDefault(); e.currentTarget.style.borderColor="#334155";
                   const file=e.dataTransfer.files[0]; if(!file||!file.type.startsWith("image/")) return;
-                  const r=new FileReader(); r.onload=ev=>{setLogoDataUrl(ev.target.result);setColorOverride(false);}; r.readAsDataURL(file);
+                  const r=new FileReader(); r.onload=ev=>{setLogoDataUrl(ev.target.result);setColorOverride(false);setLogoKey(k=>k+1);}; r.readAsDataURL(file);
                 }}
                 style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6,background:logoDataUrl?"#001810":"#0e1a2e",border:`2px dashed ${logoDataUrl?"#00c896":"#334155"}`,borderRadius:8,padding:"12px",cursor:"pointer",transition:"border-color .15s",minHeight:72}}>
                 {logoDataUrl
@@ -4676,7 +4596,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
               <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:4}}>
                 Client Website <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(auto-pulls logo & brand color)</span>
               </label>
-              <input value={websiteInput} onChange={e=>{setWebsiteInput(e.target.value); setLogoError(""); setLogoLoaded(false); setColorOverride(false);}}
+              <input value={websiteInput} onChange={e=>{setWebsiteInput(e.target.value); setLogoError(""); setLogoLoaded(false); setColorOverride(false); setLogoKey(k=>k+1);}}
                 placeholder="https://fairmontstate.edu"
                 style={{...iS,width:"100%",fontFamily:"monospace",fontSize:11,marginBottom:6}}/>
               {websiteInput&&(()=>{
@@ -4729,13 +4649,28 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                     title={c} style={{width:22,height:22,borderRadius:4,background:c,border:`2px solid ${brandColor===c?"white":"transparent"}`,cursor:"pointer",padding:0,flexShrink:0}}/>
                 ))}
               </div>
-              {/* Color preview strip */}
-              <div style={{borderRadius:5,overflow:"hidden",display:"flex",height:18}}>
-                {[headerBg,darken(accent,.3),accent,accentMid,accentLight].map((c,i)=>(
-                  <div key={i} style={{flex:1,background:c}}/>
-                ))}
+              {/* Live color preview — mini report header */}
+              <div style={{borderRadius:6,overflow:"hidden",marginTop:6}}>
+                <div style={{background:`linear-gradient(135deg,${headerBg},${headerLight})`,padding:"8px 12px",display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{width:20,height:20,background:"white",borderRadius:3,opacity:.9}}/>
+                  <div>
+                    <div style={{fontSize:9,fontWeight:800,color:"white",opacity:.9}}>Client Name</div>
+                    <div style={{fontSize:7,color:accentMid,marginTop:1}}>March 2026</div>
+                  </div>
+                </div>
+                <div style={{display:"flex",height:3}}>
+                  {[accent,accentMid,accentLight].map((c,i)=><div key={i} style={{flex:1,background:c}}/>)}
+                </div>
+                <div style={{background:"white",padding:"6px 12px",display:"flex",gap:6}}>
+                  {[accent,darken(accent,.15),accentMid].map((c,i)=>(
+                    <div key={i} style={{flex:1,background:accentLight,border:`1px solid ${accentMid}`,borderRadius:3,padding:"4px 0",textAlign:"center"}}>
+                      <div style={{fontSize:10,fontWeight:800,color:accent}}>—</div>
+                      <div style={{fontSize:7,color:"#888"}}>KPI</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div style={{fontSize:9,color:"#3d5a72",marginTop:3}}>Header dark → accent → light — auto-generated from your color</div>
+              <div style={{fontSize:9,color:"#3d5a72",marginTop:3}}>↑ Live preview of how your brand color will look in the report</div>
             </div>
           </div>
 
@@ -4823,14 +4758,13 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
             </div>
           </div>
         ) : (
-          <div key={brandColor+previewLogoUrl?.src} style={{background:"white",borderRadius:12,overflow:"hidden",boxShadow:"0 4px 32px rgba(0,0,0,.5)"}}>
+          <div key={brandColor+logoKey} style={{background:"white",borderRadius:12,overflow:"hidden",boxShadow:"0 4px 32px rgba(0,0,0,.5)"}}>
 
             {/* ── Report Header ── */}
             <div style={{background:`linear-gradient(135deg,${headerBg} 0%,${headerLight} 100%)`,padding:"24px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
               <div style={{display:"flex",alignItems:"center",gap:16}}>
                 {previewLogoUrl
-                  ? <img key={previewLogoUrl.src} src={previewLogoUrl.src} alt="logo"
-                      onLoad={handleLogoImgLoad}
+                  ? <img key={previewLogoUrl.src+logoKey} src={previewLogoUrl.src} alt="logo"
                       onError={e=>{ if(previewLogoUrl.fallback&&e.currentTarget.src!==previewLogoUrl.fallback){ e.currentTarget.onerror=null; e.currentTarget.src=previewLogoUrl.fallback; } }}
                       style={{height:52,width:52,objectFit:"contain",background:"white",padding:6,borderRadius:8,flexShrink:0}}/>
                   : <div style={{width:52,height:52,background:"rgba(255,255,255,.12)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>📊</div>
