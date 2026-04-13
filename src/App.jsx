@@ -4101,8 +4101,8 @@ function hbarHTML(data, color) {
   if(!data||!data.length) return "";
   const max=Math.max(...data.map(d=>d.pct||0),1);
   return data.map(d=>`<div style="margin-bottom:8px">
-    <div style="display:flex;justify-content:space-between;font-size:11px;color:#444;margin-bottom:3px">
-      <span>${d.label}</span><strong>${d.pct}%</strong>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:#333;margin-bottom:3px;font-weight:500">
+      <span>${d.label}</span><strong style="color:#1a1a2e">${d.pct}%</strong>
     </div>
     <div style="background:#e8eaf0;border-radius:4px;height:10px;overflow:hidden">
       <div style="background:${color};height:100%;width:${(d.pct/max*100).toFixed(1)}%;border-radius:4px"></div>
@@ -4134,6 +4134,172 @@ function donutSVG(data, color, size=80) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN REPORTING DASHBOARD
 // ═══════════════════════════════════════════════════════════════════════════════
+
+function CSVImportPanel({ selectedCamps, iS, accent, onApplyData }) {
+  const [open, setOpen] = React.useState(false);
+  const [csvParsed, setCsvParsed] = React.useState(null);
+  const [csvError, setCsvError] = React.useState("");
+  const [csvTargetCamp, setCsvTargetCamp] = React.useState(selectedCamps[0]?.id||"");
+  const [csvDataType, setCsvDataType] = React.useState("age");
+
+  React.useEffect(()=>{
+    if(selectedCamps.length>0 && !csvTargetCamp) setCsvTargetCamp(selectedCamps[0].id);
+  },[selectedCamps]);
+
+  function parseCSV(text) {
+    const lines = text.trim().split(/\r?\n/);
+    if(lines.length < 2) return null;
+    const headers = lines[0].split(",").map(h=>h.replace(/"/g,"").trim().toLowerCase());
+    return lines.slice(1).map(line=>{
+      const vals = line.match(/(".*?"|[^,]+)/g)||[];
+      const row = {};
+      headers.forEach((h,i)=>{ row[h]=(vals[i]||"").replace(/"/g,"").trim(); });
+      return row;
+    }).filter(r=>Object.values(r).some(v=>v));
+  }
+
+  function detectType(rows) {
+    if(!rows||!rows.length) return "age";
+    const keys = Object.keys(rows[0]).join(" ").toLowerCase();
+    if(keys.includes("age")) return "age";
+    if(keys.includes("gender")) return "gender";
+    if(keys.includes("device")||keys.includes("os")) return "device";
+    if(keys.includes("country")||keys.includes("region")||keys.includes("city")||keys.includes("dma")) return "geo";
+    return "age";
+  }
+
+  function rowsToReportData(rows, type) {
+    if(!rows||!rows.length) return null;
+    const labelCol = Object.keys(rows[0]).find(k=>{
+      if(type==="age") return k.includes("age")||k==="segment"||k==="breakdown";
+      if(type==="gender") return k.includes("gender")||k==="segment";
+      if(type==="device") return k.includes("device")||k.includes("platform")||k.includes("os")||k==="breakdown";
+      if(type==="geo") return k.includes("country")||k.includes("region")||k.includes("city")||k.includes("dma")||k==="location";
+      return false;
+    });
+    const valCol = Object.keys(rows[0]).find(k=>k.includes("impr")||k.includes("reach")||k.includes("click"));
+    if(!labelCol||!valCol) return null;
+    const src = type==="geo" ? rows.sort((a,b)=>(parseInt(b[valCol])||0)-(parseInt(a[valCol])||0)).slice(0,8) : rows;
+    const total = src.reduce((s,r)=>s+(parseInt(r[valCol])||0),0)||1;
+    return src.map(r=>({label:r[labelCol],pct:Math.round((parseInt(r[valCol])||0)/total*100)})).filter(d=>d.pct>0&&d.label);
+  }
+
+  function handleFile(file) {
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const rows = parseCSV(ev.target.result);
+        if(!rows||!rows.length) { setCsvError("Couldn't parse — check file format"); return; }
+        setCsvDataType(detectType(rows));
+        setCsvParsed(rows);
+        setCsvError("");
+      } catch(e) { setCsvError("Parse error: "+e.message); }
+    };
+    reader.readAsText(file);
+  }
+
+  function apply() {
+    if(!csvParsed||!csvTargetCamp) return;
+    const converted = rowsToReportData(csvParsed, csvDataType);
+    if(!converted||!converted.length) { setCsvError("Couldn't map columns — try changing Data Type"); return; }
+    const fieldMap = {age:"demoAge",gender:"demoGender",device:"deviceData",geo:"geoData"};
+    const camp = selectedCamps.find(c=>c.id===csvTargetCamp);
+    if(camp && onApplyData) onApplyData(camp.id, fieldMap[csvDataType], JSON.stringify(converted));
+    setOpen(false); setCsvParsed(null);
+  }
+
+  const preview = csvParsed ? rowsToReportData(csvParsed, csvDataType) : null;
+
+  return (
+    <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"14px",marginBottom:12}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:open?10:0}}>
+        <div>
+          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>⑥ Platform Data (CSV)</div>
+          {!open&&<div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>Import age, gender, device, geo from FB/Snap/DSP exports</div>}
+        </div>
+        <button onClick={()=>{setOpen(v=>!v);setCsvError("");setCsvParsed(null);}}
+          style={{background:open?"#162236":"#002e24",border:`1px solid ${open?"#334155":"#00c89640"}`,borderRadius:6,padding:"5px 12px",color:open?"#4d6e8a":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+          {open?"✕ Close":"+ Import CSV"}
+        </button>
+      </div>
+
+      {open&&(
+        <div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+            <div>
+              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Campaign</label>
+              <select value={csvTargetCamp} onChange={e=>setCsvTargetCamp(e.target.value)} style={{...iS,width:"100%",fontSize:11}}>
+                {selectedCamps.map(c=>(<option key={c.id} value={c.id}>{c.campaignName.trim()} ({c.platform})</option>))}
+              </select>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Data Type</label>
+              <select value={csvDataType} onChange={e=>setCsvDataType(e.target.value)} style={{...iS,width:"100%",fontSize:11}}>
+                <option value="age">Age Breakdown</option>
+                <option value="gender">Gender</option>
+                <option value="device">Device / Platform</option>
+                <option value="geo">Geography</option>
+              </select>
+            </div>
+          </div>
+
+          {!csvParsed&&(
+            <label
+              onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor="#00e5a0";}}
+              onDragLeave={e=>{e.currentTarget.style.borderColor="#334155";}}
+              onDrop={e=>{e.preventDefault();e.currentTarget.style.borderColor="#334155";handleFile(e.dataTransfer.files[0]);}}
+              style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6,background:"#07101c",border:"1.5px dashed #334155",borderRadius:8,padding:"18px",cursor:"pointer",textAlign:"center",transition:"border-color .15s"}}>
+              <span style={{fontSize:24}}>📊</span>
+              <span style={{fontSize:11,color:"#4d6e8a",fontWeight:600}}>Drop CSV here or click to browse</span>
+              <span style={{fontSize:10,color:"#3d5a72",lineHeight:1.5}}>FB: Ads Manager → Reports → Breakdown → Export<br/>Snap: Ads Manager → Export → Demographics</span>
+              <input type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+            </label>
+          )}
+
+          {csvParsed&&(
+            <div>
+              <div style={{fontSize:10,color:"#00e5a0",fontWeight:600,marginBottom:6}}>✓ Parsed {csvParsed.length} rows · Detected: <strong>{csvDataType}</strong></div>
+              {preview&&preview.length>0 ? (
+                <div style={{background:"#07101c",borderRadius:6,padding:"8px 10px",marginBottom:8}}>
+                  {preview.map((d,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                      <span style={{fontSize:10,color:"#7a9bbf",minWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.label}</span>
+                      <div style={{flex:1,background:"#0e1a2e",borderRadius:3,height:10,overflow:"hidden"}}>
+                        <div style={{background:accent,height:"100%",width:`${d.pct}%`,borderRadius:3}}/>
+                      </div>
+                      <span style={{fontSize:10,color:"#edf4ff",fontWeight:600,minWidth:30,textAlign:"right"}}>{d.pct}%</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{fontSize:10,color:"#f59e0b",marginBottom:8,padding:"6px 8px",background:"#1a1000",borderRadius:5}}>
+                  Couldn't auto-map columns — try changing Data Type above, or check column names in CSV
+                </div>
+              )}
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={apply} disabled={!preview||!preview.length}
+                  style={{flex:1,background:preview?.length?"#002e24":"#162236",border:`1px solid ${preview?.length?"#00c89640":"#334155"}`,borderRadius:6,padding:"7px",color:preview?.length?"#00e5a0":"#3d5a72",fontSize:11,fontWeight:700,cursor:preview?.length?"pointer":"default"}}>
+                  ✓ Apply to Report
+                </button>
+                <button onClick={()=>{setCsvParsed(null);setCsvError("");}}
+                  style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 12px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
+                  Re-upload
+                </button>
+              </div>
+            </div>
+          )}
+          {csvError&&<div style={{fontSize:10,color:"#ef4444",marginTop:6,padding:"6px 8px",background:"#1a0808",borderRadius:5}}>{csvError}</div>}
+          <div style={{marginTop:8,fontSize:9,color:"#3d5a72",lineHeight:1.6,borderTop:"1px solid #1a2744",paddingTop:8}}>
+            <strong style={{color:"#4d6e8a"}}>FB:</strong> Ads Manager → Reports → Breakdown → Age/Gender/Placement → Export<br/>
+            <strong style={{color:"#4d6e8a"}}>Snapchat:</strong> Ads Manager → Campaign → Export → Demographics<br/>
+            <strong style={{color:"#4d6e8a"}}>DSP/TTD:</strong> Reporting → Custom Report → Device/Geo → CSV
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ReportingDashboard({ campaigns=[], archive=[] }) {
   const all = useMemo(()=>[...campaigns,...archive],[campaigns,archive]);
@@ -4197,6 +4363,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
   // ── Creative screenshots (per-campaign image uploads) ───────────────────────
   const [creativeImages, setCreativeImages] = useState({}); // {campaignId: [dataUrl,...]}
+  const [csvOverrides, setCsvOverrides] = useState({}); // {campaignId: {demoAge, demoGender, deviceData, geoData}}
 
   function addCreativeImage(campId, dataUrl) {
     setCreativeImages(p=>({...p,[campId]:[...(p[campId]||[]),dataUrl]}));
@@ -4245,7 +4412,10 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
   // ── Metrics ────────────────────────────────────────────────────────────────
   function getM(c){ return{impressions:parseInt(c.impressions)||0,clicks:parseInt(c.clicks)||0,ctr:parseFloat(c.ctr)||0,cpm:parseFloat(c.cpm)||0,spend:parseFloat(c.spend)||0,reach:parseInt(c.reach)||0,completionRate:parseFloat(c.completionRate)||0,videoViews:parseInt(c.videoViews)||0,contractValue:parseFloat(c.contractValue)||0}; }
-  const rows = useMemo(()=>selectedCamps.map(c=>({...c,m:getM(c)})),[selectedCamps]);
+  const rows = useMemo(()=>selectedCamps.map(c=>{
+    const overrides = csvOverrides[c.id]||{};
+    return {...c, ...overrides, m:getM(c)};
+  }),[selectedCamps, csvOverrides]);
   const totals = useMemo(()=>rows.reduce((a,r)=>({impressions:a.impressions+r.m.impressions,clicks:a.clicks+r.m.clicks,spend:a.spend+r.m.spend,reach:a.reach+r.m.reach,videoViews:a.videoViews+r.m.videoViews,contractValue:a.contractValue+r.m.contractValue}),{impressions:0,clicks:0,spend:0,reach:0,videoViews:0,contractValue:0}),[rows]);
   const overallCTR=totals.clicks>0&&totals.impressions>0?(totals.clicks/totals.impressions*100).toFixed(2)+"%":"—";
   const overallCPM=totals.impressions>0&&totals.spend>0?"$"+(totals.spend/totals.impressions*1000).toFixed(2):"—";
@@ -4388,7 +4558,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   // ── Section header with × to hide ────────────────────────────────────────────
   function SectionHeader({title, skey}) {
     return (
-      <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${accent}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div style={{fontSize:10,fontWeight:700,color:"#444",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${accent}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <span>{title}</span>
         <button onClick={()=>setSections(p=>({...p,[skey]:!p[skey]}))} title="Hide section"
           style={{background:"none",border:"none",color:"#ccc",fontSize:13,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>×</button>
@@ -4750,7 +4920,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                 <div style={{background:"white",padding:"6px 10px",display:"flex",gap:5}}>
                   {["Impressions","Clicks","CTR"].map((l,i)=>(
                     <div key={i} style={{flex:1,background:accentLight,border:`1px solid ${accentMid}`,borderRadius:3,padding:"4px 0",textAlign:"center"}}>
-                      <div style={{fontSize:11,fontWeight:800,color:accent}}>—</div>
+                      <div style={{fontSize:11,fontWeight:800,color:"#1a1a2e"}}>—</div>
                       <div style={{fontSize:7,color:"#888"}}>{l}</div>
                     </div>
                   ))}
@@ -4773,6 +4943,20 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
             </div>
             <div style={{fontSize:9,color:"#3d5a72",marginTop:6}}>Click any section in the preview to hide it. Sections with no data are ignored automatically.</div>
           </div>
+
+
+          {/* ── CSV Data Import ── */}
+          {selectedCamps.length>0&&(
+            <CSVImportPanel
+              selectedCamps={selectedCamps}
+              iS={iS}
+              accent={accent}
+              onApplyData={(campId, field, jsonStr)=>{
+                // Store in local overrides for this report session
+                setCsvOverrides(p=>({...p,[campId]:{...p[campId],[field]:jsonStr}}));
+              }}
+            />
+          )}
 
           {/* ── Creative screenshots — drag & drop ── */}
           {selectedCamps.length>0&&(
@@ -4893,9 +5077,9 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                     <SectionHeader title="Overall Performance" skey="kpis"/>
                     <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(kpis.length,4)},1fr)`,gap:10}}>
                       {kpis.map(k=>(
-                        <div key={k.label} style={{background:accentLight,border:`1px solid ${accentMid}`,borderRadius:8,padding:"12px 14px",textAlign:"center"}}>
-                          <div style={{fontSize:24,fontWeight:900,color:accent,lineHeight:1,letterSpacing:"-0.02em"}}>{k.val}</div>
-                          <div style={{fontSize:9,color:"#888",marginTop:4,textTransform:"uppercase",letterSpacing:".06em",fontWeight:700}}>{k.label}</div>
+                        <div key={k.label} style={{background:"#f8f9fa",border:"1px solid #e8eaf0",borderRadius:8,padding:"12px 14px",textAlign:"center"}}>
+                          <div style={{fontSize:24,fontWeight:900,color:"#1a1a2e",lineHeight:1,letterSpacing:"-0.02em"}}>{k.val}</div>
+                          <div style={{fontSize:9,color:"#555",marginTop:4,textTransform:"uppercase",letterSpacing:".06em",fontWeight:700}}>{k.label}</div>
                         </div>
                       ))}
                     </div>
@@ -4950,7 +5134,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                         <div key={r.id} style={{marginBottom:8}}>
                           <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#555",marginBottom:2}}>
                             <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"75%"}}>{r.campaignName.trim()} ({r.platform})</span>
-                            <strong style={{color:accent,flexShrink:0}}>{r.m.ctr.toFixed(2)}%</strong>
+                            <strong style={{color:"#1a1a2e",flexShrink:0,fontWeight:700}}>{r.m.ctr.toFixed(2)}%</strong>
                           </div>
                           <div style={{background:"#e8eaf0",borderRadius:3,height:12,overflow:"hidden"}}>
                             <div style={{background:accent,height:"100%",width:`${(r.m.ctr/mx*100).toFixed(1)}%`,borderRadius:3}}/>
@@ -4986,9 +5170,9 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                             <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8"}}>
                               <span style={{background:platCol(r.platform)+"22",color:platCol(r.platform),border:"1px solid "+platCol(r.platform)+"50",borderRadius:3,padding:"1px 6px",fontSize:9,fontWeight:700}}>{r.platform}</span>
                             </td>
-                            <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",color:accent,fontWeight:600}}>{r.m.impressions>0?fmtN(r.m.impressions):"—"}</td>
+                            <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",color:"#1a1a2e",fontWeight:600}}>{r.m.impressions>0?fmtN(r.m.impressions):"—"}</td>
                             <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.clicks>0?fmtN(r.m.clicks):"—"}</td>
-                            <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",fontWeight:r.m.ctr>0?700:400,color:r.m.ctr>0?accent:"#aaa"}}>{r.m.ctr>0?r.m.ctr.toFixed(2)+"%":"—"}</td>
+                            <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",fontWeight:r.m.ctr>0?700:400,color:"#1a1a2e"}}>{r.m.ctr>0?r.m.ctr.toFixed(2)+"%":"—"}</td>
                             <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.reach>0?fmtN(r.m.reach):"—"}</td>
                             <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.completionRate>0?r.m.completionRate.toFixed(1)+"%":r.m.videoViews>0?fmtN(r.m.videoViews):"—"}</td>
                           </tr>
@@ -5015,7 +5199,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                   <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:8,padding:"14px 18px",background:accentLight,border:`1px solid ${accentMid}`,borderRadius:8}}>
                     <div style={{flex:1}}>
                       <div style={{fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:4}}>Total Campaign Budget</div>
-                      <div style={{fontSize:28,fontWeight:900,color:accent,lineHeight:1}}>{fmtMoney(totals.contractValue)}</div>
+                      <div style={{fontSize:28,fontWeight:900,color:"#1a1a2e",lineHeight:1}}>{fmtMoney(totals.contractValue)}</div>
                     </div>
                   </div>
                   <SectionNote skey="budget"/>
@@ -5048,9 +5232,9 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                                 <td style={{padding:"7px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>
                                   <span style={{background:platCol(c.platform)+"22",color:platCol(c.platform),border:"1px solid "+platCol(c.platform)+"50",borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700}}>{c.platform}</span>
                                 </td>
-                                <td style={{padding:"7px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",fontWeight:600,color:accent}}>{fmtN(c.impressions||0)}</td>
+                                <td style={{padding:"7px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",fontWeight:600,color:"#1a1a2e"}}>{fmtN(c.impressions||0)}</td>
                                 <td style={{padding:"7px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{fmtN(c.clicks||0)}</td>
-                                <td style={{padding:"7px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",fontWeight:700,color:accent}}>{c.ctr?c.ctr.toFixed(2)+"%":"—"}</td>
+                                <td style={{padding:"7px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right",fontWeight:600,color:"#1a1a2e"}}>{c.ctr?c.ctr.toFixed(2)+"%":"—"}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -5081,7 +5265,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                 if(!allAge.length&&!allGender.length&&!allDevice.length&&!allGeo.length) return null;
                 return (
                   <div style={{marginBottom:22}}>
-                    <div style={{fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${accent}`}}>Audience Insights</div>
+                    <div style={{fontSize:10,fontWeight:700,color:"#444",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${accent}`}}>Audience Insights</div>
                     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14}}>
                       {allAge.length>0&&(
                         <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px"}}>
