@@ -4135,63 +4135,119 @@ function donutSVG(data, color, size=80) {
 // MAIN REPORTING DASHBOARD
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function CSVImportPanel({ selectedCamps, iS, accent, onApplyData }) {
+
+// ── Report Data Panel ─────────────────────────────────────────────────────────
+// Handles manual entry + CSV import for demographics, creatives, devices, geo
+// Replaces the old CSVImportPanel + JSON text fields
+
+const DATA_TYPES = [
+  { key:"age",       label:"Age",        field:"demoAge",      icon:"👥", hint:"18-24, 25-34, 35-44…" },
+  { key:"gender",    label:"Gender",     field:"demoGender",   icon:"⚧",  hint:"Female, Male, Other…" },
+  { key:"device",    label:"Device",     field:"deviceData",   icon:"📱", hint:"Android, iOS, Desktop…" },
+  { key:"geo",       label:"Geography",  field:"geoData",      icon:"🌎", hint:"West Virginia, Ohio…" },
+  { key:"creatives", label:"Creatives",  field:"topCreatives", icon:"🎨", hint:"Top performing ads" },
+];
+
+function ReportDataPanel({ selectedCamps, iS, accent, onApplyData, embedded=false }) {
+  const [activeType, setActiveType] = React.useState("age");
+  const [targetCampId, setTargetCampId] = React.useState(selectedCamps[0]?.id||"");
+  const [mode, setMode] = React.useState("manual"); // "manual" | "csv"
   const [open, setOpen] = React.useState(false);
+
+  // Manual entry rows state
+  const emptyBreakdownRow = () => ({id:Date.now()+Math.random(), label:"", pct:""});
+  const emptyCreativeRow  = () => ({id:Date.now()+Math.random(), name:"", impressions:"", clicks:"", ctr:""});
+  const [bRows, setBRows] = React.useState([emptyBreakdownRow(), emptyBreakdownRow(), emptyBreakdownRow()]);
+  const [cRows, setCRows] = React.useState([emptyCreativeRow(), emptyCreativeRow()]);
+
+  // CSV state
   const [csvParsed, setCsvParsed] = React.useState(null);
   const [csvError, setCsvError] = React.useState("");
-  const [csvTargetCamp, setCsvTargetCamp] = React.useState(selectedCamps[0]?.id||"");
-  const [csvDataType, setCsvDataType] = React.useState("age");
+  const [csvDetected, setCsvDetected] = React.useState("age");
 
   React.useEffect(()=>{
-    if(selectedCamps.length>0 && !csvTargetCamp) setCsvTargetCamp(selectedCamps[0].id);
+    if(selectedCamps.length>0 && !selectedCamps.find(c=>c.id===targetCampId))
+      setTargetCampId(selectedCamps[0].id);
   },[selectedCamps]);
 
+  // Reset rows when type changes
+  React.useEffect(()=>{
+    setBRows([emptyBreakdownRow(), emptyBreakdownRow(), emptyBreakdownRow()]);
+    setCRows([emptyCreativeRow(), emptyCreativeRow()]);
+    setCsvParsed(null); setCsvError("");
+  },[activeType]);
+
+  const isCreatives = activeType==="creatives";
+
+  // ── CSV helpers ────────────────────────────────────────────────────────────
   function parseCSV(text) {
     const lines = text.trim().split(/\r?\n/);
     if(lines.length < 2) return null;
-    const headers = lines[0].split(",").map(h=>h.replace(/"/g,"").trim().toLowerCase());
+    const rawHeaders = lines[0].split(",");
+    const headers = rawHeaders.map(h=>h.replace(/"/g,"").trim().toLowerCase());
     return lines.slice(1).map(line=>{
-      const vals = line.match(/(".*?"|[^,]+)/g)||[];
+      const vals = [];
+      let cur = "", inQ = false;
+      for(const ch of line+",") {
+        if(ch==='"') inQ=!inQ;
+        else if(ch===","&&!inQ) { vals.push(cur.trim()); cur=""; }
+        else cur+=ch;
+      }
       const row = {};
       headers.forEach((h,i)=>{ row[h]=(vals[i]||"").replace(/"/g,"").trim(); });
       return row;
     }).filter(r=>Object.values(r).some(v=>v));
   }
 
-  function detectType(rows) {
-    if(!rows||!rows.length) return "age";
-    const keys = Object.keys(rows[0]).join(" ").toLowerCase();
-    if(keys.includes("age")) return "age";
+  function detectCSVType(rows) {
+    const keys = Object.keys(rows[0]||{}).join(" ").toLowerCase();
     if(keys.includes("gender")) return "gender";
-    if(keys.includes("device")||keys.includes("os")) return "device";
+    if(keys.includes("age")) return "age";
+    if(keys.includes("device")||keys.includes("os")||keys.includes("platform")) return "device";
     if(keys.includes("country")||keys.includes("region")||keys.includes("city")||keys.includes("dma")) return "geo";
+    if(keys.includes("ad")||keys.includes("creative")||keys.includes("name")) return "creatives";
     return "age";
   }
 
-  function rowsToReportData(rows, type) {
-    if(!rows||!rows.length) return null;
-    const labelCol = Object.keys(rows[0]).find(k=>{
+  function csvToPreview(rows, type) {
+    if(!rows?.length) return null;
+    if(type==="creatives") {
+      const nameCol = Object.keys(rows[0]).find(k=>k.includes("ad")||k.includes("creative")||k.includes("name")||k==="ad name");
+      const imprCol = Object.keys(rows[0]).find(k=>k.includes("impr"));
+      const clickCol = Object.keys(rows[0]).find(k=>k.includes("click")&&!k.includes("through"));
+      const ctrCol  = Object.keys(rows[0]).find(k=>k.includes("ctr")||k.includes("click-through")||k.includes("click through"));
+      if(!nameCol) return null;
+      return rows.slice(0,10).map(r=>({
+        name: r[nameCol],
+        impressions: parseInt(r[imprCol])||0,
+        clicks: parseInt(r[clickCol])||0,
+        ctr: parseFloat(r[ctrCol])||0,
+      })).filter(r=>r.name);
+    }
+    // Breakdown types
+    const labelKey = Object.keys(rows[0]).find(k=>{
       if(type==="age") return k.includes("age")||k==="segment"||k==="breakdown";
       if(type==="gender") return k.includes("gender")||k==="segment";
-      if(type==="device") return k.includes("device")||k.includes("platform")||k.includes("os")||k==="breakdown";
+      if(type==="device") return k.includes("device")||k.includes("platform")||k.includes("os");
       if(type==="geo") return k.includes("country")||k.includes("region")||k.includes("city")||k.includes("dma")||k==="location";
       return false;
-    });
-    const valCol = Object.keys(rows[0]).find(k=>k.includes("impr")||k.includes("reach")||k.includes("click"));
-    if(!labelCol||!valCol) return null;
-    const src = type==="geo" ? rows.sort((a,b)=>(parseInt(b[valCol])||0)-(parseInt(a[valCol])||0)).slice(0,8) : rows;
-    const total = src.reduce((s,r)=>s+(parseInt(r[valCol])||0),0)||1;
-    return src.map(r=>({label:r[labelCol],pct:Math.round((parseInt(r[valCol])||0)/total*100)})).filter(d=>d.pct>0&&d.label);
+    })||Object.keys(rows[0])[0];
+    const valKey = Object.keys(rows[0]).find(k=>k.includes("impr")||k.includes("reach"))||Object.keys(rows[0])[1];
+    const src = type==="geo" ? [...rows].sort((a,b)=>(parseInt(b[valKey])||0)-(parseInt(a[valKey])||0)).slice(0,8) : rows;
+    const total = src.reduce((s,r)=>s+(parseInt(r[valKey])||0),0)||1;
+    return src.map(r=>({label:r[labelKey], pct:Math.round((parseInt(r[valKey])||0)/total*100)})).filter(d=>d.pct>0&&d.label);
   }
 
-  function handleFile(file) {
+  function handleCSVFile(file) {
     if(!file) return;
     const reader = new FileReader();
     reader.onload = ev => {
       try {
         const rows = parseCSV(ev.target.result);
-        if(!rows||!rows.length) { setCsvError("Couldn't parse — check file format"); return; }
-        setCsvDataType(detectType(rows));
+        if(!rows?.length) { setCsvError("Couldn't parse — check file"); return; }
+        const detected = detectCSVType(rows);
+        setCsvDetected(detected);
+        setActiveType(detected);
         setCsvParsed(rows);
         setCsvError("");
       } catch(e) { setCsvError("Parse error: "+e.message); }
@@ -4199,107 +4255,216 @@ function CSVImportPanel({ selectedCamps, iS, accent, onApplyData }) {
     reader.readAsText(file);
   }
 
-  function apply() {
-    if(!csvParsed||!csvTargetCamp) return;
-    const converted = rowsToReportData(csvParsed, csvDataType);
-    if(!converted||!converted.length) { setCsvError("Couldn't map columns — try changing Data Type"); return; }
-    const fieldMap = {age:"demoAge",gender:"demoGender",device:"deviceData",geo:"geoData"};
-    const camp = selectedCamps.find(c=>c.id===csvTargetCamp);
-    if(camp && onApplyData) onApplyData(camp.id, fieldMap[csvDataType], JSON.stringify(converted));
-    setOpen(false); setCsvParsed(null);
+  // ── Apply data ─────────────────────────────────────────────────────────────
+  function applyData() {
+    const camp = selectedCamps.find(c=>c.id===targetCampId);
+    if(!camp) return;
+    const dt = DATA_TYPES.find(d=>d.key===activeType);
+    let jsonStr;
+
+    if(mode==="csv" && csvParsed) {
+      const preview = csvToPreview(csvParsed, activeType);
+      if(!preview?.length) { setCsvError("Couldn't map columns — try a different Data Type"); return; }
+      jsonStr = JSON.stringify(preview);
+    } else {
+      // Manual entry
+      if(isCreatives) {
+        const valid = cRows.filter(r=>r.name.trim());
+        if(!valid.length) return;
+        jsonStr = JSON.stringify(valid.map(r=>({name:r.name.trim(), impressions:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0, ctr:parseFloat(r.ctr)||0})));
+      } else {
+        const valid = bRows.filter(r=>r.label.trim()&&r.pct);
+        if(!valid.length) return;
+        jsonStr = JSON.stringify(valid.map(r=>({label:r.label.trim(), pct:parseInt(r.pct)||0})));
+      }
+    }
+
+    if(onApplyData) onApplyData(camp.id, dt.field, jsonStr);
+    setOpen(false);
+    setCsvParsed(null);
   }
 
-  const preview = csvParsed ? rowsToReportData(csvParsed, csvDataType) : null;
+  const iSsm = {...iS, fontSize:11, padding:"5px 8px"};
+  const csvPreview = csvParsed ? csvToPreview(csvParsed, activeType) : null;
+
+  if(!open && !embedded) return (
+    <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"12px 14px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div>
+        <div style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>⑥ Audience & Creative Data</div>
+        <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>Add age, gender, device, geo, creative breakdown to the report</div>
+      </div>
+      <button onClick={()=>setOpen(true)}
+        style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"6px 14px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+        + Add Data
+      </button>
+    </div>
+  );
 
   return (
-    <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"14px",marginBottom:12}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:open?10:0}}>
-        <div>
-          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>⑥ Platform Data (CSV)</div>
-          {!open&&<div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>Import age, gender, device, geo from FB/Snap/DSP exports</div>}
+    <div style={embedded?{}:{background:"#0c1625",border:`1px solid ${accent}40`,borderRadius:12,padding:"14px",marginBottom:12}}>
+      {/* Header — hidden when embedded */}
+      {!embedded&&(
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>⑥ Audience & Creative Data</div>
+          <button onClick={()=>{setOpen(false);setCsvParsed(null);setCsvError("");}}
+            style={{background:"none",border:"none",color:"#4d6e8a",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>×</button>
         </div>
-        <button onClick={()=>{setOpen(v=>!v);setCsvError("");setCsvParsed(null);}}
-          style={{background:open?"#162236":"#002e24",border:`1px solid ${open?"#334155":"#00c89640"}`,borderRadius:6,padding:"5px 12px",color:open?"#4d6e8a":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
-          {open?"✕ Close":"+ Import CSV"}
-        </button>
+      )}
+
+      {/* Campaign selector */}
+      <div style={{marginBottom:10}}>
+        <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Apply to Campaign</label>
+        <select value={targetCampId} onChange={e=>setTargetCampId(e.target.value)} style={{...iS,width:"100%",fontSize:11}}>
+          {selectedCamps.map(c=>(<option key={c.id} value={c.id}>{c.campaignName.trim()} ({c.platform})</option>))}
+        </select>
       </div>
 
-      {open&&(
-        <div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-            <div>
-              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Campaign</label>
-              <select value={csvTargetCamp} onChange={e=>setCsvTargetCamp(e.target.value)} style={{...iS,width:"100%",fontSize:11}}>
-                {selectedCamps.map(c=>(<option key={c.id} value={c.id}>{c.campaignName.trim()} ({c.platform})</option>))}
-              </select>
-            </div>
-            <div>
-              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Data Type</label>
-              <select value={csvDataType} onChange={e=>setCsvDataType(e.target.value)} style={{...iS,width:"100%",fontSize:11}}>
-                <option value="age">Age Breakdown</option>
-                <option value="gender">Gender</option>
-                <option value="device">Device / Platform</option>
-                <option value="geo">Geography</option>
-              </select>
-            </div>
-          </div>
+      {/* Data type tabs */}
+      <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
+        {DATA_TYPES.map(dt=>(
+          <button key={dt.key} onClick={()=>setActiveType(dt.key)}
+            style={{background:activeType===dt.key?"#07101c":"#0e1a2e",border:`1px solid ${activeType===dt.key?accent+"60":"#1e293b"}`,borderRadius:6,padding:"5px 10px",color:activeType===dt.key?"#edf4ff":"#4d6e8a",fontSize:11,fontWeight:activeType===dt.key?700:400,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+            <span>{dt.icon}</span><span>{dt.label}</span>
+          </button>
+        ))}
+      </div>
 
-          {!csvParsed&&(
+      {/* Mode toggle */}
+      <div style={{display:"flex",gap:4,marginBottom:12}}>
+        {[{k:"manual",l:"✏️ Manual Entry"},{k:"csv",l:"📊 CSV Import"}].map(m=>(
+          <button key={m.k} onClick={()=>{setMode(m.k);setCsvParsed(null);setCsvError("");}}
+            style={{flex:1,background:mode===m.k?"#07101c":"#0e1a2e",border:`1px solid ${mode===m.k?"#334155":"#1e293b"}`,borderRadius:6,padding:"6px",color:mode===m.k?"#edf4ff":"#4d6e8a",fontSize:11,fontWeight:mode===m.k?600:400,cursor:"pointer"}}>
+            {m.l}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Manual Entry ── */}
+      {mode==="manual"&&(
+        <div>
+          {isCreatives ? (
+            <div>
+              <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 24px",gap:4,marginBottom:4}}>
+                {["Ad Name","Impressions","Clicks","CTR %",""].map((h,i)=>(
+                  <div key={i} style={{fontSize:9,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",padding:"0 2px"}}>{h}</div>
+                ))}
+              </div>
+              {cRows.map((row,i)=>(
+                <div key={row.id} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 24px",gap:4,marginBottom:4}}>
+                  <input value={row.name} onChange={e=>setCRows(rs=>rs.map((r,j)=>j===i?{...r,name:e.target.value}:r))}
+                    placeholder="Aviation (WV)" style={{...iSsm}}/>
+                  <input value={row.impressions} onChange={e=>setCRows(rs=>rs.map((r,j)=>j===i?{...r,impressions:e.target.value}:r))}
+                    placeholder="76,182" type="number" style={{...iSsm}}/>
+                  <input value={row.clicks} onChange={e=>setCRows(rs=>rs.map((r,j)=>j===i?{...r,clicks:e.target.value}:r))}
+                    placeholder="337" type="number" style={{...iSsm}}/>
+                  <input value={row.ctr} onChange={e=>setCRows(rs=>rs.map((r,j)=>j===i?{...r,ctr:e.target.value}:r))}
+                    placeholder="0.44" type="number" step="0.01" style={{...iSsm}}/>
+                  <button onClick={()=>setCRows(rs=>rs.filter((_,j)=>j!==i))}
+                    style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:14,padding:0,lineHeight:1,alignSelf:"center"}}>×</button>
+                </div>
+              ))}
+              <button onClick={()=>setCRows(rs=>[...rs,emptyCreativeRow()])}
+                style={{background:"#0e1a2e",border:"1px dashed #334155",borderRadius:5,padding:"5px 12px",color:"#4d6e8a",fontSize:10,cursor:"pointer",width:"100%",marginTop:2}}>+ Add Row</button>
+            </div>
+          ) : (
+            <div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 80px 24px",gap:4,marginBottom:4}}>
+                {[`${DATA_TYPES.find(d=>d.key===activeType)?.hint||"Label"}`,"%",""].map((h,i)=>(
+                  <div key={i} style={{fontSize:9,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",padding:"0 2px"}}>{h}</div>
+                ))}
+              </div>
+              {bRows.map((row,i)=>(
+                <div key={row.id} style={{display:"grid",gridTemplateColumns:"1fr 80px 24px",gap:4,marginBottom:4}}>
+                  <input value={row.label} onChange={e=>setBRows(rs=>rs.map((r,j)=>j===i?{...r,label:e.target.value}:r))}
+                    placeholder={DATA_TYPES.find(d=>d.key===activeType)?.hint?.split(",")[0]||"Label"} style={{...iSsm}}/>
+                  <input value={row.pct} onChange={e=>setBRows(rs=>rs.map((r,j)=>j===i?{...r,pct:e.target.value}:r))}
+                    placeholder="%" type="number" min="0" max="100" style={{...iSsm}}/>
+                  <button onClick={()=>setBRows(rs=>rs.filter((_,j)=>j!==i))}
+                    style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:14,padding:0,lineHeight:1,alignSelf:"center"}}>×</button>
+                </div>
+              ))}
+              <button onClick={()=>setBRows(rs=>[...rs,emptyBreakdownRow()])}
+                style={{background:"#0e1a2e",border:"1px dashed #334155",borderRadius:5,padding:"5px 12px",color:"#4d6e8a",fontSize:10,cursor:"pointer",width:"100%",marginTop:2}}>+ Add Row</button>
+              {bRows.some(r=>r.pct)&&(
+                <div style={{fontSize:9,color:parseInt(bRows.reduce((s,r)=>s+(parseInt(r.pct)||0),0))===100?"#00e5a0":"#f59e0b",marginTop:4,textAlign:"right"}}>
+                  Total: {bRows.reduce((s,r)=>s+(parseInt(r.pct)||0),0)}% {bRows.reduce((s,r)=>s+(parseInt(r.pct)||0),0)===100?"✓":"(should add to 100%)"}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── CSV Import ── */}
+      {mode==="csv"&&(
+        <div>
+          {!csvParsed ? (
             <label
               onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor="#00e5a0";}}
               onDragLeave={e=>{e.currentTarget.style.borderColor="#334155";}}
-              onDrop={e=>{e.preventDefault();e.currentTarget.style.borderColor="#334155";handleFile(e.dataTransfer.files[0]);}}
-              style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6,background:"#07101c",border:"1.5px dashed #334155",borderRadius:8,padding:"18px",cursor:"pointer",textAlign:"center",transition:"border-color .15s"}}>
-              <span style={{fontSize:24}}>📊</span>
-              <span style={{fontSize:11,color:"#4d6e8a",fontWeight:600}}>Drop CSV here or click to browse</span>
-              <span style={{fontSize:10,color:"#3d5a72",lineHeight:1.5}}>FB: Ads Manager → Reports → Breakdown → Export<br/>Snap: Ads Manager → Export → Demographics</span>
-              <input type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+              onDrop={e=>{e.preventDefault();e.currentTarget.style.borderColor="#334155";handleCSVFile(e.dataTransfer.files[0]);}}
+              style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,background:"#07101c",border:"1.5px dashed #334155",borderRadius:8,padding:"16px",cursor:"pointer",textAlign:"center",transition:"border-color .15s"}}>
+              <span style={{fontSize:22}}>📊</span>
+              <span style={{fontSize:11,color:"#4d6e8a",fontWeight:600}}>Drop CSV or click to browse</span>
+              <span style={{fontSize:10,color:"#3d5a72",lineHeight:1.5}}>
+                {activeType==="age"&&"FB: Ads Manager → Reports → Age/Gender Breakdown → Export"}
+                {activeType==="gender"&&"FB: Ads Manager → Reports → Age/Gender Breakdown → Export"}
+                {activeType==="device"&&"FB/TTD: Device or Placement breakdown export"}
+                {activeType==="geo"&&"FB: Geographic breakdown · TTD: Geo report export"}
+                {activeType==="creatives"&&"FB: Ad-level report · Snap: Ad performance export"}
+              </span>
+              <input type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={e=>handleCSVFile(e.target.files[0])}/>
             </label>
-          )}
-
-          {csvParsed&&(
+          ) : (
             <div>
-              <div style={{fontSize:10,color:"#00e5a0",fontWeight:600,marginBottom:6}}>✓ Parsed {csvParsed.length} rows · Detected: <strong>{csvDataType}</strong></div>
-              {preview&&preview.length>0 ? (
-                <div style={{background:"#07101c",borderRadius:6,padding:"8px 10px",marginBottom:8}}>
-                  {preview.map((d,i)=>(
+              <div style={{fontSize:10,color:"#00e5a0",fontWeight:600,marginBottom:6}}>
+                ✓ {csvParsed.length} rows · Auto-detected: <strong style={{color:"#edf4ff"}}>{csvDetected}</strong>
+                {csvDetected!==activeType&&<span style={{color:"#f59e0b",marginLeft:6}}>⚠ Selected type is {activeType}</span>}
+              </div>
+              {csvPreview?.length ? (
+                <div style={{background:"#07101c",borderRadius:6,padding:"8px 10px",marginBottom:8,maxHeight:160,overflowY:"auto"}}>
+                  {isCreatives ? csvPreview.map((r,i)=>(
+                    <div key={i} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr",gap:4,marginBottom:3,fontSize:10}}>
+                      <span style={{color:"#a8c4e0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</span>
+                      <span style={{color:"#edf4ff",textAlign:"right"}}>{fmtN(r.impressions)}</span>
+                      <span style={{color:"#edf4ff",textAlign:"right"}}>{fmtN(r.clicks)}</span>
+                      <span style={{color:"#edf4ff",textAlign:"right"}}>{r.ctr?.toFixed?.(2)||r.ctr}%</span>
+                    </div>
+                  )) : csvPreview.map((d,i)=>(
                     <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                      <span style={{fontSize:10,color:"#7a9bbf",minWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.label}</span>
+                      <span style={{fontSize:10,color:"#7a9bbf",minWidth:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.label}</span>
                       <div style={{flex:1,background:"#0e1a2e",borderRadius:3,height:10,overflow:"hidden"}}>
                         <div style={{background:accent,height:"100%",width:`${d.pct}%`,borderRadius:3}}/>
                       </div>
-                      <span style={{fontSize:10,color:"#edf4ff",fontWeight:600,minWidth:30,textAlign:"right"}}>{d.pct}%</span>
+                      <span style={{fontSize:10,color:"#edf4ff",fontWeight:600,minWidth:28,textAlign:"right"}}>{d.pct}%</span>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div style={{fontSize:10,color:"#f59e0b",marginBottom:8,padding:"6px 8px",background:"#1a1000",borderRadius:5}}>
-                  Couldn't auto-map columns — try changing Data Type above, or check column names in CSV
+                  Couldn't map columns — try switching Data Type tab above
                 </div>
               )}
-              <div style={{display:"flex",gap:6}}>
-                <button onClick={apply} disabled={!preview||!preview.length}
-                  style={{flex:1,background:preview?.length?"#002e24":"#162236",border:`1px solid ${preview?.length?"#00c89640":"#334155"}`,borderRadius:6,padding:"7px",color:preview?.length?"#00e5a0":"#3d5a72",fontSize:11,fontWeight:700,cursor:preview?.length?"pointer":"default"}}>
-                  ✓ Apply to Report
-                </button>
-                <button onClick={()=>{setCsvParsed(null);setCsvError("");}}
-                  style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 12px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
-                  Re-upload
-                </button>
-              </div>
+              <button onClick={()=>{setCsvParsed(null);setCsvError("");}}
+                style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 10px",color:"#4d6e8a",fontSize:10,cursor:"pointer",marginBottom:8}}>
+                ↺ Upload different file
+              </button>
             </div>
           )}
-          {csvError&&<div style={{fontSize:10,color:"#ef4444",marginTop:6,padding:"6px 8px",background:"#1a0808",borderRadius:5}}>{csvError}</div>}
-          <div style={{marginTop:8,fontSize:9,color:"#3d5a72",lineHeight:1.6,borderTop:"1px solid #1a2744",paddingTop:8}}>
-            <strong style={{color:"#4d6e8a"}}>FB:</strong> Ads Manager → Reports → Breakdown → Age/Gender/Placement → Export<br/>
-            <strong style={{color:"#4d6e8a"}}>Snapchat:</strong> Ads Manager → Campaign → Export → Demographics<br/>
-            <strong style={{color:"#4d6e8a"}}>DSP/TTD:</strong> Reporting → Custom Report → Device/Geo → CSV
-          </div>
+          {csvError&&<div style={{fontSize:10,color:"#ef4444",marginTop:4,padding:"5px 8px",background:"#1a0808",borderRadius:5}}>{csvError}</div>}
         </div>
       )}
+
+      {/* Apply button */}
+      <button onClick={applyData}
+        style={{width:"100%",background:`linear-gradient(135deg,${accent}cc,${accent})`,border:"none",borderRadius:7,padding:"9px",color:"white",fontSize:12,fontWeight:700,cursor:"pointer",marginTop:12,transition:"opacity .15s"}}
+        onMouseOver={e=>e.currentTarget.style.opacity=".85"} onMouseOut={e=>e.currentTarget.style.opacity="1"}>
+        ✓ Apply {DATA_TYPES.find(d=>d.key===activeType)?.label} Data to Report
+      </button>
     </div>
   );
 }
+
 
 function ReportingDashboard({ campaigns=[], archive=[] }) {
   const all = useMemo(()=>[...campaigns,...archive],[campaigns,archive]);
@@ -4363,7 +4528,8 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
   // ── Creative screenshots (per-campaign image uploads) ───────────────────────
   const [creativeImages, setCreativeImages] = useState({}); // {campaignId: [dataUrl,...]}
-  const [csvOverrides, setCsvOverrides] = useState({}); // {campaignId: {demoAge, demoGender, deviceData, geoData}}
+  const [csvOverrides, setCsvOverrides] = useState({});
+  const [leftTab, setLeftTab] = useState("campaigns"); // {campaignId: {demoAge, demoGender, deviceData, geoData}}
 
   function addCreativeImage(campId, dataUrl) {
     setCreativeImages(p=>({...p,[campId]:[...(p[campId]||[]),dataUrl]}));
@@ -4629,6 +4795,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
     w.document.write(html); w.document.close();
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{color:"#d8eaf8"}}>
       {/* Hidden img for color extraction from uploaded logo only */}
@@ -4642,379 +4809,252 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
         {/* ════════════════════════════════════════
             LEFT PANEL
             ════════════════════════════════════════ */}
-        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {/* ── Left Panel — tabbed compact layout ── */}
+        <div style={{display:"flex",flexDirection:"column",gap:0}}>
 
-          {/* ── Campaign selector ── */}
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,overflow:"hidden"}}>
-            <div style={{padding:"12px 14px",background:"#07101c",borderBottom:"1px solid #1a2744"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:8}}>① Select Campaigns</div>
+          {/* Tab bar */}
+          {(()=>{
+            const tabs = [
+              {key:"campaigns", label:"📋 Campaigns"},
+              {key:"config",    label:"⚙️ Config"},
+              {key:"branding",  label:"🎨 Branding"},
+              {key:"data",      label:"📊 Data"},
+            ];
+            return (
+              <div style={{display:"flex",background:"#07101c",borderRadius:"12px 12px 0 0",border:"1px solid #1e293b",borderBottom:"none",overflow:"hidden"}}>
+                {tabs.map(t=>(
+                  <button key={t.key} onClick={()=>setLeftTab(t.key)}
+                    style={{flex:1,background:leftTab===t.key?"#0c1625":"transparent",border:"none",borderBottom:leftTab===t.key?"2px solid "+accent:"2px solid transparent",padding:"9px 4px",color:leftTab===t.key?"#edf4ff":"#4d6e8a",fontSize:10,fontWeight:leftTab===t.key?700:400,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap"}}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
+
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderTop:"none",borderRadius:"0 0 12px 12px",padding:"14px",display:"flex",flexDirection:"column",gap:10}}>
+
+            {/* ════ CAMPAIGNS TAB ════ */}
+            {leftTab==="campaigns"&&(<>
               <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, partner, platform…"
-                style={{...iS,width:"100%",marginBottom:6,fontSize:11}}/>
-              <div style={{display:"flex",gap:5,marginBottom:6}}>
+                style={{...iS,width:"100%",fontSize:11}}/>
+              <div style={{display:"flex",gap:5}}>
                 <select value={filterPartner} onChange={e=>setFilterPartner(e.target.value)} style={{...iS,flex:1,fontSize:11}}>
                   <option value="all">All Partners</option>
                   {partners.map(p=><option key={p} value={p}>{p}</option>)}
                 </select>
-                <button onClick={()=>setGroupBy(v=>!v)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>{groupBy?"Grouped":"Flat"}</button>
+                <button onClick={()=>setGroupBy(v=>!v)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 9px",color:"#4d6e8a",fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}}>{groupBy?"Grouped":"Flat"}</button>
               </div>
               <div style={{display:"flex",gap:5}}>
-                <button onClick={()=>setSelectedIds(new Set(filteredCamps.map(c=>c.id)))} style={{flex:1,background:"#002e24",border:"1px solid #00c89640",borderRadius:5,padding:"4px",color:"#00e5a0",fontSize:10,fontWeight:600,cursor:"pointer"}}>+ All</button>
-                <button onClick={()=>setSelectedIds(new Set())} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>Clear</button>
+                <button onClick={()=>setSelectedIds(new Set(filteredCamps.map(c=>c.id)))} style={{flex:1,background:"#002e24",border:"1px solid #00c89640",borderRadius:5,padding:"5px",color:"#00e5a0",fontSize:10,fontWeight:600,cursor:"pointer"}}>+ All</button>
+                <button onClick={()=>setSelectedIds(new Set())} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>Clear</button>
               </div>
-            </div>
-            <div style={{maxHeight:360,overflowY:"auto"}}>
-              {Object.entries(grouped).map(([partner,camps])=>(
-                <div key={partner}>
-                  {groupBy&&(
-                    <div onClick={()=>selectAllPartner(partner)} style={{background:"#060d18",padding:"5px 12px",display:"flex",alignItems:"center",gap:7,borderBottom:"1px solid #1a2744",cursor:"pointer"}}>
-                      <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${camps.every(c=>selectedIds.has(c.id))?"#00c896":"#334155"}`,background:camps.every(c=>selectedIds.has(c.id))?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                        {camps.every(c=>selectedIds.has(c.id))&&<span style={{color:"#000",fontSize:8,fontWeight:900}}>✓</span>}
-                      </div>
-                      <span style={{fontSize:10,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".05em",flex:1}}>{partner}</span>
-                      <span style={{fontSize:9,color:"#3d5a72"}}>{camps.length}</span>
-                    </div>
-                  )}
-                  {camps.map(c=>{
-                    const sel=selectedIds.has(c.id);
-                    const pc=platCol(c.platform);
-                    return (
-                      <div key={c.id} onClick={()=>toggleCamp(c.id)}
-                        style={{padding:`7px 12px 7px ${groupBy?"24px":"12px"}`,borderBottom:"1px solid #0a1018",cursor:"pointer",background:sel?"#001810":"transparent",display:"flex",alignItems:"center",gap:7}}>
-                        <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${sel?"#00c896":"#334155"}`,background:sel?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                          {sel&&<span style={{color:"#000",fontSize:8,fontWeight:900}}>✓</span>}
+
+              {/* Campaign list */}
+              <div style={{maxHeight:320,overflowY:"auto",margin:"0 -14px",padding:"0 14px"}}>
+                {Object.entries(grouped).map(([partner,camps])=>(
+                  <div key={partner}>
+                    {groupBy&&(
+                      <div onClick={()=>selectAllPartner(partner)} style={{background:"#060d18",padding:"4px 10px",display:"flex",alignItems:"center",gap:7,borderBottom:"1px solid #1a2744",cursor:"pointer",margin:"0 -14px"}}>
+                        <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${camps.every(c=>selectedIds.has(c.id))?"#00c896":"#334155"}`,background:camps.every(c=>selectedIds.has(c.id))?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                          {camps.every(c=>selectedIds.has(c.id))&&<span style={{color:"#000",fontSize:8,fontWeight:900}}>✓</span>}
                         </div>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:11,color:sel?"#edf4ff":"#7a9bbf",fontWeight:sel?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
-                          {!groupBy&&<div style={{fontSize:9,color:"#3d5a72"}}>{c.mediaPartner}</div>}
+                        <span style={{fontSize:10,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".04em",flex:1}}>{partner}</span>
+                        <span style={{fontSize:9,color:"#3d5a72"}}>{camps.length}</span>
+                      </div>
+                    )}
+                    {camps.map(c=>{
+                      const sel=selectedIds.has(c.id); const pc=platCol(c.platform);
+                      return (
+                        <div key={c.id} onClick={()=>toggleCamp(c.id)}
+                          style={{padding:`6px 10px 6px ${groupBy?"22px":"10px"}`,borderBottom:"1px solid #0a1018",cursor:"pointer",background:sel?"#001810":"transparent",display:"flex",alignItems:"center",gap:7,margin:"0 -14px"}}>
+                          <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${sel?"#00c896":"#334155"}`,background:sel?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                            {sel&&<span style={{color:"#000",fontSize:8,fontWeight:900}}>✓</span>}
+                          </div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:11,color:sel?"#edf4ff":"#7a9bbf",fontWeight:sel?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
+                            {!groupBy&&<div style={{fontSize:9,color:"#3d5a72"}}>{c.mediaPartner}</div>}
+                          </div>
+                          <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
                         </div>
-                        <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+              <div style={{fontSize:10,color:selectedIds.size>0?"#00e5a0":"#3d5a72",fontWeight:selectedIds.size>0?700:400,textAlign:"center",padding:"4px 0",borderTop:"1px solid #1a2744",marginTop:2}}>
+                {selectedIds.size>0?`✓ ${selectedIds.size} tactic${selectedIds.size!==1?"s":""} selected`:"Nothing selected"}
+              </div>
+            </>)}
+
+            {/* ════ CONFIG TAB ════ */}
+            {leftTab==="config"&&(<>
+              <div>
+                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Client Name</label>
+                <input value={clientName} onChange={e=>setClientName(e.target.value)} placeholder={autoClientName}
+                  style={{...iS,width:"100%"}}/>
+                <div style={{fontSize:9,color:"#3d5a72",marginTop:2}}>What the client sees — not the partner code</div>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Report Title</label>
+                <input value={reportTitle} onChange={e=>setReportTitle(e.target.value)} placeholder={displayClient+" — Performance Report"}
+                  style={{...iS,width:"100%"}}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Prepared By</label>
+                <input value={preparedBy} onChange={e=>setPreparedBy(e.target.value)} placeholder="Recrue Media"
+                  style={{...iS,width:"100%"}}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:4}}>Date Range</label>
+                <div style={{display:"flex",gap:4,marginBottom:6}}>
+                  {[{key:"monthly",label:"Monthly"},{key:"custom",label:"Custom"},{key:"lifetime",label:"Lifetime"}].map(rt=>(
+                    <button key={rt.key} onClick={()=>setReportType(rt.key)}
+                      style={{flex:1,background:reportType===rt.key?"#002e24":"#162236",border:`1px solid ${reportType===rt.key?"#00c89650":"#1e293b"}`,borderRadius:5,padding:"5px 0",color:reportType===rt.key?"#00e5a0":"#4d6e8a",fontSize:10,fontWeight:reportType===rt.key?700:400,cursor:"pointer"}}>
+                      {rt.label}
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <div style={{padding:"7px 12px",background:"#07101c",borderTop:"1px solid #1a2744",fontSize:10,color:selectedIds.size>0?"#00e5a0":"#3d5a72",fontWeight:selectedIds.size>0?700:400}}>
-              {selectedIds.size>0?`✓ ${selectedIds.size} tactic${selectedIds.size!==1?"s":""} selected`:"Nothing selected"}
-            </div>
-          </div>
-
-          {/* ── Report identity ── */}
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"14px"}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:10}}>② Identity</div>
-            <div style={{marginBottom:8}}>
-              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Client Name <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(shown at top of report)</span></label>
-              <input value={clientName} onChange={e=>setClientName(e.target.value)} placeholder={autoClientName}
-                style={{...iS,width:"100%"}}/>
-              <div style={{fontSize:9,color:"#3d5a72",marginTop:2}}>e.g. "Fairmont State University" — not the partner code</div>
-            </div>
-            <div style={{marginBottom:8}}>
-              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Report Title</label>
-              <input value={reportTitle} onChange={e=>setReportTitle(e.target.value)} placeholder={displayClient+" — Performance Report"}
-                style={{...iS,width:"100%"}}/>
-            </div>
-            <div>
-              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Prepared By</label>
-              <input value={preparedBy} onChange={e=>setPreparedBy(e.target.value)} placeholder="Recrue Media"
-                style={{...iS,width:"100%"}}/>
-            </div>
-          </div>
-
-          {/* ── Date range ── */}
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"14px"}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:8}}>③ Date Range</div>
-            <div style={{display:"flex",gap:4,marginBottom:8}}>
-              {[{key:"monthly",label:"Monthly"},{key:"custom",label:"Custom"},{key:"lifetime",label:"Lifetime"}].map(rt=>(
-                <button key={rt.key} onClick={()=>setReportType(rt.key)}
-                  style={{flex:1,background:reportType===rt.key?"#002e24":"#162236",border:`1px solid ${reportType===rt.key?"#00c89650":"#1e293b"}`,borderRadius:5,padding:"5px 0",color:reportType===rt.key?"#00e5a0":"#4d6e8a",fontSize:10,fontWeight:reportType===rt.key?700:400,cursor:"pointer"}}>
-                  {rt.label}
-                </button>
-              ))}
-            </div>
-            {reportType==="monthly"&&<input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{...iS,width:"100%"}}/>}
-            {reportType==="custom"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}><DatePicker value={customStart} onChange={setCustomStart}/><DatePicker value={customEnd} onChange={setCustomEnd}/></div>}
-          </div>
-
-          {/* ── Branding ── */}
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"14px"}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:10}}>④ Branding</div>
-
-            {/* Logo upload — drag & drop + click */}
-            <div style={{marginBottom:12}}>
-              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:5}}>Client Logo</label>
-              <label
-                onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor=accent;}}
-                onDragLeave={e=>{e.currentTarget.style.borderColor="#334155";}}
-                onDrop={e=>{
-                  e.preventDefault(); e.currentTarget.style.borderColor="#334155";
-                  const file=e.dataTransfer.files[0]; if(!file||!file.type.startsWith("image/")) return;
-                  const r=new FileReader(); r.onload=ev=>{setLogoDataUrl(ev.target.result);setColorOverride(false);setLogoKey(k=>k+1);}; r.readAsDataURL(file);
-                }}
-                style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6,background:logoDataUrl?"#001810":"#0e1a2e",border:`2px dashed ${logoDataUrl?"#00c896":"#334155"}`,borderRadius:8,padding:"12px",cursor:"pointer",transition:"border-color .15s",minHeight:72}}>
-                {logoDataUrl
-                  ? <><img src={logoDataUrl} alt="logo" style={{height:44,maxWidth:140,objectFit:"contain",background:"white",padding:5,borderRadius:5}}/><span style={{fontSize:9,color:"#00e5a0"}}>✓ Logo set — drag new image or click to replace</span></>
-                  : <><span style={{fontSize:22}}>📎</span><span style={{fontSize:11,color:"#4d6e8a",textAlign:"center"}}>Drag & drop logo here<br/><span style={{fontSize:10,color:"#3d5a72"}}>or click to browse (PNG, JPG, SVG)</span></span></>
-                }
-                <input type="file" accept="image/*" onChange={handleManualLogoUpload} style={{display:"none"}}/>
-              </label>
-              {logoDataUrl&&(
-                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:5}}>
-                  <button onClick={()=>{setLogoDataUrl("");setColorOverride(false);}} style={{background:"none",border:"none",color:"#ef4444",fontSize:10,cursor:"pointer",padding:0}}>× Remove logo</button>
-                  {!colorOverride&&<span style={{fontSize:9,color:"#00e5a0"}}>Brand color auto-extracted ✓</span>}
+                {reportType==="monthly"&&<input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{...iS,width:"100%"}}/>}
+                {reportType==="custom"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}><DatePicker value={customStart} onChange={setCustomStart}/><DatePicker value={customEnd} onChange={setCustomEnd}/></div>}
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:5}}>Sections</label>
+                <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                  {[{k:"kpis",l:"KPIs"},{k:"impChart",l:"Impr."},{k:"ctrChart",l:"CTR"},{k:"table",l:"Table"},{k:"budget",l:"Budget"},{k:"creatives",l:"Creatives"},{k:"demographics",l:"Demo"},{k:"devices",l:"Devices"},{k:"geo",l:"Geo"}].map(({k,l})=>(
+                    <button key={k} onClick={()=>setSections(p=>({...p,[k]:!p[k]}))}
+                      style={{background:sections[k]?"#002e24":"#0e1a2e",border:`1px solid ${sections[k]?"#00c89650":"#1e293b"}`,borderRadius:4,padding:"3px 8px",color:sections[k]?"#00e5a0":"#3d5a72",fontSize:10,fontWeight:sections[k]?700:400,cursor:"pointer"}}>
+                      {l}
+                    </button>
+                  ))}
                 </div>
-              )}
-            </div>
+              </div>
+            </>)}
 
-            {/* Website — Google favicon (reliable) + theme-color fetch */}
-            <div style={{marginBottom:12}}>
-              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:4}}>
-                Client Website <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(auto-pulls logo & brand color)</span>
-              </label>
-              <input value={websiteInput} onChange={e=>{setWebsiteInput(e.target.value); setLogoError(""); setLogoLoaded(false); setColorOverride(false); setColorFetched(false); setLogoKey(k=>k+1);}}
-                placeholder="https://fairmontstate.edu"
-                style={{...iS,width:"100%",fontFamily:"monospace",fontSize:11,marginBottom:6}}/>
-              {websiteInput&&(()=>{
-                try {
-                  const domain = new URL(websiteInput.startsWith("http")?websiteInput:"https://"+websiteInput).hostname.replace(/^www\./,"");
-                  const favUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
-                  return (
-                    <div style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",background:"#07101c",borderRadius:8,border:`1px solid ${logoLoaded?"#00c89640":"#1a2744"}`}}>
-                      {!logoDataUrl&&(
-                        <img src={favUrl} alt="favicon"
-                          onLoad={()=>setLogoLoaded(true)}
-                          onError={()=>setLogoError("Couldn't load favicon")}
-                          style={{width:32,height:32,objectFit:"contain",background:"white",padding:4,borderRadius:5,flexShrink:0,border:"1px solid #eee"}}/>
-                      )}
-                      {logoDataUrl&&<img src={logoDataUrl} alt="logo" style={{height:36,maxWidth:100,objectFit:"contain",background:"white",padding:4,borderRadius:5,flexShrink:0,border:"1px solid #eee"}}/>}
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:10,color:"#00e5a0",fontWeight:600,marginBottom:2}}>✓ {domain}</div>
-                        {fetchingColor
-                          ? <div style={{fontSize:10,color:"#60a5fa"}}>⟳ Fetching brand color…</div>
-                          : colorOverride
-                          ? <div style={{fontSize:10,color:"#4d6e8a"}}>Color set manually — <button onClick={()=>{setColorOverride(false);setColorFetched(false);fetchColorFromSite(websiteInput);}} style={{background:"none",border:"none",color:"#60a5fa",cursor:"pointer",fontSize:10,padding:0}}>re-fetch from site</button></div>
-                          : colorFetched
-                          ? <div style={{fontSize:10,color:"#00e5a0",fontWeight:600}}>✓ Brand color pulled from site — preview updated</div>
-                          : websiteInput
-                          ? <div style={{fontSize:10,color:"#f59e0b"}}>No theme-color found on site — pick color manually below</div>
-                          : null
-                        }
-                      </div>
-                    </div>
-                  );
-                } catch { return null; }
-              })()}
-            </div>
-
-            {/* Brand color — eyedropper, image drop, hex entry */}
-            <div>
-              <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:8}}>
-                Brand Color
-              </label>
-
-              {/* Primary tools row */}
-              <div style={{display:"flex",gap:6,marginBottom:10,alignItems:"stretch"}}>
-
-                {/* Color picker swatch */}
-                <input type="color" value={brandColor} onChange={e=>{setBrandColor(e.target.value);setColorOverride(true);}}
-                  title="Color picker"
-                  style={{width:44,height:44,borderRadius:6,border:"2px solid #334155",cursor:"pointer",padding:0,background:"none",flexShrink:0}}/>
-
-                {/* Hex input */}
-                <input value={brandColor}
-                  onChange={e=>{ if(/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)){setBrandColor(e.target.value);setColorOverride(true);}}}
-                  style={{...iS,width:96,fontFamily:"monospace",fontSize:13,padding:"5px 10px",flexShrink:0}}/>
-
-                {/* Eyedropper — pick any color from your screen */}
-                {typeof EyeDropper !== "undefined" && (
-                  <button onClick={async()=>{
-                    try {
-                      const eyeDropper = new EyeDropper();
-                      const result = await eyeDropper.open();
-                      setBrandColor(result.sRGBHex);
-                      setColorOverride(true);
-                    } catch(e) {}
-                  }}
-                    title="Pick color from screen — open client website then use this"
-                    style={{flex:1,background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"8px",color:"#60a5fa",fontSize:11,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                    <span style={{fontSize:18}}>🖱️</span>
-                    <span style={{fontSize:9,fontWeight:700,whiteSpace:"nowrap"}}>Pick from screen</span>
-                  </button>
-                )}
-
-                {/* Drop image to extract color */}
+            {/* ════ BRANDING TAB ════ */}
+            {leftTab==="branding"&&(<>
+              {/* Logo upload */}
+              <div>
+                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:5}}>Client Logo</label>
                 <label
-                  onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor="#a855f7";}}
+                  onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor=accent;}}
                   onDragLeave={e=>{e.currentTarget.style.borderColor="#334155";}}
                   onDrop={e=>{
                     e.preventDefault(); e.currentTarget.style.borderColor="#334155";
-                    const file=e.dataTransfer.files[0];
-                    if(!file||!file.type.startsWith("image/")) return;
-                    const reader=new FileReader();
-                    reader.onload=ev=>{
-                      const img=new Image();
-                      img.onload=()=>{
-                        const col=extractDominantColor(img);
-                        if(col){setBrandColor(saturate(col));setColorOverride(true);}
-                      };
-                      img.src=ev.target.result;
-                    };
-                    reader.readAsDataURL(file);
+                    const file=e.dataTransfer.files[0]; if(!file||!file.type.startsWith("image/")) return;
+                    const r=new FileReader(); r.onload=ev=>{setLogoDataUrl(ev.target.result);setColorOverride(false);setLogoKey(k=>k+1);}; r.readAsDataURL(file);
                   }}
-                  title="Drop client logo/screenshot to extract color"
-                  style={{flex:1,background:"#0e1a2e",border:"1px dashed #334155",borderRadius:6,padding:"8px",color:"#a855f7",fontSize:9,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,transition:"border-color .15s"}}>
-                  <span style={{fontSize:18}}>🎨</span>
-                  <span style={{fontWeight:700,whiteSpace:"nowrap"}}>Drop image</span>
-                  <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
-                    const file=e.target.files[0]; if(!file) return;
-                    const reader=new FileReader();
-                    reader.onload=ev=>{
-                      const img=new Image();
-                      img.onload=()=>{
-                        const col=extractDominantColor(img);
-                        if(col){setBrandColor(saturate(col));setColorOverride(true);}
-                      };
-                      img.src=ev.target.result;
-                    };
-                    reader.readAsDataURL(file);
-                  }}/>
+                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:logoDataUrl?"#001810":"#0e1a2e",border:`2px dashed ${logoDataUrl?"#00c896":"#334155"}`,borderRadius:8,padding:"10px",cursor:"pointer",transition:"border-color .15s",minHeight:56}}>
+                  {logoDataUrl
+                    ? <><img src={logoDataUrl} alt="logo" style={{height:36,maxWidth:120,objectFit:"contain",background:"white",padding:4,borderRadius:4}}/><span style={{fontSize:9,color:"#00e5a0"}}>✓ Click/drag to replace</span></>
+                    : <><span style={{fontSize:18}}>📎</span><span style={{fontSize:11,color:"#4d6e8a"}}>Drag logo or click to browse</span></>
+                  }
+                  <input type="file" accept="image/*" onChange={handleManualLogoUpload} style={{display:"none"}}/>
                 </label>
+                {logoDataUrl&&<button onClick={()=>{setLogoDataUrl("");setColorOverride(false);}} style={{background:"none",border:"none",color:"#ef4444",fontSize:10,cursor:"pointer",marginTop:3,padding:0}}>× Remove</button>}
               </div>
 
-              {/* Instructions */}
-              <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#4d6e8a",lineHeight:1.6,marginBottom:8}}>
-                {typeof EyeDropper !== "undefined"
-                  ? <><strong style={{color:"#60a5fa"}}>🖱️ Easiest:</strong> Open the client's website in another tab, click <strong style={{color:"#60a5fa"}}>Pick from screen</strong>, then click their logo or header color.<br/></>
-                  : <><strong style={{color:"#f59e0b"}}>Tip:</strong> Eyedropper not available in this browser (works in Chrome/Edge). <br/></>
-                }
-                <strong style={{color:"#a855f7"}}>🎨 Also works:</strong> Drag a screenshot or logo onto the drop zone to extract the color.<br/>
-                <strong style={{color:"#7a9bbf"}}>Hex:</strong> Paste exact hex from brand guidelines directly into the # field.
+              {/* Website */}
+              <div>
+                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Client Website</label>
+                <input value={websiteInput} onChange={e=>{setWebsiteInput(e.target.value);setLogoError("");setLogoLoaded(false);setColorOverride(false);setColorFetched(false);setLogoKey(k=>k+1);}}
+                  placeholder="https://fairmontstate.edu"
+                  style={{...iS,width:"100%",fontFamily:"monospace",fontSize:11}}/>
+                {websiteInput&&(()=>{
+                  try {
+                    const domain=new URL(websiteInput.startsWith("http")?websiteInput:"https://"+websiteInput).hostname.replace(/^www\./,"");
+                    const favUrl=`https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+                    return <div style={{display:"flex",alignItems:"center",gap:8,marginTop:5,padding:"5px 8px",background:"#07101c",borderRadius:6,border:"1px solid #1a2744"}}>
+                      <img src={favUrl} alt="" onLoad={()=>setLogoLoaded(true)} style={{width:20,height:20,background:"white",padding:2,borderRadius:3,objectFit:"contain"}}/>
+                      <span style={{fontSize:10,color:"#00e5a0",flex:1}}>✓ {domain}</span>
+                      {fetchingColor?<span style={{fontSize:9,color:"#60a5fa"}}>fetching color…</span>
+                        :colorFetched?<span style={{fontSize:9,color:"#00e5a0"}}>color ✓</span>
+                        :<span style={{fontSize:9,color:"#f59e0b"}}>no theme-color found</span>}
+                    </div>;
+                  } catch { return null; }
+                })()}
               </div>
 
-              {/* Preset swatches */}
-              <div style={{marginBottom:8}}>
-                <div style={{fontSize:9,color:"#3d5a72",marginBottom:5}}>Common university/brand colors:</div>
-                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                  {[
-                    {c:"#003087",l:"Navy"},     {c:"#8B0000",l:"Crimson"},  {c:"#004B23",l:"Forest"},
-                    {c:"#8B1538",l:"Maroon"},   {c:"#CC5500",l:"Burnt Org"},{c:"#4B0082",l:"Indigo"},
-                    {c:"#1a73e8",l:"Blue"},     {c:"#c41230",l:"Red"},      {c:"#005F73",l:"Teal"},
-                    {c:"#000000",l:"Black"},    {c:"#2d2d2d",l:"Charcoal"}, {c:"#8B6914",l:"Gold"},
-                  ].map(({c,l})=>(
+              {/* Brand color */}
+              <div>
+                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:6}}>Brand Color</label>
+                <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+                  <input type="color" value={brandColor} onChange={e=>{setBrandColor(e.target.value);setColorOverride(true);}}
+                    style={{width:38,height:34,borderRadius:5,border:"1px solid #334155",cursor:"pointer",padding:0,flexShrink:0}}/>
+                  <input value={brandColor} onChange={e=>{if(/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)){setBrandColor(e.target.value);setColorOverride(true);}}}
+                    style={{...iS,width:84,fontFamily:"monospace",fontSize:12,padding:"5px 8px"}}/>
+                  {typeof EyeDropper!=="undefined"&&(
+                    <button onClick={async()=>{try{const ed=new EyeDropper();const r=await ed.open();setBrandColor(r.sRGBHex);setColorOverride(true);}catch(e){}}}
+                      title="Pick from screen" style={{flex:1,background:"#0e1a2e",border:"1px solid #334155",borderRadius:5,padding:"6px",color:"#60a5fa",fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}}>🖱️ Pick</button>
+                  )}
+                  <label title="Drop image to extract color" style={{flex:1,background:"#0e1a2e",border:"1px dashed #334155",borderRadius:5,padding:"6px",color:"#a855f7",fontSize:10,cursor:"pointer",textAlign:"center",whiteSpace:"nowrap"}}>
+                    🎨 Drop
+                    <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
+                      const f=e.target.files[0]; if(!f) return;
+                      const rd=new FileReader(); rd.onload=ev=>{const img=new Image(); img.onload=()=>{const c=extractDominantColor(img);if(c){setBrandColor(saturate(c));setColorOverride(true);}};img.src=ev.target.result;}; rd.readAsDataURL(f);
+                    }}/>
+                  </label>
+                </div>
+                {/* Preset swatches */}
+                <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
+                  {["#003087","#8B0000","#004B23","#8B1538","#CC5500","#4B0082","#1a73e8","#c41230","#005F73","#000000","#2d2d2d","#8B6914"].map(c=>(
                     <button key={c} onClick={()=>{setBrandColor(c);setColorOverride(true);}}
-                      title={l+" "+c}
-                      style={{width:24,height:24,borderRadius:4,background:c,border:`2px solid ${brandColor===c?"white":"transparent"}`,cursor:"pointer",padding:0,flexShrink:0}}/>
+                      style={{width:22,height:22,borderRadius:4,background:c,border:`2px solid ${brandColor===c?"white":"transparent"}`,cursor:"pointer",padding:0,flexShrink:0}}/>
                   ))}
                 </div>
-              </div>
-
-              {/* Live mini preview */}
-              <div style={{borderRadius:6,overflow:"hidden"}}>
-                <div style={{background:`linear-gradient(135deg,${headerBg},${headerLight})`,padding:"8px 12px",display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{width:20,height:20,background:"white",borderRadius:3,opacity:.9,flexShrink:0}}/>
-                  <div>
-                    <div style={{fontSize:9,fontWeight:800,color:headerText}}>Client Name</div>
-                    <div style={{fontSize:7,color:accentMid,marginTop:1}}>Report Period</div>
+                {/* Mini live preview */}
+                <div style={{borderRadius:5,overflow:"hidden"}}>
+                  <div style={{background:`linear-gradient(135deg,${headerBg},${headerLight})`,padding:"6px 10px",display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{width:16,height:16,background:"white",borderRadius:2,opacity:.9,flexShrink:0}}/>
+                    <div style={{fontSize:8,fontWeight:800,color:headerText,flex:1}}>Client Name — Performance Report</div>
                   </div>
-                </div>
-                <div style={{height:3,background:`linear-gradient(90deg,${accent},${accentMid})`}}/>
-                <div style={{background:"white",padding:"6px 10px",display:"flex",gap:5}}>
-                  {["Impressions","Clicks","CTR"].map((l,i)=>(
-                    <div key={i} style={{flex:1,background:accentLight,border:`1px solid ${accentMid}`,borderRadius:3,padding:"4px 0",textAlign:"center"}}>
-                      <div style={{fontSize:11,fontWeight:800,color:"#1a1a2e"}}>—</div>
-                      <div style={{fontSize:7,color:"#888"}}>{l}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div style={{fontSize:9,color:"#3d5a72",marginTop:3}}>↑ Live preview updates as you change the color</div>
-            </div>
-          </div>
-
-          {/* ── Sections ── */}
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"14px"}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:8}}>⑤ Sections</div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-              {[{k:"kpis",l:"KPIs"},{k:"impChart",l:"Impr. Chart"},{k:"ctrChart",l:"CTR Chart"},{k:"table",l:"Table"},{k:"budget",l:"Budget"},{k:"creatives",l:"Creatives"},{k:"demographics",l:"Demo"},{k:"devices",l:"Devices"},{k:"geo",l:"Geo"}].map(({k,l})=>(
-                <button key={k} onClick={()=>setSections(p=>({...p,[k]:!p[k]}))}
-                  style={{background:sections[k]?"#002e24":"#0e1a2e",border:`1px solid ${sections[k]?"#00c89650":"#1e293b"}`,borderRadius:5,padding:"4px 9px",color:sections[k]?"#00e5a0":"#3d5a72",fontSize:10,fontWeight:sections[k]?700:400,cursor:"pointer"}}>
-                  {l}
-                </button>
-              ))}
-            </div>
-            <div style={{fontSize:9,color:"#3d5a72",marginTop:6}}>Click any section in the preview to hide it. Sections with no data are ignored automatically.</div>
-          </div>
-
-
-          {/* ── CSV Data Import ── */}
-          {selectedCamps.length>0&&(
-            <CSVImportPanel
-              selectedCamps={selectedCamps}
-              iS={iS}
-              accent={accent}
-              onApplyData={(campId, field, jsonStr)=>{
-                // Store in local overrides for this report session
-                setCsvOverrides(p=>({...p,[campId]:{...p[campId],[field]:jsonStr}}));
-              }}
-            />
-          )}
-
-          {/* ── Creative screenshots — drag & drop ── */}
-          {selectedCamps.length>0&&(
-            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"14px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:4}}>⑥ Ad Screenshots</div>
-              <div style={{fontSize:10,color:"#4d6e8a",marginBottom:10,lineHeight:1.5}}>Drag & drop screenshots onto each campaign, or click + to browse. They appear in the Creatives section.</div>
-              {selectedCamps.map(c=>{
-                const imgs = creativeImages[c.id]||[];
-                const pc = platCol(c.platform);
-                return (
-                  <div key={c.id} style={{marginBottom:10,paddingBottom:10,borderBottom:"1px solid #1a2744"}}>
-                    <div style={{fontSize:10,color:"#7a9bbf",marginBottom:5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                      <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,marginRight:5}}>{c.platform}</span>
-                      {c.campaignName.trim()}
-                    </div>
-                    {/* Drop zone */}
-                    <div
-                      onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor=accent;e.currentTarget.style.background="#001810";}}
-                      onDragLeave={e=>{e.currentTarget.style.borderColor="#334155";e.currentTarget.style.background="#0e1a2e";}}
-                      onDrop={e=>{
-                        e.preventDefault();
-                        e.currentTarget.style.borderColor="#334155";e.currentTarget.style.background="#0e1a2e";
-                        const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith("image/"));
-                        files.forEach(f=>{const r=new FileReader();r.onload=ev=>addCreativeImage(c.id,ev.target.result);r.readAsDataURL(f);});
-                      }}
-                      style={{background:"#0e1a2e",border:"1px dashed #334155",borderRadius:7,padding:"8px",transition:"all .15s",minHeight:56}}>
-                      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                        {imgs.map((url,idx)=>(
-                          <div key={idx} style={{position:"relative",flexShrink:0}}>
-                            <img src={url} alt="" style={{height:52,width:52,objectFit:"cover",borderRadius:5,border:"1px solid #334155",display:"block"}}/>
-                            <button onClick={()=>removeCreativeImage(c.id,idx)}
-                              style={{position:"absolute",top:-5,right:-5,width:16,height:16,borderRadius:"50%",background:"#ef4444",border:"2px solid #0c1625",color:"white",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1,fontWeight:700}}>×</button>
-                          </div>
-                        ))}
-                        <label style={{width:52,height:52,background:"#162236",border:"1px dashed #334155",borderRadius:5,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#4d6e8a",fontSize:18,gap:2,flexShrink:0}}>
-                          <span>+</span>
-                          <span style={{fontSize:8,textAlign:"center",lineHeight:1}}>browse</span>
-                          <input type="file" accept="image/*" multiple style={{display:"none"}} onChange={e=>{[...e.target.files].forEach(f=>{const r=new FileReader();r.onload=ev=>addCreativeImage(c.id,ev.target.result);r.readAsDataURL(f);});}}/>
-                        </label>
-                        {imgs.length===0&&<span style={{fontSize:10,color:"#3d5a72",marginLeft:4}}>Drop images here or click +</span>}
+                  <div style={{height:2,background:accent}}/>
+                  <div style={{background:"white",padding:"4px 8px",display:"flex",gap:4}}>
+                    {["Impressions","Clicks","CTR"].map((l,i)=>(
+                      <div key={i} style={{flex:1,background:"#f8f9fa",border:"1px solid #eee",borderRadius:3,padding:"3px 0",textAlign:"center"}}>
+                        <div style={{fontSize:9,fontWeight:800,color:"#1a1a2e"}}>—</div>
+                        <div style={{fontSize:7,color:"#888"}}>{l}</div>
                       </div>
-                    </div>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
-          )}
+                </div>
+              </div>
+            </>)}
 
-          {/* Export */}
+            {/* ════ DATA TAB ════ */}
+            {leftTab==="data"&&(
+              selectedCamps.length>0 ? (
+                <ReportDataPanel
+                  selectedCamps={selectedCamps}
+                  iS={iS}
+                  accent={accent}
+                  onApplyData={(campId, field, jsonStr)=>{
+                    setCsvOverrides(p=>({...p,[campId]:{...p[campId],[field]:jsonStr}}));
+                  }}
+                  embedded={true}
+                />
+              ) : (
+                <div style={{textAlign:"center",padding:"20px 0",color:"#3d5a72",fontSize:11}}>
+                  Select campaigns first to add data
+                </div>
+              )
+            )}
+
+          </div>
+
+          {/* Export button */}
           <button onClick={exportPDF} disabled={selectedIds.size===0}
             style={{background:selectedIds.size>0?`linear-gradient(135deg,${darken(accent,.5)},${darken(accent,.25)})`:"#0c1625",
-              border:`1px solid ${selectedIds.size>0?accent+"60":"#1e293b"}`,borderRadius:10,padding:"13px",
+              border:`1px solid ${selectedIds.size>0?accent+"60":"#1e293b"}`,borderRadius:10,padding:"12px",marginTop:6,
               color:selectedIds.size>0?"white":"#3d5a72",fontSize:13,fontWeight:800,
               cursor:selectedIds.size>0?"pointer":"default",transition:"all .2s",
               boxShadow:selectedIds.size>0?`0 0 16px ${accent}30`:"none"}}>
             {selectedIds.size===0?"← Select campaigns first":"⬇ Export as PDF"}
           </button>
         </div>
+
+
+
 
         {/* ════════════════════════════════════════
             RIGHT PANEL — LIVE PREVIEW
