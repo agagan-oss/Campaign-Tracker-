@@ -6756,6 +6756,7 @@ export default function App() {
   const [fCloseToGoal, setFCloseToGoal]         = useState(false);
   const [fExcludeGoalHit, setFExcludeGoalHit]   = useState(false);
   const [showDailyGoal, setShowDailyGoal]       = useState(true);
+  const [quickCheckIn, setQuickCheckIn]         = useState(false);
   const [collapsedClients, setCollapsedClients] = useState(new Set());
   const [dragId, setDragId]       = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
@@ -7531,10 +7532,175 @@ export default function App() {
             }} title={showDailyGoal?"Hide daily impression target":"Show daily impression target"}>
             {showDailyGoal?"🟣 Daily Goal":"⬛ Daily Goal"}
           </button>
+          <button onClick={()=>setQuickCheckIn(v=>!v)}
+            style={{background:quickCheckIn?"#001a2e":"#0e1a2e",
+              border:`1px solid ${quickCheckIn?"#00c896":"#1e293b"}`,
+              borderRadius:7,padding:"7px 11px",
+              color:quickCheckIn?"#00e5a0":"#4d6e8a",
+              fontSize:12,fontWeight:quickCheckIn?700:400,
+              cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s",
+            }} title="Quick Check-in mode — tab through campaigns, paste impressions">
+            {quickCheckIn?"✓ Quick Check-in":"⚡ Quick Check-in"}
+          </button>
           <span style={{fontSize:11,color:"#3d5a72"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
         </div>
 
-        {/* Table */}
+        {/* ── Quick Check-in mode ── */}
+        {quickCheckIn&&(()=>{
+          const checkInCamps = filtered.filter(c=>c.status==="active"||c.status==="behind"||c.status==="ahead");
+          return (
+            <div style={{background:"#07101c",border:"1px solid #00c89640",borderRadius:10,marginBottom:14,overflow:"hidden"}}>
+              {/* Header */}
+              <div style={{background:"#001a2e",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid #1a2744"}}>
+                <div>
+                  <span style={{fontSize:13,fontWeight:700,color:"#00e5a0"}}>⚡ Quick Check-in</span>
+                  <span style={{fontSize:11,color:"#3d5a72",marginLeft:10}}>Tab between fields · Enter or Tab saves · Esc to cancel row</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:11,color:"#4d6e8a"}}>{checkInCamps.length} active campaigns</span>
+                  <button onClick={()=>setQuickCheckIn(false)}
+                    style={{background:"none",border:"none",color:"#4d6e8a",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 4px"}}>×</button>
+                </div>
+              </div>
+
+              {/* Table */}
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+                  <thead>
+                    <tr style={{background:"#060d18"}}>
+                      {["Partner","Campaign","Platform","Last Checked","Impressions","CTR %","Clicks","Notes"].map(h=>(
+                        <th key={h} style={{padding:"7px 12px",fontSize:10,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",borderBottom:"1px solid #1a2744",textAlign:h==="Impressions"||h==="CTR %"||h==="Clicks"?"right":"left",whiteSpace:"nowrap"}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {checkInCamps.map((c,idx)=>{
+                      const isStale = c.lastChecked && getDaysLeft(c.lastChecked)<=-2;
+                      const staleDays = c.lastChecked ? Math.abs(getDaysLeft(c.lastChecked)) : null;
+                      return (
+                        <tr key={c.id} style={{background:idx%2===0?"#07101c":"#060d18",transition:"background .1s"}}
+                          onFocus={e=>e.currentTarget.style.background="#001a2e"}
+                          onBlur={e=>e.currentTarget.style.background=idx%2===0?"#07101c":"#060d18"}>
+                          <td style={{padding:"5px 12px",fontSize:12,color:"#4d6e8a",borderBottom:"1px solid #0a1018",whiteSpace:"nowrap"}}>{c.mediaPartner}</td>
+                          <td style={{padding:"5px 12px",borderBottom:"1px solid #0a1018",maxWidth:180}}>
+                            <div style={{fontSize:12,color:"#d8eaf8",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
+                          </td>
+                          <td style={{padding:"5px 12px",borderBottom:"1px solid #0a1018"}}>
+                            <span style={{background:PLT_COLORS[c.platform]+"22",color:PLT_COLORS[c.platform]||"#7a9bbf",border:`1px solid ${PLT_COLORS[c.platform]||"#7a9bbf"}50`,borderRadius:3,padding:"1px 6px",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{c.platform}</span>
+                          </td>
+                          <td style={{padding:"5px 12px",fontSize:11,borderBottom:"1px solid #0a1018",whiteSpace:"nowrap",color:isStale?"#f59e0b":"#4d6e8a"}}>
+                            {c.lastChecked?`${c.lastChecked}${staleDays>=2?` (${staleDays}d ago)`:""}`:"Never"}
+                          </td>
+                          <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",textAlign:"right"}}>
+                            <input
+                              type="text" inputMode="numeric"
+                              defaultValue={c.impressions||""}
+                              placeholder={c.impressions?"":"-"}
+                              onKeyDown={e=>{
+                                if(e.key==="Enter"||e.key==="Tab"){
+                                  e.preventDefault();
+                                  const val=e.target.value.replace(/[^0-9]/g,"");
+                                  if(val){
+                                    const stamp=getToday();
+                                    const histLine=`${stamp} — ${parseInt(val).toLocaleString()} impressions`;
+                                    setCampaigns(cs=>cs.map(x=>x.id===c.id?{...x,
+                                      impressions:val,
+                                      lastChecked:stamp,
+                                      history:(x.history?x.history+"\n":"")+histLine,
+                                    }:x));
+                                    e.target.style.background="#001810";
+                                    e.target.style.color="#00e5a0";
+                                    setTimeout(()=>{
+                                      e.target.style.background="";
+                                      e.target.style.color="";
+                                    },600);
+                                  }
+                                  // Move focus to next row's impressions input
+                                  const inputs=[...document.querySelectorAll(".qci-impr")];
+                                  const next=inputs[inputs.indexOf(e.target)+1];
+                                  if(next) next.focus();
+                                }
+                                if(e.key==="Escape") e.target.value=c.impressions||"";
+                              }}
+                              className="qci-impr"
+                              style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:"4px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",width:110,textAlign:"right",outline:"none",transition:"background .2s,color .2s"}}
+                              onFocus={e=>{e.target.select();e.target.style.borderColor="#00c896";}}
+                              onBlur={e=>e.target.style.borderColor="#1e293b"}
+                            />
+                          </td>
+                          <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",textAlign:"right"}}>
+                            <input type="text" inputMode="decimal" defaultValue={c.ctr||""} placeholder="-"
+                              onKeyDown={e=>{
+                                if(e.key==="Enter"||e.key==="Tab"){
+                                  e.preventDefault();
+                                  const val=e.target.value;
+                                  if(val) setCampaigns(cs=>cs.map(x=>x.id===c.id?{...x,ctr:parseFloat(val)||x.ctr}:x));
+                                  const inputs=[...document.querySelectorAll(".qci-ctr")];
+                                  const next=inputs[inputs.indexOf(e.target)+1];
+                                  if(next) next.focus(); else {
+                                    const impInputs=[...document.querySelectorAll(".qci-impr")];
+                                    if(impInputs[idx+1]) impInputs[idx+1].focus();
+                                  }
+                                }
+                              }}
+                              className="qci-ctr"
+                              style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:"4px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",width:72,textAlign:"right",outline:"none"}}
+                              onFocus={e=>{e.target.select();e.target.style.borderColor="#00c896";}}
+                              onBlur={e=>e.target.style.borderColor="#1e293b"}
+                            />
+                          </td>
+                          <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",textAlign:"right"}}>
+                            <input type="text" inputMode="numeric" defaultValue={c.clicks||""} placeholder="-"
+                              onKeyDown={e=>{
+                                if(e.key==="Enter"||e.key==="Tab"){
+                                  e.preventDefault();
+                                  const val=e.target.value.replace(/[^0-9]/g,"");
+                                  if(val) setCampaigns(cs=>cs.map(x=>x.id===c.id?{...x,clicks:val}:x));
+                                  const inputs=[...document.querySelectorAll(".qci-clicks")];
+                                  const next=inputs[inputs.indexOf(e.target)+1];
+                                  if(next) next.focus(); else {
+                                    const impInputs=[...document.querySelectorAll(".qci-impr")];
+                                    if(impInputs[idx+1]) impInputs[idx+1].focus();
+                                  }
+                                }
+                              }}
+                              className="qci-clicks"
+                              style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:"4px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",width:80,textAlign:"right",outline:"none"}}
+                              onFocus={e=>{e.target.select();e.target.style.borderColor="#00c896";}}
+                              onBlur={e=>e.target.style.borderColor="#1e293b"}
+                            />
+                          </td>
+                          <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018"}}>
+                            <input type="text" defaultValue={c.note1||""} placeholder="optional note"
+                              onKeyDown={e=>{
+                                if(e.key==="Enter"||e.key==="Tab"){
+                                  e.preventDefault();
+                                  setCampaigns(cs=>cs.map(x=>x.id===c.id?{...x,note1:e.target.value}:x));
+                                  const impInputs=[...document.querySelectorAll(".qci-impr")];
+                                  if(impInputs[idx+1]) impInputs[idx+1].focus();
+                                }
+                              }}
+                              style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:"4px 8px",color:"#d8eaf8",fontSize:11,width:"100%",minWidth:140,outline:"none"}}
+                              onFocus={e=>{e.target.style.borderColor="#00c896";}}
+                              onBlur={e=>e.target.style.borderColor="#1e293b"}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{padding:"8px 16px",background:"#060d18",borderTop:"1px solid #1a2744",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:10,color:"#3d5a72"}}>Enter or Tab saves the field and moves to next · Changes save to campaign history automatically</span>
+                <button onClick={()=>setQuickCheckIn(false)}
+                  style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"5px 14px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                  ✓ Done
+                </button>
+              </div>
+            </div>
+          );
+        })()}
         <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,overflow:"hidden"}}>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:920}}>
