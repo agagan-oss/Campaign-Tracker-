@@ -4709,16 +4709,32 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
     const draftRef = useRef(note);
     const [isEditing, setIsEditing] = useState(false);
     function commit() { setSectionNotes(p=>({...p,[skey]:draftRef.current})); setIsEditing(false); }
+    // Brand-tinted note styling — light tint of the brand color, not yellow
+    const noteBg     = lighten(accent, 0.92);
+    const noteBorder = lighten(accent, 0.70);
+    const noteColor  = darken(accent, 0.20);
     if(isEditing) return (
       <textarea autoFocus defaultValue={note}
         onChange={e=>{ draftRef.current=e.target.value; }}
         onBlur={commit} onKeyDown={e=>{ if(e.key==="Escape") commit(); }}
-        placeholder="Add a note for this section (appears in exported report)…"
-        style={{width:"100%",background:"#fffbe6",border:"1px solid #f0c040",borderRadius:5,padding:"6px 8px",fontSize:11,color:"#333",resize:"vertical",minHeight:52,fontFamily:"inherit",outline:"none",marginTop:5,display:"block"}}/>
+        placeholder="Add a note (appears in the report when filled in)…"
+        style={{width:"100%",background:noteBg,border:`1px solid ${noteBorder}`,borderRadius:5,padding:"7px 10px",fontSize:11,color:"#333",resize:"vertical",minHeight:52,fontFamily:"inherit",outline:"none",marginTop:5,display:"block"}}/>
     );
-    return note
-      ? <div onClick={()=>setIsEditing(true)} style={{marginTop:5,padding:"6px 10px",background:"#fffbe6",border:"1px solid #f0e030",borderRadius:5,fontSize:11,color:"#555",cursor:"text",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{note} <span style={{color:"#bbb",fontSize:9}}>✎</span></div>
-      : <button onClick={()=>setIsEditing(true)} style={{background:"none",border:"none",color:"#bbb",fontSize:10,cursor:"pointer",marginTop:4,padding:0}}>+ add note to this section</button>;
+    // Only render the "add note" prompt — never show in print/export
+    if(!note) return (
+      <button onClick={()=>setIsEditing(true)}
+        style={{background:"none",border:"none",color:"#ccc",fontSize:10,cursor:"pointer",marginTop:4,padding:0,display:"block"}}
+        className="no-print">
+        + add note to this section
+      </button>
+    );
+    // Has a note — show it (visible in both preview and export)
+    return (
+      <div onClick={()=>setIsEditing(true)}
+        style={{marginTop:8,padding:"8px 12px",background:noteBg,border:`1px solid ${noteBorder}`,borderLeft:`3px solid ${noteColor}`,borderRadius:"0 5px 5px 0",fontSize:11,color:"#333",cursor:"text",lineHeight:1.6,whiteSpace:"pre-wrap"}}>
+        {note} <span style={{color:"#aaa",fontSize:9}} className="no-print">✎ edit</span>
+      </div>
+    );
   }
 
   // ── Section header with × to hide ────────────────────────────────────────────
@@ -4726,7 +4742,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
     return (
       <div style={{fontSize:10,fontWeight:700,color:"#444",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${accent}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <span>{title}</span>
-        <button onClick={()=>setSections(p=>({...p,[skey]:!p[skey]}))} title="Hide section"
+        <button onClick={()=>setSections(p=>({...p,[skey]:!p[skey]}))} title="Hide section" className="no-print"
           style={{background:"none",border:"none",color:"#ccc",fontSize:13,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>×</button>
       </div>
     );
@@ -4767,7 +4783,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
     }
     const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>${displayTitle}</title>
 <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:white;color:#1a1a2e;font-size:13px}
-@media print{@page{margin:.45in;size:letter}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
+@media print{@page{margin:.45in;size:letter}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.no-print{display:none!important}}</style>
 </head><body>
 <div style="background:linear-gradient(135deg,${headerBg} 0%,${headerLight} 100%);padding:24px 28px;display:flex;align-items:center;justify-content:space-between;gap:16px">
   <div style="display:flex;align-items:center;gap:16px">${logoHtml}
@@ -4786,9 +4802,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 </div>
 <div style="height:3px;background:linear-gradient(90deg,${accent},${accentMid})"></div>
 <div style="padding:22px 28px">${body.innerHTML}</div>
-<div style="padding:14px 28px;background:#f8f9ff;border-top:1px solid #e8eaf0;display:flex;justify-content:space-between;font-size:10px;color:#aaa">
-  <span>${preparedBy} · ${displayTitle} · ${dr.label}</span><span>Confidential — For Client Use Only</span>
-</div>
+
 <script>window.onload=()=>setTimeout(()=>window.print(),350)</script>
 </body></html>`;
     const w=window.open("","_blank","width=1000,height=800");
@@ -5337,10 +5351,11 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                 );
               })()}
 
-              {/* Footer */}
-              <div style={{borderTop:`1px solid ${accentMid}`,paddingTop:12,display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
-                <div style={{fontSize:9,color:"#aaa"}}>{preparedBy} · {displayTitle} · {dr.label}</div>
-                <div style={{fontSize:9,color:"#aaa"}}>Confidential — For Client Use Only</div>
+
+              {/* Footer — only one, inside the body */}
+              <div style={{borderTop:`1px solid ${accentMid}`,marginTop:16,paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:9,color:"#aaa"}}>{preparedBy} · {displayTitle} · {dr.label}</span>
+                <span style={{fontSize:9,color:"#aaa"}}>Confidential — For Client Use Only</span>
               </div>
 
             </div>{/* end preview body */}
