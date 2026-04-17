@@ -6,6 +6,7 @@ const EXPORT_KEY = "campaign-tracker-last-export";
 const REMINDERS_KEY = "campaign-tracker-reminders";
 const ACTIVITY_KEY = "campaign-tracker-activity";
 const ARCHIVE_KEY = "campaign-tracker-archive";
+const CSV_MAPPINGS_KEY = "campaign-tracker-csv-mappings"; // {templateKey: [{csvName, campId, campName}, ...]}
 const ARCHIVE_DAYS = 5;
 const MAX_LOG_ENTRIES = 500;
 
@@ -5376,10 +5377,29 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
   // Step state: "select" | "map" | "manual"
   const [step, setStep]             = React.useState("select");
   const [selected, setSelected]     = React.useState(new Set());
-  const [csvRows,  setCsvRows]      = React.useState(null);   // raw parsed CSV rows
+  const [csvRows,  setCsvRows]      = React.useState(null);
   const [mapping,  setMapping]      = React.useState({});     // csvIdx -> campId
   const [csvError, setCsvError]     = React.useState("");
   const [platform, setPlatform]     = React.useState("");
+  const [csvFileName, setCsvFileName] = React.useState("");   // used as template key
+  const [savedMsg, setSavedMsg]     = React.useState("");     // "Mapping saved!" confirmation
+
+  // Load saved mappings from localStorage
+  const [savedMappings, setSavedMappings] = React.useState(()=>{
+    try { return JSON.parse(localStorage.getItem(CSV_MAPPINGS_KEY)||"{}"); }
+    catch { return {}; }
+  });
+
+  function saveMappings(updated) {
+    setSavedMappings(updated);
+    try { localStorage.setItem(CSV_MAPPINGS_KEY, JSON.stringify(updated)); } catch{}
+  }
+
+  // Template key: platform + sorted set of CSV campaign names
+  function makeTemplateKey(plat, rows) {
+    const names = rows.map(r=>getVal(r,["Campaign name","Ad name","Campaign","Name"])).filter(Boolean).sort();
+    return `${plat}||${names.join("|")}`;
+  }
 
   // ── CSV parsing ────────────────────────────────────────────────────────────
   function parseCSV(text) {
@@ -5411,12 +5431,12 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
 
   function handleCSVDrop(file) {
     if(!file) return;
+    setCsvFileName(file.name||"");
     const reader = new FileReader();
     reader.onload = ev => {
       try {
         const rows = parseCSV(ev.target.result);
         if(!rows?.length){ setCsvError("Couldn't parse — check file format"); return; }
-        // Detect platform from column names
         const cols = Object.keys(rows[0]).join(" ").toLowerCase();
         const plat = cols.includes("ad squad")||cols.includes("swipe")?"Snapchat":
                      cols.includes("line item")||cols.includes("advertiser")?"TTD/DSP":
@@ -5425,10 +5445,31 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         setPlatform(plat);
         setCsvRows(rows);
         setCsvError("");
-        // Auto-init mapping: each CSV row unassigned
+
+        // Build initial mapping — check saved templates first
+        const templateKey = makeTemplateKey(plat, rows);
+        const saved = savedMappings[templateKey];
         const initMap = {};
-        rows.forEach((_,i)=>{ initMap[i]=""; });
+        let savedCount = 0;
+
+        rows.forEach((row, i) => {
+          initMap[i] = "";
+          if(saved) {
+            const csvName = getVal(row, ["Campaign name","Ad name","Campaign","Name"]);
+            // Look up this CSV name in saved template
+            const savedEntry = saved.find(e => e.csvName === csvName);
+            if(savedEntry) {
+              // Verify the campaign still exists in the tracker
+              const stillExists = campaigns.find(c => c.id === savedEntry.campId);
+              if(stillExists) { initMap[i] = savedEntry.campId; savedCount++; }
+            }
+          }
+        });
+
         setMapping(initMap);
+        if(savedCount>0) {
+          setCsvError(`✓ Remembered ${savedCount} mapping${savedCount!==1?"s":""} from last time — review and apply`);
+        }
         setStep("map");
       } catch(e){ setCsvError("Parse error: "+e.message); }
     };
@@ -5449,7 +5490,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       updates[campId].impressions += impr;
       updates[campId].clicks      += clicks;
       updates[campId].reach       += reach;
-      if(ctr>0) updates[campId].ctr = ctr; // take last non-zero CTR
+      if(ctr>0) updates[campId].ctr = ctr;
     });
     setCampaigns(cs=>cs.map(c=>{
       const u = updates[c.id];
@@ -5464,6 +5505,23 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         history:     (c.history?c.history+"\n":"")+histLine,
       };
     }));
+
+    // Save this mapping as a template for next time
+    const templateKey = makeTemplateKey(platform, csvRows);
+    const templateEntries = Object.entries(mapping)
+      .filter(([csvIdx, campId])=>campId&&csvRows[parseInt(csvIdx)])
+      .map(([csvIdx, campId])=>{
+        const camp = campaigns.find(c=>c.id===campId);
+        const csvName = getVal(csvRows[parseInt(csvIdx)], ["Campaign name","Ad name","Campaign","Name"]);
+        return { csvName, campId, campName: camp?.campaignName||"" };
+      }).filter(e=>e.csvName&&e.campId);
+
+    if(templateEntries.length>0) {
+      const updated = {...savedMappings, [templateKey]: templateEntries};
+      saveMappings(updated);
+      setSavedMsg(`✓ Mapping saved — ${templateEntries.length} connection${templateEntries.length!==1?"s":""} remembered for next time`);
+    }
+
     setStep("manual");
     setCsvRows(null);
   }
@@ -5472,15 +5530,46 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
   const mappedCount   = Object.values(mapping).filter(v=>v).length;
 
   // ── Step 1: Select campaigns ───────────────────────────────────────────────
+  const [qciSearch,   setQciSearch]   = React.useState("");
+  const [qciPlatform, setQciPlatform] = React.useState("all");
+
+  const qciPlatforms = [...new Set(activeCamps.map(c=>c.platform).filter(Boolean))].sort();
+
+  const visibleCamps = activeCamps.filter(c=>{
+    const q = qciSearch.toLowerCase();
+    const matchSearch = !q || c.campaignName.toLowerCase().includes(q) || c.mediaPartner.toLowerCase().includes(q);
+    const matchPlat   = qciPlatform==="all" || c.platform===qciPlatform;
+    return matchSearch && matchPlat;
+  });
+
   const StepSelect = ()=>(
     <div>
-      <div style={{padding:"10px 16px",background:"#060d18",borderBottom:"1px solid #1a2744",fontSize:10,color:"#4d6e8a"}}>
-        Select which campaigns you're checking in for — then drop your platform CSV to map metrics, or skip to enter manually.
+      {/* Search + filter bar */}
+      <div style={{display:"flex",gap:6,padding:"8px 12px",background:"#060d18",borderBottom:"1px solid #1a2744",flexWrap:"wrap"}}>
+        <input value={qciSearch} onChange={e=>setQciSearch(e.target.value)}
+          placeholder="Search campaigns or partners…"
+          style={{flex:1,minWidth:160,background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"5px 10px",color:"#d8eaf8",fontSize:12,outline:"none"}}/>
+        <select value={qciPlatform} onChange={e=>setQciPlatform(e.target.value)}
+          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"5px 9px",color:"#7a9bbf",fontSize:12,outline:"none",cursor:"pointer"}}>
+          <option value="all">All Platforms</option>
+          {qciPlatforms.map(p=><option key={p} value={p}>{p}</option>)}
+        </select>
+        <button onClick={()=>setSelected(s=>{const n=new Set(s);visibleCamps.forEach(c=>n.add(c.id));return n;})}
+          style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>+ Visible</button>
+        <button onClick={()=>setSelected(new Set(activeCamps.map(c=>c.id)))}
+          style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>+ All</button>
+        <button onClick={()=>setSelected(new Set())}
+          style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>Clear</button>
       </div>
-      <div style={{maxHeight:260,overflowY:"auto"}}>
-        {activeCamps.map(c=>{
+
+      {/* Campaign list */}
+      <div style={{maxHeight:280,overflowY:"auto"}}>
+        {visibleCamps.length===0&&(
+          <div style={{padding:"20px",textAlign:"center",color:"#3d5a72",fontSize:12}}>No campaigns match filter</div>
+        )}
+        {visibleCamps.map(c=>{
           const sel = selected.has(c.id);
-          const staleDays = c.lastChecked ? Math.abs(Math.min(0, getDaysLeft(c.lastChecked)||0)) : null;
+          const daysAgo = c.lastChecked ? -Math.min(0, getDaysLeft(c.lastChecked)||0) : null;
           return (
             <div key={c.id} onClick={()=>setSelected(s=>{const n=new Set(s);sel?n.delete(c.id):n.add(c.id);return n;})}
               style={{display:"flex",alignItems:"center",gap:10,padding:"7px 16px",borderBottom:"1px solid #0a1018",cursor:"pointer",background:sel?"#001a0e":"transparent",transition:"background .1s"}}>
@@ -5489,28 +5578,32 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
               </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:12,color:sel?"#edf4ff":"#7a9bbf",fontWeight:sel?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
-                <div style={{fontSize:10,color:"#3d5a72"}}>{c.mediaPartner} · {c.platform}</div>
+                <div style={{fontSize:10,color:"#3d5a72"}}>{c.mediaPartner}</div>
               </div>
-              {c.lastChecked&&<div style={{fontSize:9,color:staleDays>=2?"#f59e0b":"#3d5a72",whiteSpace:"nowrap",flexShrink:0}}>{staleDays>=2?`${staleDays}d stale`:c.lastChecked}</div>}
+              <span style={{background:(PLT_COLORS[c.platform]||"#7a9bbf")+"22",color:PLT_COLORS[c.platform]||"#7a9bbf",border:`1px solid ${PLT_COLORS[c.platform]||"#7a9bbf"}50`,borderRadius:3,padding:"1px 6px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+              {daysAgo>=2&&<div style={{fontSize:9,color:"#f59e0b",whiteSpace:"nowrap",flexShrink:0}}>{daysAgo}d stale</div>}
             </div>
           );
         })}
       </div>
-      <div style={{padding:"10px 16px",background:"#060d18",borderTop:"1px solid #1a2744",display:"flex",alignItems:"center",gap:10}}>
-        <button onClick={()=>setSelected(new Set(activeCamps.map(c=>c.id)))} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 10px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>Select All</button>
-        <button onClick={()=>setSelected(new Set())} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 10px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>Clear</button>
-        <span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{selected.size} selected</span>
+
+      {/* Footer */}
+      <div style={{padding:"8px 12px",background:"#060d18",borderTop:"1px solid #1a2744",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <span style={{fontSize:11,color:"#4d6e8a",flex:1}}>
+          {selected.size>0?`${selected.size} selected`:"Nothing selected"}&nbsp;
+          {qciSearch||qciPlatform!=="all"?<span style={{color:"#3d5a72"}}>({visibleCamps.length} visible)</span>:""}
+        </span>
         {selected.size>0&&(
           <label style={{display:"flex",alignItems:"center",gap:7,background:"#001a0e",border:"1px solid #00c89640",borderRadius:7,padding:"6px 14px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}
             onDragOver={e=>{e.preventDefault();e.currentTarget.style.background="#002e24";}}
             onDragLeave={e=>{e.currentTarget.style.background="#001a0e";}}
             onDrop={e=>{e.preventDefault();e.currentTarget.style.background="#001a0e";handleCSVDrop(e.dataTransfer.files[0]);}}>
-            📊 Drop CSV or click to browse
+            📊 Drop CSV or browse
             <input type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={e=>handleCSVDrop(e.target.files[0])}/>
           </label>
         )}
         <button onClick={()=>setStep("manual")} disabled={selected.size===0}
-          style={{background:selected.size?"#162236":"#0c1625",border:`1px solid ${selected.size?"#334155":"#1e293b"}`,borderRadius:7,padding:"6px 14px",color:selected.size?"#7a9bbf":"#3d5a72",fontSize:11,cursor:selected.size?"pointer":"default"}}>
+          style={{background:selected.size?"#162236":"#0c1625",border:`1px solid ${selected.size?"#334155":"#1e293b"}`,borderRadius:7,padding:"6px 14px",color:selected.size?"#7a9bbf":"#3d5a72",fontSize:11,cursor:selected.size?"pointer":"default",whiteSpace:"nowrap"}}>
           Enter Manually →
         </button>
       </div>
@@ -5518,18 +5611,67 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     </div>
   );
 
+  // ── Fuzzy match helper ────────────────────────────────────────────────────
+  function fuzzyScore(a, b) {
+    a = a.toLowerCase().trim(); b = b.toLowerCase().trim();
+    if(a===b) return 1;
+    // Exact substring
+    if(a.includes(b)||b.includes(a)) return 0.9;
+    // Word overlap
+    const stopWords = new Set(["the","and","for","with","from","this","that","campaign","targeting","ads","ad"]);
+    const aW = new Set(a.split(/\s+/).filter(w=>w.length>2&&!stopWords.has(w)));
+    const bW = new Set(b.split(/\s+/).filter(w=>w.length>2&&!stopWords.has(w)));
+    const overlap = [...aW].filter(w=>bW.has(w)).length;
+    return overlap / Math.max(aW.size, bW.size, 1);
+  }
+
+  function autoMatch() {
+    const newMap = {...mapping};
+    csvRows.forEach((row,i)=>{
+      if(newMap[i]) return; // don't overwrite manual assignments
+      const csvName = getVal(row,["Campaign name","Ad name","Campaign","Name"]);
+      if(!csvName) return;
+      let bestId="", bestScore=0;
+      selectedCamps.forEach(c=>{
+        const score = fuzzyScore(csvName, c.campaignName);
+        if(score>bestScore&&score>=0.3){ bestScore=score; bestId=c.id; }
+      });
+      if(bestId) newMap[i]=bestId;
+    });
+    setMapping(newMap);
+  }
+
+  const autoMatchCount = React.useMemo(()=>{
+    if(!csvRows) return 0;
+    return csvRows.filter((_,i)=>{
+      if(mapping[i]) return false;
+      const csvName = getVal(csvRows[i],["Campaign name","Ad name","Campaign","Name"]);
+      if(!csvName) return false;
+      return selectedCamps.some(c=>fuzzyScore(csvName,c.campaignName)>=0.3);
+    }).length;
+  },[csvRows, mapping, selectedCamps]);
+
   // ── Step 2: Map CSV rows to campaigns ──────────────────────────────────────
   const StepMap = ()=>(
     <div>
-      <div style={{padding:"8px 16px",background:"#001a0e",borderBottom:"1px solid #1a2744",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div style={{padding:"8px 16px",background:"#001a0e",borderBottom:"1px solid #1a2744",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
         <div>
           <span style={{fontSize:12,fontWeight:700,color:"#00e5a0"}}>📊 {platform} — {csvRows.length} rows</span>
-          <span style={{fontSize:10,color:"#4d6e8a",marginLeft:10}}>Assign each CSV row to a tracker campaign using the dropdown</span>
+          <span style={{fontSize:10,color:"#4d6e8a",marginLeft:10}}>Use dropdown to assign each row, or auto-match</span>
         </div>
-        <div style={{display:"flex",gap:6}}>
-          <button onClick={()=>{setStep("select");setCsvRows(null);setCsvError("");}} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 10px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>← Back</button>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {autoMatchCount>0&&(
+            <button onClick={autoMatch}
+              style={{background:"#002244",border:"1px solid #00c89640",borderRadius:5,padding:"5px 12px",color:"#60a5fa",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+              ⚡ Auto-match {autoMatchCount} row{autoMatchCount!==1?"s":""}
+            </button>
+          )}
+          <button onClick={()=>setMapping(Object.fromEntries(csvRows.map((_,i)=>[i,""])))}
+            style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 10px",color:"#4d6e8a",fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}}>Clear all</button>
+          <button onClick={()=>{setStep("select");setCsvRows(null);setCsvError("");}}
+            style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 10px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>← Back</button>
           <button onClick={applyMapping} disabled={!mappedCount}
-            style={{background:mappedCount?"#002e24":"#162236",border:`1px solid ${mappedCount?"#00c89640":"#334155"}`,borderRadius:5,padding:"4px 14px",color:mappedCount?"#00e5a0":"#3d5a72",fontSize:11,fontWeight:700,cursor:mappedCount?"pointer":"default"}}>
+            style={{background:mappedCount?"#002e24":"#162236",border:`1px solid ${mappedCount?"#00c89640":"#334155"}`,borderRadius:5,padding:"5px 14px",color:mappedCount?"#00e5a0":"#3d5a72",fontSize:11,fontWeight:700,cursor:mappedCount?"pointer":"default",whiteSpace:"nowrap"}}>
             ✓ Apply {mappedCount} mapping{mappedCount!==1?"s":""}
           </button>
         </div>
@@ -5583,6 +5725,16 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       </div>
       <div style={{padding:"7px 16px",background:"#060d18",borderTop:"1px solid #1a2744",fontSize:10,color:"#3d5a72"}}>
         Multiple CSV rows can map to the same campaign — metrics will be summed · Unassigned rows are skipped
+        {csvRows&&savedMappings[makeTemplateKey(platform,csvRows)]&&(
+          <span style={{color:"#60a5fa",marginLeft:8}}>
+            💾 Saved template found — {savedMappings[makeTemplateKey(platform,csvRows)].length} remembered connections
+            <button onClick={()=>{
+              const key=makeTemplateKey(platform,csvRows);
+              const updated={...savedMappings};delete updated[key];saveMappings(updated);
+              setMapping(Object.fromEntries(csvRows.map((_,i)=>[i,""])));
+            }} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:9,marginLeft:6,padding:0}}>× forget</button>
+          </span>
+        )}
       </div>
     </div>
   );
@@ -5704,6 +5856,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
           <div style={{display:"flex",gap:8}}>
             <button onClick={()=>setStep("select")} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 10px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>← Back</button>
             <span style={{fontSize:10,color:"#3d5a72",alignSelf:"center"}}>Tab or Enter saves each field</span>
+            {savedMsg&&<span style={{fontSize:10,color:"#00e5a0",fontWeight:600}}>{savedMsg}</span>}
           </div>
           <button onClick={onClose} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"5px 14px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Done</button>
         </div>
