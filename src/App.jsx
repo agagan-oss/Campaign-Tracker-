@@ -5368,80 +5368,45 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
 
 
+
 // ── Quick Check-in Panel ──────────────────────────────────────────────────────
 function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
-  const checkInCamps = filtered.filter(c=>c.status==="active"||c.status==="behind"||c.status==="ahead");
+  const activeCamps = filtered.filter(c=>c.status==="active"||c.status==="behind"||c.status==="ahead");
 
-  // CSV import state
-  const [csvRows,    setCsvRows]    = React.useState(null);  // parsed rows from drop
-  const [csvMatches, setCsvMatches] = React.useState({});    // campId -> {impressions, ctr, clicks}
-  const [csvError,   setCsvError]   = React.useState("");
-  const [csvPlatform,setCsvPlatform]= React.useState("");
-  const [reviewing,  setReviewing]  = React.useState(false);
+  // Step state: "select" | "map" | "manual"
+  const [step, setStep]             = React.useState("select");
+  const [selected, setSelected]     = React.useState(new Set());
+  const [csvRows,  setCsvRows]      = React.useState(null);   // raw parsed CSV rows
+  const [mapping,  setMapping]      = React.useState({});     // csvIdx -> campId
+  const [csvError, setCsvError]     = React.useState("");
+  const [platform, setPlatform]     = React.useState("");
 
-  // ── CSV parsing ──────────────────────────────────────────────────────────
+  // ── CSV parsing ────────────────────────────────────────────────────────────
   function parseCSV(text) {
     const lines = text.trim().split(/\r?\n/);
     if(lines.length < 2) return null;
-    const headers = lines[0].split(",").map(h=>h.replace(/"/g,"").trim().toLowerCase());
+    const rawHeaders = lines[0].split(",");
+    const headers = rawHeaders.map(h=>h.replace(/"/g,"").trim());
     return lines.slice(1).map(line=>{
       const vals = [];
       let cur="", inQ=false;
       for(const ch of line+","){
         if(ch==='"') inQ=!inQ;
-        else if(ch===","&&!inQ){ vals.push(cur.trim()); cur=""; }
+        else if(ch===","&&!inQ){ vals.push(cur.replace(/"/g,"").trim()); cur=""; }
         else cur+=ch;
       }
       const row={};
-      headers.forEach((h,i)=>{ row[h]=(vals[i]||"").replace(/"/g,"").trim(); });
+      headers.forEach((h,i)=>{ row[h]=(vals[i]||"").trim(); });
       return row;
     }).filter(r=>Object.values(r).some(v=>v));
   }
 
-  function detectPlatform(headers) {
-    const h = headers.join(" ").toLowerCase();
-    if(h.includes("ad name")||h.includes("campaign name")&&h.includes("reach")) return "Facebook/Meta";
-    if(h.includes("ad squad")||h.includes("swipe")) return "Snapchat";
-    if(h.includes("line item")||h.includes("advertiser")) return "TTD/DSP";
-    if(h.includes("campaign")||h.includes("ad group")) return "Google/YouTube";
-    return "Platform";
-  }
-
-  // Find campaign name column
-  function findNameCol(row) {
-    const keys = Object.keys(row);
-    return keys.find(k=>k.includes("campaign name")||k==="campaign"||k==="ad name"||k==="name"||k.includes("ad set name"))
-      || keys[0];
-  }
-
-  function findMetricCol(row, type) {
-    const keys = Object.keys(row);
-    if(type==="impressions") return keys.find(k=>k.includes("impr"));
-    if(type==="ctr") return keys.find(k=>k==="ctr"||k.includes("click-through rate")||k.includes("click through rate")||k.includes("ctr (all)"));
-    if(type==="clicks") return keys.find(k=>k==="clicks"||k.includes("link clicks")||k==="clicks (all)");
-    return null;
-  }
-
-  // Fuzzy match CSV row name to a campaign
-  function fuzzyMatch(csvName, campaigns) {
-    if(!csvName) return null;
-    const n = csvName.toLowerCase().trim();
-    // Exact match first
-    let match = campaigns.find(c=>c.campaignName.toLowerCase().trim()===n);
-    if(match) return match;
-    // Contains match
-    match = campaigns.find(c=>n.includes(c.campaignName.toLowerCase().trim())||c.campaignName.toLowerCase().trim().includes(n));
-    if(match) return match;
-    // Word overlap score
-    const nWords = new Set(n.split(/\s+/).filter(w=>w.length>3));
-    let best=null, bestScore=0;
-    for(const c of campaigns){
-      const cWords = c.campaignName.toLowerCase().split(/\s+/).filter(w=>w.length>3);
-      const overlap = cWords.filter(w=>nWords.has(w)).length;
-      const score = overlap / Math.max(nWords.size, cWords.length, 1);
-      if(score>bestScore&&score>0.4){ bestScore=score; best=c; }
+  function getVal(row, candidates) {
+    for(const c of candidates){
+      const key = Object.keys(row).find(k=>k.toLowerCase()===c.toLowerCase()||k.toLowerCase().includes(c.toLowerCase()));
+      if(key && row[key] && row[key]!=="") return row[key];
     }
-    return best;
+    return "";
   }
 
   function handleCSVDrop(file) {
@@ -5450,145 +5415,182 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     reader.onload = ev => {
       try {
         const rows = parseCSV(ev.target.result);
-        if(!rows?.length){ setCsvError("Couldn\'t parse — check file format"); return; }
-        const nameCol = findNameCol(rows[0]);
-        const imprCol = findMetricCol(rows[0], "impressions");
-        const ctrCol  = findMetricCol(rows[0], "ctr");
-        const clkCol  = findMetricCol(rows[0], "clicks");
-        const platform = detectPlatform(Object.keys(rows[0]));
-        setCsvPlatform(platform);
-        // Match each row to a campaign
-        const matches = {};
-        const unmatched = [];
-        rows.forEach(row=>{
-          const csvName = row[nameCol]||"";
-          const camp = fuzzyMatch(csvName, checkInCamps);
-          if(camp) {
-            const impr = parseInt((row[imprCol]||"").replace(/[^0-9]/g,""))||0;
-            const ctr  = parseFloat(row[ctrCol]||0)||0;
-            const clk  = parseInt((row[clkCol]||"").replace(/[^0-9]/g,""))||0;
-            if(!matches[camp.id] || impr > (matches[camp.id].impressions||0)) {
-              matches[camp.id] = { impressions:impr, ctr:parseFloat(ctr.toFixed(4)), clicks:clk, csvName, matched:true };
-            }
-          } else if(csvName) {
-            unmatched.push(csvName);
-          }
-        });
+        if(!rows?.length){ setCsvError("Couldn't parse — check file format"); return; }
+        // Detect platform from column names
+        const cols = Object.keys(rows[0]).join(" ").toLowerCase();
+        const plat = cols.includes("ad squad")||cols.includes("swipe")?"Snapchat":
+                     cols.includes("line item")||cols.includes("advertiser")?"TTD/DSP":
+                     cols.includes("campaign name")&&cols.includes("impressions")?"Facebook/Meta":
+                     cols.includes("ad group")?"Google Ads":"Platform";
+        setPlatform(plat);
         setCsvRows(rows);
-        setCsvMatches(matches);
-        setCsvError(unmatched.length>0?`${Object.keys(matches).length} matched · ${unmatched.length} rows unmatched: ${unmatched.slice(0,3).join(", ")}${unmatched.length>3?"…":""}`:
-          `✓ ${Object.keys(matches).length} campaigns matched from ${rows.length} rows`);
-        setReviewing(true);
+        setCsvError("");
+        // Auto-init mapping: each CSV row unassigned
+        const initMap = {};
+        rows.forEach((_,i)=>{ initMap[i]=""; });
+        setMapping(initMap);
+        setStep("map");
       } catch(e){ setCsvError("Parse error: "+e.message); }
     };
     reader.readAsText(file);
   }
 
-  function applyMatches() {
+  function applyMapping() {
     const stamp = getToday();
+    const updates = {};
+    Object.entries(mapping).forEach(([csvIdx, campId])=>{
+      if(!campId||!csvRows[csvIdx]) return;
+      const row = csvRows[csvIdx];
+      const impr  = parseInt(getVal(row,["Impressions"]).replace(/[^0-9]/g,""))||0;
+      const clicks = parseInt(getVal(row,["Link clicks","Clicks (all)","Clicks"]).replace(/[^0-9]/g,""))||0;
+      const ctr   = parseFloat(getVal(row,["CTR (link click-through rate)","CTR (all)","CTR"]))||0;
+      const reach = parseInt(getVal(row,["Reach"]).replace(/[^0-9]/g,""))||0;
+      if(!updates[campId]) updates[campId] = {impressions:0, clicks:0, ctr:0, reach:0};
+      updates[campId].impressions += impr;
+      updates[campId].clicks      += clicks;
+      updates[campId].reach       += reach;
+      if(ctr>0) updates[campId].ctr = ctr; // take last non-zero CTR
+    });
     setCampaigns(cs=>cs.map(c=>{
-      const m = csvMatches[c.id];
-      if(!m||!m.matched) return c;
-      const histLine = `${stamp} — ${m.impressions.toLocaleString()} impressions (via ${csvPlatform} CSV)`;
+      const u = updates[c.id];
+      if(!u) return c;
+      const histLine = `${stamp} — ${u.impressions.toLocaleString()} impressions (${platform} CSV import)`;
       return {...c,
-        impressions: m.impressions>0?String(m.impressions):c.impressions,
-        ctr:         m.ctr>0?String(m.ctr):c.ctr,
-        clicks:      m.clicks>0?String(m.clicks):c.clicks,
+        impressions: u.impressions>0?String(u.impressions):c.impressions,
+        clicks:      u.clicks>0?String(u.clicks):c.clicks,
+        ctr:         u.ctr>0?String(parseFloat(u.ctr.toFixed(4))):c.ctr,
+        reach:       u.reach>0?String(u.reach):c.reach,
         lastChecked: stamp,
         history:     (c.history?c.history+"\n":"")+histLine,
       };
     }));
-    setReviewing(false);
+    setStep("manual");
     setCsvRows(null);
-    setCsvMatches({});
-    setCsvError("✓ Applied — metrics updated and check-in stamped");
   }
 
-  const matchCount = Object.keys(csvMatches).length;
+  const selectedCamps = activeCamps.filter(c=>selected.has(c.id));
+  const mappedCount   = Object.values(mapping).filter(v=>v).length;
 
-  return (
-    <div style={{background:"#07101c",border:"1px solid #00c89640",borderRadius:10,marginBottom:14,overflow:"hidden"}}>
+  // ── Step 1: Select campaigns ───────────────────────────────────────────────
+  const StepSelect = ()=>(
+    <div>
+      <div style={{padding:"10px 16px",background:"#060d18",borderBottom:"1px solid #1a2744",fontSize:10,color:"#4d6e8a"}}>
+        Select which campaigns you're checking in for — then drop your platform CSV to map metrics, or skip to enter manually.
+      </div>
+      <div style={{maxHeight:260,overflowY:"auto"}}>
+        {activeCamps.map(c=>{
+          const sel = selected.has(c.id);
+          const staleDays = c.lastChecked ? Math.abs(Math.min(0, getDaysLeft(c.lastChecked)||0)) : null;
+          return (
+            <div key={c.id} onClick={()=>setSelected(s=>{const n=new Set(s);sel?n.delete(c.id):n.add(c.id);return n;})}
+              style={{display:"flex",alignItems:"center",gap:10,padding:"7px 16px",borderBottom:"1px solid #0a1018",cursor:"pointer",background:sel?"#001a0e":"transparent",transition:"background .1s"}}>
+              <div style={{width:15,height:15,borderRadius:4,border:`1.5px solid ${sel?"#00c896":"#334155"}`,background:sel?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                {sel&&<span style={{color:"#000",fontSize:9,fontWeight:900}}>✓</span>}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,color:sel?"#edf4ff":"#7a9bbf",fontWeight:sel?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
+                <div style={{fontSize:10,color:"#3d5a72"}}>{c.mediaPartner} · {c.platform}</div>
+              </div>
+              {c.lastChecked&&<div style={{fontSize:9,color:staleDays>=2?"#f59e0b":"#3d5a72",whiteSpace:"nowrap",flexShrink:0}}>{staleDays>=2?`${staleDays}d stale`:c.lastChecked}</div>}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{padding:"10px 16px",background:"#060d18",borderTop:"1px solid #1a2744",display:"flex",alignItems:"center",gap:10}}>
+        <button onClick={()=>setSelected(new Set(activeCamps.map(c=>c.id)))} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 10px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>Select All</button>
+        <button onClick={()=>setSelected(new Set())} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 10px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>Clear</button>
+        <span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{selected.size} selected</span>
+        {selected.size>0&&(
+          <label style={{display:"flex",alignItems:"center",gap:7,background:"#001a0e",border:"1px solid #00c89640",borderRadius:7,padding:"6px 14px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}
+            onDragOver={e=>{e.preventDefault();e.currentTarget.style.background="#002e24";}}
+            onDragLeave={e=>{e.currentTarget.style.background="#001a0e";}}
+            onDrop={e=>{e.preventDefault();e.currentTarget.style.background="#001a0e";handleCSVDrop(e.dataTransfer.files[0]);}}>
+            📊 Drop CSV or click to browse
+            <input type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={e=>handleCSVDrop(e.target.files[0])}/>
+          </label>
+        )}
+        <button onClick={()=>setStep("manual")} disabled={selected.size===0}
+          style={{background:selected.size?"#162236":"#0c1625",border:`1px solid ${selected.size?"#334155":"#1e293b"}`,borderRadius:7,padding:"6px 14px",color:selected.size?"#7a9bbf":"#3d5a72",fontSize:11,cursor:selected.size?"pointer":"default"}}>
+          Enter Manually →
+        </button>
+      </div>
+      {csvError&&<div style={{padding:"6px 16px",background:"#1a0808",fontSize:10,color:"#ef4444"}}>{csvError}</div>}
+    </div>
+  );
 
-      {/* Header */}
-      <div style={{background:"#001a2e",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid #1a2744"}}>
-        <div style={{display:"flex",alignItems:"center",gap:14}}>
-          <span style={{fontSize:13,fontWeight:700,color:"#00e5a0"}}>⚡ Quick Check-in</span>
-          <span style={{fontSize:11,color:"#3d5a72"}}>Tab to save & advance · or drop a CSV below</span>
+  // ── Step 2: Map CSV rows to campaigns ──────────────────────────────────────
+  const StepMap = ()=>(
+    <div>
+      <div style={{padding:"8px 16px",background:"#001a0e",borderBottom:"1px solid #1a2744",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div>
+          <span style={{fontSize:12,fontWeight:700,color:"#00e5a0"}}>📊 {platform} — {csvRows.length} rows</span>
+          <span style={{fontSize:10,color:"#4d6e8a",marginLeft:10}}>Assign each CSV row to a tracker campaign using the dropdown</span>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontSize:11,color:"#4d6e8a"}}>{checkInCamps.length} active</span>
-          <button onClick={onClose} style={{background:"none",border:"none",color:"#4d6e8a",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 4px"}}>×</button>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>{setStep("select");setCsvRows(null);setCsvError("");}} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 10px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>← Back</button>
+          <button onClick={applyMapping} disabled={!mappedCount}
+            style={{background:mappedCount?"#002e24":"#162236",border:`1px solid ${mappedCount?"#00c89640":"#334155"}`,borderRadius:5,padding:"4px 14px",color:mappedCount?"#00e5a0":"#3d5a72",fontSize:11,fontWeight:700,cursor:mappedCount?"pointer":"default"}}>
+            ✓ Apply {mappedCount} mapping{mappedCount!==1?"s":""}
+          </button>
         </div>
       </div>
 
-      {/* CSV drop zone */}
-      {!reviewing&&(
-        <label
-          onDragOver={e=>{e.preventDefault();e.currentTarget.style.background="#001a0e";e.currentTarget.style.borderColor="#00c896";}}
-          onDragLeave={e=>{e.currentTarget.style.background="#060d18";e.currentTarget.style.borderColor="transparent";}}
-          onDrop={e=>{e.preventDefault();e.currentTarget.style.background="#060d18";e.currentTarget.style.borderColor="transparent";handleCSVDrop(e.dataTransfer.files[0]);}}
-          style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",background:"#060d18",borderBottom:"1px solid #1a2744",cursor:"pointer",transition:"background .15s",borderTop:"none"}}>
-          <span style={{fontSize:18,flexShrink:0}}>📊</span>
-          <div style={{flex:1}}>
-            <div style={{fontSize:11,color:"#4d6e8a",fontWeight:600}}>Drop platform CSV to auto-fill metrics</div>
-            <div style={{fontSize:10,color:"#3d5a72",marginTop:1}}>FB: Ads Manager → Export · Snap: Campaign Export · TTD: Report CSV · or click to browse</div>
-          </div>
-          {csvError&&<div style={{fontSize:10,color:csvError.startsWith("✓")?"#00e5a0":"#f59e0b",maxWidth:280,textAlign:"right",lineHeight:1.4}}>{csvError}</div>}
-          <input type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={e=>handleCSVDrop(e.target.files[0])}/>
-        </label>
-      )}
+      {/* Column key */}
+      <div style={{padding:"6px 16px",background:"#060d18",borderBottom:"1px solid #1a2744",display:"flex",gap:16,flexWrap:"wrap"}}>
+        {csvRows[0]&&[
+          {label:"Impressions", cols:["Impressions"]},
+          {label:"Clicks",      cols:["Link clicks","Clicks (all)"]},
+          {label:"CTR",         cols:["CTR (link click-through rate)","CTR (all)"]},
+          {label:"Reach",       cols:["Reach"]},
+        ].map(({label,cols})=>{
+          const found = cols.find(c=>Object.keys(csvRows[0]).some(k=>k.toLowerCase()===c.toLowerCase()||k.toLowerCase().includes(c.toLowerCase())));
+          return found ? <span key={label} style={{fontSize:9,color:"#4d6e8a"}}><span style={{color:"#00e5a0"}}>✓</span> {label}</span>
+                       : <span key={label} style={{fontSize:9,color:"#3d5a72"}}>— {label}</span>;
+        })}
+      </div>
 
-      {/* CSV review table */}
-      {reviewing&&(
-        <div style={{borderBottom:"1px solid #1a2744"}}>
-          <div style={{background:"#001a0e",padding:"8px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <div style={{fontSize:11,color:"#00e5a0",fontWeight:600}}>
-              📊 {csvPlatform} — {matchCount} campaign{matchCount!==1?"s":""} matched
-              {csvError&&<span style={{color:"#f59e0b",marginLeft:8,fontWeight:400}}>{csvError}</span>}
-            </div>
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={()=>{setReviewing(false);setCsvRows(null);setCsvMatches({});setCsvError("");}}
-                style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 10px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>
-                ✕ Cancel
-              </button>
-              <button onClick={applyMatches} disabled={!matchCount}
-                style={{background:matchCount?"#002e24":"#162236",border:`1px solid ${matchCount?"#00c89640":"#334155"}`,borderRadius:5,padding:"4px 12px",color:matchCount?"#00e5a0":"#3d5a72",fontSize:10,fontWeight:700,cursor:matchCount?"pointer":"default"}}>
-                ✓ Apply {matchCount} match{matchCount!==1?"es":""}
-              </button>
-            </div>
-          </div>
-          <div style={{overflowX:"auto",maxHeight:180,overflowY:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse"}}>
-              <thead>
-                <tr style={{background:"#060d18",position:"sticky",top:0}}>
-                  {["Campaign","Platform","CSV Match","Impressions","Clicks","CTR"].map(h=>(
-                    <th key={h} style={{padding:"5px 10px",fontSize:9,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",borderBottom:"1px solid #1a2744",whiteSpace:"nowrap",textAlign:h==="Impressions"||h==="Clicks"||h==="CTR"?"right":"left"}}>{h}</th>
+      <div style={{maxHeight:320,overflowY:"auto"}}>
+        {csvRows.map((row,i)=>{
+          const name     = getVal(row,["Campaign name","Ad name","Campaign","Name"]);
+          const impr     = getVal(row,["Impressions"]);
+          const clicks   = getVal(row,["Link clicks","Clicks (all)","Clicks"]);
+          const ctr      = getVal(row,["CTR (link click-through rate)","CTR (all)","CTR"]);
+          const assigned = mapping[i]||"";
+          return (
+            <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 80px 60px 60px 1fr",gap:0,alignItems:"center",borderBottom:"1px solid #0a1018",background:assigned?"#001a0e":"transparent"}}>
+              {/* CSV name */}
+              <div style={{padding:"7px 12px",minWidth:0}}>
+                <div style={{fontSize:11,color:"#d8eaf8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={name}>{name||"—"}</div>
+                <div style={{fontSize:9,color:"#3d5a72",marginTop:1}}>{row["Campaign delivery"]||""}</div>
+              </div>
+              {/* Metrics preview */}
+              <div style={{padding:"7px 8px",textAlign:"right",fontSize:11,color:"#7a9bbf",fontFamily:"monospace",whiteSpace:"nowrap"}}>{impr?parseInt(impr.replace(/[^0-9]/g,"")).toLocaleString():"—"}</div>
+              <div style={{padding:"7px 8px",textAlign:"right",fontSize:11,color:"#7a9bbf",fontFamily:"monospace",whiteSpace:"nowrap"}}>{clicks||"—"}</div>
+              <div style={{padding:"7px 8px",textAlign:"right",fontSize:11,color:"#7a9bbf",fontFamily:"monospace",whiteSpace:"nowrap"}}>{ctr?parseFloat(ctr).toFixed(3)+"%":"—"}</div>
+              {/* Campaign assignment dropdown */}
+              <div style={{padding:"5px 10px"}}>
+                <select value={assigned} onChange={e=>setMapping(m=>({...m,[i]:e.target.value}))}
+                  style={{width:"100%",background:assigned?"#002e24":"#0e1a2e",border:`1px solid ${assigned?"#00c89640":"#1e293b"}`,borderRadius:5,padding:"4px 8px",color:assigned?"#00e5a0":"#4d6e8a",fontSize:11,outline:"none",cursor:"pointer"}}>
+                  <option value="">— assign to campaign —</option>
+                  {selectedCamps.map(c=>(
+                    <option key={c.id} value={c.id}>{c.campaignName.trim()} ({c.platform})</option>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {checkInCamps.map(c=>{
-                  const m = csvMatches[c.id];
-                  return (
-                    <tr key={c.id} style={{background:m?"#001a0e":"#07101c",opacity:m?1:.45}}>
-                      <td style={{padding:"5px 10px",fontSize:11,color:m?"#d8eaf8":"#4d6e8a",borderBottom:"1px solid #0a1018",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</td>
-                      <td style={{padding:"5px 10px",fontSize:10,color:PLT_COLORS[c.platform]||"#7a9bbf",borderBottom:"1px solid #0a1018",whiteSpace:"nowrap"}}>{c.platform}</td>
-                      <td style={{padding:"5px 10px",fontSize:10,borderBottom:"1px solid #0a1018",maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                        {m ? <span style={{color:"#00e5a0"}}>✓ {m.csvName}</span> : <span style={{color:"#3d5a72"}}>— no match</span>}
-                      </td>
-                      <td style={{padding:"5px 10px",fontSize:11,color:"#edf4ff",fontWeight:600,borderBottom:"1px solid #0a1018",textAlign:"right",fontFamily:"monospace"}}>{m?m.impressions.toLocaleString():"—"}</td>
-                      <td style={{padding:"5px 10px",fontSize:11,color:"#edf4ff",borderBottom:"1px solid #0a1018",textAlign:"right",fontFamily:"monospace"}}>{m&&m.clicks?m.clicks.toLocaleString():"—"}</td>
-                      <td style={{padding:"5px 10px",fontSize:11,color:"#edf4ff",borderBottom:"1px solid #0a1018",textAlign:"right",fontFamily:"monospace"}}>{m&&m.ctr?m.ctr+"%":"—"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+                </select>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{padding:"7px 16px",background:"#060d18",borderTop:"1px solid #1a2744",fontSize:10,color:"#3d5a72"}}>
+        Multiple CSV rows can map to the same campaign — metrics will be summed · Unassigned rows are skipped
+      </div>
+    </div>
+  );
 
-      {/* Manual entry table */}
+  // ── Step 3: Manual entry (also shown after CSV apply) ─────────────────────
+  const StepManual = ()=>{
+    const camps = selectedCamps.length>0 ? selectedCamps : activeCamps;
+    return (
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
           <thead>
@@ -5599,85 +5601,56 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
             </tr>
           </thead>
           <tbody>
-            {checkInCamps.map((c,idx)=>{
+            {camps.map((c,idx)=>{
               const isStale = c.lastChecked && getDaysLeft(c.lastChecked)<=-2;
-              const staleDays = c.lastChecked ? Math.abs(getDaysLeft(c.lastChecked)) : null;
-              const csvFilled = csvMatches[c.id]?.matched;
+              const staleDays = c.lastChecked ? Math.abs(getDaysLeft(c.lastChecked)||0) : null;
               return (
-                <tr key={c.id} style={{background:csvFilled?"#001a0e":idx%2===0?"#07101c":"#060d18",transition:"background .1s"}}>
+                <tr key={c.id} style={{background:idx%2===0?"#07101c":"#060d18"}}>
                   <td style={{padding:"5px 12px",fontSize:12,color:"#4d6e8a",borderBottom:"1px solid #0a1018",whiteSpace:"nowrap"}}>{c.mediaPartner}</td>
                   <td style={{padding:"5px 12px",borderBottom:"1px solid #0a1018",maxWidth:180}}>
-                    <div style={{fontSize:12,color:"#d8eaf8",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                      {csvFilled&&<span style={{color:"#00e5a0",marginRight:5,fontSize:10}}>✓</span>}
-                      {c.campaignName.trim()}
-                    </div>
+                    <div style={{fontSize:12,color:"#d8eaf8",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
                   </td>
                   <td style={{padding:"5px 12px",borderBottom:"1px solid #0a1018"}}>
-                    <span style={{background:(PLT_COLORS[c.platform]||"#7a9bbf")+"22",color:PLT_COLORS[c.platform]||"#7a9bbf",border:`1px solid ${PLT_COLORS[c.platform]||"#7a9bbf"}50`,borderRadius:3,padding:"1px 6px",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{c.platform}</span>
+                    <span style={{background:(PLT_COLORS[c.platform]||"#7a9bbf")+"22",color:PLT_COLORS[c.platform]||"#7a9bbf",border:`1px solid ${PLT_COLORS[c.platform]||"#7a9bbf"}50`,borderRadius:3,padding:"1px 6px",fontSize:10,fontWeight:700}}>{c.platform}</span>
                   </td>
                   <td style={{padding:"5px 12px",fontSize:11,borderBottom:"1px solid #0a1018",whiteSpace:"nowrap",color:isStale?"#f59e0b":"#4d6e8a"}}>
                     {c.lastChecked?`${c.lastChecked}${staleDays>=2?` (${staleDays}d)`:""}`:"Never"}
                   </td>
-                  <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",textAlign:"right"}}>
-                    <input type="text" inputMode="numeric" className="qci-impr"
-                      defaultValue={csvFilled?csvMatches[c.id].impressions:c.impressions||""}
-                      placeholder="-"
-                      style={{background:csvFilled?"#002e24":"#0e1a2e",border:`1px solid ${csvFilled?"#00c89640":"#1e293b"}`,borderRadius:5,padding:"4px 8px",color:csvFilled?"#00e5a0":"#d8eaf8",fontSize:12,fontFamily:"monospace",width:110,textAlign:"right",outline:"none",transition:"all .2s"}}
-                      onFocus={e=>{e.target.select();e.target.style.borderColor="#00c896";}}
-                      onBlur={e=>e.target.style.borderColor=csvFilled?"#00c89640":"#1e293b"}
-                      onKeyDown={e=>{
-                        if(e.key==="Enter"||e.key==="Tab"){
-                          e.preventDefault();
-                          const val=e.target.value.replace(/[^0-9]/g,"");
-                          if(val){
-                            const stamp=getToday();
-                            setCampaigns(cs=>cs.map(x=>x.id===c.id?{...x,impressions:val,lastChecked:stamp,history:(x.history?x.history+"\n":"")+`${stamp} — ${parseInt(val).toLocaleString()} impressions`}:x));
-                            e.target.style.background="#001810"; e.target.style.color="#00e5a0";
-                            setTimeout(()=>{e.target.style.background="";e.target.style.color="";},600);
+                  {[
+                    {key:"impressions",cls:"qci-impr",w:110},
+                    {key:"ctr",       cls:"qci-ctr", w:72, decimal:true},
+                    {key:"clicks",    cls:"qci-clk", w:80},
+                  ].map(({key,cls,w,decimal})=>(
+                    <td key={key} style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",textAlign:"right"}}>
+                      <input type="text" inputMode={decimal?"decimal":"numeric"} className={cls}
+                        defaultValue={c[key]||""} placeholder="-"
+                        style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:"4px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",width:w,textAlign:"right",outline:"none"}}
+                        onFocus={e=>{e.target.select();e.target.style.borderColor="#00c896";}}
+                        onBlur={e=>e.target.style.borderColor="#1e293b"}
+                        onKeyDown={e=>{
+                          if(e.key==="Enter"||e.key==="Tab"){
+                            e.preventDefault();
+                            const raw = e.target.value;
+                            const val = decimal?raw:raw.replace(/[^0-9]/g,"");
+                            if(val){
+                              const stamp=getToday();
+                              setCampaigns(cs=>cs.map(x=>{
+                                if(x.id!==c.id) return x;
+                                const updated={...x,[key]:val,lastChecked:stamp};
+                                if(key==="impressions") updated.history=(x.history?x.history+"\n":"")+`${stamp} — ${parseInt(val).toLocaleString()} impressions`;
+                                return updated;
+                              }));
+                              e.target.style.background="#001810"; e.target.style.color="#00e5a0";
+                              setTimeout(()=>{e.target.style.background="";e.target.style.color="";},600);
+                            }
+                            const all=[...document.querySelectorAll("."+cls)];
+                            const next=all[all.indexOf(e.target)+1];
+                            if(next) next.focus();
                           }
-                          const inputs=[...document.querySelectorAll(".qci-impr")];
-                          const next=inputs[inputs.indexOf(e.target)+1];
-                          if(next) next.focus();
-                        }
-                      }}
-                    />
-                  </td>
-                  <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",textAlign:"right"}}>
-                    <input type="text" inputMode="decimal" className="qci-ctr"
-                      defaultValue={csvFilled?csvMatches[c.id].ctr:c.ctr||""} placeholder="-"
-                      style={{background:csvFilled?"#002e24":"#0e1a2e",border:`1px solid ${csvFilled?"#00c89640":"#1e293b"}`,borderRadius:5,padding:"4px 8px",color:csvFilled?"#00e5a0":"#d8eaf8",fontSize:12,fontFamily:"monospace",width:72,textAlign:"right",outline:"none"}}
-                      onFocus={e=>{e.target.select();e.target.style.borderColor="#00c896";}}
-                      onBlur={e=>e.target.style.borderColor=csvFilled?"#00c89640":"#1e293b"}
-                      onKeyDown={e=>{
-                        if(e.key==="Enter"||e.key==="Tab"){
-                          e.preventDefault();
-                          const val=e.target.value;
-                          if(val) setCampaigns(cs=>cs.map(x=>x.id===c.id?{...x,ctr:val}:x));
-                          const inputs=[...document.querySelectorAll(".qci-ctr")];
-                          const next=inputs[inputs.indexOf(e.target)+1];
-                          if(next) next.focus();
-                        }
-                      }}
-                    />
-                  </td>
-                  <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",textAlign:"right"}}>
-                    <input type="text" inputMode="numeric" className="qci-clicks"
-                      defaultValue={csvFilled?csvMatches[c.id].clicks:c.clicks||""} placeholder="-"
-                      style={{background:csvFilled?"#002e24":"#0e1a2e",border:`1px solid ${csvFilled?"#00c89640":"#1e293b"}`,borderRadius:5,padding:"4px 8px",color:csvFilled?"#00e5a0":"#d8eaf8",fontSize:12,fontFamily:"monospace",width:80,textAlign:"right",outline:"none"}}
-                      onFocus={e=>{e.target.select();e.target.style.borderColor="#00c896";}}
-                      onBlur={e=>e.target.style.borderColor=csvFilled?"#00c89640":"#1e293b"}
-                      onKeyDown={e=>{
-                        if(e.key==="Enter"||e.key==="Tab"){
-                          e.preventDefault();
-                          const val=e.target.value.replace(/[^0-9]/g,"");
-                          if(val) setCampaigns(cs=>cs.map(x=>x.id===c.id?{...x,clicks:val}:x));
-                          const inputs=[...document.querySelectorAll(".qci-clicks")];
-                          const next=inputs[inputs.indexOf(e.target)+1];
-                          if(next) next.focus();
-                        }
-                      }}
-                    />
-                  </td>
+                        }}
+                      />
+                    </td>
+                  ))}
                   <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018"}}>
                     <input type="text" defaultValue={c.note1||""} placeholder="optional note"
                       style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:"4px 8px",color:"#d8eaf8",fontSize:11,width:"100%",minWidth:140,outline:"none"}}
@@ -5687,8 +5660,8 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                         if(e.key==="Enter"||e.key==="Tab"){
                           e.preventDefault();
                           setCampaigns(cs=>cs.map(x=>x.id===c.id?{...x,note1:e.target.value}:x));
-                          const inputs=[...document.querySelectorAll(".qci-impr")];
-                          if(inputs[idx+1]) inputs[idx+1].focus();
+                          const impInputs=[...document.querySelectorAll(".qci-impr")];
+                          if(impInputs[idx+1]) impInputs[idx+1].focus();
                         }
                       }}
                     />
@@ -5699,17 +5672,46 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
           </tbody>
         </table>
       </div>
+    );
+  };
 
-      <div style={{padding:"8px 16px",background:"#060d18",borderTop:"1px solid #1a2744",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <span style={{fontSize:10,color:"#3d5a72"}}>Enter or Tab saves · CSV-matched rows shown in green · manually override any field</span>
-        <button onClick={onClose}
-          style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"5px 14px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-          ✓ Done
-        </button>
+  return (
+    <div style={{background:"#07101c",border:"1px solid #00c89640",borderRadius:10,marginBottom:14,overflow:"hidden"}}>
+      {/* Header */}
+      <div style={{background:"#001a2e",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid #1a2744"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:13,fontWeight:700,color:"#00e5a0"}}>⚡ Quick Check-in</span>
+          {/* Step indicator */}
+          {["select","map","manual"].map((s,i)=>(
+            <React.Fragment key={s}>
+              {i>0&&<span style={{color:"#1e293b",fontSize:12}}>›</span>}
+              <span style={{fontSize:11,fontWeight:step===s?700:400,color:step===s?"#edf4ff":"#3d5a72",cursor:s!=="map"||csvRows?"pointer":"default"}}
+                onClick={()=>{ if(s==="select") setStep("select"); if(s==="manual"&&step!=="select") setStep("manual"); }}>
+                {s==="select"?"① Select":s==="map"?"② Map CSV":"③ Enter"}
+              </span>
+            </React.Fragment>
+          ))}
+        </div>
+        <button onClick={onClose} style={{background:"none",border:"none",color:"#4d6e8a",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 4px"}}>×</button>
       </div>
+
+      {step==="select"&&<StepSelect/>}
+      {step==="map"&&csvRows&&<StepMap/>}
+      {step==="manual"&&<StepManual/>}
+
+      {step==="manual"&&(
+        <div style={{padding:"8px 16px",background:"#060d18",borderTop:"1px solid #1a2744",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>setStep("select")} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 10px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>← Back</button>
+            <span style={{fontSize:10,color:"#3d5a72",alignSelf:"center"}}>Tab or Enter saves each field</span>
+          </div>
+          <button onClick={onClose} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"5px 14px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Done</button>
+        </div>
+      )}
     </div>
   );
 }
+
 
 
 function RevenueDashboard({ campaigns=[] }) {
