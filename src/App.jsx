@@ -6,7 +6,8 @@ const EXPORT_KEY = "campaign-tracker-last-export";
 const REMINDERS_KEY = "campaign-tracker-reminders";
 const ACTIVITY_KEY = "campaign-tracker-activity";
 const ARCHIVE_KEY = "campaign-tracker-archive";
-const CSV_MAPPINGS_KEY = "campaign-tracker-csv-mappings"; // {templateKey: [{csvName, campId, campName}, ...]}
+const CSV_MAPPINGS_KEY = "campaign-tracker-csv-mappings";
+const VAULT_KEY = "campaign-tracker-report-vault"; // [{id, savedAt, client, title, dateRange, brandColor, totals, campaigns, notes}]
 const ARCHIVE_DAYS = 5;
 const MAX_LOG_ENTRIES = 500;
 
@@ -4810,6 +4811,62 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
     w.document.write(html); w.document.close();
   }
 
+  function saveToVault() {
+    if(!selectedIds.size) return;
+    const snapshot = {
+      id: Date.now().toString(),
+      savedAt: getToday(),
+      savedAtLabel: new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}),
+      client: displayClient,
+      title: displayTitle,
+      preparedBy,
+      brandColor,
+      websiteInput,
+      dateRange: dr,
+      sections: {...sections},
+      // Per-campaign metrics snapshot
+      campaigns: rows.map(r=>({
+        id: r.id,
+        campaignName: r.campaignName,
+        platform: r.platform,
+        mediaPartner: r.mediaPartner,
+        goal: r.goal,
+        impressions: r.m.impressions,
+        clicks: r.m.clicks,
+        ctr: r.m.ctr,
+        cpm: r.m.cpm||0,
+        spend: r.m.spend||0,
+        reach: r.m.reach||0,
+        videoViews: r.m.videoViews||0,
+        completionRate: r.m.completionRate||0,
+        contractValue: r.m.contractValue||0,
+      })),
+      // Aggregate totals
+      totals: {
+        impressions: totals.impressions,
+        clicks: totals.clicks,
+        reach: totals.reach,
+        videoViews: totals.videoViews,
+        spend: totals.spend,
+        contractValue: totals.contractValue,
+        ctr: parseFloat(overallCTR)||0,
+      },
+      // Audience data from CSV overrides
+      audienceData: Object.fromEntries(
+        rows.map(r=>[r.id,{demoAge:r.demoAge||"",demoGender:r.demoGender||"",deviceData:r.deviceData||"",geoData:r.geoData||""}])
+      ),
+    };
+    try {
+      const existing = JSON.parse(localStorage.getItem(VAULT_KEY)||"[]");
+      existing.unshift(snapshot); // newest first
+      // Keep max 100 reports
+      localStorage.setItem(VAULT_KEY, JSON.stringify(existing.slice(0,100)));
+      alert(`✓ Report saved to vault!\n\n"${displayTitle}"\n${dr.label}\n${rows.length} campaigns\n\nView it in the Report Vault tab.`);
+    } catch(e) {
+      alert("Failed to save: "+e.message);
+    }
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{color:"#d8eaf8"}}>
@@ -5057,15 +5114,24 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
           </div>
 
-          {/* Export button */}
-          <button onClick={exportPDF} disabled={selectedIds.size===0}
-            style={{background:selectedIds.size>0?`linear-gradient(135deg,${darken(accent,.5)},${darken(accent,.25)})`:"#0c1625",
-              border:`1px solid ${selectedIds.size>0?accent+"60":"#1e293b"}`,borderRadius:10,padding:"12px",marginTop:6,
-              color:selectedIds.size>0?"white":"#3d5a72",fontSize:13,fontWeight:800,
-              cursor:selectedIds.size>0?"pointer":"default",transition:"all .2s",
-              boxShadow:selectedIds.size>0?`0 0 16px ${accent}30`:"none"}}>
-            {selectedIds.size===0?"← Select campaigns first":"⬇ Export as PDF"}
-          </button>
+          {/* Export + Vault buttons */}
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:6}}>
+            <button onClick={exportPDF} disabled={selectedIds.size===0}
+              style={{background:selectedIds.size>0?`linear-gradient(135deg,${darken(accent,.5)},${darken(accent,.25)})`:"#0c1625",
+                border:`1px solid ${selectedIds.size>0?accent+"60":"#1e293b"}`,borderRadius:10,padding:"12px",
+                color:selectedIds.size>0?"white":"#3d5a72",fontSize:13,fontWeight:800,
+                cursor:selectedIds.size>0?"pointer":"default",transition:"all .2s",
+                boxShadow:selectedIds.size>0?`0 0 16px ${accent}30`:"none"}}>
+              {selectedIds.size===0?"← Select campaigns first":"⬇ Export as PDF"}
+            </button>
+            <button onClick={saveToVault} disabled={selectedIds.size===0}
+              style={{background:selectedIds.size>0?"#0d1f35":"#0c1625",
+                border:`1px solid ${selectedIds.size>0?"#1e4d7a":"#1e293b"}`,borderRadius:10,padding:"10px",
+                color:selectedIds.size>0?"#60a5fa":"#3d5a72",fontSize:12,fontWeight:600,
+                cursor:selectedIds.size>0?"pointer":"default",transition:"all .2s"}}>
+              {selectedIds.size===0?"":"🗃 Save to Report Vault"}
+            </button>
+          </div>
         </div>
 
 
@@ -5537,7 +5603,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     }
 
     // Auto-match remaining unassigned rows against selected (or all active) camps
-    const matchPool=selectedCamps.length>0?selectedCamps:activeCamps;
+    const matchPool=selectedCamps.length>0?selectedCamps:visibleCamps.length<activeCamps.length?visibleCamps:activeCamps;
     rows.forEach((row,i)=>{
       if(initMap[i]) return;
       const csvName=getCampName(row,source);
@@ -5701,6 +5767,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
           <div style={{display:"flex",flexDirection:"column"}}>
             <div style={{padding:"6px 12px",background:"#060d18",borderBottom:"1px solid #1a2744",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <span style={{fontSize:11,fontWeight:700,color:"#edf4ff"}}>{fileSource} — {fileRows.length} rows</span>
+              <span style={{fontSize:10,color:"#3d5a72"}}>matching against {selectedCamps.length>0?`${selectedCamps.length} selected`:`${visibleCamps.length} visible`}</span>
               <div style={{display:"flex",gap:5}}>
                 {btn("Clear",()=>{setFileRows(null);setMapping({});setFileSource("");setSavedMsg("");})}
                 <button onClick={applyMapping} disabled={!mappedCount}
@@ -5730,7 +5797,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                       <select value={assigned} onChange={e=>setMapping(mp=>({...mp,[i]:e.target.value}))}
                         style={{background:assigned?"#002e24":"#0e1a2e",border:`1px solid ${assigned?"#00c89640":"#1e293b"}`,borderRadius:5,padding:"3px 7px",color:assigned?"#00e5a0":"#4d6e8a",fontSize:10,outline:"none",cursor:"pointer",maxWidth:170}}>
                         <option value="">— assign —</option>
-                        {(selectedCamps.length>0?selectedCamps:activeCamps).map(c=>(
+                        {(selectedCamps.length>0?selectedCamps:visibleCamps).map(c=>(
                           <option key={c.id} value={c.id}>{c.campaignName.trim()}</option>
                         ))}
                       </select>
@@ -5814,6 +5881,242 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
   );
 }
 
+
+
+
+// ── Report Vault ─────────────────────────────────────────────────────────────
+function ReportVault({ onAnalyzeWithZeus }) {
+  const [vault, setVault] = React.useState(()=>{
+    try{ return JSON.parse(localStorage.getItem(VAULT_KEY)||"[]"); } catch{ return []; }
+  });
+  const [search,    setSearch]    = React.useState("");
+  const [selected,  setSelected]  = React.useState(null);   // viewing one report
+  const [comparing, setComparing] = React.useState(null);   // second report for comparison
+  const [pickMode,  setPickMode]  = React.useState(false);  // picking second report
+
+  function deleteReport(id) {
+    const updated = vault.filter(r=>r.id!==id);
+    setVault(updated);
+    try{ localStorage.setItem(VAULT_KEY, JSON.stringify(updated)); }catch{}
+    if(selected?.id===id) setSelected(null);
+    if(comparing?.id===id) setComparing(null);
+  }
+
+  function clearAll() {
+    if(!window.confirm("Delete all saved reports? This cannot be undone.")) return;
+    setVault([]); setSelected(null); setComparing(null);
+    try{ localStorage.removeItem(VAULT_KEY); }catch{}
+  }
+
+  const filtered = vault.filter(r=>{
+    const q=search.toLowerCase();
+    return !q||r.client?.toLowerCase().includes(q)||r.title?.toLowerCase().includes(q)||r.dateRange?.label?.toLowerCase().includes(q);
+  });
+
+  // Group by client
+  const byClient = filtered.reduce((acc,r)=>{
+    const k=r.client||"Unknown";
+    if(!acc[k]) acc[k]=[];
+    acc[k].push(r);
+    return acc;
+  },{});
+
+  function MetricDelta({curr, prev, label, prefix="", suffix="", decimals=0}) {
+    if(!prev&&prev!==0) return <span style={{fontSize:11,color:"#edf4ff",fontWeight:600}}>{prefix}{typeof curr==="number"?curr.toLocaleString(undefined,{maximumFractionDigits:decimals}):curr}{suffix}</span>;
+    const diff = curr - prev;
+    const pct  = prev>0 ? (diff/prev*100) : 0;
+    const up   = diff>0;
+    const col  = diff===0?"#4d6e8a":up?"#00e5a0":"#ef4444";
+    return (
+      <div style={{display:"flex",alignItems:"baseline",gap:5}}>
+        <span style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>{prefix}{typeof curr==="number"?curr.toLocaleString(undefined,{maximumFractionDigits:decimals}):curr}{suffix}</span>
+        {diff!==0&&<span style={{fontSize:10,color:col,fontWeight:600}}>{up?"+":""}{typeof diff==="number"?diff.toLocaleString(undefined,{maximumFractionDigits:decimals}):diff} ({up?"+":""}{pct.toFixed(1)}%)</span>}
+      </div>
+    );
+  }
+
+  function ReportCard({report, isCompare=false}) {
+    const prev = comparing&&!isCompare ? comparing : null;
+    const t    = report.totals||{};
+    const pt   = prev?.totals||{};
+    const ctr  = t.impressions>0?(t.clicks/t.impressions*100):t.ctr||0;
+    const pctr = pt.impressions>0?(pt.clicks/pt.impressions*100):pt.ctr||0;
+
+    return (
+      <div style={{background:"#0c1625",border:`1px solid ${isCompare?"#334155":"#1e293b"}`,borderRadius:10,padding:"16px",flex:1,minWidth:0}}>
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12,gap:8}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>{report.title||report.client}</div>
+            <div style={{fontSize:11,color:"#4d6e8a",marginTop:2}}>{report.dateRange?.label||""}</div>
+            <div style={{fontSize:10,color:"#3d5a72",marginTop:1}}>Saved {report.savedAtLabel} · {report.campaigns?.length||0} tactics</div>
+          </div>
+          <div style={{width:12,height:12,borderRadius:3,background:report.brandColor||"#1a73e8",flexShrink:0,marginTop:3}}/>
+        </div>
+
+        {/* KPI grid */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+          {[
+            {label:"Impressions", curr:t.impressions||0, prev:pt.impressions},
+            {label:"Clicks",      curr:t.clicks||0,      prev:pt.clicks},
+            {label:"CTR",         curr:ctr,              prev:pctr,      decimals:3, suffix:"%"},
+            {label:"Reach",       curr:t.reach||0,       prev:pt.reach},
+          ].map(({label,curr,prev:pv,decimals=0,suffix=""})=>(
+            <div key={label} style={{background:"#07101c",borderRadius:6,padding:"8px 10px"}}>
+              <div style={{fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",marginBottom:4,fontWeight:700}}>{label}</div>
+              <MetricDelta curr={curr} prev={comparing?pv:undefined} label={label} decimals={decimals} suffix={suffix}/>
+            </div>
+          ))}
+        </div>
+
+        {/* Per-campaign breakdown */}
+        <div style={{maxHeight:220,overflowY:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+            <thead>
+              <tr style={{background:"#07101c"}}>
+                {["Campaign","Impr","Clicks","CTR"].map(h=>(
+                  <th key={h} style={{padding:"5px 8px",fontSize:9,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",textAlign:h==="Campaign"?"left":"right",borderBottom:"1px solid #1a2744"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(report.campaigns||[]).map((c,i)=>{
+                // Find matching campaign in prev report for delta
+                const pc = comparing&&!isCompare ? comparing.campaigns?.find(x=>x.id===c.id||x.campaignName===c.campaignName) : null;
+                const ctr = c.impressions>0?(c.clicks/c.impressions*100):c.ctr||0;
+                const pctr= pc?.impressions>0?(pc.clicks/pc.impressions*100):pc?.ctr||0;
+                const imprUp = pc ? c.impressions-pc.impressions : 0;
+                const ctrUp  = pc ? ctr-pctr : 0;
+                return (
+                  <tr key={c.id||i} style={{background:i%2===0?"#07101c":"#060d18"}}>
+                    <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",maxWidth:160}}>
+                      <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#a8c4e0"}}>{c.campaignName?.trim()}</div>
+                      <div style={{fontSize:9,color:"#3d5a72"}}>{c.platform}</div>
+                    </td>
+                    <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",textAlign:"right",color:"#edf4ff",fontFamily:"monospace"}}>
+                      {(c.impressions||0).toLocaleString()}
+                      {pc&&imprUp!==0&&<div style={{fontSize:9,color:imprUp>0?"#00e5a0":"#ef4444"}}>{imprUp>0?"+":""}{imprUp.toLocaleString()}</div>}
+                    </td>
+                    <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",textAlign:"right",color:"#edf4ff",fontFamily:"monospace"}}>{(c.clicks||0).toLocaleString()}</td>
+                    <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",textAlign:"right",color:"#edf4ff",fontFamily:"monospace"}}>
+                      {ctr.toFixed(3)}%
+                      {pc&&ctrUp!==0&&<div style={{fontSize:9,color:ctrUp>0?"#00e5a0":"#ef4444"}}>{ctrUp>0?"+":""}{ctrUp.toFixed(3)}%</div>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  if(vault.length===0) return (
+    <div style={{textAlign:"center",padding:"60px 40px",color:"#3d5a72"}}>
+      <div style={{fontSize:40,marginBottom:12}}>🗃</div>
+      <div style={{fontSize:16,fontWeight:700,color:"#edf4ff",marginBottom:8}}>Report Vault</div>
+      <div style={{fontSize:13,lineHeight:1.7,maxWidth:400,margin:"0 auto"}}>
+        No saved reports yet. Go to the <strong style={{color:"#60a5fa"}}>📄 Reports</strong> tab, build a report, then click <strong style={{color:"#60a5fa"}}>🗃 Save to Report Vault</strong>.
+        <br/><br/>Reports are stored locally and can be compared month-over-month or analyzed by Zeus.
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{padding:"0 0 40px"}}>
+      {/* Toolbar */}
+      <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)}
+          placeholder="Search by client, title, date…"
+          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 14px",color:"#d8eaf8",fontSize:13,width:260,outline:"none"}}/>
+        <span style={{fontSize:12,color:"#4d6e8a",flex:1}}>{vault.length} saved report{vault.length!==1?"s":""}</span>
+        {selected&&(
+          <>
+            {!pickMode&&!comparing&&(
+              <button onClick={()=>setPickMode(true)}
+                style={{background:"#0d1f35",border:"1px solid #1e4d7a",borderRadius:7,padding:"6px 14px",color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                ⇄ Compare to another report
+              </button>
+            )}
+            {comparing&&(
+              <button onClick={()=>{setComparing(null);setPickMode(false);}}
+                style={{background:"#1a0e00",border:"1px solid #92400e",borderRadius:7,padding:"6px 14px",color:"#f59e0b",fontSize:12,cursor:"pointer"}}>
+                × Clear comparison
+              </button>
+            )}
+            {onAnalyzeWithZeus&&(
+              <button onClick={()=>onAnalyzeWithZeus(selected, comparing)}
+                style={{background:"#0d1f0d",border:"1px solid #166534",borderRadius:7,padding:"6px 14px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                ⚡ Analyze with Zeus
+              </button>
+            )}
+            <button onClick={()=>{setSelected(null);setComparing(null);setPickMode(false);}}
+              style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"6px 14px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>
+              ← Back to list
+            </button>
+          </>
+        )}
+        <button onClick={clearAll} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>
+      </div>
+
+      {/* ── Detail view ── */}
+      {selected&&(
+        <div>
+          {pickMode&&!comparing&&(
+            <div style={{background:"#001a2e",border:"1px solid #1e4d7a",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#60a5fa"}}>
+              Pick a report from the list below to compare with "{selected.title}"
+            </div>
+          )}
+          <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+            <ReportCard report={selected}/>
+            {comparing&&<ReportCard report={comparing} isCompare={true}/>}
+          </div>
+        </div>
+      )}
+
+      {/* ── Report list ── */}
+      {(!selected||pickMode)&&Object.entries(byClient).map(([client,reports])=>(
+        <div key={client} style={{marginBottom:20}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #1e293b"}}>{client} — {reports.length} report{reports.length!==1?"s":""}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:10}}>
+            {reports.map(r=>{
+              const isSelected=selected?.id===r.id;
+              const isComparing=comparing?.id===r.id;
+              return (
+                <div key={r.id}
+                  onClick={()=>{
+                    if(pickMode&&selected&&r.id!==selected.id){ setComparing(r); setPickMode(false); return; }
+                    setSelected(r); setComparing(null); setPickMode(false);
+                  }}
+                  style={{background:isSelected?"#001a2e":isComparing?"#1a1000":"#0c1625",border:`1px solid ${isSelected?"#1e4d7a":isComparing?"#92400e":"#1e293b"}`,borderRadius:8,padding:"12px 14px",cursor:"pointer",transition:"all .15s",position:"relative"}}>
+                  <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:6}}>
+                    <div style={{minWidth:0,flex:1}}>
+                      <div style={{fontSize:12,fontWeight:700,color:isSelected?"#60a5fa":"#edf4ff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title||r.client}</div>
+                      <div style={{fontSize:11,color:"#4d6e8a",marginTop:2}}>{r.dateRange?.label||""}</div>
+                      <div style={{fontSize:10,color:"#3d5a72",marginTop:1}}>{r.savedAtLabel} · {r.campaigns?.length||0} tactics</div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                      <div style={{width:10,height:10,borderRadius:2,background:r.brandColor||"#1a73e8"}}/>
+                      <button onClick={e=>{e.stopPropagation();deleteReport(r.id);}}
+                        style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13,padding:"0 2px",lineHeight:1}}>×</button>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:12,marginTop:8,fontSize:10,color:"#4d6e8a"}}>
+                    <span>{(r.totals?.impressions||0).toLocaleString()} impr</span>
+                    <span>{(r.totals?.clicks||0).toLocaleString()} clicks</span>
+                    {r.totals?.impressions>0&&<span>{(r.totals.clicks/r.totals.impressions*100).toFixed(3)}% CTR</span>}
+                  </div>
+                  {(isSelected||isComparing)&&<div style={{position:"absolute",top:8,right:32,fontSize:9,color:isSelected?"#60a5fa":"#f59e0b",fontWeight:700}}>{isSelected?"VIEWING":"COMPARING"}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 
 function RevenueDashboard({ campaigns=[] }) {
@@ -7772,6 +8075,7 @@ export default function App() {
               {key:"pacing",    label:"📈 Pacing", badge: behindCount},
               {key:"revenue",   label:"💰 Revenue"},
               {key:"reports",    label:"📄 Reports"},
+              {key:"vault",     label:"🗃 Report Vault"},
               {key:"activity",  label:"📜 Activity Log"},
               {key:"archive",   label:"🗄️ Archive"},
               {key:"config",    label:"⚙️ Config"},
@@ -7816,6 +8120,16 @@ export default function App() {
           <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} onEdit={(camp)=>setEditTarget(camp)}/>
         ) : activeTab==="reports" ? (
           <ReportingDashboard campaigns={campaigns} archive={archive}/>
+        ) : activeTab==="vault" ? (
+          <ReportVault onAnalyzeWithZeus={(report, compare)=>{
+            // Switch to Zeus tab with a pre-filled analysis prompt
+            setActiveTab("ai");
+            const prompt = compare
+              ? `Please analyze and compare these two reports for ${report.client}:\n\nREPORT 1 (${report.dateRange?.label}):\n${JSON.stringify(report.totals)}\nCampaigns: ${JSON.stringify(report.campaigns?.map(c=>({name:c.campaignName,impressions:c.impressions,clicks:c.clicks,ctr:c.impressions>0?(c.clicks/c.impressions*100).toFixed(3):0})))}\n\nREPORT 2 (${compare.dateRange?.label}):\n${JSON.stringify(compare.totals)}\nCampaigns: ${JSON.stringify(compare.campaigns?.map(c=>({name:c.campaignName,impressions:c.impressions,clicks:c.clicks,ctr:c.impressions>0?(c.clicks/c.impressions*100).toFixed(3):0})))}\n\nIdentify trends, what improved, what declined, which campaigns need attention, and recommend specific actions.`
+              : `Please analyze this report for ${report.client} (${report.dateRange?.label}):\n\nTotals: ${JSON.stringify(report.totals)}\nCampaigns: ${JSON.stringify(report.campaigns?.map(c=>({name:c.campaignName,impressions:c.impressions,clicks:c.clicks,ctr:c.impressions>0?(c.clicks/c.impressions*100).toFixed(3):0})))}\n\nProvide insights on performance, identify top and bottom performers, and recommend optimizations.`;
+            // Store prompt for Zeus to pick up
+            try{ localStorage.setItem("campaign-tracker-zeus-prompt", prompt); }catch{}
+          }}/>
         ) : activeTab==="revenue" ? (
           <RevenueDashboard campaigns={[...campaigns,...archive]}/>
         ) : (<>
