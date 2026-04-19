@@ -1663,6 +1663,25 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
         monthlyFlight:c.monthlyFlight||false,
       };
     });
+    // Load report vault for trend context
+    let vaultSummary = [];
+    try {
+      const vaultData = JSON.parse(localStorage.getItem(VAULT_KEY)||"[]");
+      // Last 6 reports per client, summarized
+      vaultSummary = vaultData.slice(0,12).map(r=>({
+        client: r.client,
+        title: r.title,
+        savedAt: r.savedAt,
+        dateRange: r.dateRange?.label,
+        totals: r.totals,
+        campaignCount: r.campaigns?.length||0,
+      }));
+    } catch(e) {}
+
+    // Load Zeus memory
+    let zeusMemory = "";
+    try { zeusMemory = localStorage.getItem("zeus-memory")||""; } catch(e) {}
+
     return {
       today, activeCampaignCount:active.length, archivedCount:archive.length,
       overdueReminders:reminders.filter(r=>!r.dismissed&&r.date<today).length,
@@ -1671,6 +1690,8 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       archivedCampaigns:archive.slice(0,20).map(c=>({id:c.id,campaign:c.campaignName.trim(),partner:c.mediaPartner,platform:c.platform,archivedDate:c.archivedDate,endDate:c.endDate})),
       allPartners:[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort(),
       allPlatforms:ALL_PLATFORMS,
+      reportVault: vaultSummary.length>0 ? vaultSummary : undefined,
+      zeusMemory: zeusMemory || undefined,
     };
   }
 
@@ -1764,92 +1785,48 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
   }
 
   // ── System prompt ───────────────────────────────────────────────────────────
-  const SYSTEM = `Your name is Zeus. You are the personal AI super-agent for Austin Gagan at Recrue Media. You have FULL READ AND WRITE ACCESS to his campaign tracker. You can add campaigns, edit any campaign field, archive, restore, set reminders, and bulk update campaigns.
+  // Build SYSTEM prompt from editable soul + skills + memory in localStorage
+  const SYSTEM = (()=>{
+    try {
+      const soul   = localStorage.getItem("zeus-soul")||"";
+      const mem    = localStorage.getItem("zeus-memory")||"";
+      const skills = JSON.parse(localStorage.getItem("zeus-skills")||"[]");
 
-IDENTITY: You are Austin's right hand — not a passive analyst. You take action. When Austin asks you to add a campaign, you add it. When he says update the end date, you update it. When he says archive something, you archive it. You are an autonomous agent operating on his behalf.
+      // Default soul if none saved
+      const defaultSoul = `Your name is Zeus. You are the personal AI super-agent for Austin Gagan at Recrue Media. You have FULL READ AND WRITE ACCESS to his campaign tracker.\n\nYou are Austin's right hand — not a passive analyst. Direct, sharp, confident. You take action when asked, surface problems before Austin notices, and treat his portfolio like it's your own. No padding, no pleasantries. Real names, real numbers, real recommendations.\n\nSign off as Zeus ⚡`;
 
-PERSONALITY: Direct. Sharp. Confident. Like a senior media buyer who's been doing this for 15 years. You don't pad responses. You call problems out by name. You push back when the data says otherwise. You care about Austin's portfolio like it's your own.
+      const activeSoul = soul || defaultSoul;
 
-━━━ YOUR CAPABILITIES ━━━
+      // Inject memory
+      const memSection = mem ? `\n\n━━━ MEMORY ━━━\n${mem}` : "";
 
-CURRENT (fully operational):
-• Add new campaigns with all fields
-• Edit any campaign field (status, end date, budget, notes, geo, etc.)
-• Bulk edit campaigns by partner or selection
-• Archive campaigns
-• Restore archived campaigns
-• Set reminders
-• Full analysis and KPI monitoring
-• Draft client emails, status reports, end-of-month summaries
-• Answer any question about any campaign
+      // Inject enabled skill instructions
+      const DEFAULT_SKILL_INSTRUCTIONS = {
+        campaign_ops: `When modifying campaigns: use exact names from context, always include historyNote, chain multiple actions when needed.`,
+        pacing_analysis: `Pacing: flag anything projected to miss by >10%. State specific neededPerDay vs current rate. Prioritize EOM crises (<5 days, behind >15%).`,
+        kpi_monitoring: `Benchmarks — FB/IG CTR: warn <0.10% crit <0.05% | Snap/DSP/TTD: warn <0.03% crit <0.01% | SEM: warn <2% crit <1% | CTV/OTT: warn <85% crit <70% | FBV/TT: warn <50% crit <30% | Spend: warn >80% crit >95%`,
+        client_comms: `Drafting: lead with the metric that matters most, use real numbers, professional but direct tone, always offer to revise.`,
+        pattern_detection: `Patterns to find: partner-wide underperformance, platform-wide issues, creative fatigue, timing clusters, spend anomalies, check-in gaps.`,
+        report_analysis: `Vault analysis: compare MoM/QoQ, calculate % change, identify what drove changes, flag structural vs one-time declines.`,
+        renewal_pipeline: `Renewals: flag campaigns ending <30 days with no renewal status. <14 days = URGENT. Include: end date, contract value, performance.`,
+        ambioedu: `AmbioEdu: 35+ college partners, CTV/OTT with device ID targeting, matchback reporting, CTV completion >85%, geo-targeted by state/DMA.`,
+      };
 
-COMING WITH SUPERINTELLIGENCE (architecture ready):
-• Direct platform execution — log into Meta/TTD/DSP and make changes
-• Autonomous 24/7 monitoring without Austin opening the tracker
-• Send partner emails on Austin's behalf
-• Predictive budget optimization and reallocation
-• Creative performance correlation across campaigns
+      const skillSection = skills
+        .filter(s=>s.enabled&&!s.future)
+        .map(s=>`\n• ${s.id.replace(/_/g," ").toUpperCase()}: ${s.instructions||DEFAULT_SKILL_INSTRUCTIONS[s.id]||""}`)
+        .join("") || "";
 
-━━━ ACTION SYSTEM ━━━
+      const skillsBlock = skillSection ? `\n\n━━━ ACTIVE SKILLS ━━━${skillSection}` : "";
 
-When Austin asks you to take action, respond in TWO parts:
-1. A natural language response confirming what you're doing
-2. A JSON action block in this exact format:
+      // Always include the action system
+      const actionSystem = `\n\n━━━ ACTION SYSTEM ━━━\nInclude action blocks for all changes:\n\`\`\`action\n{\n  "type": "add_campaign|edit_campaign|bulk_edit|archive_campaign|restore_campaign|set_reminder",\n  "description": "Plain English summary",\n  "campaignId": 123,\n  "campaignName": "exact name",\n  "historyNote": "what changed and why",\n  "partner": "Partner Name",\n  "data": {...fields}\n}\n\`\`\`\nAlways include historyNote. Chain multiple blocks when needed. Use exact campaign names.`;
 
-\`\`\`action
-{
-  "type": "add_campaign" | "edit_campaign" | "bulk_edit" | "archive_campaign" | "restore_campaign" | "set_reminder",
-  "description": "Plain English summary of what this does",
-  
-  // For add_campaign:
-  "data": {
-    "campaignName": "...", "mediaPartner": "...", "platform": "FB|FBV|DSP|CTV|OTT|SP|SEM|TD|TT|IG|YT|EMAIL|PIN|...",
-    "goal": "...", "startDate": "YYYY-MM-DD", "endDate": "YYYY-MM-DD",
-    "status": "active|off|paused", "note1": "...", "note2": "...",
-    "contractValue": "...", "monthlyFlight": false,
-    "geoTarget": "...", "lastCreativeUpdate": "YYYY-MM-DD"
-  },
-  
-  // For edit_campaign:
-  "campaignId": 123 or null,
-  "campaignName": "exact campaign name if no id",
-  "historyNote": "optional note for change history",
-  "data": { "endDate": "YYYY-MM-DD", "status": "active", ... any fields to update },
-  
-  // For bulk_edit:
-  "partner": "Media Partner Name" or null,
-  "campaignIds": [123, 456] or null,
-  "historyNote": "...",
-  "data": { ...fields to update },
-  
-  // For archive_campaign / restore_campaign:
-  "campaignId": 123 or null,
-  "campaignName": "exact name if no id",
-  
-  // For set_reminder:
-  "data": { "type": "ad-swap|budget-review|custom", "note": "...", "date": "YYYY-MM-DD", "campaignId": 123 or null }
-}
-\`\`\`
-
-RULES FOR ACTIONS:
-- Always include the action block when Austin requests a change
-- For bulk operations, prefer using partner name over listing all IDs
-- If Austin says "update end date for all [partner] campaigns", use bulk_edit with partner
-- For campaign names, use the exact name from the context data
-- If you need a field Austin didn't specify (like start date), use your best judgment or ask
-- Always include a historyNote for edits so there's an audit trail
-- You can chain multiple actions — include multiple \`\`\`action blocks in one response
-
-━━━ KPI BENCHMARKS ━━━
-FB/IG CTR: warn <0.10%, critical <0.05%
-DSP/TD/SP CTR: warn <0.03%, critical <0.01%
-SEM CTR: warn <2%, critical <1%
-CTV/OTT Completion: warn <85%, critical <70%
-FBV/TT Video: warn <50%, critical <30%
-YT View Rate: warn <20%, critical <10%
-Spend vs contract: warn >80%, critical >95%
-
-Always reference actual names and numbers. Format with emoji headers for structured output. Sign off as Zeus ⚡`;
+      return activeSoul + memSection + skillsBlock + actionSystem;
+    } catch(e) {
+      return "Your name is Zeus. You are the personal AI super-agent for Austin Gagan at Recrue Media. You have full read/write access to his campaign tracker. Be direct, use real names and numbers. Sign off as Zeus ⚡";
+    }
+  })();
 
   // ── Parse actions from Zeus response ────────────────────────────────────────
   function parseActionsFromResponse(text) {
@@ -1870,28 +1847,64 @@ Always reference actual names and numbers. Format with emoji headers for structu
     return text.replace(/```action[\s\S]*?```/g, "").trim();
   }
 
-  // ── Greeting ────────────────────────────────────────────────────────────────
+  // ── Greeting + vault prompt pickup ──────────────────────────────────────────
   useEffect(() => {
     if (hasGreeted.current || chatHistory.length > 0) return;
     hasGreeted.current = true;
+
+    // Check if vault sent a prompt to analyze
+    let vaultPrompt = "";
+    try {
+      vaultPrompt = localStorage.getItem("campaign-tracker-zeus-prompt")||"";
+      if (vaultPrompt) localStorage.removeItem("campaign-tracker-zeus-prompt");
+    } catch(e) {}
+
     const ctx = buildContext();
     const criticals = ctx.kpiAlerts.filter(a=>a.level==="danger").length;
     const warns = ctx.kpiAlerts.filter(a=>a.level==="warn").length;
     const atRisk = ctx.predictions.filter(p=>p.status==="critical"||p.status==="at-risk").length;
     const endingSoon = ctx.endingSoon.length;
-    let g = `Hey Austin — Zeus here. ⚡\n\n`;
-    if (criticals > 0 || atRisk > 0 || endingSoon > 0) {
-      g += `**Here's what needs your attention:**\n\n`;
-      if (criticals > 0) g += `🚨 **${criticals} critical KPI alert${criticals>1?"s":""}** — needs action now.\n`;
-      if (atRisk > 0) g += `🔥 **${atRisk} campaign${atRisk>1?"s":""} at risk of missing monthly goal** at current delivery rate.\n`;
-      if (endingSoon > 0) g += `⏰ **${endingSoon} campaign${endingSoon>1?"s":""} ending in 7 days** — confirm finals and renewal.\n`;
-      if (warns > 0) g += `⚠️ **${warns} KPI warning${warns>1?"s":""}** below benchmark.\n`;
+
+    if (vaultPrompt) {
+      // Came from vault — auto-run the analysis
+      const greeting = `⚡ Zeus here. Running vault analysis now...\n\nZeus ⚡`;
+      setChatHistory([{role:"assistant", content:greeting, isGreeting:true}]);
+      setTimeout(async () => {
+        setChatLoading(true);
+        try {
+          const ctxFresh = buildContext();
+          const messages = [
+            {role:"user", content:`[Live tracker data — ${ctxFresh.today}]\n${JSON.stringify(ctxFresh,null,2)}`},
+            {role:"assistant", content:"Got it. Full tracker access confirmed."},
+            {role:"user", content:vaultPrompt},
+          ];
+          const text = await callLLM(messages, 1800);
+          const actions = parseActionsFromResponse(text);
+          setChatHistory(h=>[...h,{role:"user",content:vaultPrompt},{role:"assistant",content:text,actions}]);
+          if (actions.length > 0) setPendingActions(prev=>[...prev,...actions]);
+        } catch(e) {
+          setChatHistory(h=>[...h,{role:"assistant",content:`Error running vault analysis: ${e.message}`,isError:true}]);
+        }
+        setChatLoading(false);
+      }, 300);
     } else {
-      g += `✅ **${ctx.activeCampaignCount} active campaigns, no critical flags right now.**\n`;
-      if (warns > 0) g += `⚠️ ${warns} minor KPI warning${warns>1?"s":""} to watch.\n`;
+      let g = `Hey Austin — Zeus here. ⚡\n\n`;
+      if (criticals > 0 || atRisk > 0 || endingSoon > 0) {
+        g += `**Here's what needs your attention:**\n\n`;
+        if (criticals > 0) g += `🚨 **${criticals} critical KPI alert${criticals>1?"s":""}** — needs action now.\n`;
+        if (atRisk > 0) g += `🔥 **${atRisk} campaign${atRisk>1?"s":""} at risk of missing monthly goal** at current delivery rate.\n`;
+        if (endingSoon > 0) g += `⏰ **${endingSoon} campaign${endingSoon>1?"s":""} ending in 7 days** — confirm finals and renewal.\n`;
+        if (warns > 0) g += `⚠️ **${warns} KPI warning${warns>1?"s":""}** below benchmark.\n`;
+      } else {
+        g += `✅ **${ctx.activeCampaignCount} active campaigns, no critical flags right now.**\n`;
+        if (warns > 0) g += `⚠️ ${warns} minor KPI warning${warns>1?"s":""} to watch.\n`;
+      }
+      if (ctx.reportVault?.length > 0) {
+        g += `\n📊 **${ctx.reportVault.length} saved report${ctx.reportVault.length>1?"s":""} in the vault** — ask me to analyze trends.\n`;
+      }
+      g += `\nI have full read/write access to the tracker. Tell me what to do — add campaigns, edit anything, analyze performance, draft emails, anything.\n\nZeus ⚡`;
+      setChatHistory([{role:"assistant", content:g, isGreeting:true}]);
     }
-    g += `\nI can add campaigns, edit anything, archive, restore, set reminders, or run a full analysis. Just tell me what to do.\n\nZeus ⚡`;
-    setChatHistory([{role:"assistant", content:g, isGreeting:true}]);
   }, []);
 
   // ── Analysis ────────────────────────────────────────────────────────────────
@@ -2132,12 +2145,13 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
     setChatHistory(newHistory);
     try {
       const ctx = buildContext();
+      const memNote = ctx.zeusMemory ? `\n\n[Zeus Memory]\n${ctx.zeusMemory}` : "";
       const messages = [
-        {role:"user", content:`[Live tracker data — ${ctx.today}]\n${JSON.stringify(ctx,null,2)}`},
-        {role:"assistant", content:"Got it. Full tracker access confirmed."},
+        {role:"user", content:`[Live tracker data — ${ctx.today}]${memNote}\n${JSON.stringify(ctx,null,2)}`},
+        {role:"assistant", content:"Got it. Full tracker access confirmed" + (ctx.zeusMemory ? ", memory loaded." : ".")},
         ...newHistory.map(m=>({role:m.role, content:m.content})),
       ];
-      const text = await callLLM(messages, 1400);
+      const text = await callLLM(messages, 1600);
       const actions = parseActionsFromResponse(text);
       setChatHistory(h=>[...h,{role:"assistant",content:text,actions}]);
       if (actions.length > 0) setPendingActions(prev=>[...prev,...actions]);
@@ -2176,6 +2190,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
     {key:"predict",    label:"📡 Predictions",badge:predictions.filter(p=>p.status==="critical"||p.status==="at-risk").length},
     {key:"benchmarks", label:"📊 Benchmarks", badge:0},
     {key:"playbook",   label:"📋 Playbooks",  badge:0},
+    {key:"memory",     label:"🧠 Memory",      badge:0},
     {key:"autonomous", label:"🤖 Autonomous", badge:0},
     {key:"settings",   label:"⚙️ Settings",   badge:0},
   ];
@@ -2574,18 +2589,18 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
           <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
             <span style={{fontSize:11,color:"#3d5a72",marginRight:2,flexShrink:0}}>Quick:</span>
             {[
-              "What needs my attention right now?",
-              "Add a Pinterest campaign for Alpha Portland",
-              "Which campaigns will miss their goal?",
-              "Update all Fairmont end dates to June 30",
-              "Draft a status email for WVR",
-              "Archive all campaigns ending this month",
-            ].map(q=>(
+              {label:"🚨 What needs attention?",   q:"What needs my attention right now? Be specific — names, numbers, actions."},
+              {label:"📊 Pacing summary",           q:"Give me a pacing summary for all active campaigns. Which ones are at risk of missing their monthly goal?"},
+              {label:"📈 Trend analysis",           q:"Analyze trends across my report vault. What's improving, what's declining, what should I be concerned about?"},
+              {label:"⏰ Ending this week",         q:"Which campaigns are ending in the next 7 days? What do I need to wrap up or renew?"},
+              {label:"✉️ Draft EOM client email",  q:"Draft an end-of-month performance summary email for my most active client based on current campaign data."},
+              {label:"🎯 Bottom performers",       q:"Which campaigns are performing worst right now? CTR below benchmark, pacing behind, stale check-ins — rank them."},
+            ].map(({label,q})=>(
               <button key={q} onClick={()=>setQuestion(q)}
                 style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:20,padding:"4px 11px",color:"#4d6e8a",fontSize:11,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}
                 onMouseEnter={e=>{e.currentTarget.style.borderColor="#f59e0b40";e.currentTarget.style.color="#f59e0b";}}
                 onMouseLeave={e=>{e.currentTarget.style.borderColor="#1e293b";e.currentTarget.style.color="#4d6e8a";}}>
-                {q}
+                {label}
               </button>
             ))}
           </div>
@@ -2789,6 +2804,18 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
             );
           })}
         </div>
+      )}
+
+      {/* ══ MEMORY / SOUL / SKILLS PANEL ══ */}
+      {activePanel==="memory"&&(
+        <ZeusMemoryPanel
+          campaigns={campaigns}
+          archive={archive}
+          reminders={reminders}
+          callLLM={callLLM}
+          buildContext={buildContext}
+          setError={setError}
+        />
       )}
 
       {/* ══ AUTONOMOUS PANEL ══ */}
@@ -3186,6 +3213,472 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
             }} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:7,padding:"8px 18px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
               ⚡ Test Connection
             </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
+// ── Zeus Memory / Soul / Skills Panel ────────────────────────────────────────
+function ZeusMemoryPanel({ campaigns, archive, reminders, callLLM, buildContext, setError }) {
+  const [tab, setTab] = React.useState("memory");
+  const [saved, setSaved] = React.useState("");
+
+  // ── Memory ──────────────────────────────────────────────────────────────────
+  const [memory, setMemory] = React.useState(()=>{
+    try{ return localStorage.getItem("zeus-memory")||""; }catch{ return ""; }
+  });
+  const [buildingMemory, setBuildingMemory] = React.useState(false);
+
+  function saveMemory(val) {
+    setMemory(val);
+    try{ localStorage.setItem("zeus-memory", val); }catch{}
+    setSaved("memory"); setTimeout(()=>setSaved(""), 2000);
+  }
+
+  async function autoMemory() {
+    setBuildingMemory(true);
+    try {
+      const ctx = buildContext();
+      const partners = [...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))];
+      const platforms = [...new Set(campaigns.map(c=>c.platform).filter(Boolean))];
+      const vaultCount = (()=>{ try{ return JSON.parse(localStorage.getItem(VAULT_KEY)||"[]").length; }catch{ return 0; }})();
+      const prompt = `Write a concise Zeus memory note (4-6 sentences) about Austin Gagan based on this data. Focus on key clients, platforms, business context, and what Zeus should always keep in mind.
+
+Data:
+- Active campaigns: ${ctx.activeCampaignCount}
+- Partners: ${partners.slice(0,15).join(", ")}
+- Platforms used: ${platforms.join(", ")}
+- Archived campaigns: ${archive.length}
+- Saved reports: ${vaultCount}
+- Ending soon: ${ctx.endingSoon.map(c=>c.campaign).slice(0,5).join(", ")||"none"}
+- Critical alerts: ${ctx.kpiAlerts.filter(a=>a.level==="danger").length}
+
+Write in third person ("Austin runs...", "Key clients include..."). Be factual and specific. Include: company name, role, main platforms, key clients if identifiable, business model. No filler.`;
+
+      const text = await callLLM([{role:"user",content:prompt}], 300);
+      saveMemory(text.trim());
+    } catch(e) { setError("Memory build failed: "+e.message); }
+    setBuildingMemory(false);
+  }
+
+  // ── Soul ────────────────────────────────────────────────────────────────────
+  const DEFAULT_SOUL = `You are Zeus — Austin Gagan's personal AI super-agent at Recrue Media.
+
+IDENTITY: You are Austin's right hand. Not a passive analyst — an active operator who takes initiative, surfaces problems before Austin notices, and acts when given direction. You think like a senior media buyer who's been running campaigns for 15 years.
+
+PERSONALITY:
+- Direct and sharp. No padding, no filler, no "Great question!"
+- Confident but data-grounded — you push back when the numbers say otherwise
+- Proactive — you notice things, flag them, suggest next steps unprompted
+- Caring — you treat Austin's portfolio like it's your own money on the line
+- Concise — Austin is busy. Get to the point fast.
+
+DECISION STYLE:
+- When Austin asks for a change, you do it — don't ask for confirmation you don't need
+- When something needs attention, you say exactly what it is and exactly what to do
+- When you don't have enough data, you say so clearly and tell Austin what you need
+- You prioritize revenue protection over everything (renewals, pacing, spend vs contract)
+
+HOW YOU COMMUNICATE:
+- Lead with the most important thing
+- Use emoji headers (🚨 ⚠️ ✅ 💡 📊 🔥 ⚡) for structure
+- Real campaign names and real numbers — never generic
+- Short paragraphs, scannable hierarchy
+- Sign off as Zeus ⚡
+
+WHAT YOU NEVER DO:
+- Never pad responses with pleasantries
+- Never say "I don't have access to" when the data is in context
+- Never hedge excessively on clear problems
+- Never suggest Austin "consider" something obvious — tell him to do it`;
+
+  const [soul, setSoul] = React.useState(()=>{
+    try{ return localStorage.getItem("zeus-soul")||DEFAULT_SOUL; }catch{ return DEFAULT_SOUL; }
+  });
+
+  function saveSoul(val) {
+    setSoul(val);
+    try{ localStorage.setItem("zeus-soul", val); }catch{}
+    setSaved("soul"); setTimeout(()=>setSaved(""), 2000);
+  }
+
+  // ── Skills ──────────────────────────────────────────────────────────────────
+  const DEFAULT_SKILLS = [
+    {
+      id: "campaign_ops",
+      name: "Campaign Operations",
+      icon: "📋",
+      enabled: true,
+      description: "Full CRUD on campaigns — add, edit, bulk update, archive, restore. Zeus can execute any campaign change Austin asks for.",
+      instructions: `When Austin asks to modify campaigns:
+- Use exact campaign names from context data
+- Always include a historyNote explaining what changed and why
+- For bulk operations, use partner name when possible  
+- Chain multiple actions in one response when needed
+- Confirm what was done in plain language after each action`,
+    },
+    {
+      id: "pacing_analysis",
+      name: "Pacing & Delivery Analysis",
+      icon: "📈",
+      enabled: true,
+      description: "Monitor delivery pace vs monthly goals, project end-of-month outcomes, flag at-risk campaigns.",
+      instructions: `When analyzing pacing:
+- Calculate: (delivered / goal) vs (days elapsed / days in month) 
+- Flag anything projected to miss goal by >10% at current rate
+- Always state the specific neededPerDay vs current daily rate
+- Group by partner for client-facing summaries
+- Prioritize end-of-month crises (ending <5 days, behind >15%)`,
+    },
+    {
+      id: "kpi_monitoring",
+      name: "KPI Monitoring",
+      icon: "🚨",
+      enabled: true,
+      description: "Track CTR, VCR, completion rates against platform benchmarks. Escalate critical underperformers.",
+      instructions: `KPI benchmarks to enforce:
+FB/IG CTR: warn <0.10%, critical <0.05%
+Snapchat CTR: warn <0.03%, critical <0.01%  
+DSP/TTD CTR: warn <0.03%, critical <0.01%
+SEM CTR: warn <2%, critical <1%
+CTV/OTT Completion: warn <85%, critical <70%
+FBV/TikTok Video: warn <50%, critical <30%
+YouTube View Rate: warn <20%, critical <10%
+Spend vs Contract: warn >80%, critical >95%
+
+Always reference the actual value vs threshold. Suggest root causes (creative fatigue, targeting, bid, seasonality).`,
+    },
+    {
+      id: "client_comms",
+      name: "Client Communications",
+      icon: "✉️",
+      enabled: true,
+      description: "Draft performance emails, end-of-month summaries, renewal conversations, and partner updates.",
+      instructions: `When drafting client communications:
+- Lead with the metric that matters most to that client
+- Use positive framing for on-track campaigns, factual for behind
+- Include specific numbers — impressions delivered, CTR, pacing %
+- For EOM emails: delivered vs goal, highlights, next steps
+- For renewal conversations: performance summary + value statement
+- Keep professional but not corporate — Recrue Media's voice is direct and confident
+- Always offer to tweak before sending`,
+    },
+    {
+      id: "pattern_detection",
+      name: "Pattern & Anomaly Detection",
+      icon: "🔍",
+      enabled: true,
+      description: "Identify cross-campaign patterns, partner-wide issues, platform underperformance, and anomalies.",
+      instructions: `When detecting patterns, look for:
+1. Partner-wide underperformance (all campaigns for one partner behind)
+2. Platform-wide issues (same platform underperforming across partners)  
+3. Creative fatigue clusters (campaigns not updated in 21+ days with CTR drop)
+4. Timing patterns (campaigns started same time all struggling)
+5. Spend anomalies (spend accelerating faster than delivery)
+6. Check-in gaps (campaigns not checked in 5+ days)
+
+Always explain WHY the pattern is concerning and what to do about it.`,
+    },
+    {
+      id: "report_analysis",
+      name: "Report Vault Analysis",
+      icon: "📊",
+      enabled: true,
+      description: "Analyze trends across saved reports. Compare periods, identify what's improving vs declining.",
+      instructions: `When analyzing report vault data:
+- Compare totals across time periods (MoM, QoQ)
+- Calculate % change for impressions, clicks, CTR
+- Identify which campaigns drove the change
+- Flag structural declines vs one-time anomalies
+- If CTR is declining across all campaigns for a client, suggest creative refresh
+- Always state what the trend means for the client relationship and next renewal`,
+    },
+    {
+      id: "renewal_pipeline",
+      name: "Renewal Pipeline",
+      icon: "🔄",
+      enabled: true,
+      description: "Track campaigns ending in 30/60/90 days. Flag renewal conversations needed. Protect revenue.",
+      instructions: `Renewal pipeline rules:
+- Flag campaigns ending in <30 days with no renewal status set
+- Campaigns ending in <14 days = URGENT — needs immediate conversation
+- When flagging renewals, always include: client name, end date, contract value, performance summary
+- Suggest talking points based on campaign performance
+- This is revenue protection — treat it like billing`,
+    },
+    {
+      id: "ambioedу",
+      name: "AmbioEdu Higher Ed",
+      icon: "🎓",
+      enabled: true,
+      description: "Specialized context for AmbioEdu's 35+ college/university partners running CTV/OTT campaigns.",
+      instructions: `AmbioEdu context:
+- 35+ college and university partners
+- Primary tactic: CTV/OTT campaigns with device ID targeting
+- Key metric: matchback reporting (enrollment signals vs ad delivery)
+- Campaigns typically geo-targeted by state/DMA for regional recruitment
+- Performance benchmark for CTV completion rate: >85%
+- Flag matchback anomalies: when enrollment signals don't match delivery patterns
+- Common naming: "[University] - CTV - [State/DMA] - [Term]"`,
+    },
+    {
+      id: "autonomous_ops",
+      name: "Autonomous Operations",
+      icon: "🤖",
+      enabled: false,
+      future: true,
+      description: "⚡ With superintelligence: Execute changes directly on Meta, TTD, DSP without opening the platforms.",
+      instructions: `FUTURE CAPABILITY — requires superintelligence API:
+When enabled:
+- Direct Meta Ads Manager API calls (pause/resume ads, adjust budgets, swap creatives)
+- The Trade Desk API (update bids, flight dates, frequency caps)
+- DSP campaign management
+- Snapchat Ads API
+- All changes logged to campaign history with before/after values
+- Rollback capability on any action within 24 hours`,
+    },
+    {
+      id: "proactive_monitor",
+      name: "Proactive Monitoring",
+      icon: "👁",
+      enabled: false,
+      future: true,
+      description: "⚡ With superintelligence: Background monitoring that alerts without Austin opening the tracker.",
+      instructions: `FUTURE CAPABILITY — requires always-on compute:
+When enabled:
+- Poll campaign metrics every 6 hours
+- Auto-generate morning brief and push to Austin
+- Alert immediately on: spend hitting 95% of contract, campaign going dark, CTR dropping >30% in 24h
+- Weekly trend digest every Monday 8am
+- End-of-month daily countdown starting day 25`,
+    },
+    {
+      id: "email_send",
+      name: "Autonomous Email",
+      icon: "📧",
+      enabled: false,
+      future: true,
+      description: "⚡ With superintelligence: Draft and send partner/client emails on Austin's behalf after one-click approval.",
+      instructions: `FUTURE CAPABILITY — requires email integration:
+When enabled:
+- Draft emails using Austin's tone and Recrue Media's voice
+- One-click approve/send from Zeus interface
+- Auto-draft: EOM performance emails, renewal reminders, creative swap requests
+- Thread-aware — reads previous emails for context
+- CC Austin on all outbound
+- Never send without explicit approval`,
+    },
+  ];
+
+  const [skills, setSkills] = React.useState(()=>{
+    try{
+      const saved = JSON.parse(localStorage.getItem("zeus-skills")||"[]");
+      if(!saved.length) return DEFAULT_SKILLS;
+      // Merge saved enabled state with defaults
+      return DEFAULT_SKILLS.map(def=>{
+        const s = saved.find(x=>x.id===def.id);
+        return s ? {...def, enabled:s.enabled, instructions:s.instructions||def.instructions} : def;
+      });
+    }catch{ return DEFAULT_SKILLS; }
+  });
+  const [editingSkill, setEditingSkill] = React.useState(null);
+
+  function saveSkills(updated) {
+    setSkills(updated);
+    try{ localStorage.setItem("zeus-skills", JSON.stringify(updated.map(s=>({id:s.id,enabled:s.enabled,instructions:s.instructions})))); }catch{}
+    setSaved("skills"); setTimeout(()=>setSaved(""), 2000);
+  }
+
+  function toggleSkill(id) {
+    const updated = skills.map(s=>s.id===id?{...s,enabled:!s.enabled}:s);
+    saveSkills(updated);
+  }
+
+  function updateSkillInstructions(id, val) {
+    const updated = skills.map(s=>s.id===id?{...s,instructions:val}:s);
+    saveSkills(updated);
+  }
+
+  // ── Build full system prompt from soul + skills + memory ──────────────────
+  function buildFullPrompt() {
+    const enabledSkills = skills.filter(s=>s.enabled&&!s.future);
+    const skillsSection = enabledSkills.map(s=>`
+━━━ SKILL: ${s.name.toUpperCase()} ━━━
+${s.instructions}`).join("\n");
+
+    return `${soul}
+
+━━━ BUSINESS CONTEXT & MEMORY ━━━
+${memory||"No memory set — go to Memory tab to add context."}
+
+━━━ ACTIVE SKILLS ━━━
+${skillsSection}
+
+━━━ CAMPAIGN ACTION SYSTEM ━━━
+When taking action, include action blocks:
+
+\`\`\`action
+{
+  "type": "add_campaign|edit_campaign|bulk_edit|archive_campaign|restore_campaign|set_reminder",
+  "description": "Plain English summary for approval",
+  "campaignId": 123,
+  "campaignName": "exact name if no id",
+  "historyNote": "what changed and why",
+  "data": { ...fields to update },
+  "partner": "Partner Name for bulk_edit",
+  "campaignIds": [123, 456]
+}
+\`\`\`
+
+Always include historyNote. Chain multiple action blocks when needed. Use exact campaign names from context.`;
+  }
+
+  const tabs = [
+    {key:"memory",  label:"🧠 Memory"},
+    {key:"soul",    label:"👁 Soul"},
+    {key:"skills",  label:"⚡ Skills"},
+    {key:"prompt",  label:"📋 Full Prompt"},
+  ];
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {/* Tab bar */}
+      <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a2744"}}>
+        {tabs.map(t=>(
+          <button key={t.key} onClick={()=>setTab(t.key)}
+            style={{background:"none",border:"none",borderBottom:tab===t.key?"2px solid #f59e0b":"2px solid transparent",padding:"7px 16px",color:tab===t.key?"#f59e0b":"#4d6e8a",fontSize:12,fontWeight:tab===t.key?700:400,cursor:"pointer",marginBottom:-1}}>
+            {t.label}
+          </button>
+        ))}
+        {saved&&<span style={{marginLeft:"auto",fontSize:11,color:"#00e5a0",alignSelf:"center",marginRight:4}}>✓ Saved</span>}
+      </div>
+
+      {/* ── MEMORY TAB ── */}
+      {tab==="memory"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{fontSize:11,color:"#4d6e8a",lineHeight:1.7}}>
+            Zeus reads this on every conversation — no need to re-explain who you are or what you care about. Edit manually or let Zeus build it from your data.
+          </div>
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"14px"}}>
+            <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+              <button onClick={autoMemory} disabled={buildingMemory}
+                style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:6,padding:"5px 12px",color:buildingMemory?"#f59e0b80":"#f59e0b",fontSize:11,fontWeight:700,cursor:buildingMemory?"default":"pointer",whiteSpace:"nowrap"}}>
+                {buildingMemory?"⚡ Building…":"⚡ Auto-build from data"}
+              </button>
+              {!memory&&<button onClick={()=>saveMemory("Austin Gagan, Account Manager at Recrue Media. Manages ~100 active campaigns across Meta, Snapchat, TTD/DSP, CTV/OTT, Google Ads. Two arms: general agency (auto dealers, home services, universities) and AmbioEdu (35+ college partners, CTV/OTT with matchback). Key clients include Fairmont State University. Always prioritize revenue protection — renewals, pacing, spend vs contract. Campaigns named as: [Tactic] ([Target]).")}
+                style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
+                Use template
+              </button>}
+            </div>
+            <textarea value={memory} onChange={e=>setMemory(e.target.value)}
+              placeholder="Add context Zeus should always remember — key clients, your preferences, campaign patterns, anything recurring..."
+              style={{width:"100%",background:"#07101c",border:"1px solid #1a2744",borderRadius:7,padding:"10px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",resize:"vertical",minHeight:160,boxSizing:"border-box",outline:"none",lineHeight:1.65}}/>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:8,alignItems:"center"}}>
+              <span style={{fontSize:10,color:"#3d5a72"}}>Stored locally · included in every Zeus conversation</span>
+              <button onClick={()=>saveMemory(memory)} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"4px 12px",color:"#7a9bbf",fontSize:11,fontWeight:600,cursor:"pointer"}}>Save</button>
+            </div>
+          </div>
+
+          {/* What Zeus sees */}
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"14px"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>📊 Context injected every conversation</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,fontSize:11}}>
+              {[
+                {label:"Active campaigns",   val:campaigns.filter(c=>c.status==="active").length},
+                {label:"Partners",           val:[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].length},
+                {label:"Platforms",          val:[...new Set(campaigns.map(c=>c.platform).filter(Boolean))].length},
+                {label:"Archived",           val:archive.length},
+                {label:"Saved reports",      val:(()=>{ try{ return JSON.parse(localStorage.getItem(VAULT_KEY)||"[]").length; }catch{ return 0; }})()},
+                {label:"Active reminders",   val:reminders.filter(r=>!r.dismissed).length},
+              ].map(({label,val})=>(
+                <div key={label} style={{background:"#07101c",borderRadius:5,padding:"7px 10px",display:"flex",justifyContent:"space-between"}}>
+                  <span style={{color:"#4d6e8a"}}>{label}</span>
+                  <span style={{color:"#edf4ff",fontWeight:700}}>{val}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{marginTop:8,fontSize:10,color:"#3d5a72"}}>Plus: full campaign list with all metrics, pacing predictions, KPI alerts, report vault summaries, your memory + soul + active skills.</div>
+          </div>
+        </div>
+      )}
+
+      {/* ── SOUL TAB ── */}
+      {tab==="soul"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{fontSize:11,color:"#4d6e8a",lineHeight:1.7}}>
+            Zeus's soul defines who he is — his personality, how he communicates, what he prioritizes. This is prepended to every system prompt. Edit it to change how Zeus thinks and talks.
+          </div>
+          <textarea value={soul} onChange={e=>setSoul(e.target.value)}
+            style={{width:"100%",background:"#07101c",border:"1px solid #1a2744",borderRadius:8,padding:"12px 14px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",resize:"vertical",minHeight:380,boxSizing:"border-box",outline:"none",lineHeight:1.65}}/>
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center"}}>
+            <button onClick={()=>setSoul(DEFAULT_SOUL)} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 12px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>↺ Reset to default</button>
+            <button onClick={()=>saveSoul(soul)} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"6px 18px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer"}}>Save Soul</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── SKILLS TAB ── */}
+      {tab==="skills"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{fontSize:11,color:"#4d6e8a",lineHeight:1.7}}>
+            Skills are modular instructions injected into Zeus's prompt. Enable the ones you need. Skills marked ⚡ require superintelligence to activate.
+          </div>
+          {skills.map(s=>(
+            <div key={s.id} style={{background:s.enabled&&!s.future?"#0a1218":s.future?"#0a0e00":"#0c1625",border:`1px solid ${s.enabled&&!s.future?"#00c89630":s.future?"#f59e0b20":"#1e293b"}`,borderRadius:10,padding:"12px 14px",opacity:s.future?0.8:1}}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                <button onClick={()=>!s.future&&toggleSkill(s.id)}
+                  style={{width:20,height:20,borderRadius:5,flexShrink:0,marginTop:2,cursor:s.future?"default":"pointer",background:s.enabled&&!s.future?"#00c896":s.future?"#1a1000":"#162236",border:`1.5px solid ${s.enabled&&!s.future?"#00c896":s.future?"#f59e0b50":"#334155"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  {s.enabled&&!s.future&&<span style={{color:"#000",fontSize:11,fontWeight:900}}>✓</span>}
+                  {s.future&&<span style={{color:"#f59e0b",fontSize:10}}>⚡</span>}
+                </button>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
+                    <span style={{fontSize:14}}>{s.icon}</span>
+                    <span style={{fontSize:12,fontWeight:700,color:s.enabled&&!s.future?"#edf4ff":s.future?"#f59e0b80":"#7a9bbf"}}>{s.name}</span>
+                    {s.future&&<span style={{fontSize:9,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 6px",fontWeight:700}}>⚡ REQUIRES SUPERINTELLIGENCE</span>}
+                    {s.enabled&&!s.future&&<span style={{fontSize:9,color:"#00d48a",background:"#001810",border:"1px solid #00c89630",borderRadius:4,padding:"1px 6px",fontWeight:700}}>ACTIVE</span>}
+                  </div>
+                  <div style={{fontSize:11,color:"#4d6e8a",marginBottom:editingSkill===s.id?8:0,lineHeight:1.5}}>{s.description}</div>
+                  {editingSkill===s.id&&(
+                    <div>
+                      <textarea value={s.instructions} onChange={e=>updateSkillInstructions(s.id,e.target.value)}
+                        style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:6,padding:"8px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"monospace",resize:"vertical",minHeight:120,boxSizing:"border-box",outline:"none",lineHeight:1.5,marginTop:4}}/>
+                    </div>
+                  )}
+                </div>
+                <button onClick={()=>setEditingSkill(editingSkill===s.id?null:s.id)}
+                  style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"3px 8px",color:"#4d6e8a",fontSize:10,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>
+                  {editingSkill===s.id?"Done":"Edit"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── FULL PROMPT TAB ── */}
+      {tab==="prompt"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{fontSize:11,color:"#4d6e8a",lineHeight:1.7}}>
+            This is the complete system prompt Zeus receives — soul + memory + all active skills. This is what gets sent on every conversation. Copy it to use elsewhere or verify what Zeus knows.
+          </div>
+          <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+            <button onClick={()=>{navigator.clipboard.writeText(buildFullPrompt());setSaved("prompt");setTimeout(()=>setSaved(""),2000);}}
+              style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 12px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
+              📋 Copy full prompt
+            </button>
+          </div>
+          <pre style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:8,padding:"14px",fontSize:11,color:"#7a9bbf",lineHeight:1.6,overflowX:"auto",whiteSpace:"pre-wrap",maxHeight:480,overflowY:"auto",fontFamily:"monospace",margin:0}}>
+            {buildFullPrompt()}
+          </pre>
+          <div style={{fontSize:10,color:"#3d5a72"}}>
+            Enabled skills: {skills.filter(s=>s.enabled&&!s.future).length} of {skills.filter(s=>!s.future).length} · 
+            Future slots: {skills.filter(s=>s.future).length} · 
+            Total prompt: ~{Math.round(buildFullPrompt().length/4)} tokens
           </div>
         </div>
       )}
