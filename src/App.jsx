@@ -727,6 +727,61 @@ function MetricPill({ label, value, color, prefix="", suffix="" }) {
   );
 }
 
+function RowActions({ c, onEdit, onRenew, onDuplicate, onDelete, onArchive }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+  return (
+    <div ref={ref} style={{display:"flex",gap:5,alignItems:"center",position:"relative"}}>
+      {/* Primary: Edit always visible */}
+      <button onClick={onEdit}
+        style={{background:"#1a0e00",border:"1px solid #fb923c60",borderRadius:5,color:"#fb923c",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>
+        Edit
+      </button>
+      {/* Overflow menu trigger */}
+      <button onClick={()=>setOpen(v=>!v)}
+        style={{background:open?"#162236":"#0e1a2e",border:`1px solid ${open?"#334155":"#1e293b"}`,borderRadius:5,color:"#4d6e8a",fontSize:12,padding:"3px 6px",cursor:"pointer",lineHeight:1,fontWeight:700,letterSpacing:"0.05em"}}
+        title="More actions">
+        ···
+      </button>
+      {open && (
+        <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,zIndex:200,
+          background:"#0c1625",border:"1px solid #1e293b",borderRadius:8,
+          boxShadow:"0 8px 32px rgba(0,0,0,.8)",minWidth:140,overflow:"hidden"}}>
+          <button onClick={()=>{setOpen(false);onRenew();}}
+            style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",borderBottom:"1px solid #0e1828",padding:"8px 13px",color:"#00c896",fontSize:12,cursor:"pointer",textAlign:"left"}}
+            onMouseEnter={e=>e.currentTarget.style.background="#002418"}
+            onMouseLeave={e=>e.currentTarget.style.background="none"}>
+            <span>🔄</span> Renew
+          </button>
+          <button onClick={()=>{setOpen(false);onDuplicate();}}
+            style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",borderBottom:"1px solid #0e1828",padding:"8px 13px",color:"#7dd3fc",fontSize:12,cursor:"pointer",textAlign:"left"}}
+            onMouseEnter={e=>e.currentTarget.style.background="#06131f"}
+            onMouseLeave={e=>e.currentTarget.style.background="none"}>
+            <span>⧉</span> Duplicate
+          </button>
+          <button onClick={()=>{setOpen(false);onArchive();}}
+            style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",borderBottom:"1px solid #0e1828",padding:"8px 13px",color:"#a855f7",fontSize:12,cursor:"pointer",textAlign:"left"}}
+            onMouseEnter={e=>e.currentTarget.style.background="#120820"}
+            onMouseLeave={e=>e.currentTarget.style.background="none"}>
+            <span>🗄</span> Archive
+          </button>
+          <button onClick={()=>{setOpen(false);onDelete();}}
+            style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",padding:"8px 13px",color:"#ef4444",fontSize:12,cursor:"pointer",textAlign:"left"}}
+            onMouseEnter={e=>e.currentTarget.style.background="#1a0808"}
+            onMouseLeave={e=>e.currentTarget.style.background="none"}>
+            <span>✕</span> Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders=()=>{} }) {
   const resolved = resolveMetrics(c, dateRange.preset);
   const [local, setLocal] = useState({impressions:resolved.impressions,ctr:resolved.ctr,cpm:resolved.cpm,spend:resolved.spend,completionRate:c.completionRate||"",conversions:c.conversions||"",clicks:c.clicks||"",reach:c.reach||"",frequency:c.frequency||"",videoViews:c.videoViews||""});
@@ -763,249 +818,196 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
   return (
     <tr>
       <td colSpan={colSpan} style={{padding:0,borderBottom:"1px solid #0d1525"}}>
-        <div style={{background:"#07101c",borderTop:"1px solid #1a2744",padding:"16px 16px 16px 52px"}}>
+        <div style={{background:"#07101c",borderTop:"1px solid #1a2744",padding:"10px 14px 12px 52px"}}>
+          {/* ── REMINDERS — top of dropdown for fast access ── */}
+          <div style={{marginBottom:12,paddingBottom:12,borderBottom:"1px solid #1a2744"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:showAddReminder?8:4}}>
+              <span style={{fontSize:10,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>🔔 Reminders</span>
+              <button onClick={()=>setShowAddReminder(v=>!v)}
+                style={{background:showAddReminder?"#130a00":"#f59e0b18",border:`1px solid ${showAddReminder?"#f59e0b80":"#f59e0b50"}`,borderRadius:5,padding:"1px 8px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                {showAddReminder?"✕ Cancel":"+ Add"}
+              </button>
+              {/* Existing reminders inline */}
+              {!showAddReminder&&reminders.filter(r=>!r.dismissed&&r.campaignId===c.id).map(r=>{
+                const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
+                const isPast=r.date<=getToday();
+                return (
+                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:5,background:isPast?"#1a0808":"#0a1628",border:`1px solid ${isPast?"#ef444430":rt.color+"30"}`,borderRadius:5,padding:"2px 8px"}}>
+                    <span style={{fontSize:10,color:isPast?"#ef4444":rt.color,fontWeight:600}}>{rt.label}</span>
+                    <span style={{fontSize:10,color:"#7a9bbf"}}>{fmtDate(r.date)}</span>
+                    {r.note&&<span style={{fontSize:10,color:"#4d6e8a",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.note}</span>}
+                    <button onClick={()=>startEditReminder(r)} style={{background:"none",border:"none",color:"#4d6e8a",cursor:"pointer",fontSize:10,padding:"0 2px"}}>✎</button>
+                    <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"none",border:"none",color:"#ef444460",cursor:"pointer",fontSize:11,padding:"0 2px",lineHeight:1}}>×</button>
+                  </div>
+                );
+              })}
+            </div>
 
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-            <span style={{fontSize:11,color:"#00c896",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>📊 Metrics</span>
-            {dateRange.start && <span style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"1px 8px",fontSize:10,fontFamily:"monospace",color:"#4d6e8a"}}>{dateRange.start===dateRange.end?dateRange.start:`${dateRange.start} → ${dateRange.end}`}</span>}
-            {resolved.source==="meta" && <span style={{fontSize:10,color:"#60a5fa",background:"#0c1e38",border:"1px solid #3b82f640",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Meta</span>}
-            {resolved.source==="ttd" && <span style={{fontSize:10,color:"#a78bfa",background:"#1a0e38",border:"1px solid #7c3aed40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ TTD</span>}
-            {resolved.source==="dsp" && <span style={{fontSize:10,color:"#34d399",background:"#001a10",border:"1px solid #34d39940",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ DSP</span>}
-            {resolved.source==="google" && <span style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Google</span>}
-            {resolved.source==="snap" && <span style={{fontSize:10,color:"#f9a8d4",background:"#1a0010",border:"1px solid #f9a8d440",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Snap</span>}
-            {resolved.source==="manual-no-snapshot" && <span title="No Meta snapshot for this date range — showing manually saved values" style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⚠ No snapshot · manual data</span>}
+            {/* Add reminder — compact single row */}
+            {showAddReminder&&(
+              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                <select value={newReminder.type} onChange={e=>setNewReminder(p=>({...p,type:e.target.value}))}
+                  style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",flexShrink:0}}>
+                  {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+                <div style={{flexShrink:0,minWidth:130}}>
+                  <DatePicker value={newReminder.date} onChange={v=>setNewReminder(p=>({...p,date:v}))}/>
+                </div>
+                <input type="text" value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))}
+                  placeholder="Note (optional)" onKeyDown={e=>{ if(e.key==="Enter"&&newReminder.date){ setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); setShowAddReminder(false); }}}
+                  style={{flex:1,minWidth:120,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                <button onClick={()=>{ if(!newReminder.date) return; setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); setShowAddReminder(false); }}
+                  disabled={!newReminder.date}
+                  style={{background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"6px 14px",color:newReminder.date?"#000":"#3d5a72",fontSize:11,fontWeight:700,cursor:newReminder.date?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
+                  Save
+                </button>
+              </div>
+            )}
+
+            {/* Edit existing reminder */}
+            {editingReminderId&&reminders.filter(r=>r.id===editingReminderId).map(r=>(
+              <div key={r.id} style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginTop:6}}>
+                <select value={editReminderDraft.type} onChange={e=>setEditReminderDraft(p=>({...p,type:e.target.value}))}
+                  style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",flexShrink:0}}>
+                  {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+                <div style={{flexShrink:0,minWidth:130}}>
+                  <DatePicker value={editReminderDraft.date} onChange={v=>setEditReminderDraft(p=>({...p,date:v}))}/>
+                </div>
+                <input type="text" value={editReminderDraft.note||""} onChange={e=>setEditReminderDraft(p=>({...p,note:e.target.value}))}
+                  placeholder="Note" style={{flex:1,minWidth:100,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                <button onClick={()=>saveEditReminder(r.id)} style={{background:"#f59e0b",border:"none",borderRadius:5,padding:"5px 12px",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>Save</button>
+                <button onClick={cancelEditReminder} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 10px",color:"#7a9bbf",fontSize:11,cursor:"pointer",flexShrink:0}}>Cancel</button>
+              </div>
+            ))}
           </div>
-          {(()=>{
-            const isCTV    = c.platform==="CTV"||c.platform==="OTT";
-            const isVideo  = ["FBV","YT","TT"].includes(c.platform)||isCTV;
-            const isSocial = ["FB","IG","TT","FBV"].includes(c.platform);
-            const isSEM    = c.platform==="SEM";
-            // Build ordered field list for this platform
-            const allFields = [
-              {key:"impressions",label:"Impressions",   color:"#00e5a0",prefix:"",  suffix:""},
-              {key:"ctr",        label:"CTR",           color:"#00ffb3",prefix:"",  suffix:"%"},
-              {key:"cpm",        label:"CPM",           color:"#fb923c",prefix:"$", suffix:""},
-              {key:"spend",      label:"Spend",         color:"#f472b6",prefix:"$", suffix:""},
-              ...(isSocial||isSEM||["DSP","SP","TD"].includes(c.platform) ? [{key:"clicks",label:"Clicks",color:"#38bdf8",prefix:"",suffix:""}] : []),
-              ...(isSocial        ? [{key:"reach",     label:"Reach",      color:"#e879f9",prefix:"",suffix:""}]   : []),
-              ...(isSocial        ? [{key:"frequency", label:"Frequency",  color:"#fb923c",prefix:"",suffix:"x"}]  : []),
-              ...(isVideo&&!isCTV ? [{key:"videoViews",label:"Video Views",color:"#a78bfa",prefix:"",suffix:""}]   : []),
-              ...(isVideo         ? [{key:"completionRate",label:isCTV?"Completion %":"VCR %",color:"#818cf8",prefix:"",suffix:"%"}] : []),
-              ...(isCTV||isSEM    ? [{key:"conversions",label:"Conversions",color:"#34d399",prefix:"",suffix:""}]  : []),
-            ];
-            const colCount = Math.min(6, allFields.length);
-            return (
-              <div style={{marginBottom:14}}>
-                <div style={{display:"grid",gridTemplateColumns:`repeat(${colCount}, minmax(95px, 1fr))`,gap:10}}>
-                  {allFields.map(({key,label,color,prefix,suffix})=>(
-                    <div key={key}>
-                      <label style={{display:"block",fontSize:10,color,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>
-                        {prefix&&<span style={{opacity:.5,marginRight:1}}>{prefix}</span>}{label}{suffix&&<span style={{opacity:.5,marginLeft:1}}>{suffix}</span>}
+
+          {/* ── METRICS — source badge + all fields on one compact row ── */}
+          <div style={{marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+              <span style={{fontSize:10,color:"#00c896",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>📊 Metrics</span>
+              {dateRange.start&&<span style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"1px 7px",fontSize:10,fontFamily:"monospace",color:"#4d6e8a"}}>{dateRange.start===dateRange.end?dateRange.start:`${dateRange.start} → ${dateRange.end}`}</span>}
+              {resolved.source==="meta"&&<span style={{fontSize:10,color:"#60a5fa",background:"#0c1e38",border:"1px solid #3b82f640",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Meta</span>}
+              {resolved.source==="ttd"&&<span style={{fontSize:10,color:"#a78bfa",background:"#1a0e38",border:"1px solid #7c3aed40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ TTD</span>}
+              {resolved.source==="dsp"&&<span style={{fontSize:10,color:"#34d399",background:"#001a10",border:"1px solid #34d39940",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ DSP</span>}
+              {resolved.source==="google"&&<span style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Google</span>}
+              {resolved.source==="snap"&&<span style={{fontSize:10,color:"#f9a8d4",background:"#1a0010",border:"1px solid #f9a8d440",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Snap</span>}
+              {resolved.source==="manual-no-snapshot"&&<span style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⚠ Manual</span>}
+            </div>
+            {(()=>{
+              const isCTV=[" CTV","OTT"].includes(c.platform)||c.platform==="CTV";
+              const isVideo=["FBV","YT","TT"].includes(c.platform)||isCTV;
+              const isSocial=["FB","IG","TT","FBV"].includes(c.platform);
+              const isSEM=c.platform==="SEM";
+              const allFields=[
+                {key:"impressions",label:"Impr",      color:"#00e5a0",prefix:"",  suffix:"",w:86},
+                {key:"ctr",        label:"CTR",       color:"#00ffb3",prefix:"",  suffix:"%",w:68},
+                {key:"cpm",        label:"CPM",       color:"#fb923c",prefix:"$", suffix:"",w:68},
+                {key:"spend",      label:"Spend",     color:"#f472b6",prefix:"$", suffix:"",w:75},
+                ...(isSocial||isSEM||["DSP","SP","TD"].includes(c.platform)?[{key:"clicks",label:"Clicks",color:"#38bdf8",prefix:"",suffix:"",w:72}]:[]),
+                ...(isSocial?[{key:"reach",label:"Reach",color:"#e879f9",prefix:"",suffix:"",w:75}]:[]),
+                ...(isSocial?[{key:"frequency",label:"Freq",color:"#fb923c",prefix:"",suffix:"x",w:58}]:[]),
+                ...(isVideo&&!isCTV?[{key:"videoViews",label:"Views",color:"#a78bfa",prefix:"",suffix:"",w:72}]:[]),
+                ...(isVideo?[{key:"completionRate",label:isCTV?"Comp%":"VCR%",color:"#818cf8",prefix:"",suffix:"%",w:62}]:[]),
+                ...(isCTV||isSEM?[{key:"conversions",label:"Conv",color:"#34d399",prefix:"",suffix:"",w:65}]:[]),
+              ];
+              return (
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"flex-end"}}>
+                  {allFields.map(({key,label,color,prefix,suffix,w})=>(
+                    <div key={key} style={{flexShrink:0}}>
+                      <label style={{display:"block",fontSize:9,color,marginBottom:3,textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,whiteSpace:"nowrap"}}>
+                        {prefix&&<span style={{opacity:.5}}>{prefix}</span>}{label}{suffix&&<span style={{opacity:.5}}>{suffix}</span>}
                       </label>
-                      <input type="number" value={local[key]||""} onChange={e=>set(key,e.target.value)} placeholder="—" style={{...iS,borderColor:local[key]?color+"60":"#162236"}}/>
+                      <input type="number" value={local[key]||""} onChange={e=>set(key,e.target.value)} placeholder="—"
+                        style={{...iS,width:w,borderColor:local[key]?color+"60":"#162236",padding:"5px 7px",fontSize:12}}/>
                     </div>
                   ))}
+                  <div style={{flexShrink:0,paddingBottom:1}}>
+                    <button onClick={save} disabled={!dirty}
+                      style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"6px 14px",color:dirty?"#fff":"#3b5070",fontSize:12,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s",whiteSpace:"nowrap"}}>
+                      {dirty?"Save ✓":"Saved"}
+                    </button>
+                  </div>
+                  {(local.impressions||local.ctr||local.cpm||local.spend)&&(
+                    <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:""});setDirty(true);}}
+                      style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer",alignSelf:"flex-end",paddingBottom:1,flexShrink:0}}>
+                      Clear
+                    </button>
+                  )}
                 </div>
-              </div>
-            );
-          })()}
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <button onClick={save} disabled={!dirty} style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"6px 18px",color:dirty?"#fff":"#3b5070",fontSize:12,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>Save Metrics</button>
-            {!dirty && (c.impressions||c.ctr||c.cpm||c.spend) && <span style={{fontSize:11,color:"#00d48a",display:"flex",alignItems:"center",gap:4}}>✓ Metrics saved</span>}
-            {(local.impressions||local.ctr||local.cpm||local.spend) && <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:""});setDirty(true);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>}
+              );
+            })()}
           </div>
 
-          {/* ── Daily Target Panel ── */}
+          {/* ── DAILY PACING ── */}
           {(()=>{
             const dt = computeDailyTarget(local.impressions||c.impressions, c.note1, c.startDate, c.endDate);
             if (!dt) return null;
             const hasDelivery = dt.delivered > 0;
             return (
-              <div style={{marginTop:14,background:"#060d18",border:"1px solid #1a2744",borderRadius:10,padding:"12px 16px"}}>
-                <div style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:10}}>📅 Daily Pacing Check</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:10}}>
-                  {/* Daily target */}
-                  <div style={{background:"#0c1625",borderRadius:7,padding:"8px 10px",textAlign:"center"}}>
-                    <div style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:3}}>Target/Day</div>
-                    <div style={{fontSize:18,fontWeight:800,color:"#00e5a0",lineHeight:1}}>{dt.dailyTarget.toLocaleString()}</div>
-                    <div style={{fontSize:9,color:"#3d5a72",marginTop:2}}>{dt.daysInMonth}d month</div>
-                  </div>
-                  {/* Actual daily rate */}
-                  <div style={{background:"#0c1625",borderRadius:7,padding:"8px 10px",textAlign:"center"}}>
-                    <div style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:3}}>Actual/Day</div>
-                    <div style={{fontSize:18,fontWeight:800,color:dt.color,lineHeight:1}}>
-                      {dt.actualDailyRate ? dt.actualDailyRate.toLocaleString() : "—"}
+              <div style={{marginBottom:12,background:"#060d18",border:"1px solid #1a2744",borderRadius:8,padding:"10px 14px"}}>
+                <div style={{fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".08em",fontWeight:700,marginBottom:8}}>📅 Daily Pacing</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                  {[
+                    {label:"Target/day", val:dt.dailyTarget.toLocaleString(), color:"#00e5a0"},
+                    {label:"Actual/day", val:dt.actualDailyRate?dt.actualDailyRate.toLocaleString():"—", color:dt.color},
+                    {label:"Need/day",   val:hasDelivery?dt.neededPerDay.toLocaleString():"—", color:dt.neededPerDay>dt.dailyTarget*1.2?"#ef4444":dt.neededPerDay>dt.dailyTarget?"#fde047":"#00d48a"},
+                    {label:"Remaining", val:hasDelivery?(dt.remaining>=1000000?(dt.remaining/1000000).toFixed(1)+"M":dt.remaining>=1000?Math.round(dt.remaining/1000)+"K":dt.remaining.toLocaleString()):"—", color:"#7a9bbf"},
+                  ].map(({label,val,color})=>(
+                    <div key={label} style={{background:"#0c1625",borderRadius:5,padding:"5px 10px",textAlign:"center",minWidth:70}}>
+                      <div style={{fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".05em",marginBottom:2}}>{label}</div>
+                      <div style={{fontSize:15,fontWeight:800,color,lineHeight:1}}>{val}</div>
                     </div>
-                    <div style={{fontSize:9,color:"#3d5a72",marginTop:2}}>{dt.dayOfMonth > 1 ? `avg over ${dt.dayOfMonth-1}d` : "no data yet"}</div>
-                  </div>
-                  {/* Needed per day to finish */}
-                  <div style={{background:"#0c1625",borderRadius:7,padding:"8px 10px",textAlign:"center"}}>
-                    <div style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:3}}>Need/Day</div>
-                    <div style={{fontSize:18,fontWeight:800,color:dt.neededPerDay>dt.dailyTarget*1.2?"#ef4444":dt.neededPerDay>dt.dailyTarget?"#fde047":"#00d48a",lineHeight:1}}>
-                      {hasDelivery ? dt.neededPerDay.toLocaleString() : "—"}
+                  ))}
+                  {hasDelivery&&(
+                    <div style={{flex:1,minWidth:120}}>
+                      <div style={{background:"#0e1a2e",borderRadius:3,height:5,overflow:"hidden",marginBottom:3}}>
+                        <div style={{background:dt.color,height:"100%",width:`${Math.min(100,dt.delivered/dt.goal*100)}%`,borderRadius:3}}/>
+                      </div>
+                      <div style={{fontSize:10,color:dt.color,fontWeight:700}}>{dt.status} · {Math.round(dt.delivered/dt.goal*100)}%</div>
                     </div>
-                    <div style={{fontSize:9,color:"#3d5a72",marginTop:2}}>{dt.daysLeft}d left</div>
-                  </div>
-                  {/* Remaining */}
-                  <div style={{background:"#0c1625",borderRadius:7,padding:"8px 10px",textAlign:"center"}}>
-                    <div style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:3}}>Remaining</div>
-                    <div style={{fontSize:18,fontWeight:800,color:"#7a9bbf",lineHeight:1}}>
-                      {hasDelivery ? (dt.remaining >= 1000000 ? (dt.remaining/1000000).toFixed(1)+"M" : dt.remaining >= 1000 ? Math.round(dt.remaining/1000)+"K" : dt.remaining.toLocaleString()) : "—"}
-                    </div>
-                    <div style={{fontSize:9,color:"#3d5a72",marginTop:2}}>of {dt.goal>=1000000?(dt.goal/1000000).toFixed(1)+"M":dt.goal>=1000?Math.round(dt.goal/1000)+"K":dt.goal.toLocaleString()}</div>
-                  </div>
+                  )}
                 </div>
-                {/* Status bar */}
-                {hasDelivery && (
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <div style={{flex:1,background:"#0e1a2e",borderRadius:4,height:6,overflow:"hidden"}}>
-                      <div style={{background:dt.color,height:"100%",width:`${Math.min(100,dt.delivered/dt.goal*100)}%`,borderRadius:4,transition:"width .3s"}}/>
-                    </div>
-                    <span style={{fontSize:11,fontWeight:700,color:dt.color,whiteSpace:"nowrap"}}>{dt.status}</span>
-                    <span style={{fontSize:10,color:"#3d5a72",whiteSpace:"nowrap"}}>{Math.round(dt.delivered/dt.goal*100)}% of monthly goal</span>
-                  </div>
-                )}
-                {!hasDelivery && (
-                  <div style={{fontSize:11,color:"#3d5a72",textAlign:"center"}}>Enter today's impressions above to see daily pacing</div>
-                )}
               </div>
             );
           })()}
-          <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-              <span style={{fontSize:10,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>🔔 Reminders</span>
-              <button onClick={()=>setShowAddReminder(v=>!v)} style={{background:showAddReminder?"#130a00":"#f59e0b18",border:`1px solid ${showAddReminder?"#f59e0b80":"#f59e0b50"}`,borderRadius:6,padding:"2px 8px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer"}}>{showAddReminder?"✕":"+"}</button>
+
+          {/* ── GEO + CREATIVE — compact row ── */}
+          <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:160}}>
+              <label style={{display:"block",fontSize:9,color:"#60a5fa",textTransform:"uppercase",letterSpacing:".07em",fontWeight:700,marginBottom:4}}>🌎 Geo</label>
+              <input value={c.geoTarget||""} onChange={e=>onUpdate({...c,geoTarget:e.target.value})} placeholder="e.g. Florida statewide"
+                style={{width:"100%",background:"#060d18",border:`1px solid ${c.geoTarget?"#60a5fa40":"#1a2744"}`,borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",outline:"none"}}/>
             </div>
-            {reminders.filter(r=>!r.dismissed&&r.campaignId===c.id).map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5]; const isPast=r.date<=getToday(); const isEditing=editingReminderId===r.id; return (
-              <div key={r.id} style={{marginBottom:4}}>
-                {isEditing ? (
-                  <div style={{background:"#0a1628",border:"1px solid #f59e0b60",borderRadius:7,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                      <div>
-                        <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Type</label>
-                        <select value={editReminderDraft.type} onChange={e=>setEditReminderDraft(p=>({...p,type:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit"}}>
-                          {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
-                        <DatePicker value={editReminderDraft.date} onChange={v=>setEditReminderDraft(p=>({...p,date:v}))}/>
-                      </div>
-                    </div>
-                    <input type="text" value={editReminderDraft.note} onChange={e=>setEditReminderDraft(p=>({...p,note:e.target.value}))} placeholder="Note (optional)" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
-                    <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>saveEditReminder(r.id)} disabled={!editReminderDraft.date} style={{flex:1,background:editReminderDraft.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"6px 0",color:editReminderDraft.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:editReminderDraft.date?"pointer":"default"}}>Save</button>
-                      <button onClick={cancelEditReminder} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 0",color:"#7a9bbf",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancel</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{display:"flex",alignItems:"center",gap:8,background:isPast?"#1a0808":"#0a1628",border:`1px solid ${isPast?"#ef444430":rt.color+"30"}`,borderRadius:5,padding:"5px 10px"}}>
-                    <button onClick={()=>startEditReminder(r)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:4,color:"#00e5a0",cursor:"pointer",fontSize:10,padding:"1px 6px",fontWeight:600,flexShrink:0}}>Edit</button>
-                    <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,color:"#ef4444",cursor:"pointer",fontSize:12,lineHeight:1,padding:"1px 5px",flexShrink:0}}>×</button>
-                    <span style={{fontSize:11,color:isPast?"#ef4444":rt.color,fontWeight:600}}>{rt.label}</span>
-                    <span style={{fontSize:11,color:"#00e5a0",whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
-                    {r.note&&<span style={{fontSize:11,color:"#00e5a0",flex:1}}>{r.note}</span>}
-                  </div>
-                )}
-              </div>
-            );})}
-            {showAddReminder && (
-              <div style={{background:"#0a1628",border:"1px solid #1e3350",borderRadius:7,padding:"10px 12px",marginTop:4,display:"flex",flexDirection:"column",gap:8}}>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                  <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Type</label>
-                    <select value={newReminder.type} onChange={e=>setNewReminder(p=>({...p,type:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit"}}>
-                      {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
-                    <DatePicker value={newReminder.date} onChange={v=>setNewReminder(p=>({...p,date:v}))}/>
-                  </div>
-                </div>
-                <input type="text" value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))} placeholder="Note (optional)" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
-                <button onClick={()=>{ if(!newReminder.date) return; setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); setShowAddReminder(false); }} disabled={!newReminder.date} style={{background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"7px 0",color:newReminder.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:newReminder.date?"pointer":"default"}}>Save Reminder</button>
-              </div>
-            )}
-          </div>
-          <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:0}}>
-              {/* Geo Target */}
-              <div>
-                <label style={{display:"block",fontSize:10,color:"#60a5fa",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:5}}>🌎 Geo Targeting</label>
-                <input
-                  value={c.geoTarget||""}
-                  onChange={e=>onUpdate({...c,geoTarget:e.target.value})}
-                  placeholder="e.g. Florida statewide, exclude Miami-Dade"
-                  style={{width:"100%",background:"#060d18",border:`1px solid ${c.geoTarget?"#60a5fa40":"#1a2744"}`,borderRadius:5,padding:"7px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",outline:"none",transition:"border-color .15s"}}
-                />
-              </div>
-              {/* Last Creative Update */}
-              <div>
-                <label style={{display:"block",fontSize:10,color:"#a855f7",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:5}}>🎨 Last Creative Update</label>
-                <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                  <div style={{flex:1}}>
-                    <DatePicker value={c.lastCreativeUpdate||""} onChange={v=>onUpdate({...c,lastCreativeUpdate:v})} placeholder="Pick date…"/>
-                  </div>
-                  {c.lastCreativeUpdate&&(()=>{
-                    const days=Math.floor((new Date()-new Date(c.lastCreativeUpdate))/86400000);
-                    const color=days>30?"#f59e0b":days>14?"#fde047":"#a855f7";
-                    return <span style={{fontSize:10,fontWeight:700,color,whiteSpace:"nowrap",flexShrink:0}}>{days===0?"Updated today":days===1?"1 day ago":`${days}d ago`}</span>;
-                  })()}
-                </div>
+            <div style={{flex:1,minWidth:160}}>
+              <label style={{display:"block",fontSize:9,color:"#a855f7",textTransform:"uppercase",letterSpacing:".07em",fontWeight:700,marginBottom:4}}>🎨 Last Creative</label>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <div style={{flex:1}}><DatePicker value={c.lastCreativeUpdate||""} onChange={v=>onUpdate({...c,lastCreativeUpdate:v})} placeholder="Pick date…"/></div>
+                {c.lastCreativeUpdate&&(()=>{
+                  const days=Math.floor((new Date()-new Date(c.lastCreativeUpdate))/86400000);
+                  return <span style={{fontSize:10,fontWeight:700,color:days>30?"#f59e0b":days>14?"#fde047":"#a855f7",whiteSpace:"nowrap",flexShrink:0}}>{days===0?"Today":days+"d"}</span>;
+                })()}
               </div>
             </div>
           </div>
 
-          <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #1a2744"}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-              <span style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>📋 Change History</span>
-            </div>
-            <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"stretch"}}>
-              <button
-                onClick={()=>{
-                  if (!newEntry.trim()) return;
-                  const today = getToday();
-                  const [y,m,d] = today.split("-");
-                  const stamp = `${m}/${d}/${y}`;
-                  const line = `${stamp} — ${newEntry.trim()}`;
-                  const updated = historyDraft.trim() ? `${line}\n${historyDraft}` : line;
-                  setHistoryDraft(updated);
-                  onUpdate({...c, history:updated});
-                  setNewEntry("");
-                }}
+          {/* ── CHANGE HISTORY ── */}
+          <div style={{paddingTop:12,borderTop:"1px solid #1a2744"}}>
+            <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:".07em",fontWeight:700,marginBottom:6}}>📋 History</div>
+            <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"stretch"}}>
+              <button onClick={()=>{ if(!newEntry.trim()) return; const today=getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${newEntry.trim()}`; const updated=historyDraft.trim()?`${line}\n${historyDraft}`:line; setHistoryDraft(updated); onUpdate({...c,history:updated}); setNewEntry(""); }}
                 disabled={!newEntry.trim()}
-                style={{background:newEntry.trim()?"#00c896":"#0a1422",border:"none",borderRadius:6,padding:"0 14px",color:newEntry.trim()?"#000":"#3d5a72",fontSize:11,fontWeight:700,cursor:newEntry.trim()?"pointer":"default",transition:"all .15s",whiteSpace:"nowrap",flexShrink:0}}
-              >+ Add</button>
-              <div style={{flex:1,display:"flex",alignItems:"center",background:"#0a1422",border:`1px solid ${newEntry.trim()?"#00c89660":"#1a2744"}`,borderRadius:6,overflow:"hidden",transition:"border-color .15s"}}>
-                <input
-                  value={newEntry}
-                  onChange={e=>setNewEntry(e.target.value)}
-                  onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault();
-                    if (!newEntry.trim()) return;
-                    const today = getToday();
-                    const [y,m,d] = today.split("-");
-                    const stamp = `${m}/${d}/${y}`;
-                    const line = `${stamp} — ${newEntry.trim()}`;
-                    const updated = historyDraft.trim() ? `${line}\n${historyDraft}` : line;
-                    setHistoryDraft(updated);
-                    onUpdate({...c, history:updated});
-                    setNewEntry("");
-                  }}}
-                  placeholder="Write a note and click Add or press Enter…"
-                  style={{flex:1,background:"transparent",border:"none",padding:"6px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}
-                />
-              </div>
+                style={{background:newEntry.trim()?"#00c896":"#0a1422",border:"none",borderRadius:5,padding:"0 12px",color:newEntry.trim()?"#000":"#3d5a72",fontSize:11,fontWeight:700,cursor:newEntry.trim()?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
+                + Add
+              </button>
+              <input value={newEntry} onChange={e=>setNewEntry(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter"&&newEntry.trim()){ const today=getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${newEntry.trim()}`; const updated=historyDraft.trim()?`${line}\n${historyDraft}`:line; setHistoryDraft(updated); onUpdate({...c,history:updated}); setNewEntry(""); }}}
+                placeholder="Add a note…"
+                style={{flex:1,background:"#0a1422",border:`1px solid ${newEntry.trim()?"#00c89660":"#1a2744"}`,borderRadius:5,padding:"5px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
             </div>
-            <textarea
-              value={historyDraft}
-              onChange={e=>{ setHistoryDraft(e.target.value); onUpdate({...c, history:e.target.value}); }}
-              placeholder={"Entries appear here after you add them…"}
-              style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,
-                padding:"8px 10px",color:"#4d6e8a",fontSize:11,fontFamily:"inherit",
-                whiteSpace:"pre-wrap",lineHeight:1.6,resize:"vertical",minHeight:80,
-                boxSizing:"border-box",outline:"none"}}
-            />
+            <textarea value={historyDraft} onChange={e=>{ setHistoryDraft(e.target.value); onUpdate({...c,history:e.target.value}); }}
+              placeholder="Entries appear here…"
+              style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"7px 10px",color:"#4d6e8a",fontSize:11,fontFamily:"inherit",whiteSpace:"pre-wrap",lineHeight:1.6,resize:"vertical",minHeight:70,boxSizing:"border-box",outline:"none"}}/>
           </div>
         </div>
       </td>
@@ -8955,14 +8957,20 @@ export default function App() {
                               <TD><span style={{fontSize:11,color:"#7a9bbf"}}>{c.note1||"—"}</span></TD>
                               <TD><span style={{fontSize:11,color:"#4d6e8a"}}>{c.startDate||"—"}</span></TD>
                               <TD><EndChip d={c.endDate}/></TD>
-                              <TD><span style={{fontSize:11,color:stale?"#f59e0b":"#00d48a",fontWeight:stale?600:400}}>{fmtDate(c.lastChecked)}</span>
+                              <TD>
+                                {(()=>{
+                                  const daysAgo = c.lastChecked ? Math.floor((new Date()-new Date(c.lastChecked))/86400000) : null;
+                                  const label = daysAgo===null?"—":daysAgo===0?"Today":daysAgo===1?"1d ago":`${daysAgo}d ago`;
+                                  return <span title={fmtDate(c.lastChecked)} style={{fontSize:11,color:stale?"#f59e0b":"#00d48a",fontWeight:stale?600:400,cursor:"default"}}>{label}</span>;
+                                })()}
                                 {stale&&<button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00ffb3",fontSize:10,padding:"1px 6px",cursor:"pointer",fontWeight:700,marginLeft:4}}>✓</button>}
                               </TD>
                               <TD>
-                                <div style={{display:"flex",gap:5}}>
-                                  <button onClick={()=>setEditTarget(c)} style={{background:"#1a0e00",border:"1px solid #fb923c60",borderRadius:5,color:"#fb923c",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
-                                  <button onClick={async()=>{ if(await confirm({title:`Delete "${c.campaignName}"?`,message:"This cannot be undone. Consider archiving instead.",confirmLabel:"Delete",danger:true})){ addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Campaign deleted",campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); }}} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,color:"#ef4444",fontSize:10,padding:"3px 6px",cursor:"pointer"}}>✕</button>
-                                </div>
+                                <RowActions c={c} onEdit={()=>setEditTarget(c)} onRenew={()=>setRenewTarget(c)}
+                                  onDuplicate={()=>{ const copy={...c,id:Date.now(),campaignName:c.campaignName+" (copy)",impressions:"",ctr:"",cpm:"",spend:""}; setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }}
+                                  onDelete={async()=>{ if(await confirm({title:`Delete "${c.campaignName}"?`,message:"This cannot be undone. Consider archiving instead.",confirmLabel:"Delete",danger:true})){ addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Campaign deleted",campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); }}}
+                                  onArchive={async()=>{ if(await confirm({title:`Archive "${c.campaignName}"?`,message:"It will move to the Archive tab.",confirmLabel:"Archive"})) { const tod=getToday(); const [ay,am,ad]=tod.split("-"); const astamp=`${am}/${ad}/${ay}`; const archNote=`${astamp} — Campaign manually archived`; const archHist=c.history&&c.history.trim()?`${archNote}\n${c.history}`:archNote; setArchive(prev=>[...prev,{...c,archivedDate:tod,history:archHist}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Manually sent to archive",campaignId:c.id,prevSnapshot:{...c}}); }}}
+                                />
                               </TD>
                             </tr>
                             {open && <MetricRow key={"m"+c.id} c={c} colSpan={COLS} onUpdate={updateCampaign} dateRange={dateRange} reminders={reminders} setReminders={setReminders}/>}
@@ -9077,19 +9085,20 @@ export default function App() {
                         <TD><EndChip d={c.endDate}/></TD>
                         <TD>
                           <div style={{display:"flex",alignItems:"center",gap:6}}>
-                            <span style={{fontSize:11,color:stale?"#f59e0b":"#00d48a",fontWeight:stale?600:400,whiteSpace:"nowrap"}}>{fmtDate(c.lastChecked)}</span>
+                            {(()=>{
+                              const daysAgo = c.lastChecked ? Math.floor((new Date()-new Date(c.lastChecked))/86400000) : null;
+                              const label = daysAgo===null?"—":daysAgo===0?"Today":daysAgo===1?"1d ago":`${daysAgo}d ago`;
+                              return <span title={fmtDate(c.lastChecked)} style={{fontSize:11,color:stale?"#f59e0b":"#00d48a",fontWeight:stale?600:400,whiteSpace:"nowrap",cursor:"default"}}>{label}</span>;
+                            })()}
                             {stale&&<button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00ffb3",fontSize:10,padding:"1px 6px",cursor:"pointer",fontWeight:700}}>✓</button>}
                           </div>
                         </TD>
                         <TD>
-                          <div style={{display:"flex",gap:5}}>
-                            <button onClick={()=>setEditTarget(c)} style={{background:"#1a0e00",border:"1px solid #fb923c60",borderRadius:5,color:"#fb923c",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
-                            <button onClick={()=>setRenewTarget(c)} style={{background:"#002418",border:"1px solid #00c89640",borderRadius:5,color:"#00c896",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:700}} title="Renew campaign">🔄</button>
-                            <button onClick={()=>{ const copy={...c,id:Date.now(),campaignName:c.campaignName+" (copy)",impressions:"",ctr:"",cpm:"",spend:""}; setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }} style={{background:"#091a2a",border:"1px solid #1e3a5f",borderRadius:5,color:"#00e5a0",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>⧉</button>
-                            <button onClick={async()=>{ if(await confirm({title:`Delete "${c.campaignName}"?`,message:"This cannot be undone. Consider archiving instead.",confirmLabel:"Delete",danger:true})) { addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:`Campaign deleted`,campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); } }} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,color:"#ef4444",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>✕</button>
-                            <button title="Send to Archive" onClick={async()=>{ if(await confirm({title:`Archive "${c.campaignName}"?`,message:"It will move to the Archive tab. You can restore it any time.",confirmLabel:"Archive"})) { const tod=getToday(); const [ay,am,ad]=tod.split("-"); const astamp=`${am}/${ad}/${ay}`; const archNote=`${astamp} — Campaign manually archived`; const archHist=c.history&&c.history.trim()?`${archNote}
-${c.history}`:archNote; setArchive(prev=>[...prev,{...c,archivedDate:tod,history:archHist}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Manually sent to archive",campaignId:c.id,prevSnapshot:{...c}}); }}} style={{background:"#1a0828",border:"1px solid #a855f740",borderRadius:5,color:"#a855f7",fontSize:10,padding:"3px 6px",cursor:"pointer",fontWeight:700}}>🗄 →</button>
-                          </div>
+                          <RowActions c={c} onEdit={()=>setEditTarget(c)} onRenew={()=>setRenewTarget(c)}
+                            onDuplicate={()=>{ const copy={...c,id:Date.now(),campaignName:c.campaignName+" (copy)",impressions:"",ctr:"",cpm:"",spend:""}; setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }}
+                            onDelete={async()=>{ if(await confirm({title:`Delete "${c.campaignName}"?`,message:"This cannot be undone. Consider archiving instead.",confirmLabel:"Delete",danger:true})) { addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:`Campaign deleted`,campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); } }}
+                            onArchive={async()=>{ if(await confirm({title:`Archive "${c.campaignName}"?`,message:"It will move to the Archive tab. You can restore it any time.",confirmLabel:"Archive"})) { const tod=getToday(); const [ay,am,ad]=tod.split("-"); const astamp=`${am}/${ad}/${ay}`; const archNote=`${astamp} — Campaign manually archived`; const archHist=c.history&&c.history.trim()?`${archNote}\n${c.history}`:archNote; setArchive(prev=>[...prev,{...c,archivedDate:tod,history:archHist}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Manually sent to archive",campaignId:c.id,prevSnapshot:{...c}}); }}}
+                          />
                         </TD>
                       </tr>
                       {open && <MetricRow key={"m"+c.id} c={c} colSpan={COLS} onUpdate={updateCampaign} dateRange={dateRange} reminders={reminders} setReminders={setReminders}/>}
