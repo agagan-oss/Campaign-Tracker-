@@ -82,6 +82,16 @@ function getPresets() {
   };
 }
 
+function getPeriodLabel(preset) {
+  if (preset==="mtd")       return "MTD";
+  if (preset==="yesterday") return "Yest";
+  if (preset==="last7")     return "7d";
+  if (preset==="last30")    return "30d";
+  if (preset==="today")     return "Today";
+  if (preset==="lastMonth") return "Last Mo";
+  return "Custom";
+}
+
 function getSnapshotKey(preset) {
   if (preset === "mtd")                             return "mtd";
   if (["last30","last7","today"].includes(preset))  return "last30";
@@ -8002,6 +8012,7 @@ export default function App() {
   const [fGoalHit, setFGoalHit]                 = useState(false);
   const [fCloseToGoal, setFCloseToGoal]         = useState(false);
   const [fExcludeGoalHit, setFExcludeGoalHit]   = useState(false);
+  const [fRecentDays, setFRecentDays]           = useState(0);   // 0 = off, else show added within N days
   const [showDailyGoal, setShowDailyGoal]       = useState(true);
   const [quickCheckIn, setQuickCheckIn]         = useState(false);
   const [collapsedClients, setCollapsedClients] = useState(new Set());
@@ -8283,6 +8294,11 @@ export default function App() {
         const pacing=computeMonthlyPacing(disp.impressions,c.note1);
         if(c.goalHit||(pacing&&pacing.pct>=1)) return false;
       }
+      if(fRecentDays>0) {
+        const createdMs = typeof c.id==="number" ? c.id : parseInt(c.id)||0;
+        const daysAgo = (Date.now()-createdMs)/86400000;
+        if(daysAgo>fRecentDays) return false;
+      }
       return ms&&(fStatus==="all"||(c.status||"")===fStatus)&&(fPlatforms.size===0||fPlatforms.has(c.platform))&&(!fMonthly||c.monthlyFlight);
     });
     return [...list].sort((a,b)=>{
@@ -8294,7 +8310,7 @@ export default function App() {
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
     });
-  },[campaigns,reminders,search,fStatus,fPlatforms,fMonthly,fGoalHit,fCloseToGoal,fExcludeGoalHit,sortKey,sortDir,dateRange.preset]);
+  },[campaigns,reminders,search,fStatus,fPlatforms,fMonthly,fGoalHit,fCloseToGoal,fExcludeGoalHit,fRecentDays,sortKey,sortDir,dateRange.preset]);
 
   const stats = useMemo(()=>({
     total: campaigns.length,
@@ -8745,26 +8761,42 @@ export default function App() {
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…" style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"8px 14px",color:"#d8eaf8",fontSize:14,width:280}}/>
           <select
-            value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":fGoalHit?"__goalHit__":fCloseToGoal?"__closeToGoal__":"all")}
+            value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":fGoalHit?"__goalHit__":fCloseToGoal?"__closeToGoal__":fRecentDays>0?"__recent__":"all")}
             onChange={e=>{
               const v=e.target.value;
-              setFMonthly(false); setFGoalHit(false); setFCloseToGoal(false); setGroupByClient(false);
+              setFMonthly(false); setFGoalHit(false); setFCloseToGoal(false); setGroupByClient(false); setFRecentDays(0);
               if(v==="__monthly__"){setFMonthly(true);setFStatus("all");setSortKey("endDate");}
               else if(v==="__reminder__"){setFStatus("all");setSortKey("reminder");}
               else if(v==="__grouped__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(true);}
               else if(v==="__goalHit__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFGoalHit(true);setFExcludeGoalHit(false);}
               else if(v==="__closeToGoal__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFCloseToGoal(true);}
+              else if(v==="__recent__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFRecentDays(7);}
               else{setFStatus(v);if(sortKey==="reminder")setSortKey("endDate");}
             }}
-            style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":fGoalHit?"#00c896":fCloseToGoal?"#f59e0b":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":fGoalHit?"#00e5a0":fCloseToGoal?"#f59e0b":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient||fGoalHit||fCloseToGoal)?700:400}}>
+            style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":fGoalHit?"#00c896":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":fGoalHit?"#00e5a0":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient||fGoalHit||fCloseToGoal||fRecentDays>0)?700:400}}>
             <option value="all">All Statuses</option>
             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
             <option value="__monthly__">★ Monthly Flights</option>
             <option value="__reminder__">🔔 Has Reminder</option>
             <option value="__goalHit__">🎯 Goal Hit</option>
             <option value="__closeToGoal__">⏳ Close to Goal</option>
+            <option value="__recent__">🆕 Recently Added</option>
             <option value="__grouped__">👥 Group by Client</option>
           </select>
+          {/* Inline day range picker — only shown when Recently Added is active */}
+          {fRecentDays>0&&(
+            <div style={{display:"flex",alignItems:"center",gap:6,background:"#06101f",border:"1px solid #7dd3fc40",borderRadius:7,padding:"4px 10px"}}>
+              <span style={{fontSize:11,color:"#7dd3fc",fontWeight:700,whiteSpace:"nowrap"}}>🆕 Last</span>
+              {[1,3,7,14,30].map(d=>(
+                <button key={d} onClick={()=>setFRecentDays(d)}
+                  style={{background:fRecentDays===d?"#7dd3fc22":"none",border:`1px solid ${fRecentDays===d?"#7dd3fc60":"transparent"}`,borderRadius:5,padding:"2px 8px",color:fRecentDays===d?"#7dd3fc":"#3d5a72",fontSize:12,fontWeight:fRecentDays===d?700:400,cursor:"pointer",transition:"all .12s"}}>
+                  {d}d
+                </button>
+              ))}
+              <button onClick={()=>setFRecentDays(0)}
+                style={{background:"none",border:"none",color:"#3d5a72",fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1,marginLeft:2}}>×</button>
+            </div>
+          )}
           <button
             onClick={()=>setFExcludeGoalHit(v=>!v)}
             title="Hide campaigns that have already hit their monthly goal"
@@ -9012,6 +9044,7 @@ export default function App() {
                         <TD>
                           <div style={{display:"flex",alignItems:"center",gap:5}}>
                             <span style={{color:"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
+                            {(()=>{ const daysOld=(Date.now()-(typeof c.id==="number"?c.id:parseInt(c.id)||0))/86400000; return daysOld<=7?<span title={`Added ${daysOld<1?"today":Math.floor(daysOld)+"d ago"}`} style={{background:"#7dd3fc18",border:"1px solid #7dd3fc50",borderRadius:4,padding:"1px 5px",fontSize:9,color:"#7dd3fc",fontWeight:700,flexShrink:0,letterSpacing:"0.04em"}}>NEW</span>:null; })()}
                             {c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:false})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#00e5c0",fontSize:13,lineHeight:1,flexShrink:0}}>★</button>}
                             {!c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:true})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#1e3048",fontSize:13,lineHeight:1,flexShrink:0,opacity:0}} className="star-toggle">★</button>}
                             {(()=>{
@@ -9062,7 +9095,10 @@ export default function App() {
                                   <div style={{position:"absolute",top:-2,left:`${Math.min(97,pacing.expectedPct*100)}%`,width:2,height:9,background:"#334155",borderRadius:1,zIndex:2}}/>
                                   <div style={{background:pacing.color,height:"100%",width:`${Math.min(100,pacing.pct*100)}%`,borderRadius:3,transition:"width .3s"}}/>
                                 </div>
-                                <span style={{fontSize:9,color:pacing.color,fontWeight:700,letterSpacing:"0.03em"}}>{(pacing.pct*100).toFixed(0)}% of mo. goal</span>
+                                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                                  <span style={{fontSize:9,color:pacing.color,fontWeight:700,letterSpacing:"0.03em"}}>{(pacing.pct*100).toFixed(0)}% of goal</span>
+                                  <span style={{fontSize:9,color:"#2a4060",fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>{getPeriodLabel(dateRange.preset)}</span>
+                                </div>
                               </div>
                             );
                           })()}
