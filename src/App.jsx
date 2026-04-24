@@ -863,14 +863,19 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                 <div style={{flexShrink:0,minWidth:130}}>
                   <DatePicker value={newReminder.date} onChange={v=>setNewReminder(p=>({...p,date:v}))}/>
                 </div>
-                <input type="text" value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))}
-                  placeholder="Note (optional)" onKeyDown={e=>{ if(e.key==="Enter"&&newReminder.date){ setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); setShowAddReminder(false); }}}
-                  style={{flex:1,minWidth:120,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                {/* Save + Cancel immediately after date */}
                 <button onClick={()=>{ if(!newReminder.date) return; setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); setShowAddReminder(false); }}
                   disabled={!newReminder.date}
                   style={{background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"6px 14px",color:newReminder.date?"#000":"#3d5a72",fontSize:11,fontWeight:700,cursor:newReminder.date?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
                   Save
                 </button>
+                <button onClick={()=>{ setShowAddReminder(false); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); }}
+                  style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 10px",color:"#7a9bbf",fontSize:11,cursor:"pointer",flexShrink:0}}>
+                  Cancel
+                </button>
+                <input type="text" value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))}
+                  placeholder="Note (optional)" onKeyDown={e=>{ if(e.key==="Enter"&&newReminder.date){ setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); setShowAddReminder(false); }}}
+                  style={{flex:1,minWidth:120,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
               </div>
             )}
 
@@ -8020,7 +8025,7 @@ export default function App() {
   const [dragOverId, setDragOverId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showBulkEdit, setShowBulkEdit] = useState(false);
-  const [bulkDraft, setBulkDraft] = useState({ note1:"", note2:"", status:"", lastChecked:"", endDate:"", history:"" });
+  const [bulkDraft, setBulkDraft] = useState({ note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
   const [dateRange, setDateRange] = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
   const [activeTab, setActiveTab] = useState("campaigns");
 
@@ -8370,11 +8375,20 @@ export default function App() {
   }
   function applyBulkEdit() {
     const updates = {};
-    if (bulkDraft.note1.trim()) updates.note1 = bulkDraft.note1.trim();
-    if (bulkDraft.note2.trim()) updates.note2 = bulkDraft.note2.trim();
-    if (bulkDraft.status) updates.status = bulkDraft.status;
-    if (bulkDraft.lastChecked) updates.lastChecked = bulkDraft.lastChecked;
-    if (bulkDraft.endDate) updates.endDate = bulkDraft.endDate;
+    if (bulkDraft.note1.trim())              updates.note1              = bulkDraft.note1.trim();
+    if (bulkDraft.note2.trim())              updates.note2              = bulkDraft.note2.trim();
+    if (bulkDraft.status)                    updates.status             = bulkDraft.status;
+    if (bulkDraft.lastChecked)               updates.lastChecked        = bulkDraft.lastChecked;
+    if (bulkDraft.startDate)                 updates.startDate          = bulkDraft.startDate;
+    if (bulkDraft.endDate)                   updates.endDate            = bulkDraft.endDate;
+    if (bulkDraft.projectionUrl.trim())      updates.projectionUrl      = bulkDraft.projectionUrl.trim();
+    if (bulkDraft.clientWebsite.trim())      updates.clientWebsite      = bulkDraft.clientWebsite.trim();
+    if (bulkDraft.folderPath.trim())         updates.folderPath         = bulkDraft.folderPath.trim();
+    if (bulkDraft.geoTarget.trim())          updates.geoTarget          = bulkDraft.geoTarget.trim();
+    if (bulkDraft.lastCreativeUpdate)        updates.lastCreativeUpdate = bulkDraft.lastCreativeUpdate;
+    if (bulkDraft.contractValue.trim())      updates.contractValue      = bulkDraft.contractValue.trim();
+    if (bulkDraft.monthlyFlight !== "")      updates.monthlyFlight      = bulkDraft.monthlyFlight === "yes";
+    if (bulkDraft.platform)                  updates.platform           = bulkDraft.platform;
     const historyEntry = bulkDraft.history.trim();
     if (Object.keys(updates).length === 0 && !historyEntry) return;
     const datePrefix = `${today} — `;
@@ -8393,7 +8407,7 @@ export default function App() {
     }));
     setSelectedIds(new Set());
     setShowBulkEdit(false);
-    setBulkDraft({ note1:"", note2:"", status:"", lastChecked:"", history:"" });
+    setBulkDraft({ note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
   }
 
   async function handleRestore(c) {
@@ -8660,59 +8674,113 @@ export default function App() {
                 <button onClick={()=>setSelectedIds(new Set())} style={{background:"none",border:"1px solid #1e293b",borderRadius:7,padding:"7px 12px",color:"#4d6e8a",fontSize:13,cursor:"pointer"}}>Clear</button>
               </div>
             ) : (
-              <div style={{flex:1,background:"#0a1c2e",border:"1px solid #1e3a50",borderRadius:9,padding:"14px 18px",display:"flex",flexDirection:"column",gap:12}}>
-                <div style={{fontSize:12,color:"#00e5a0",fontWeight:700,marginBottom:2}}>Bulk Edit — changes apply to all {selectedIds.size} selected campaigns</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:10}}>
+              <div style={{flex:1,background:"#0a1c2e",border:"1px solid #1e3a50",borderRadius:9,padding:"14px 18px",display:"flex",flexDirection:"column",gap:14}}>
+                <div style={{fontSize:12,color:"#00e5a0",fontWeight:700}}>Bulk Edit — changes apply to all {selectedIds.size} selected campaigns · leave any field blank to keep existing value</div>
+
+                {/* ── Row 1: Status / Platform / Monthly Flight / Last Checked ── */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 1 <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
-                    <input value={bulkDraft.note1} onChange={e=>setBulkDraft(p=>({...p,note1:e.target.value}))} placeholder="e.g. Creative updated 3/18" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
-                  </div>
-                  <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 2 <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
-                    <input value={bulkDraft.note2} onChange={e=>setBulkDraft(p=>({...p,note2:e.target.value}))} placeholder="e.g. FB, SP, DSP creative swap" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
-                  </div>
-                  <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Status <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Status</label>
                     <select value={bulkDraft.status} onChange={e=>setBulkDraft(p=>({...p,status:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit"}}>
                       <option value="">— No change —</option>
                       {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Last Checked <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
-                    <DatePicker value={bulkDraft.lastChecked} onChange={v=>setBulkDraft(p=>({...p,lastChecked:v}))}/>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Platform</label>
+                    <select value={bulkDraft.platform} onChange={e=>setBulkDraft(p=>({...p,platform:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit"}}>
+                      <option value="">— No change —</option>
+                      {ALL_PLATFORMS.map(p=><option key={p} value={p}>{p}</option>)}
+                    </select>
                   </div>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#fb923c",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>End Date <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(leave blank to keep)</span></label>
+                    <label style={{display:"block",fontSize:10,color:"#00e5c0",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>★ Monthly Flight</label>
+                    <select value={bulkDraft.monthlyFlight} onChange={e=>setBulkDraft(p=>({...p,monthlyFlight:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit"}}>
+                      <option value="">— No change —</option>
+                      <option value="yes">Enable ★</option>
+                      <option value="no">Disable</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Last Checked</label>
+                    <DatePicker value={bulkDraft.lastChecked} onChange={v=>setBulkDraft(p=>({...p,lastChecked:v}))}/>
+                  </div>
+                </div>
+
+                {/* ── Row 2: Dates ── */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Start Date</label>
+                    <DatePicker value={bulkDraft.startDate||""} onChange={v=>setBulkDraft(p=>({...p,startDate:v}))}/>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#fb923c",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>End Date</label>
                     <DatePicker value={bulkDraft.endDate||""} onChange={v=>setBulkDraft(p=>({...p,endDate:v}))}/>
                   </div>
-                </div>
-                <div>
-                  <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History Entry <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>— prepended to each campaign's history with today's date</span></label>
-                  <div style={{position:"relative"}}>
-                    <textarea
-                      value={bulkDraft.history}
-                      onChange={e=>setBulkDraft(p=>({...p,history:e.target.value}))}
-                      placeholder={`e.g. New creatives launched for FB, SP & DSP`}
-                      rows={2}
-                      style={{width:"100%",background:"#0e1a2e",border:`1px solid ${bulkDraft.history.trim()?"#f59e0b60":"#334155"}`,borderRadius:6,padding:"7px 36px 7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit",resize:"vertical",lineHeight:1.5,outline:"none"}}
-                    />
-                    {bulkDraft.history.trim() && (
-                      <span style={{position:"absolute",top:8,right:10,fontSize:10,color:"#f59e0b",fontWeight:600,pointerEvents:"none",background:"#0e1a2e",padding:"1px 4px",borderRadius:3}}>
-                        {today} —
-                      </span>
-                    )}
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#a855f7",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🎨 Last Creative Update</label>
+                    <DatePicker value={bulkDraft.lastCreativeUpdate||""} onChange={v=>setBulkDraft(p=>({...p,lastCreativeUpdate:v}))}/>
                   </div>
-                  {bulkDraft.history.trim() && (
-                    <div style={{fontSize:10,color:"#4d6e8a",marginTop:4}}>
-                      Will prepend: <span style={{color:"#f59e0b",fontFamily:"monospace"}}>{today} — {bulkDraft.history.trim()}</span>
-                    </div>
-                  )}
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 Contract Value ($)</label>
+                    <input type="number" value={bulkDraft.contractValue} onChange={e=>setBulkDraft(p=>({...p,contractValue:e.target.value}))} placeholder="e.g. 5000" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                  </div>
                 </div>
-                <div style={{display:"flex",gap:8}}>
-                  <button onClick={applyBulkEdit} style={{background:"#00c896",border:"none",borderRadius:7,padding:"8px 22px",color:"#000",fontWeight:700,fontSize:13,cursor:"pointer"}}>Apply to {selectedIds.size} Campaign{selectedIds.size!==1?"s":""}</button>
-                  <button onClick={()=>{ setShowBulkEdit(false); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",endDate:"",history:""}); }} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"8px 16px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>Cancel</button>
-                  <button onClick={()=>{ setShowBulkEdit(false); setSelectedIds(new Set()); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",endDate:"",history:""}); }} style={{background:"none",border:"1px solid #334155",borderRadius:7,padding:"8px 12px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>Clear selection</button>
+
+                {/* ── Row 3: Notes ── */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 1</label>
+                    <input value={bulkDraft.note1} onChange={e=>setBulkDraft(p=>({...p,note1:e.target.value}))} placeholder="e.g. 125K/Mo" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#ef4444",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>⚠ Note 2 (warning flag)</label>
+                    <input value={bulkDraft.note2} onChange={e=>setBulkDraft(p=>({...p,note2:e.target.value}))} placeholder="e.g. FB Access needed" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                  </div>
+                </div>
+
+                {/* ── Row 4: URLs ── */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#60a5fa",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📎 Projection Sheet URL</label>
+                    <input type="url" value={bulkDraft.projectionUrl} onChange={e=>setBulkDraft(p=>({...p,projectionUrl:e.target.value}))} placeholder="https://docs.google.com/…" style={{width:"100%",background:"#162236",border:`1px solid ${bulkDraft.projectionUrl.trim()?"#60a5fa60":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"monospace"}}/>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌐 Client Website</label>
+                    <input type="url" value={bulkDraft.clientWebsite} onChange={e=>setBulkDraft(p=>({...p,clientWebsite:e.target.value}))} placeholder="https://example.com" style={{width:"100%",background:"#162236",border:`1px solid ${bulkDraft.clientWebsite.trim()?"#34d39960":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"monospace"}}/>
+                  </div>
+                </div>
+
+                {/* ── Row 5: Geo + Folder ── */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#60a5fa",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌎 Geo Target</label>
+                    <input value={bulkDraft.geoTarget} onChange={e=>setBulkDraft(p=>({...p,geoTarget:e.target.value}))} placeholder="e.g. West Virginia statewide" style={{width:"100%",background:"#162236",border:`1px solid ${bulkDraft.geoTarget.trim()?"#60a5fa60":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📁 Client Folder Path</label>
+                    <input value={bulkDraft.folderPath} onChange={e=>setBulkDraft(p=>({...p,folderPath:e.target.value}))} placeholder="\\192.168.3.2\Data\…" style={{width:"100%",background:"#162236",border:`1px solid ${bulkDraft.folderPath.trim()?"#7a9bbf60":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"monospace"}}/>
+                  </div>
+                </div>
+
+                {/* ── History entry ── */}
+                <div>
+                  <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 History Entry <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>— prepended to each campaign's history with today's date</span></label>
+                  <div style={{position:"relative"}}>
+                    <textarea value={bulkDraft.history} onChange={e=>setBulkDraft(p=>({...p,history:e.target.value}))}
+                      placeholder="e.g. New creatives launched for FB, SP & DSP"
+                      rows={2}
+                      style={{width:"100%",background:"#0e1a2e",border:`1px solid ${bulkDraft.history.trim()?"#f59e0b60":"#334155"}`,borderRadius:6,padding:"7px 36px 7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit",resize:"vertical",lineHeight:1.5,outline:"none"}}/>
+                    {bulkDraft.history.trim()&&<span style={{position:"absolute",top:8,right:10,fontSize:10,color:"#f59e0b",fontWeight:600,pointerEvents:"none",background:"#0e1a2e",padding:"1px 4px",borderRadius:3}}>{today} —</span>}
+                  </div>
+                </div>
+
+                {/* ── Actions ── */}
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <button onClick={applyBulkEdit} style={{background:"#00c896",border:"none",borderRadius:7,padding:"9px 24px",color:"#000",fontWeight:700,fontSize:13,cursor:"pointer"}}>Apply to {selectedIds.size} Campaign{selectedIds.size!==1?"s":""}</button>
+                  <button onClick={()=>{ setShowBulkEdit(false); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",startDate:"",endDate:"",projectionUrl:"",clientWebsite:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",contractValue:"",monthlyFlight:"",platform:"",history:""}); }} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"9px 16px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>Cancel</button>
+                  <button onClick={()=>{ setShowBulkEdit(false); setSelectedIds(new Set()); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",startDate:"",endDate:"",projectionUrl:"",clientWebsite:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",contractValue:"",monthlyFlight:"",platform:"",history:""}); }} style={{background:"none",border:"1px solid #334155",borderRadius:7,padding:"9px 12px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>Clear selection</button>
+                  <span style={{fontSize:11,color:"#3d5a72",marginLeft:4}}>{Object.values(bulkDraft).filter(v=>v!=="").length} field{Object.values(bulkDraft).filter(v=>v!=="").length!==1?"s":""} set</span>
                 </div>
               </div>
             )}
@@ -8797,6 +8865,7 @@ export default function App() {
                 style={{background:"none",border:"none",color:"#3d5a72",fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1,marginLeft:2}}>×</button>
             </div>
           )}
+          <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
           <button
             onClick={()=>setFExcludeGoalHit(v=>!v)}
             title="Hide campaigns that have already hit their monthly goal"
@@ -8811,7 +8880,6 @@ export default function App() {
             }}>
             {fExcludeGoalHit?"🎯 Hiding Goal Hit":"🎯 Exclude Goal Hit"}
           </button>
-          <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
           <button onClick={()=>setShowDailyGoal(v=>!v)}
             style={{background:showDailyGoal?"#1a0a2e":"#0e1a2e",
               border:`1px solid ${showDailyGoal?"#a855f780":"#1e293b"}`,
