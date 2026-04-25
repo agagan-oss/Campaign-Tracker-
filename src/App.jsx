@@ -388,7 +388,7 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
                         </div>
                         <div>
                           <label style={{display:"block",fontSize:9,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note</label>
-                          <input type="text" value={editCalDraft.note} onChange={e=>setEditCalDraft(p=>({...p,note:e.target.value}))} placeholder="Note (optional)" style={calIS}/>
+                          <textarea value={editCalDraft.note} onChange={e=>setEditCalDraft(p=>({...p,note:e.target.value}))} placeholder="Note (optional)" rows={3} style={{...calIS,resize:"vertical",lineHeight:1.6,minHeight:64}}/>
                         </div>
                         <div style={{display:"flex",gap:6}}>
                           <button onClick={()=>saveCalEdit(r.id)} disabled={!editCalDraft.date} style={{flex:1,background:editCalDraft.date?"#00c896":"#162236",border:"none",borderRadius:5,padding:"6px 0",color:editCalDraft.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:editCalDraft.date?"pointer":"default"}}>Save</button>
@@ -579,7 +579,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
             </div>
             <div style={{marginBottom:12}}>
               <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note</label>
-              <textarea value={form.note} onChange={e=>sf("note",e.target.value)} placeholder="e.g. Swap March creatives for April" style={{...iS,resize:"vertical",minHeight:70,lineHeight:1.5}}/>
+              <textarea value={form.note} onChange={e=>sf("note",e.target.value)} placeholder="e.g. Swap March creatives for April" style={{...iS,resize:"vertical",minHeight:90,lineHeight:1.6}}/>
             </div>
             <div style={{marginBottom:18}}>
               <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Repeat</label>
@@ -739,29 +739,45 @@ function MetricPill({ label, value, color, prefix="", suffix="" }) {
 
 function RowActions({ c, onEdit, onRenew, onDuplicate, onDelete, onArchive }) {
   const [open, setOpen] = useState(false);
+  const [openUp, setOpenUp] = useState(false);
   const ref = useRef(null);
+  const btnRef = useRef(null);
+
   useEffect(() => {
     function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, []);
+
+  function handleOpen() {
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      // Menu is ~160px tall — flip up if less than 180px below
+      setOpenUp(rect.bottom + 180 > window.innerHeight);
+    }
+    setOpen(v => !v);
+  }
+
   return (
     <div ref={ref} style={{display:"flex",gap:5,alignItems:"center",position:"relative"}}>
-      {/* Primary: Edit always visible */}
       <button onClick={onEdit}
         style={{background:"#1a0e00",border:"1px solid #fb923c60",borderRadius:5,color:"#fb923c",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>
         Edit
       </button>
-      {/* Overflow menu trigger */}
-      <button onClick={()=>setOpen(v=>!v)}
+      <button ref={btnRef} onClick={handleOpen}
         style={{background:open?"#162236":"#0e1a2e",border:`1px solid ${open?"#334155":"#1e293b"}`,borderRadius:5,color:"#4d6e8a",fontSize:12,padding:"3px 6px",cursor:"pointer",lineHeight:1,fontWeight:700,letterSpacing:"0.05em"}}
         title="More actions">
         ···
       </button>
       {open && (
-        <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,zIndex:200,
+        <div style={{
+          position:"absolute",
+          ...(openUp
+            ? {bottom:"calc(100% + 4px)", top:"auto"}
+            : {top:"calc(100% + 4px)",   bottom:"auto"}),
+          right:0, zIndex:9999,
           background:"#0c1625",border:"1px solid #1e293b",borderRadius:8,
-          boxShadow:"0 8px 32px rgba(0,0,0,.8)",minWidth:140,overflow:"hidden"}}>
+          boxShadow:"0 8px 32px rgba(0,0,0,.9)",minWidth:140,overflow:"hidden"}}>
           <button onClick={()=>{setOpen(false);onRenew();}}
             style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",borderBottom:"1px solid #0e1828",padding:"8px 13px",color:"#00c896",fontSize:12,cursor:"pointer",textAlign:"left"}}
             onMouseEnter={e=>e.currentTarget.style.background="#002418"}
@@ -853,46 +869,50 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
               })}
             </div>
 
-            {/* Add reminder — compact single row */}
             {showAddReminder&&(
-              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                <select value={newReminder.type} onChange={e=>setNewReminder(p=>({...p,type:e.target.value}))}
-                  style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",flexShrink:0}}>
-                  {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
-                </select>
-                <div style={{flexShrink:0,minWidth:130}}>
-                  <DatePicker value={newReminder.date} onChange={v=>setNewReminder(p=>({...p,date:v}))}/>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                  <select value={newReminder.type} onChange={e=>setNewReminder(p=>({...p,type:e.target.value}))}
+                    style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",flexShrink:0}}>
+                    {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                  <div style={{flexShrink:0,minWidth:130}}>
+                    <DatePicker value={newReminder.date} onChange={v=>setNewReminder(p=>({...p,date:v}))}/>
+                  </div>
+                  <button onClick={()=>{ if(!newReminder.date) return; setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); setShowAddReminder(false); }}
+                    disabled={!newReminder.date}
+                    style={{background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"6px 14px",color:newReminder.date?"#000":"#3d5a72",fontSize:11,fontWeight:700,cursor:newReminder.date?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
+                    Save
+                  </button>
+                  <button onClick={()=>{ setShowAddReminder(false); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); }}
+                    style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 10px",color:"#7a9bbf",fontSize:11,cursor:"pointer",flexShrink:0}}>
+                    Cancel
+                  </button>
                 </div>
-                {/* Save + Cancel immediately after date */}
-                <button onClick={()=>{ if(!newReminder.date) return; setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); setShowAddReminder(false); }}
-                  disabled={!newReminder.date}
-                  style={{background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"6px 14px",color:newReminder.date?"#000":"#3d5a72",fontSize:11,fontWeight:700,cursor:newReminder.date?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
-                  Save
-                </button>
-                <button onClick={()=>{ setShowAddReminder(false); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); }}
-                  style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 10px",color:"#7a9bbf",fontSize:11,cursor:"pointer",flexShrink:0}}>
-                  Cancel
-                </button>
-                <input type="text" value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))}
-                  placeholder="Note (optional)" onKeyDown={e=>{ if(e.key==="Enter"&&newReminder.date){ setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); setShowAddReminder(false); }}}
-                  style={{flex:1,minWidth:120,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                <textarea value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))}
+                  placeholder="Note — write as much as you need…"
+                  rows={4}
+                  style={{width:"100%",background:"#0a1422",border:`1px solid ${newReminder.note.trim()?"#f59e0b60":"#1e293b"}`,borderRadius:5,padding:"7px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",resize:"vertical",lineHeight:1.6,outline:"none",boxSizing:"border-box",minHeight:80}}/>
               </div>
             )}
 
             {/* Edit existing reminder */}
             {editingReminderId&&reminders.filter(r=>r.id===editingReminderId).map(r=>(
-              <div key={r.id} style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginTop:6}}>
-                <select value={editReminderDraft.type} onChange={e=>setEditReminderDraft(p=>({...p,type:e.target.value}))}
-                  style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",flexShrink:0}}>
-                  {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
-                </select>
-                <div style={{flexShrink:0,minWidth:130}}>
-                  <DatePicker value={editReminderDraft.date} onChange={v=>setEditReminderDraft(p=>({...p,date:v}))}/>
+              <div key={r.id} style={{display:"flex",flexDirection:"column",gap:6,marginTop:6}}>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                  <select value={editReminderDraft.type} onChange={e=>setEditReminderDraft(p=>({...p,type:e.target.value}))}
+                    style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",flexShrink:0}}>
+                    {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                  <div style={{flexShrink:0,minWidth:130}}>
+                    <DatePicker value={editReminderDraft.date} onChange={v=>setEditReminderDraft(p=>({...p,date:v}))}/>
+                  </div>
+                  <button onClick={()=>saveEditReminder(r.id)} style={{background:"#f59e0b",border:"none",borderRadius:5,padding:"5px 12px",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>Save</button>
+                  <button onClick={cancelEditReminder} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 10px",color:"#7a9bbf",fontSize:11,cursor:"pointer",flexShrink:0}}>Cancel</button>
                 </div>
-                <input type="text" value={editReminderDraft.note||""} onChange={e=>setEditReminderDraft(p=>({...p,note:e.target.value}))}
-                  placeholder="Note" style={{flex:1,minWidth:100,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
-                <button onClick={()=>saveEditReminder(r.id)} style={{background:"#f59e0b",border:"none",borderRadius:5,padding:"5px 12px",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>Save</button>
-                <button onClick={cancelEditReminder} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 10px",color:"#7a9bbf",fontSize:11,cursor:"pointer",flexShrink:0}}>Cancel</button>
+                <textarea value={editReminderDraft.note||""} onChange={e=>setEditReminderDraft(p=>({...p,note:e.target.value}))}
+                  placeholder="Note" rows={4}
+                  style={{width:"100%",background:"#0a1422",border:`1px solid ${editReminderDraft.note?.trim()?"#f59e0b60":"#1e293b"}`,borderRadius:5,padding:"7px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",resize:"vertical",lineHeight:1.6,outline:"none",boxSizing:"border-box",minHeight:80}}/>
               </div>
             ))}
           </div>
@@ -1336,7 +1356,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 </div>
                 <div>
                   <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Note (optional)</label>
-                  <input type="text" value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))} placeholder="e.g. Swap creatives" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  <textarea value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))} placeholder="e.g. Swap creatives" rows={4} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"7px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",lineHeight:1.6,minHeight:80,outline:"none"}}/>
                 </div>
                 <div style={{display:"flex",gap:6}}>
                   <button onClick={addReminder} disabled={!newReminder.date} style={{flex:1,background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"7px 0",color:newReminder.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:newReminder.date?"pointer":"default"}}>Save Reminder</button>
