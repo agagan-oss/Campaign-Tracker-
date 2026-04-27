@@ -1,11 +1,11 @@
-const https = require('https');
-const fs = require('fs');
+import https from 'https';
+import fs from 'fs';
 
 const LOGIN = process.env.TTD_LOGIN;
 const PASSWORD = process.env.TTD_PASSWORD;
 const CONFIG = JSON.parse(fs.readFileSync('ttd_config.json', 'utf8'));
 
-async function request(options, body) {
+function request(options, body) {
   return new Promise((resolve, reject) => {
     const req = https.request(options, res => {
       let data = '';
@@ -96,14 +96,20 @@ async function main() {
               spend += row.Spend || 0;
             });
           }
-        } catch (e) {
+        } catch(e) {
           errors.push({ tracker_id: campaign.tracker_id, window, campaign_id: campaignId, error: e.message });
         }
       }
 
       const ctr = impressions > 0 ? (clicks / impressions * 100) : 0;
       const cpm = impressions > 0 ? (spend / impressions * 1000) : 0;
-      snapshots[window] = { impressions, clicks, spend: Math.round(spend * 100) / 100, ctr: Math.round(ctr * 10000) / 10000, cpm: Math.round(cpm * 100) / 100 };
+      snapshots[window] = {
+        impressions,
+        clicks,
+        spend: Math.round(spend * 100) / 100,
+        ctr: Math.round(ctr * 10000) / 10000,
+        cpm: Math.round(cpm * 100) / 100
+      };
     }
 
     results.push({ tracker_id: campaign.tracker_id, tracker_name: campaign.tracker_name, snapshots });
