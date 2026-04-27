@@ -1,0 +1,27 @@
+name: Fetch TTD Campaign Metrics
+
+on:
+  schedule:
+    - cron: '30 12 * * *'  # 8:30am ET daily
+  workflow_dispatch:         # this is what adds the Run button
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - name: Fetch TTD data
+        env:
+          TTD_LOGIN: ${{ secrets.TTD_LOGIN }}
+          TTD_PASSWORD: ${{ secrets.TTD_PASSWORD }}
+        run: node fetch_ttd_data.js
+      - name: Commit results
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add ttd_campaigns.json
+          git diff --staged --quiet || git commit -m "Update TTD campaign data"
+          git push
