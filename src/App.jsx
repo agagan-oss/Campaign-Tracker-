@@ -1028,21 +1028,21 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
 
           {/* ── CHANGE HISTORY ── */}
           <div style={{paddingTop:12,borderTop:"1px solid #1a2744"}}>
-            <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:".07em",fontWeight:700,marginBottom:6}}>📋 History</div>
+            <div style={{fontSize:9,color:"#3B8FFF",textTransform:"uppercase",letterSpacing:".07em",fontWeight:700,marginBottom:6}}>📋 History</div>
             <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"stretch"}}>
               <button onClick={()=>{ if(!newEntry.trim()) return; const today=getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${newEntry.trim()}`; const updated=historyDraft.trim()?`${line}\n${historyDraft}`:line; setHistoryDraft(updated); onUpdate({...c,history:updated}); setNewEntry(""); }}
                 disabled={!newEntry.trim()}
-                style={{background:newEntry.trim()?"#00c896":"#0a1422",border:"none",borderRadius:5,padding:"0 12px",color:newEntry.trim()?"#000":"#3d5a72",fontSize:11,fontWeight:700,cursor:newEntry.trim()?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
+                style={{background:newEntry.trim()?"#3B8FFF":"#0a1422",border:"none",borderRadius:5,padding:"0 12px",color:newEntry.trim()?"#fff":"#3d5a72",fontSize:11,fontWeight:700,cursor:newEntry.trim()?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
                 + Add
               </button>
               <input value={newEntry} onChange={e=>setNewEntry(e.target.value)}
                 onKeyDown={e=>{ if(e.key==="Enter"&&newEntry.trim()){ const today=getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${newEntry.trim()}`; const updated=historyDraft.trim()?`${line}\n${historyDraft}`:line; setHistoryDraft(updated); onUpdate({...c,history:updated}); setNewEntry(""); }}}
                 placeholder="Add a note…"
-                style={{flex:1,background:"#0a1422",border:`1px solid ${newEntry.trim()?"#00c89660":"#1a2744"}`,borderRadius:5,padding:"5px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                style={{flex:1,background:"#0a1422",border:`1px solid ${newEntry.trim()?"#3B8FFF60":"#1a2744"}`,borderRadius:5,padding:"5px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
             </div>
             <textarea value={historyDraft} onChange={e=>{ setHistoryDraft(e.target.value); onUpdate({...c,history:e.target.value}); }}
               placeholder="Entries appear here…"
-              style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"7px 10px",color:"#4d6e8a",fontSize:11,fontFamily:"inherit",whiteSpace:"pre-wrap",lineHeight:1.6,resize:"vertical",minHeight:70,boxSizing:"border-box",outline:"none"}}/>
+              style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"7px 10px",color:"#3B8FFF",fontSize:11,fontFamily:"inherit",whiteSpace:"pre-wrap",lineHeight:1.6,resize:"vertical",minHeight:70,boxSizing:"border-box",outline:"none"}}/>
           </div>
         </div>
       </td>
@@ -1250,8 +1250,14 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
         {row("startDate","Start Date","date")}
         {row("endDate","End Date","date")}
         {row("status","Status")}
-        {row("note1","Note 1")}
-        {row("note2","Note 2")}
+        <div style={{marginBottom:12}}>
+          <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 1</label>
+          <input type="text" value={f["note1"]||""} onChange={e=>set("note1",e.target.value)} style={{...iS,borderColor:f["note1"]?"#3B8FFF60":"#334155"}}/>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 2</label>
+          <input type="text" value={f["note2"]||""} onChange={e=>set("note2",e.target.value)} style={{...iS,borderColor:f["note2"]?"#3B8FFF60":"#334155"}}/>
+        </div>
         {row("lastChecked","Last Checked","date")}
         {/* Contract Value */}
         <div style={{marginBottom:12}}>
@@ -4104,7 +4110,7 @@ function PacingDateBar({ range, setRange }) {
       {quickKeys.map(k=>{
         const on=range.preset===k;
         return <button key={k} onClick={()=>{setShowCustom(false);setRange({preset:k,...presets[k]});}}
-          style={{background:on?"#002e24":"#0e1a2e",border:"1px solid "+(on?"#00c896":"#162236"),borderRadius:6,padding:"4px 12px",color:on?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:on?700:500,cursor:"pointer"}}>
+          style={{background:on?"#001a38":"#0e1a2e",border:"1px solid "+(on?"#00c896":"#162236"),borderRadius:6,padding:"4px 12px",color:on?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:on?700:500,cursor:"pointer"}}>
           {presets[k].label}
         </button>;
       })}
@@ -8564,6 +8570,8 @@ export default function App() {
         ::-webkit-scrollbar-thumb{background:#1e3350;border-radius:3px;}
         input,select{outline:none;font-family:inherit;}
         input[type=number]::-webkit-inner-spin-button{opacity:.3;}
+        .note1-text{color:#3B8FFF!important;text-shadow:0 0 8px #3B8FFF40;}
+        .eb-glow{box-shadow:0 0 0 1px #3B8FFF40,0 0 8px #3B8FFF20;}
         input::placeholder{color:#1e3a50;}
         .crow:hover td{background:#0a1c32!important;}
         .crow:hover .star-toggle{opacity:1!important;}
@@ -8750,8 +8758,8 @@ export default function App() {
                 {/* ── Row 3: Notes ── */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 1</label>
-                    <input value={bulkDraft.note1} onChange={e=>setBulkDraft(p=>({...p,note1:e.target.value}))} placeholder="e.g. 125K/Mo" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                    <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 1</label>
+                    <input value={bulkDraft.note1} onChange={e=>setBulkDraft(p=>({...p,note1:e.target.value}))} placeholder="e.g. 125K/Mo" style={{width:"100%",background:"#162236",border:`1px solid ${bulkDraft.note1.trim()?"#3B8FFF60":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#ef4444",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>⚠ Note 2 (warning flag)</label>
@@ -9167,7 +9175,7 @@ export default function App() {
                             const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
                             return (
                               <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,flexWrap:"wrap"}}>
-                                <div style={{fontSize:11,color:"#00ffb3",fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
+                                <div style={{fontSize:11,color:"#00ffb3",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
                                 {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                               </div>
                             );
