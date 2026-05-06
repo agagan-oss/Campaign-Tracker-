@@ -445,7 +445,7 @@ function useBackdropClose(onClose) {
   return { onMouseDown, onClick };
 }
 
-function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampaignId=null }) {
+function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampaignId=null, onNavigate=null }) {
   const blank = { id:null, type:"ad-swap", campaignId:"", note:"", date:"", repeat:"none", dismissed:false };
   const [form, setForm] = useState(blank);
   const [view, setView] = useState("list");
@@ -494,7 +494,19 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
         <div style={{flex:1,minWidth:0}}>
           <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:3}}>
             <span style={{fontSize:12,color:rt.color,fontWeight:700}}>{rt.label}</span>
-            {camp && <span style={{fontSize:11,background:pCol+"18",border:`1px solid ${pCol}30`,borderRadius:4,padding:"1px 7px",display:"inline-flex",alignItems:"center",gap:5}}><span style={{color:pCol,fontWeight:700,fontSize:11}}>{camp.campaignName.trim()}</span><span style={{color:pCol,opacity:0.6,fontSize:10}}>· {camp.platform}</span></span>}
+            {camp && (
+              <span
+                onClick={()=>{ if(onNavigate) { onNavigate(camp.id); onClose(); } }}
+                title="Click to jump to this campaign"
+                style={{fontSize:11,background:pCol+"18",border:`1px solid ${pCol}30}`,borderRadius:4,padding:"1px 7px",display:"inline-flex",alignItems:"center",gap:5,cursor:onNavigate?"pointer":"default",transition:"background .15s"}}
+                onMouseEnter={e=>{ if(onNavigate) e.currentTarget.style.background=pCol+"35"; }}
+                onMouseLeave={e=>{ if(onNavigate) e.currentTarget.style.background=pCol+"18"; }}
+              >
+                <span style={{color:pCol,fontWeight:700,fontSize:11}}>{camp.campaignName.trim()}</span>
+                <span style={{color:pCol,opacity:0.6,fontSize:10}}>· {camp.platform}</span>
+                {onNavigate && <span style={{color:pCol,opacity:0.5,fontSize:9,marginLeft:2}}>↗</span>}
+              </span>
+            )}
             <span style={{fontSize:11,fontWeight:600,color:isPast?"#ef4444":dLeft<=3?"#f59e0b":"#00d48a",marginLeft:"auto"}}>
               {isPast?`${Math.abs(dLeft)}d overdue`:dLeft===0?"Today!":`in ${dLeft}d`} · {fmtDate(r.date)}
             </span>
@@ -1192,7 +1204,7 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
 }
 
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[] }) {
-  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",monthlyFlight:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",clientWebsite:"",
+  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",clientWebsite:"",
     // Report data fields
     demoAge:"",       // JSON: [{label:"18-24",pct:32},{label:"25-34",pct:28}...]
     demoGender:"",    // JSON: [{label:"Female",pct:62},{label:"Male",pct:38}]
@@ -1276,6 +1288,15 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             <span style={{marginLeft:"auto",fontSize:10,color:f.monthlyFlight?"#00e5c0":"#1e3350"}}>{f.monthlyFlight?"ON":"OFF"}</span>
           </button>
         </div>
+        {/* Retargeting */}
+        <div style={{marginBottom:12}}>
+          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Retargeting</label>
+          <button onClick={()=>set("retargeting",!f.retargeting)} style={{display:"flex",alignItems:"center",gap:8,background:f.retargeting?"#0a1628":"#162236",border:`1px solid ${f.retargeting?"#FF6B6B60":"#1e3350"}`,borderRadius:7,padding:"8px 14px",cursor:"pointer",width:"100%",boxSizing:"border-box"}}>
+            <span style={{fontSize:13,color:f.retargeting?"#FF6B6B":"#3d5a72",fontWeight:900}}>RT</span>
+            <span style={{fontSize:12,color:f.retargeting?"#FF6B6B":"#4d6e8a",fontWeight:f.retargeting?700:400}}>{f.retargeting?"Retargeting active":"No retargeting"}</span>
+            <span style={{marginLeft:"auto",fontSize:10,color:f.retargeting?"#FF6B6B":"#1e3350"}}>{f.retargeting?"ON":"OFF"}</span>
+          </button>
+        </div>
         {/* Projection URL — full width */}
         <div style={{marginBottom:12,gridColumn:"1 / -1"}}>
           {/* Client Website — for logo auto-fetch */}
@@ -1323,8 +1344,39 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
         </div>
         {/* History — full width */}
         <div style={{marginBottom:16,gridColumn:"1 / -1"}}>
-          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History</label>
-          <textarea value={f.history||""} onChange={e=>set("history",e.target.value)} placeholder={"3/2/26 — Increased budget\n..."} style={{width:"100%",background:"#0e1a2e",border:"1px solid #334155",borderRadius:6,padding:"10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:80,lineHeight:1.6}}/>
+          <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History</label>
+          <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"stretch"}}>
+            <button
+              onClick={()=>{
+                const el=document.getElementById("modal-history-input");
+                const val=el?.value?.trim();
+                if(!val) return;
+                const tod=getToday(); const [y,m,d]=tod.split("-"); const stamp=`${m}/${d}/${y}`;
+                const line=`${stamp} — ${val}`;
+                const updated=(f.history||"").trim()?`${line}\n${f.history}`:line;
+                set("history",updated);
+                el.value="";
+              }}
+              style={{background:"#3B8FFF",border:"none",borderRadius:5,padding:"0 12px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+              + Add
+            </button>
+            <input
+              id="modal-history-input"
+              placeholder="Add a note — timestamp added automatically…"
+              onKeyDown={e=>{
+                if(e.key==="Enter"&&e.target.value.trim()){
+                  const val=e.target.value.trim();
+                  const tod=getToday(); const [y,m,d]=tod.split("-"); const stamp=`${m}/${d}/${y}`;
+                  const line=`${stamp} — ${val}`;
+                  const updated=(f.history||"").trim()?`${line}\n${f.history}`:line;
+                  set("history",updated);
+                  e.target.value="";
+                }
+              }}
+              style={{flex:1,background:"#0e1a2e",border:"1px solid #3B8FFF40",borderRadius:5,padding:"5px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}
+            />
+          </div>
+          <textarea value={f.history||""} onChange={e=>set("history",e.target.value)} placeholder={"Entries appear here…"} style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:6,padding:"10px",color:"#3B8FFF",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:80,lineHeight:1.6}}/>
         </div>
         </div>
         {!isNew && campaign && (
@@ -8044,6 +8096,8 @@ export default function App() {
   const [fCloseToGoal, setFCloseToGoal]         = useState(false);
   const [fExcludeGoalHit, setFExcludeGoalHit]   = useState(false);
   const [fRecentDays, setFRecentDays]           = useState(0);   // 0 = off, else show added within N days
+  const [fNote2, setFNote2]                     = useState(false); // show only campaigns with Note 2 filled
+  const [fNoRetargeting, setFNoRetargeting]     = useState(false); // show only campaigns without retargeting
   const [showDailyGoal, setShowDailyGoal]       = useState(true);
   const [quickCheckIn, setQuickCheckIn]         = useState(false);
   const [collapsedClients, setCollapsedClients] = useState(new Set());
@@ -8330,6 +8384,13 @@ export default function App() {
         const daysAgo = (Date.now()-createdMs)/86400000;
         if(daysAgo>fRecentDays) return false;
       }
+      if(fNote2) {
+        if(!(c.note2&&c.note2.trim())) return false;
+      }
+      if(fNoRetargeting) {
+        if(c.retargeting) return false;
+        if((c.status||"")!=="active") return false;
+      }
       return ms&&(fStatus==="all"||(c.status||"")===fStatus)&&(fPlatforms.size===0||fPlatforms.has(c.platform))&&(!fMonthly||c.monthlyFlight);
     });
     return [...list].sort((a,b)=>{
@@ -8341,7 +8402,7 @@ export default function App() {
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
     });
-  },[campaigns,reminders,search,fStatus,fPlatforms,fMonthly,fGoalHit,fCloseToGoal,fExcludeGoalHit,fRecentDays,sortKey,sortDir,dateRange.preset]);
+  },[campaigns,reminders,search,fStatus,fPlatforms,fMonthly,fGoalHit,fCloseToGoal,fExcludeGoalHit,fRecentDays,fNote2,fNoRetargeting,sortKey,sortDir,dateRange.preset]);
 
   const stats = useMemo(()=>({
     total: campaigns.length,
@@ -8352,6 +8413,8 @@ export default function App() {
     soon: campaigns.filter(c=>{ const d=getDaysLeft(c.endDate); return d>=0&&d<=14; }).length,
     closeToGoal: campaigns.filter(c=>c.status==="close-to-goal").length,
     monthlyFlights: campaigns.filter(c=>c.monthlyFlight).length,
+    retargeting: campaigns.filter(c=>c.retargeting).length,
+    noRetargeting: campaigns.filter(c=>c.status==="active"&&!c.retargeting).length,
   }),[campaigns]);
 
   const pendingReminders = reminders.filter(r=>!r.dismissed&&r.date<=today).length;
@@ -8857,19 +8920,21 @@ export default function App() {
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…" style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"8px 14px",color:"#d8eaf8",fontSize:14,width:280}}/>
           <select
-            value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":fGoalHit?"__goalHit__":fCloseToGoal?"__closeToGoal__":fRecentDays>0?"__recent__":"all")}
+            value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":fGoalHit?"__goalHit__":fCloseToGoal?"__closeToGoal__":fRecentDays>0?"__recent__":fNote2?"__note2__":fNoRetargeting?"__noRT__":"all")}
             onChange={e=>{
               const v=e.target.value;
-              setFMonthly(false); setFGoalHit(false); setFCloseToGoal(false); setGroupByClient(false); setFRecentDays(0);
+              setFMonthly(false); setFGoalHit(false); setFCloseToGoal(false); setGroupByClient(false); setFRecentDays(0); setFNote2(false); setFNoRetargeting(false);
               if(v==="__monthly__"){setFMonthly(true);setFStatus("all");setSortKey("endDate");}
               else if(v==="__reminder__"){setFStatus("all");setSortKey("reminder");}
               else if(v==="__grouped__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(true);}
               else if(v==="__goalHit__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFGoalHit(true);setFExcludeGoalHit(false);}
               else if(v==="__closeToGoal__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFCloseToGoal(true);}
               else if(v==="__recent__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFRecentDays(7);}
+              else if(v==="__note2__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFNote2(true);}
+              else if(v==="__noRT__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFNoRetargeting(true);}
               else{setFStatus(v);if(sortKey==="reminder")setSortKey("endDate");}
             }}
-            style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":fGoalHit?"#00c896":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":fGoalHit?"#00e5a0":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient||fGoalHit||fCloseToGoal||fRecentDays>0)?700:400}}>
+            style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":fGoalHit?"#00c896":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":fGoalHit?"#00e5a0":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient||fGoalHit||fCloseToGoal||fRecentDays>0||fNote2||fNoRetargeting)?700:400}}>
             <option value="all">All Statuses</option>
             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
             <option value="__monthly__">★ Monthly Flights</option>
@@ -8877,6 +8942,8 @@ export default function App() {
             <option value="__goalHit__">🎯 Goal Hit</option>
             <option value="__closeToGoal__">⏳ Close to Goal</option>
             <option value="__recent__">🆕 Recently Added</option>
+            <option value="__note2__">⚠ Has Note 2</option>
+            <option value="__noRT__">RT Missing</option>
             <option value="__grouped__">👥 Group by Client</option>
           </select>
           {/* Inline day range picker — only shown when Recently Added is active */}
@@ -9119,6 +9186,7 @@ export default function App() {
                   return (
                     <Fragment key={c.id}>
                       <tr
+                        id={`campaign-row-${c.id}`}
                         className="crow"
                         draggable="true"
                         onDragStart={e=>onDragStart(e, c.id)}
@@ -9143,6 +9211,8 @@ export default function App() {
                             {(()=>{ const daysOld=(Date.now()-(typeof c.id==="number"?c.id:parseInt(c.id)||0))/86400000; return daysOld<=7?<span title={`Added ${daysOld<1?"today":Math.floor(daysOld)+"d ago"}`} style={{background:"#7dd3fc18",border:"1px solid #7dd3fc50",borderRadius:4,padding:"1px 5px",fontSize:9,color:"#7dd3fc",fontWeight:700,flexShrink:0,letterSpacing:"0.04em"}}>NEW</span>:null; })()}
                             {c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:false})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#00e5c0",fontSize:13,lineHeight:1,flexShrink:0}}>★</button>}
                             {!c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:true})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#1e3048",fontSize:13,lineHeight:1,flexShrink:0,opacity:0}} className="star-toggle">★</button>}
+                            {c.retargeting && <button onClick={()=>updateCampaign({...c,retargeting:false})} title="Retargeting ON — click to turn off" style={{background:"#FF6B6B22",border:"1px solid #FF6B6B60",borderRadius:4,padding:"0px 5px",cursor:"pointer",color:"#FF6B6B",fontSize:10,lineHeight:1.6,flexShrink:0,fontWeight:900}}>RT</button>}
+                            {!c.retargeting && <button onClick={()=>updateCampaign({...c,retargeting:true})} title="No retargeting — click to mark as active" style={{background:"none",border:"1px solid #1e3048",borderRadius:4,padding:"0px 5px",cursor:"pointer",color:"#FF6B6B",fontSize:10,lineHeight:1.6,flexShrink:0,fontWeight:900,opacity:0}} className="star-toggle">RT</button>}
                             {(()=>{
                               const disp=resolveMetrics(c,dateRange.preset);
                               const pacing=computeMonthlyPacing(disp.impressions,c.note1);
@@ -9248,7 +9318,7 @@ export default function App() {
 
       {editTarget && <Modal campaign={editTarget} onSave={u=>{ updateCampaign(u); setEditTarget(null); }} onClose={()=>setEditTarget(null)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()} reminders={reminders} setReminders={setReminders} campaigns={campaigns}/>}
       {showAdd    && <Modal isNew onSave={n=>{ setCampaigns(cs=>[...cs,n]); addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null}); setShowAdd(false); }} onClose={()=>setShowAdd(false)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
-      {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} focusCampaignId={typeof showReminderModal==="number"?showReminderModal:null} onClose={()=>setShowReminderModal(null)}/>}
+      {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} focusCampaignId={typeof showReminderModal==="number"?showReminderModal:null} onClose={()=>setShowReminderModal(null)} onNavigate={(campId)=>{ setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; }); setSearch(""); setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },200); }}/>}
       {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
       <ConfirmDialog dialog={dialog} onResolve={onResolve}/>
     </div>
