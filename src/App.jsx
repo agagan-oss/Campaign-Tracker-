@@ -1586,25 +1586,42 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     `Ollama · ${llmSettings.model||"gemma4:e4b"}`;
 
   // Unified LLM call
-  async function callLLM(messages, maxTokens=1400) {
+  async function callLLM(messages, maxTokens=1200) {
     if (llmSettings.mode === "groq") {
       const key = llmSettings.groqApiKey;
       if (!key) throw new Error("No Groq API key set. Add it in Zeus ⚙️ Settings.");
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
-        body: JSON.stringify({
-          model: llmSettings.groqModel || "llama-3.3-70b-versatile",
-          max_tokens: maxTokens,
-          messages: [{ role:"system", content:SYSTEM }, ...messages],
-        }),
-      });
-      if (!res.ok) { const err = await res.text(); throw new Error(`Groq error ${res.status}: ${err.slice(0,200)}`); }
-      const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
-      const text = data.choices?.[0]?.message?.content || "";
-      if (!text) throw new Error("Empty response from Groq");
-      return text;
+
+      // Model fallback order — if 70B hits token limit, drop to 8B
+      const modelQueue = [
+        llmSettings.groqModel || "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+      ];
+
+      for (const model of modelQueue) {
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+          body: JSON.stringify({
+            model,
+            max_tokens: maxTokens,
+            messages: [{ role:"system", content:SYSTEM }, ...messages],
+          }),
+        });
+        if (res.status === 413 || res.status === 429) {
+          // Token limit hit — try next model in queue
+          console.warn(`Model ${model} hit token limit, trying fallback...`);
+          if (model === modelQueue[modelQueue.length-1]) {
+            throw new Error("Request too large even for fallback model. Try asking a more specific question.");
+          }
+          continue;
+        }
+        if (!res.ok) { const err = await res.text(); throw new Error(`Groq error ${res.status}: ${err.slice(0,200)}`); }
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        const text = data.choices?.[0]?.message?.content || "";
+        if (!text) throw new Error("Empty response from Groq");
+        return text;
+      }
 
     } else if (llmSettings.mode === "superagent") {
       if (!llmSettings.superagentEndpoint) throw new Error("No superagent endpoint set.");
@@ -1736,57 +1753,95 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     const active = campaigns.filter(c => c.status==="active");
     const kpiAlerts = getKpiAlerts();
     const predictions = getPredictions();
+
+    // ── Lean row builder — only include fields that have values ──────────────
     const rows = active.map(c => {
       const disp = resolveMetrics(c, dateRange.preset);
       const pacing = computeMonthlyPacing(disp.impressions, c.note1);
       const t = KPI_THRESHOLDS[c.platform];
       let kpiValue=null, kpiLabel=null;
-      if (t) { const raw = t.metric==="CTR" ? parseFloat(disp.ctr)/100 : parseFloat(c.completionRate)/100; if (!isNaN(raw)&&raw>0) { kpiValue=(raw*t.multiply).toFixed(2)+t.unit; kpiLabel=t.label; } }
+      if (t) {
+        const raw = t.metric==="CTR" ? parseFloat(disp.ctr)/100 : parseFloat(c.completionRate)/100;
+        if (!isNaN(raw)&&raw>0) { kpiValue=(raw*t.multiply).toFixed(2)+t.unit; kpiLabel=t.label; }
+      }
       const pred = predictions.find(p=>p.id===c.id);
-      return {
-        id:c.id, campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform,
-        status:c.status, goal:c.goal, note1:c.note1, note2:c.note2||null,
-        startDate:c.startDate||null, endDate:c.endDate, daysLeft:getDaysLeft(c.endDate),
-        impressions:disp.impressions||null, ctr:disp.ctr||null, cpm:disp.cpm||null,
-        spend:disp.spend||null, completionRate:c.completionRate||null,
-        contractValue:c.contractValue||null, lastChecked:c.lastChecked,
-        geoTarget:c.geoTarget||null, lastCreativeUpdate:c.lastCreativeUpdate||null,
-        history:c.history?c.history.slice(0,300):null,
-        kpi:kpiValue?{label:kpiLabel,value:kpiValue}:null,
-        pacing:pacing?{label:pacing.label,pct:Math.round(pacing.pct*100),delivered:pacing.delivered,goal:pacing.goal}:null,
-        prediction:pred?{projectedPct:pred.projectedPct,neededPerDay:pred.neededPerDay,status:pred.status}:null,
-        monthlyFlight:c.monthlyFlight||false,
+
+      // Build lean object — omit null/empty fields entirely to save tokens
+      const row = {
+        id:c.id,
+        c:c.campaignName.trim(),   // "c" instead of "campaign"
+        p:c.mediaPartner,           // "p" instead of "partner"
+        plt:c.platform,
+        end:c.endDate,
+        dl:getDaysLeft(c.endDate),
+        chk:c.lastChecked,
       };
+      if(c.goal)              row.goal = c.goal;
+      if(c.note1)             row.n1   = c.note1;
+      if(c.note2)             row.n2   = c.note2;
+      if(c.contractValue)     row.cv   = c.contractValue;
+      if(disp.impressions)    row.impr = disp.impressions;
+      if(disp.ctr)            row.ctr  = disp.ctr;
+      if(disp.cpm)            row.cpm  = disp.cpm;
+      if(disp.spend)          row.spnd = disp.spend;
+      if(c.completionRate)    row.vcr  = c.completionRate;
+      if(kpiValue)            row.kpi  = `${kpiLabel}:${kpiValue}`;
+      if(pacing)              row.pac  = `${pacing.label}:${Math.round(pacing.pct*100)}%:${pacing.delivered}/${pacing.goal}`;
+      if(pred)                row.pred = `${pred.status}:${pred.projectedPct}%`;
+      if(c.monthlyFlight)     row.mf   = 1;
+      if(c.retargeting)       row.rt   = 1;
+      // Only include last 2 history lines to save space
+      if(c.history) {
+        const lines = c.history.trim().split("\n").slice(0,2).join(" | ");
+        if(lines) row.hist = lines.slice(0,120);
+      }
+      return row;
     });
-    // Load report vault for trend context
+
+    // ── Slim KPI alerts — just the essentials ────────────────────────────────
+    const slimAlerts = kpiAlerts.slice(0,15).map(a=>({
+      lvl:a.level, c:a.campaign, plt:a.platform, lbl:a.label,
+      val:a.value, thr:a.threshold, msg:a.msg,
+    }));
+
+    // ── Slim predictions — only at-risk/critical ─────────────────────────────
+    const slimPreds = predictions
+      .filter(p=>p.status==="critical"||p.status==="at-risk")
+      .slice(0,10)
+      .map(p=>({c:p.campaign,plt:p.platform,pct:p.projectedPct,need:p.neededPerDay,st:p.status}));
+
+    // ── Ending soon ───────────────────────────────────────────────────────────
+    const endingSoon = active
+      .filter(c=>{const d=getDaysLeft(c.endDate);return d>=0&&d<=7;})
+      .map(c=>({id:c.id,c:c.campaignName.trim(),plt:c.platform,p:c.mediaPartner,dl:getDaysLeft(c.endDate)}));
+
+    // ── Vault summary — last 6 only, minimal fields ───────────────────────────
     let vaultSummary = [];
     try {
       const vaultData = JSON.parse(localStorage.getItem(VAULT_KEY)||"[]");
-      // Last 6 reports per client, summarized
-      vaultSummary = vaultData.slice(0,12).map(r=>({
-        client: r.client,
-        title: r.title,
-        savedAt: r.savedAt,
-        dateRange: r.dateRange?.label,
-        totals: r.totals,
-        campaignCount: r.campaigns?.length||0,
+      vaultSummary = vaultData.slice(0,6).map(r=>({
+        client:r.client, date:r.dateRange?.label,
+        impr:r.totals?.impressions, clicks:r.totals?.clicks,
+        spend:r.totals?.spend, n:r.campaigns?.length||0,
       }));
     } catch(e) {}
 
-    // Load Zeus memory
+    // ── Zeus memory ───────────────────────────────────────────────────────────
     let zeusMemory = "";
-    try { zeusMemory = localStorage.getItem("zeus-memory")||""; } catch(e) {}
+    try { zeusMemory = (localStorage.getItem("zeus-memory")||"").slice(0,400); } catch(e) {}
 
     return {
-      today, activeCampaignCount:active.length, archivedCount:archive.length,
+      today,
+      active:active.length,
+      archived:archive.length,
       overdueReminders:reminders.filter(r=>!r.dismissed&&r.date<today).length,
-      endingSoon:active.filter(c=>{const d=getDaysLeft(c.endDate);return d>=0&&d<=7;}).map(c=>({id:c.id,campaign:c.campaignName.trim(),platform:c.platform,partner:c.mediaPartner,daysLeft:getDaysLeft(c.endDate)})),
-      kpiAlerts, predictions, campaigns:rows,
-      archivedCampaigns:archive.slice(0,20).map(c=>({id:c.id,campaign:c.campaignName.trim(),partner:c.mediaPartner,platform:c.platform,archivedDate:c.archivedDate,endDate:c.endDate})),
-      allPartners:[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort(),
-      allPlatforms:ALL_PLATFORMS,
-      reportVault: vaultSummary.length>0 ? vaultSummary : undefined,
-      zeusMemory: zeusMemory || undefined,
+      endingSoon,
+      alerts:slimAlerts,
+      atRisk:slimPreds,
+      campaigns:rows,
+      partners:[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort(),
+      vault:vaultSummary.length>0?vaultSummary:undefined,
+      mem:zeusMemory||undefined,
     };
   }
 
@@ -1969,11 +2024,11 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
         try {
           const ctxFresh = buildContext();
           const messages = [
-            {role:"user", content:`[Live tracker data — ${ctxFresh.today}]\n${JSON.stringify(ctxFresh,null,2)}`},
+            {role:"user", content:`[Live tracker data — ${ctxFresh.today}]\n${JSON.stringify(ctxFresh)}`},
             {role:"assistant", content:"Got it. Full tracker access confirmed."},
             {role:"user", content:vaultPrompt},
           ];
-          const text = await callLLM(messages, 1800);
+          const text = await callLLM(messages, 1200);
           const actions = parseActionsFromResponse(text);
           setChatHistory(h=>[...h,{role:"user",content:vaultPrompt},{role:"assistant",content:text,actions}]);
           if (actions.length > 0) setPendingActions(prev=>[...prev,...actions]);
@@ -2007,18 +2062,8 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     setLoading(true); setError(null); setAnalysis(null);
     try {
       const ctx = buildContext();
-      const prompt = `Today is ${ctx.today}. Full assessment of all ${ctx.activeCampaignCount} active campaigns.
-
-${JSON.stringify(ctx, null, 2)}
-
-Give me:
-⚡ CRITICAL — anything needing action today
-🔥 FLAGS — below benchmark, ending soon, stale creatives
-⚠️ WATCH — minor concerns
-✅ SOLID — brief, what's working
-💡 TODAY'S 3 PRIORITIES — exactly 3 ranked actions to take right now`;
-
-      const text = await callLLM([{role:"user", content:prompt}], 1600);
+      const prompt = `Today:${ctx.today}. ${ctx.active} active campaigns.\n\n${JSON.stringify(ctx)}\n\nGive me:\n⚡ CRITICAL — action needed today\n🔥 FLAGS — below benchmark, ending soon, stale\n⚠️ WATCH — minor concerns\n✅ SOLID — what's working\n💡 TODAY'S 3 PRIORITIES — ranked actions`;
+      const text = await callLLM([{role:"user", content:prompt}], 1200);
       const actions = parseActionsFromResponse(text);
       setAnalysis(text);
       setChatHistory(h=>[...h,{role:"assistant",content:text,isAnalysis:true,actions}]);
@@ -2050,7 +2095,7 @@ Give me:
       const prompt = `Today is ${dayName}, ${dateStr}. Generate Austin's morning campaign briefing.
 
 Full tracker data:
-${JSON.stringify({...ctx, dailyPacing: dailySnap}, null, 2)}
+${JSON.stringify({...ctx, dailyPacing:dailySnap})}
 
 Write a clean morning briefing in this EXACT format — no extra sections, no fluff:
 
@@ -2207,10 +2252,10 @@ Rules: Use real campaign names and numbers from the data. Keep each line short a
       const prompt = `Analyze these campaigns for patterns, trends, and systemic issues that Austin should know about. Look beyond individual campaign performance — find connections across campaigns, partners, and platforms.
 
 Campaign data:
-${JSON.stringify(ctx, null, 2)}
+${JSON.stringify(ctx)}
 
 Local patterns already detected:
-${JSON.stringify(localPatterns, null, 2)}
+${JSON.stringify(localPatterns)}
 
 Find and report on:
 1. **Partner-level trends** — is one partner's whole portfolio underperforming? Why might that be?
@@ -2224,7 +2269,7 @@ For each pattern: name it clearly, explain what the data shows, and give one spe
 
 Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
 
-      const text = await callLLM([{role:"user",content:prompt}], 1400);
+      const text = await callLLM([{role:"user",content:prompt}], 1000);
       setPatterns({ local: localPatterns, ai: text, ts: new Date().toLocaleTimeString() });
     } catch(e) {
       setPatterns({ local: localPatterns, ai: null, error: e.message, ts: new Date().toLocaleTimeString() });
@@ -2240,13 +2285,16 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
     setChatHistory(newHistory);
     try {
       const ctx = buildContext();
-      const memNote = ctx.zeusMemory ? `\n\n[Zeus Memory]\n${ctx.zeusMemory}` : "";
+      // Compact context string — no pretty print
+      const ctxStr = JSON.stringify(ctx);
+      const memNote = ctx.mem ? `\n[Memory]\n${ctx.mem}` : "";
       const messages = [
-        {role:"user", content:`[Live tracker data — ${ctx.today}]${memNote}\n${JSON.stringify(ctx,null,2)}`},
-        {role:"assistant", content:"Got it. Full tracker access confirmed" + (ctx.zeusMemory ? ", memory loaded." : ".")},
-        ...newHistory.map(m=>({role:m.role, content:m.content})),
+        {role:"user", content:`[Tracker:${ctx.today}${memNote}]\n${ctxStr}`},
+        {role:"assistant", content:"Got it."},
+        // Only send last 6 chat turns to keep token count down
+        ...newHistory.slice(-6).map(m=>({role:m.role, content:m.content})),
       ];
-      const text = await callLLM(messages, 1600);
+      const text = await callLLM(messages, 1200);
       const actions = parseActionsFromResponse(text);
       setChatHistory(h=>[...h,{role:"assistant",content:text,actions}]);
       if (actions.length > 0) setPendingActions(prev=>[...prev,...actions]);
