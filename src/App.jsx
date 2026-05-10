@@ -1243,191 +1243,196 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   const modalBackdrop = useBackdropClose(onClose);
   return (
     <div {...modalBackdrop} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:12,padding:28,width:"min(1100px,96vw)",maxHeight:"95vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:12,width:"min(1100px,96vw)",maxHeight:"95vh",display:"flex",flexDirection:"column",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
+
+        {/* ── Sticky header ── */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 28px 14px",borderBottom:"1px solid #1e293b",flexShrink:0}}>
           <h2 style={{margin:0,color:"#edf4ff",fontSize:15,fontWeight:700}}>{isNew?"Add Campaign":"Edit Campaign"}</h2>
           <button onClick={onClose} style={{background:"none",border:"none",color:"#4d6e8a",cursor:"pointer",fontSize:22,lineHeight:1,padding:0}}>×</button>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 20px"}}>
-        <div style={{marginBottom:12}}>
-          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Media Partner</label>
-          <input list="partner-suggestions" value={f.mediaPartner||""} onChange={e=>set("mediaPartner",e.target.value)} style={iS} placeholder="Start typing…"/>
-          <datalist id="partner-suggestions">
-            {partners.map(p=><option key={p} value={p}/>)}
-          </datalist>
-        </div>
-        {row("campaignName","Campaign Name")}
-        {row("platform","Platform")}
-        {row("goal","Goal")}
-        {row("startDate","Start Date","date")}
-        {row("endDate","End Date","date")}
-        {row("status","Status")}
-        <div style={{marginBottom:12}}>
-          <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 1</label>
-          <input type="text" value={f["note1"]||""} onChange={e=>set("note1",e.target.value)} style={{...iS,borderColor:f["note1"]?"#3B8FFF60":"#334155"}}/>
-        </div>
-        <div style={{marginBottom:12}}>
-          <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 2</label>
-          <input type="text" value={f["note2"]||""} onChange={e=>set("note2",e.target.value)} style={{...iS,borderColor:f["note2"]?"#3B8FFF60":"#334155"}}/>
-        </div>
-        {row("lastChecked","Last Checked","date")}
-        {/* Contract Value */}
-        <div style={{marginBottom:12}}>
-          <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 Contract Value</label>
-          <div style={{display:"flex",alignItems:"center",gap:0,background:"#162236",border:"1px solid #334155",borderRadius:6,overflow:"hidden"}}>
-            <span style={{padding:"7px 10px",color:"#34d399",fontWeight:700,fontSize:13,background:"#0e1a2e",borderRight:"1px solid #334155"}}>$</span>
-            <input type="number" value={f.contractValue||""} onChange={e=>set("contractValue",e.target.value)} placeholder="e.g. 5000" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:"#d8eaf8",fontSize:13,outline:"none"}}/>
-          </div>
-        </div>
-        {/* Monthly Flights */}
-        <div style={{marginBottom:12}}>
-          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Flights</label>
-          <button onClick={()=>set("monthlyFlight",!f.monthlyFlight)} style={{display:"flex",alignItems:"center",gap:8,background:f.monthlyFlight?"#00201a":"#162236",border:`1px solid ${f.monthlyFlight?"#2dd4bf60":"#1e3350"}`,borderRadius:7,padding:"8px 14px",cursor:"pointer",width:"100%",boxSizing:"border-box"}}>
-            <span style={{fontSize:15,color:f.monthlyFlight?"#00e5c0":"#3d5a72"}}>★</span>
-            <span style={{fontSize:12,color:f.monthlyFlight?"#00e5c0":"#4d6e8a",fontWeight:f.monthlyFlight?700:400}}>{f.monthlyFlight?"Monthly flights enabled":"No monthly flights"}</span>
-            <span style={{marginLeft:"auto",fontSize:10,color:f.monthlyFlight?"#00e5c0":"#1e3350"}}>{f.monthlyFlight?"ON":"OFF"}</span>
-          </button>
-        </div>
-        {/* Retargeting */}
-        <div style={{marginBottom:12}}>
-          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Retargeting</label>
-          <button onClick={()=>set("retargeting",!f.retargeting)} style={{display:"flex",alignItems:"center",gap:8,background:f.retargeting?"#0a1628":"#162236",border:`1px solid ${f.retargeting?"#FF6B6B60":"#1e3350"}`,borderRadius:7,padding:"8px 14px",cursor:"pointer",width:"100%",boxSizing:"border-box"}}>
-            <span style={{fontSize:13,color:f.retargeting?"#FF6B6B":"#3d5a72",fontWeight:900}}>RT</span>
-            <span style={{fontSize:12,color:f.retargeting?"#FF6B6B":"#4d6e8a",fontWeight:f.retargeting?700:400}}>{f.retargeting?"Retargeting active":"No retargeting"}</span>
-            <span style={{marginLeft:"auto",fontSize:10,color:f.retargeting?"#FF6B6B":"#1e3350"}}>{f.retargeting?"ON":"OFF"}</span>
-          </button>
-        </div>
-        {/* Projection URL — full width */}
-        <div style={{marginBottom:12,gridColumn:"1 / -1"}}>
-          {/* Client Website — for logo auto-fetch */}
-          <div style={{marginBottom:12,gridColumn:"1 / -1",display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-            <div>
-              <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌐 Client Website <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(for logo auto-fetch in reports)</span></label>
-              <input type="url" value={f.clientWebsite||""} onChange={e=>set("clientWebsite",e.target.value)} placeholder="https://fairmontstate.edu"
-                style={{width:"100%",background:"#162236",border:`1px solid ${f.clientWebsite?"#34d39960":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit",outline:"none"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Zeus will pull the favicon as the client logo in reports</div>
-            </div>
-            <div/>
-          </div>
-          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📎 Projection Sheet URL</label>
-          <div style={{display:"flex",gap:6}}>
-            <input type="url" value={f.projectionUrl||""} onChange={e=>set("projectionUrl",e.target.value)} placeholder="https://docs.google.com/..." style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
-            {f.projectionUrl&&f.projectionUrl.trim()&&<a href={f.projectionUrl.trim()} target="_blank" rel="noopener noreferrer" style={{background:"#002e24",border:"1px solid #3b82f640",borderRadius:6,padding:"7px 12px",color:"#00e5a0",fontSize:12,fontWeight:600,textDecoration:"none",whiteSpace:"nowrap",display:"flex",alignItems:"center"}}>Open ↗</a>}
-          </div>
-        </div>
-        {/* Geo Target + Last Creative Update — side by side */}
-        <div style={{marginBottom:12,gridColumn:"1 / -1",display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+
+        {/* ── Scrollable body — two column layout ── */}
+        <div style={{overflowY:"auto",padding:"18px 28px",flex:1}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:20,alignItems:"start"}}>
+
+          {/* ── LEFT: All campaign fields ── */}
           <div>
-            <label style={{display:"block",fontSize:10,color:"#60a5fa",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌎 Geo Targeting</label>
-            <input
-              type="text"
-              value={f.geoTarget||""}
-              onChange={e=>set("geoTarget",e.target.value)}
-              placeholder="e.g. Florida statewide, exclude Miami-Dade"
-              style={{width:"100%",background:"#162236",border:`1px solid ${f.geoTarget?"#60a5fa60":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit",transition:"border-color .15s"}}
-            />
-            <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Cities, DMAs, states, zip codes, radius, or exclude notes</div>
-          </div>
-          <div>
-            <label style={{display:"block",fontSize:10,color:"#a855f7",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🎨 Last Creative Update</label>
-            <DatePicker value={f.lastCreativeUpdate||""} onChange={v=>set("lastCreativeUpdate",v)} placeholder="Pick date…"/>
-            <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Date creatives were last swapped or updated</div>
-          </div>
-        </div>
-        {/* Folder Path — full width */}
-        <div style={{marginBottom:12,gridColumn:"1 / -1"}}>
-          <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📁 Client Folder Path</label>
-          <div style={{display:"flex",gap:6}}>
-            <input type="text" value={f.folderPath||""} onChange={e=>set("folderPath",e.target.value)} placeholder="\\192.168.3.2\Data\..." style={{flex:1,background:"#162236",border:"1px solid #1e3350",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"Consolas,monospace"}}/>
-            {f.folderPath&&f.folderPath.trim()&&<button onClick={()=>navigator.clipboard.writeText(f.folderPath.trim())} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"7px 12px",color:"#00e5a0",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Copy 📋</button>}
-          </div>
-        </div>
-        {/* History — full width */}
-        <div style={{marginBottom:16,gridColumn:"1 / -1"}}>
-          <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History</label>
-          <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"stretch"}}>
-            <button
-              onClick={()=>{
-                const el=document.getElementById("modal-history-input");
-                const val=el?.value?.trim();
-                if(!val) return;
-                const tod=getToday(); const [y,m,d]=tod.split("-"); const stamp=`${m}/${d}/${y}`;
-                const line=`${stamp} — ${val}`;
-                const updated=(f.history||"").trim()?`${line}\n${f.history}`:line;
-                set("history",updated);
-                el.value="";
-              }}
-              style={{background:"#3B8FFF",border:"none",borderRadius:5,padding:"0 12px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-              + Add
-            </button>
-            <input
-              id="modal-history-input"
-              placeholder="Add a note — timestamp added automatically…"
-              onKeyDown={e=>{
-                if(e.key==="Enter"&&e.target.value.trim()){
-                  const val=e.target.value.trim();
-                  const tod=getToday(); const [y,m,d]=tod.split("-"); const stamp=`${m}/${d}/${y}`;
-                  const line=`${stamp} — ${val}`;
-                  const updated=(f.history||"").trim()?`${line}\n${f.history}`:line;
-                  set("history",updated);
-                  e.target.value="";
-                }
-              }}
-              style={{flex:1,background:"#0e1a2e",border:"1px solid #3B8FFF40",borderRadius:5,padding:"5px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}
-            />
-          </div>
-          <textarea value={f.history||""} onChange={e=>set("history",e.target.value)} placeholder={"Entries appear here…"} style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:6,padding:"10px",color:"#3B8FFF",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:80,lineHeight:1.6}}/>
-        </div>
-        </div>
-        {!isNew && campaign && (
-          <div style={{marginBottom:16,paddingTop:14,borderTop:"1px solid #1e293b"}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-              <label style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>🔔 Reminders</label>
-              <button onClick={()=>setShowAddReminder(v=>!v)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:5,padding:"3px 10px",color:"#f59e0b",fontSize:11,fontWeight:600,cursor:"pointer"}}>+ Add</button>
-            </div>
-            {campaignReminders.length>0 && (
-              <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
-                {campaignReminders.map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5]; return (
-                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,background:"#0a1628",border:`1px solid ${rt.color}30`,borderRadius:5,padding:"5px 10px"}}>
-                    <span style={{fontSize:11,color:rt.color,fontWeight:600}}>{rt.label}</span>
-                    <span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{r.note||""}</span>
-                    <span style={{fontSize:11,color:"#3d5a72",fontFamily:"monospace"}}>{fmtDate(r.date)}</span>
-                    <button onClick={()=>removeReminder(r.id)} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13,lineHeight:1}}>×</button>
-                  </div>
-                );})}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 14px"}}>
+              <div style={{marginBottom:12}}>
+                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Media Partner</label>
+                <input list="partner-suggestions" value={f.mediaPartner||""} onChange={e=>set("mediaPartner",e.target.value)} style={iS} placeholder="Start typing…"/>
+                <datalist id="partner-suggestions">
+                  {partners.map(p=><option key={p} value={p}/>)}
+                </datalist>
               </div>
-            )}
-            {campaignReminders.length===0 && !showAddReminder && <div style={{fontSize:11,color:"#2a4060",marginBottom:4}}>No active reminders for this campaign.</div>}
-            {showAddReminder && (
-              <div style={{background:"#0a1628",border:"1px solid #1e3350",borderRadius:7,padding:"12px",display:"flex",flexDirection:"column",gap:8}}>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                  <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Type</label>
-                    <select value={newReminder.type} onChange={e=>setNewReminder(p=>({...p,type:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit"}}>
-                      {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
-                    <DatePicker value={newReminder.date} onChange={v=>setNewReminder(p=>({...p,date:v}))}/>
-                  </div>
+              {row("campaignName","Campaign Name")}
+              {row("platform","Platform")}
+              {row("goal","Goal")}
+              {row("startDate","Start Date","date")}
+              {row("endDate","End Date","date")}
+              {row("status","Status")}
+              <div style={{marginBottom:12}}>
+                <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 1</label>
+                <input type="text" value={f["note1"]||""} onChange={e=>set("note1",e.target.value)} style={{...iS,borderColor:f["note1"]?"#3B8FFF60":"#334155"}}/>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 2</label>
+                <input type="text" value={f["note2"]||""} onChange={e=>set("note2",e.target.value)} style={{...iS,borderColor:f["note2"]?"#3B8FFF60":"#334155"}}/>
+              </div>
+              {row("lastChecked","Last Checked","date")}
+              {/* Contract Value */}
+              <div style={{marginBottom:12}}>
+                <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 Contract Value</label>
+                <div style={{display:"flex",alignItems:"center",background:"#162236",border:"1px solid #334155",borderRadius:6,overflow:"hidden"}}>
+                  <span style={{padding:"7px 10px",color:"#34d399",fontWeight:700,fontSize:13,background:"#0e1a2e",borderRight:"1px solid #334155"}}>$</span>
+                  <input type="number" value={f.contractValue||""} onChange={e=>set("contractValue",e.target.value)} placeholder="e.g. 5000" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:"#d8eaf8",fontSize:13,outline:"none"}}/>
                 </div>
-                <div>
-                  <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Note (optional)</label>
-                  <textarea value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))} placeholder="e.g. Swap creatives" rows={4} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"7px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",lineHeight:1.6,minHeight:80,outline:"none"}}/>
-                </div>
+              </div>
+            </div>
+
+            {/* Full-width fields below the grid */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:12}}>
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌐 Client Website</label>
+                <input type="url" value={f.clientWebsite||""} onChange={e=>set("clientWebsite",e.target.value)} placeholder="https://fairmontstate.edu"
+                  style={{...iS,borderColor:f.clientWebsite?"#34d39960":"#334155"}}/>
+                <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>Used for logo in reports</div>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📎 Projection Sheet URL</label>
                 <div style={{display:"flex",gap:6}}>
-                  <button onClick={addReminder} disabled={!newReminder.date} style={{flex:1,background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"7px 0",color:newReminder.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:newReminder.date?"pointer":"default"}}>Save Reminder</button>
-                  <button onClick={()=>setShowAddReminder(false)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"7px 14px",color:"#7a9bbf",fontSize:12,cursor:"pointer"}}>Cancel</button>
+                  <input type="url" value={f.projectionUrl||""} onChange={e=>set("projectionUrl",e.target.value)} placeholder="https://docs.google.com/..." style={{...iS,flex:1}}/>
+                  {f.projectionUrl&&f.projectionUrl.trim()&&<a href={f.projectionUrl.trim()} target="_blank" rel="noopener noreferrer" style={{background:"#002e24",border:"1px solid #3b82f640",borderRadius:6,padding:"7px 10px",color:"#00e5a0",fontSize:12,fontWeight:600,textDecoration:"none",whiteSpace:"nowrap",display:"flex",alignItems:"center"}}>↗</a>}
                 </div>
               </div>
-            )}
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#60a5fa",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌎 Geo Targeting</label>
+                <input type="text" value={f.geoTarget||""} onChange={e=>set("geoTarget",e.target.value)} placeholder="e.g. Florida statewide"
+                  style={{...iS,borderColor:f.geoTarget?"#60a5fa60":"#334155"}}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#a855f7",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🎨 Last Creative Update</label>
+                <DatePicker value={f.lastCreativeUpdate||""} onChange={v=>set("lastCreativeUpdate",v)} placeholder="Pick date…"/>
+              </div>
+            </div>
+            <div style={{marginBottom:12}}>
+              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📁 Client Folder Path</label>
+              <div style={{display:"flex",gap:6}}>
+                <input type="text" value={f.folderPath||""} onChange={e=>set("folderPath",e.target.value)} placeholder="\\192.168.3.2\Data\..." style={{...iS,flex:1,fontFamily:"Consolas,monospace",fontSize:12}}/>
+                {f.folderPath&&f.folderPath.trim()&&<button onClick={()=>navigator.clipboard.writeText(f.folderPath.trim())} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"7px 10px",color:"#00e5a0",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Copy 📋</button>}
+              </div>
+            </div>
           </div>
-        )}
-        <div style={{display:"flex",gap:8,marginTop:8}}>
-          <button onClick={submit} style={{flex:1,background:isNew?"#00d48a":"#00c896",border:"none",borderRadius:7,padding:"10px 0",color:isNew?"#000":"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>{isNew?"Add Campaign":"Save Changes"}</button>
-          <button onClick={onClose} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"10px 0",color:"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>Cancel</button>
+
+          {/* ── RIGHT: Toggles + History + Reminders ── */}
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+
+            {/* Monthly Flights */}
+            <div>
+              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Flights</label>
+              <button onClick={()=>set("monthlyFlight",!f.monthlyFlight)} style={{display:"flex",alignItems:"center",gap:8,background:f.monthlyFlight?"#00201a":"#162236",border:`1px solid ${f.monthlyFlight?"#2dd4bf60":"#1e3350"}`,borderRadius:7,padding:"8px 12px",cursor:"pointer",width:"100%",boxSizing:"border-box"}}>
+                <span style={{fontSize:15,color:f.monthlyFlight?"#00e5c0":"#3d5a72"}}>★</span>
+                <span style={{fontSize:12,color:f.monthlyFlight?"#00e5c0":"#4d6e8a",fontWeight:f.monthlyFlight?700:400}}>{f.monthlyFlight?"Monthly flights enabled":"No monthly flights"}</span>
+                <span style={{marginLeft:"auto",fontSize:10,color:f.monthlyFlight?"#00e5c0":"#1e3350"}}>{f.monthlyFlight?"ON":"OFF"}</span>
+              </button>
+            </div>
+
+            {/* RT Pixel */}
+            <div>
+              <label style={{display:"block",fontSize:10,color:f.retargeting?"#FF6B6B":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:f.retargeting?700:400}}>
+                RT Pixel {f.retargeting?"⚠ Not Placed":"✓ Placed"}
+              </label>
+              <button onClick={()=>set("retargeting",!f.retargeting)}
+                style={{display:"flex",alignItems:"center",gap:8,
+                  background:f.retargeting?"#1a0808":"#001a0e",
+                  border:`1px solid ${f.retargeting?"#FF6B6B60":"#2dd4bf40"}`,
+                  borderRadius:7,padding:"8px 12px",cursor:"pointer",width:"100%",boxSizing:"border-box"}}>
+                <span style={{fontSize:13,fontWeight:900,color:f.retargeting?"#FF6B6B":"#00e5c0"}}>RT</span>
+                <span style={{fontSize:12,fontWeight:f.retargeting?700:400,color:f.retargeting?"#FF6B6B":"#4d6e8a"}}>
+                  {f.retargeting?"Pixel not placed — follow up":"Pixel placed"}
+                </span>
+                <span style={{marginLeft:"auto",fontSize:10,color:f.retargeting?"#FF6B6B":"#00e5c060"}}>
+                  {f.retargeting?"PENDING":"✓"}
+                </span>
+              </button>
+            </div>
+
+            {/* History */}
+            <div>
+              <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History</label>
+              <div style={{display:"flex",gap:6,marginBottom:6}}>
+                <button onClick={()=>{ const el=document.getElementById("modal-history-input"); const val=el?.value?.trim(); if(!val) return; const tod=getToday(); const [y,m,d]=tod.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${val}`; const updated=(f.history||"").trim()?`${line}\n${f.history}`:line; set("history",updated); el.value=""; }}
+                  style={{background:"#3B8FFF",border:"none",borderRadius:5,padding:"0 10px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>+ Add</button>
+                <input id="modal-history-input" placeholder="Note — Enter to add…"
+                  onKeyDown={e=>{ if(e.key==="Enter"&&e.target.value.trim()){ const val=e.target.value.trim(); const tod=getToday(); const [y,m,d]=tod.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${val}`; const updated=(f.history||"").trim()?`${line}\n${f.history}`:line; set("history",updated); e.target.value=""; } }}
+                  style={{flex:1,background:"#0e1a2e",border:"1px solid #3B8FFF40",borderRadius:5,padding:"5px 9px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+              </div>
+              <textarea value={f.history||""} onChange={e=>set("history",e.target.value)} placeholder="Entries appear here…"
+                style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:6,padding:"8px 10px",color:"#3B8FFF",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:70,lineHeight:1.6}}/>
+            </div>
+
+            {/* Reminders — only on edit */}
+            {!isNew && campaign && (
+              <div style={{borderTop:"1px solid #1e293b",paddingTop:10}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <label style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>🔔 Reminders</label>
+                  <button onClick={()=>setShowAddReminder(v=>!v)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:5,padding:"3px 10px",color:"#f59e0b",fontSize:11,fontWeight:600,cursor:"pointer"}}>+ Add</button>
+                </div>
+                {campaignReminders.length>0 && (
+                  <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
+                    {campaignReminders.map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5]; return (
+                      <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,background:"#0a1628",border:`1px solid ${rt.color}30`,borderRadius:5,padding:"5px 10px"}}>
+                        <span style={{fontSize:11,color:rt.color,fontWeight:600}}>{rt.label}</span>
+                        <span style={{fontSize:11,color:"#4d6e8a",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.note||""}</span>
+                        <span style={{fontSize:10,color:"#3d5a72",fontFamily:"monospace",flexShrink:0}}>{fmtDate(r.date)}</span>
+                        <button onClick={()=>removeReminder(r.id)} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13,lineHeight:1,flexShrink:0}}>×</button>
+                      </div>
+                    );})}
+                  </div>
+                )}
+                {campaignReminders.length===0 && !showAddReminder && <div style={{fontSize:11,color:"#2a4060",marginBottom:4}}>No active reminders.</div>}
+                {showAddReminder && (
+                  <div style={{background:"#0a1628",border:"1px solid #1e3350",borderRadius:7,padding:"10px",display:"flex",flexDirection:"column",gap:8}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div>
+                        <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Type</label>
+                        <select value={newReminder.type} onChange={e=>setNewReminder(p=>({...p,type:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit"}}>
+                          {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
+                        <DatePicker value={newReminder.date} onChange={v=>setNewReminder(p=>({...p,date:v}))}/>
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Note (optional)</label>
+                      <textarea value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))} placeholder="e.g. Follow up on pixel" rows={2} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",lineHeight:1.5,outline:"none"}}/>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={addReminder} disabled={!newReminder.date} style={{flex:1,background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"7px 0",color:newReminder.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:newReminder.date?"pointer":"default"}}>Save</button>
+                      <button onClick={()=>setShowAddReminder(false)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"7px 12px",color:"#7a9bbf",fontSize:12,cursor:"pointer"}}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>{/* end right column */}
+          </div>{/* end two-col grid */}
+        </div>{/* end scrollable body */}
+
+        {/* ── Sticky save bar — always visible ── */}
+        <div style={{borderTop:"1px solid #1e293b",padding:"14px 28px",flexShrink:0,background:"#0a1525",borderRadius:"0 0 12px 12px",display:"flex",gap:8,alignItems:"center"}}>
+          {f.retargeting && (
+            <div style={{display:"flex",alignItems:"center",gap:6,background:"#1a0808",border:"1px solid #FF6B6B40",borderRadius:6,padding:"6px 12px",marginRight:4}}>
+              <span style={{fontSize:11,color:"#FF6B6B",fontWeight:700}}>⚠ RT Pixel Not Placed</span>
+            </div>
+          )}
+          <button onClick={submit} style={{flex:1,background:isNew?"#00d48a":"#00c896",border:"none",borderRadius:7,padding:"11px 0",color:isNew?"#000":"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>{isNew?"Add Campaign":"Save Changes"}</button>
+          <button onClick={onClose} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"11px 0",color:"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>Cancel</button>
         </div>
+
       </div>
     </div>
   );
@@ -8991,7 +8996,7 @@ export default function App() {
             <option value="__closeToGoal__">⏳ Close to Goal</option>
             <option value="__recent__">🆕 Recently Added</option>
             <option value="__note2__">⚠ Has Note 2</option>
-            <option value="__noRT__">RT Missing</option>
+            <option value="__noRT__">⚠ RT Pixel Missing</option>
             <option value="__grouped__">👥 Group by Client</option>
           </select>
           {/* Inline day range picker — only shown when Recently Added is active */}
@@ -9259,8 +9264,8 @@ export default function App() {
                             {(()=>{ const daysOld=(Date.now()-(typeof c.id==="number"?c.id:parseInt(c.id)||0))/86400000; return daysOld<=7?<span title={`Added ${daysOld<1?"today":Math.floor(daysOld)+"d ago"}`} style={{background:"#7dd3fc18",border:"1px solid #7dd3fc50",borderRadius:4,padding:"1px 5px",fontSize:9,color:"#7dd3fc",fontWeight:700,flexShrink:0,letterSpacing:"0.04em"}}>NEW</span>:null; })()}
                             {c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:false})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#00e5c0",fontSize:13,lineHeight:1,flexShrink:0}}>★</button>}
                             {!c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:true})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#1e3048",fontSize:13,lineHeight:1,flexShrink:0,opacity:0}} className="star-toggle">★</button>}
-                            {c.retargeting && <button onClick={()=>updateCampaign({...c,retargeting:false})} title="Retargeting ON — click to turn off" style={{background:"#FF6B6B22",border:"1px solid #FF6B6B60",borderRadius:4,padding:"0px 5px",cursor:"pointer",color:"#FF6B6B",fontSize:10,lineHeight:1.6,flexShrink:0,fontWeight:900}}>RT</button>}
-                            {!c.retargeting && <button onClick={()=>updateCampaign({...c,retargeting:true})} title="No retargeting — click to mark as active" style={{background:"none",border:"1px solid #1e3048",borderRadius:4,padding:"0px 5px",cursor:"pointer",color:"#FF6B6B",fontSize:10,lineHeight:1.6,flexShrink:0,fontWeight:900,opacity:0}} className="star-toggle">RT</button>}
+                            {c.retargeting && <button onClick={()=>updateCampaign({...c,retargeting:false})} title="RT pixel not placed — click when pixel is live" style={{background:"#FF6B6B22",border:"1px solid #FF6B6B60",borderRadius:4,padding:"0px 5px",cursor:"pointer",color:"#FF6B6B",fontSize:10,lineHeight:1.6,flexShrink:0,fontWeight:900}}>RT</button>}
+                            {!c.retargeting && <button onClick={()=>updateCampaign({...c,retargeting:true})} title="Pixel placed — click to flag as missing" style={{background:"none",border:"1px solid #1e3048",borderRadius:4,padding:"0px 5px",cursor:"pointer",color:"#FF6B6B",fontSize:10,lineHeight:1.6,flexShrink:0,fontWeight:900,opacity:0}} className="star-toggle">RT</button>}
                             {(()=>{
                               const disp=resolveMetrics(c,dateRange.preset);
                               const pacing=computeMonthlyPacing(disp.impressions,c.note1);
