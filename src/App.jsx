@@ -2015,10 +2015,10 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     } catch(e) {}
 
     const ctx = buildContext();
-    const criticals = ctx.kpiAlerts.filter(a=>a.level==="danger").length;
-    const warns = ctx.kpiAlerts.filter(a=>a.level==="warn").length;
-    const atRisk = ctx.predictions.filter(p=>p.status==="critical"||p.status==="at-risk").length;
-    const endingSoon = ctx.endingSoon.length;
+    const criticals = (ctx.alerts||[]).filter(a=>a.lvl==="danger").length;
+    const warns = (ctx.alerts||[]).filter(a=>a.lvl==="warn").length;
+    const atRisk = (ctx.atRisk||[]).length;
+    const endingSoon = (ctx.endingSoon||[]).length;
 
     if (vaultPrompt) {
       // Came from vault — auto-run the analysis
@@ -2051,11 +2051,11 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
         if (endingSoon > 0) g += `⏰ **${endingSoon} campaign${endingSoon>1?"s":""} ending in 7 days** — confirm finals and renewal.\n`;
         if (warns > 0) g += `⚠️ **${warns} KPI warning${warns>1?"s":""}** below benchmark.\n`;
       } else {
-        g += `✅ **${ctx.activeCampaignCount} active campaigns, no critical flags right now.**\n`;
+        g += `✅ **${ctx.active} active campaigns, no critical flags right now.**\n`;
         if (warns > 0) g += `⚠️ ${warns} minor KPI warning${warns>1?"s":""} to watch.\n`;
       }
-      if (ctx.reportVault?.length > 0) {
-        g += `\n📊 **${ctx.reportVault.length} saved report${ctx.reportVault.length>1?"s":""} in the vault** — ask me to analyze trends.\n`;
+      if (ctx.vault && ctx.vault.length > 0) {
+        g += `\n📊 **${ctx.vault.length} saved report${ctx.vault.length>1?"s":""} in the vault** — ask me to analyze trends.\n`;
       }
       g += `\nI have full read/write access to the tracker. Tell me what to do — add campaigns, edit anything, analyze performance, draft emails, anything.\n\nZeus ⚡`;
       setChatHistory([{role:"assistant", content:g, isGreeting:true}]);
@@ -3397,13 +3397,13 @@ function ZeusMemoryPanel({ campaigns, archive, reminders, callLLM, buildContext,
       const prompt = `Write a concise Zeus memory note (4-6 sentences) about Austin Gagan based on this data. Focus on key clients, platforms, business context, and what Zeus should always keep in mind.
 
 Data:
-- Active campaigns: ${ctx.activeCampaignCount}
+- Active campaigns: ${ctx.active}
 - Partners: ${partners.slice(0,15).join(", ")}
 - Platforms used: ${platforms.join(", ")}
 - Archived campaigns: ${archive.length}
 - Saved reports: ${vaultCount}
-- Ending soon: ${ctx.endingSoon.map(c=>c.campaign).slice(0,5).join(", ")||"none"}
-- Critical alerts: ${ctx.kpiAlerts.filter(a=>a.level==="danger").length}
+- Ending soon: ${(ctx.endingSoon||[]).map(c=>c.c).slice(0,5).join(", ")||"none"}
+- Critical alerts: ${(ctx.alerts||[]).filter(a=>a.lvl==="danger").length}
 
 Write in third person ("Austin runs...", "Key clients include..."). Be factual and specific. Include: company name, role, main platforms, key clients if identifiable, business model. No filler.`;
 
