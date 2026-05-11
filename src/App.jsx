@@ -1525,10 +1525,21 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
   const hasGreeted = useRef(false);
 
   // ── Watch thresholds ────────────────────────────────────────────────────────
-  const [watchThresholds, setWatchThresholds] = useState({
-    ctrWarnPct: 80, pacingBehindPct: 80, creativeAgeDays: 21,
-    spendBudgetPct: 80, daysToEndWarn: 7,
+  const WATCH_THRESHOLDS_KEY = "zeus-watch-thresholds";
+  const [watchThresholds, setWatchThresholdsState] = useState(()=>{
+    try {
+      const saved = localStorage.getItem("zeus-watch-thresholds");
+      return saved ? {...{ctrWarnPct:80,pacingBehindPct:80,creativeAgeDays:30,spendBudgetPct:80,daysToEndWarn:7}, ...JSON.parse(saved)}
+                   : {ctrWarnPct:80, pacingBehindPct:80, creativeAgeDays:30, spendBudgetPct:80, daysToEndWarn:7};
+    } catch { return {ctrWarnPct:80, pacingBehindPct:80, creativeAgeDays:30, spendBudgetPct:80, daysToEndWarn:7}; }
   });
+  function setWatchThresholds(updater) {
+    setWatchThresholdsState(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      try { localStorage.setItem("zeus-watch-thresholds", JSON.stringify(next)); } catch(e) {}
+      return next;
+    });
+  }
 
   // ── Editable KPI benchmarks ─────────────────────────────────────────────────
   const defaultBenchmarks = {
@@ -2842,18 +2853,34 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
           })()}
           {/* Thresholds */}
           <div style={{marginTop:8,background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px"}}>
-            <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:12}}>⚙️ Alert Thresholds</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              {[{key:"creativeAgeDays",label:"Creative Staleness",unit:"days",min:7,max:60},{key:"spendBudgetPct",label:"Spend Budget Warn",unit:"% of contract",min:50,max:99},{key:"daysToEndWarn",label:"Ending Soon Alert",unit:"days before end",min:3,max:30}].map(t=>(
-                <div key={t.key}>
-                  <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}}>{t.label}</label>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <input type="range" min={t.min} max={t.max} value={watchThresholds[t.key]} onChange={e=>setWatchThresholds(p=>({...p,[t.key]:parseInt(e.target.value)}))} style={{flex:1,accentColor:"#f59e0b"}}/>
-                    <span style={{fontSize:12,color:"#f59e0b",fontWeight:700,minWidth:60,textAlign:"right"}}>{watchThresholds[t.key]} {t.unit}</span>
+            <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:14}}>⚙️ Alert Thresholds <span style={{color:"#3d5a72",fontWeight:400,fontSize:10,textTransform:"none"}}>— changes save automatically</span></div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+              {[
+                {key:"creativeAgeDays", label:"🎨 Creative Staleness",      unit:"days",            min:7,  max:90,  step:1,  desc:"Flag creatives not updated in this many days"},
+                {key:"spendBudgetPct",  label:"💰 Spend Budget Warning",     unit:"% of contract",   min:50, max:99,  step:5,  desc:"Alert when spend reaches this % of contract value"},
+                {key:"daysToEndWarn",   label:"⏰ Ending Soon Alert",        unit:"days before end", min:3,  max:60,  step:1,  desc:"Flag campaigns ending within this many days"},
+                {key:"pacingBehindPct", label:"📉 Pacing Behind Threshold",  unit:"% of goal",       min:50, max:95,  step:5,  desc:"Flag campaigns below this % of their monthly goal"},
+              ].map(t=>(
+                <div key={t.key} style={{background:"#07101c",borderRadius:8,padding:"12px 14px"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                    <span style={{fontSize:11,fontWeight:700,color:"#edf4ff"}}>{t.label}</span>
+                    <span style={{fontSize:14,fontWeight:800,color:"#f59e0b",minWidth:60,textAlign:"right"}}>{watchThresholds[t.key]} <span style={{fontSize:10,color:"#4d6e8a",fontWeight:400}}>{t.unit}</span></span>
                   </div>
+                  <input type="range" min={t.min} max={t.max} step={t.step} value={watchThresholds[t.key]}
+                    onChange={e=>setWatchThresholds(p=>({...p,[t.key]:parseInt(e.target.value)}))}
+                    style={{width:"100%",accentColor:"#f59e0b",margin:"4px 0"}}/>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                    <span style={{fontSize:9,color:"#3d5a72"}}>{t.min}{t.unit.includes("days")?"d":"%"}</span>
+                    <span style={{fontSize:9,color:"#3d5a72"}}>{t.max}{t.unit.includes("days")?"d":"%"}</span>
+                  </div>
+                  <div style={{fontSize:10,color:"#3d5a72",lineHeight:1.4}}>{t.desc}</div>
                 </div>
               ))}
             </div>
+            <button onClick={()=>setWatchThresholds({ctrWarnPct:80,pacingBehindPct:80,creativeAgeDays:30,spendBudgetPct:80,daysToEndWarn:7})}
+              style={{marginTop:12,background:"none",border:"1px solid #334155",borderRadius:6,padding:"5px 14px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
+              ↺ Reset to defaults
+            </button>
           </div>
         </div>
       )}
@@ -2924,6 +2951,41 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
             );
           })}
           <button onClick={()=>setKpiBenchmarks(defaultBenchmarks)} style={{background:"none",border:"1px solid #334155",borderRadius:8,padding:"8px 18px",color:"#4d6e8a",fontSize:12,cursor:"pointer",alignSelf:"flex-start",fontWeight:600}}>↺ Reset to Defaults</button>
+
+          {/* ── Watchlist Alert Thresholds — saved to localStorage ── */}
+          <div style={{marginTop:8,background:"#0c1625",border:"1px solid #f59e0b30",borderRadius:12,padding:"18px 20px"}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:4}}>⚙️ Watchlist Alert Thresholds</div>
+            <div style={{fontSize:11,color:"#4d6e8a",marginBottom:14}}>These control when Zeus flags campaigns in the Watchlist. Saves automatically.</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+              {[
+                {key:"creativeAgeDays", label:"🎨 Creative Staleness",     unit:"days",            min:7,  max:90, step:1,  desc:"Flag creatives older than this"},
+                {key:"spendBudgetPct",  label:"💰 Spend Budget Warning",    unit:"% of contract",   min:50, max:99, step:5,  desc:"Alert at this % of contract value"},
+                {key:"daysToEndWarn",   label:"⏰ Ending Soon Alert",       unit:"days before end", min:3,  max:60, step:1,  desc:"Flag campaigns ending within X days"},
+                {key:"pacingBehindPct", label:"📉 Pacing Behind Threshold", unit:"% of goal",       min:50, max:95, step:5,  desc:"Flag below this % of monthly goal"},
+              ].map(t=>(
+                <div key={t.key} style={{background:"#07101c",borderRadius:8,padding:"12px 14px"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                    <span style={{fontSize:11,fontWeight:700,color:"#edf4ff"}}>{t.label}</span>
+                    <span style={{fontSize:15,fontWeight:800,color:"#f59e0b"}}>
+                      {watchThresholds[t.key]}<span style={{fontSize:10,color:"#4d6e8a",fontWeight:400,marginLeft:2}}>{t.unit.includes("days")?"d":"%"}</span>
+                    </span>
+                  </div>
+                  <input type="range" min={t.min} max={t.max} step={t.step} value={watchThresholds[t.key]}
+                    onChange={e=>setWatchThresholds(p=>({...p,[t.key]:parseInt(e.target.value)}))}
+                    style={{width:"100%",accentColor:"#f59e0b",margin:"4px 0"}}/>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                    <span style={{fontSize:9,color:"#3d5a72"}}>{t.min}</span>
+                    <span style={{fontSize:9,color:"#3d5a72"}}>{t.max}</span>
+                  </div>
+                  <div style={{fontSize:10,color:"#3d5a72"}}>{t.desc}</div>
+                </div>
+              ))}
+            </div>
+            <button onClick={()=>setWatchThresholds({ctrWarnPct:80,pacingBehindPct:80,creativeAgeDays:30,spendBudgetPct:80,daysToEndWarn:7})}
+              style={{marginTop:12,background:"none",border:"1px solid #334155",borderRadius:6,padding:"5px 14px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
+              ↺ Reset thresholds
+            </button>
+          </div>
         </div>
       )}
 
