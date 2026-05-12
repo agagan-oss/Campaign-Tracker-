@@ -1508,6 +1508,26 @@ export default {
   }
 };`;
 
+
+// ── Memory helpers — module level so AIAdvisor.buildContext can use them ──────
+function parseStructuredMemory(raw) {
+  if (!raw) return {};
+  try { const p = JSON.parse(raw); if (typeof p === "object" && !Array.isArray(p)) return p; } catch(e) {}
+  return { _legacy: raw };
+}
+function buildMemoryString(obj) {
+  if (!obj) return "";
+  if (obj._legacy) return obj._legacy.slice(0, 350);
+  const CATS = ["identity","clients","platforms","patterns","prefs","flags"];
+  const LABELS = {identity:"Identity",clients:"Clients",platforms:"Platforms",patterns:"Patterns",prefs:"Preferences",flags:"Watch Items"};
+  const lines = [];
+  for (const key of CATS) {
+    const facts = obj[key];
+    if (facts && facts.length) lines.push("[" + LABELS[key] + "] " + (Array.isArray(facts) ? facts.join(" | ") : facts));
+  }
+  return lines.join("\n").slice(0, 500);
+}
+
 function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, onUpdateCampaign, onArchiveCampaign, onRestoreCampaign, onSetReminder }) {
   // ── Core state ─────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false);
@@ -1844,7 +1864,10 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
 
     // ── Zeus memory ───────────────────────────────────────────────────────────
     let zeusMemory = "";
-    try { zeusMemory = (localStorage.getItem("zeus-memory")||"").slice(0,400); } catch(e) {}
+    try {
+      const raw = localStorage.getItem("zeus-memory")||"";
+      zeusMemory = buildMemoryString(parseStructuredMemory(raw)).slice(0,500);
+    } catch(e) {}
 
     return {
       today,
@@ -1931,9 +1954,38 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       }
 
       else if (action.type === "set_reminder") {
-        const reminder = { id: Date.now(), type: action.data.type || "custom", note: action.data.note || "", date: action.data.date || "", repeat: "none", campaignId: action.data.campaignId || null, dismissed: false };
+        // Zeus may put fields at top level OR inside data — check both
+        const src = action.data || action;
+        // Resolve campaignId — Zeus often sends campaignName instead of id
+        let campId = src.campaignId || action.campaignId || null;
+        if (!campId && (src.campaignName || action.campaignName)) {
+          const name = (src.campaignName || action.campaignName || "").trim().toLowerCase();
+          const match = campaigns.find(c => c.campaignName.trim().toLowerCase() === name
+            || c.campaignName.trim().toLowerCase().includes(name)
+            || name.includes(c.campaignName.trim().toLowerCase().slice(0,15)));
+          if (match) campId = match.id;
+        }
+        // Validate type against REMINDER_TYPES
+        const validTypes = REMINDER_TYPES.map(t => t.value);
+        const rawType = src.type || action.reminderType || "other";
+        // Map common Zeus outputs to valid types
+        const typeMap = { "custom":"other", "follow-up":"other", "followup":"other", "ad swap":"ad-swap", "budget":"budget-check", "creative":"creative", "report":"report", "ending":"end-soon" };
+        const resolvedType = validTypes.includes(rawType) ? rawType : (typeMap[rawType.toLowerCase()] || "other");
+        const note = src.note || action.note || action.historyNote || "";
+        const date = src.date || action.date || action.dueDate || "";
+        if (!date) throw new Error("No date provided for reminder");
+        const reminder = {
+          id: Date.now(),
+          type: resolvedType,
+          note: note,
+          date: date,
+          repeat: src.repeat || "none",
+          campaignId: campId,
+          dismissed: false,
+        };
         onSetReminder(reminder);
-        setActionFeedback({ type:"success", msg:`✓ Reminder set for ${action.data.date}` });
+        const campName = campId ? campaigns.find(c=>c.id===campId)?.campaignName?.trim() : null;
+        setActionFeedback({ type:"success", msg:`✓ Reminder set for ${date}${campName?" — "+campName:""}${note?" · "+note.slice(0,40):""}` });
       }
 
       setPendingActions(prev => prev.filter(a => a.id !== action.id));
@@ -1986,7 +2038,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       const skillsBlock = skillSection ? `\n\n━━━ ACTIVE SKILLS ━━━${skillSection}` : "";
 
       // Always include the action system
-      const actionSystem = `\n\n━━━ ACTION SYSTEM ━━━\nInclude action blocks for all changes:\n\`\`\`action\n{\n  "type": "add_campaign|edit_campaign|bulk_edit|archive_campaign|restore_campaign|set_reminder",\n  "description": "Plain English summary",\n  "campaignId": 123,\n  "campaignName": "exact name",\n  "historyNote": "what changed and why",\n  "partner": "Partner Name",\n  "data": {...fields}\n}\n\`\`\`\nAlways include historyNote. Chain multiple blocks when needed. Use exact campaign names.`;
+      const actionSystem = `\n\n━━━ ACTION SYSTEM ━━━\nInclude action blocks for all changes:\n\`\`\`action\n{\n  "type": "add_campaign|edit_campaign|bulk_edit|archive_campaign|restore_campaign|set_reminder",\n  "description": "Plain English summary",\n  "campaignId": 123,\n  "campaignName": "exact name",\n  "historyNote": "what changed and why",\n  "partner": "Partner Name",\n  "data": {...fields}\n}\n\`\`\`\n\nFor set_reminder use this exact format:\n\`\`\`action\n{\n  "type": "set_reminder",\n  "description": "Reminder for [campaign] on [date]",\n  "campaignName": "exact campaign name from tracker",\n  "campaignId": 123,\n  "note": "what to do or follow up on",\n  "date": "YYYY-MM-DD",\n  "reminderType": "ad-swap|budget-check|creative|report|end-soon|other"\n}\n\`\`\`\nAlways include: campaignName (exact), note (specific action needed), date (YYYY-MM-DD format), reminderType.\nAlways include historyNote on campaign edits. Chain multiple blocks when needed.`;
 
       return activeSoul + memSection + skillsBlock + actionSystem;
     } catch(e) {
@@ -2312,8 +2364,11 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
       ];
       const text = await callLLM(messages, 1200);
       const actions = parseActionsFromResponse(text);
+      const updatedHistory = [...newHistory, {role:"assistant",content:text,actions}];
       setChatHistory(h=>[...h,{role:"assistant",content:text,actions}]);
       if (actions.length > 0) setPendingActions(prev=>[...prev,...actions]);
+      // Save last 8 turns for memory learning
+      try { localStorage.setItem("zeus-last-chat", JSON.stringify(updatedHistory.slice(-8).map(m=>({role:m.role,content:m.content.slice(0,300)})))); } catch(e) {}
     } catch(e) { setChatHistory(h=>[...h,{role:"assistant",content:`Error: ${e.message}`,isError:true}]); }
     setChatLoading(false);
   }
@@ -3433,49 +3488,134 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
 
 
 // ── Zeus Memory / Soul / Skills Panel ────────────────────────────────────────
+// ── Zeus Memory / Soul / Skills Panel ────────────────────────────────────────
+const MEMORY_CATEGORIES = [
+  { key:"identity",  label:"👤 Identity",      desc:"Who Austin is, company, role"             },
+  { key:"clients",   label:"🤝 Clients",        desc:"Key partners, relationships, context"     },
+  { key:"platforms", label:"📡 Platforms",      desc:"Platform mix, what's working"             },
+  { key:"patterns",  label:"🔍 Patterns",       desc:"Recurring issues, campaign behaviors"     },
+  { key:"prefs",     label:"⚙️ Preferences",   desc:"How Austin likes things done"             },
+  { key:"flags",     label:"🚩 Watch Items",    desc:"Ongoing issues, things to keep an eye on" },
+];
 function ZeusMemoryPanel({ campaigns, archive, reminders, callLLM, buildContext, setError }) {
   const [tab, setTab] = React.useState("memory");
   const [saved, setSaved] = React.useState("");
-
-  // ── Memory ──────────────────────────────────────────────────────────────────
-  const [memory, setMemory] = React.useState(()=>{
-    try{ return localStorage.getItem("zeus-memory")||""; }catch{ return ""; }
-  });
+  const [memObj, setMemObjRaw] = React.useState(()=>{ try { return parseStructuredMemory(localStorage.getItem("zeus-memory")||""); } catch { return {}; } });
   const [buildingMemory, setBuildingMemory] = React.useState(false);
+  const [pendingUpdates, setPendingUpdates] = React.useState([]);
+  const [proposing, setProposing] = React.useState(false);
+  const [editingFact, setEditingFact] = React.useState(null);
+  const [editDraft, setEditDraft] = React.useState("");
+  const [newFact, setNewFact] = React.useState({ cat:"identity", text:"" });
 
-  function saveMemory(val) {
-    setMemory(val);
-    try{ localStorage.setItem("zeus-memory", val); }catch{}
+  function saveMemObj(obj) {
+    setMemObjRaw(obj);
+    try { localStorage.setItem("zeus-memory", serializeMemory(obj)); } catch {}
     setSaved("memory"); setTimeout(()=>setSaved(""), 2000);
   }
+
+  function addFact(cat, text) {
+    if (!text.trim()) return;
+    const updated = {...memObj};
+    if (!updated[cat]) updated[cat] = [];
+    if (!Array.isArray(updated[cat])) updated[cat] = [updated[cat]];
+    if (!updated[cat].some(f => f.toLowerCase().includes(text.toLowerCase().slice(0,20))))
+      updated[cat] = [...updated[cat], text.trim()];
+    saveMemObj(updated);
+  }
+
+  function removeFact(cat, idx) {
+    const updated = {...memObj};
+    if (Array.isArray(updated[cat])) {
+      updated[cat] = updated[cat].filter((_,i) => i !== idx);
+      if (!updated[cat].length) delete updated[cat];
+    }
+    saveMemObj(updated);
+  }
+
+  function updateFact(cat, idx, text) {
+    const updated = {...memObj};
+    if (Array.isArray(updated[cat])) updated[cat][idx] = text.trim();
+    saveMemObj(updated);
+    setEditingFact(null);
+  }
+
+  function applyUpdate(u) {
+    const updated = {...memObj};
+    if (!updated[u.category]) updated[u.category] = [];
+    if (!Array.isArray(updated[u.category])) updated[u.category] = [updated[u.category]];
+    if (!updated[u.category].some(f => f.toLowerCase().includes(u.fact.toLowerCase().slice(0,20))))
+      updated[u.category] = [...updated[u.category], u.fact];
+    saveMemObj(updated);
+    setPendingUpdates(prev => prev.filter(x => x !== u));
+  }
+
+  function applyAll() {
+    const updated = {...memObj};
+    for (const u of pendingUpdates) {
+      if (!updated[u.category]) updated[u.category] = [];
+      if (!Array.isArray(updated[u.category])) updated[u.category] = [updated[u.category]];
+      if (!updated[u.category].some(f => f.toLowerCase().includes(u.fact.toLowerCase().slice(0,20))))
+        updated[u.category] = [...updated[u.category], u.fact];
+    }
+    saveMemObj(updated);
+    setPendingUpdates([]);
+  }
+
+  const memString = buildMemoryString(memObj);
+  const tokenEst = Math.ceil(memString.length / 4);
+  const totalFacts = MEMORY_CATEGORIES.reduce((s,c) => s + (Array.isArray(memObj[c.key]) ? memObj[c.key].length : memObj[c.key] ? 1 : 0), 0);
 
   async function autoMemory() {
     setBuildingMemory(true);
     try {
       const ctx = buildContext();
-      const partners = [...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))];
+      const partners = [...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].slice(0,12);
       const platforms = [...new Set(campaigns.map(c=>c.platform).filter(Boolean))];
       const vaultCount = (()=>{ try{ return JSON.parse(localStorage.getItem(VAULT_KEY)||"[]").length; }catch{ return 0; }})();
-      const prompt = `Write a concise Zeus memory note (4-6 sentences) about Austin Gagan based on this data. Focus on key clients, platforms, business context, and what Zeus should always keep in mind.
-
-Data:
-- Active campaigns: ${ctx.active}
-- Partners: ${partners.slice(0,15).join(", ")}
-- Platforms used: ${platforms.join(", ")}
-- Archived campaigns: ${archive.length}
-- Saved reports: ${vaultCount}
-- Ending soon: ${(ctx.endingSoon||[]).map(c=>c.c).slice(0,5).join(", ")||"none"}
-- Critical alerts: ${(ctx.alerts||[]).filter(a=>a.lvl==="danger").length}
-
-Write in third person ("Austin runs...", "Key clients include..."). Be factual and specific. Include: company name, role, main platforms, key clients if identifiable, business model. No filler.`;
-
-      const text = await callLLM([{role:"user",content:prompt}], 300);
-      saveMemory(text.trim());
+      const prompt = `Extract structured facts about Austin Gagan's ad agency. Return ONLY valid JSON, no markdown.\n\nData:\n- Partners: ${partners.join(", ")}\n- Platforms: ${platforms.join(", ")}\n- Active: ${ctx.active}, Archived: ${archive.length}, Reports: ${vaultCount}\n- Ending soon: ${(ctx.endingSoon||[]).map(c=>c.c).slice(0,4).join(", ")||"none"}\n\nReturn ONLY this JSON (max 2 facts per category, under 12 words each, skip empty categories):\n{"identity":[],"clients":[],"platforms":[],"patterns":[],"prefs":[],"flags":[]}`;
+      const text = await callLLM([{role:"user",content:prompt}], 350);
+      const clean = text.replace(/```json|```/g,"").trim();
+      try {
+        const parsed = JSON.parse(clean);
+        const updates = [];
+        for (const cat of MEMORY_CATEGORIES) {
+          const facts = parsed[cat.key]||[];
+          for (const fact of facts) {
+            if (fact && fact.length > 3) updates.push({category:cat.key, fact:fact.trim(), action:"add", source:"auto"});
+          }
+        }
+        if (updates.length > 0) setPendingUpdates(prev=>[...prev,...updates]);
+        else setError("No new facts found — try chatting with Zeus first.");
+      } catch { setError("Couldn't parse response — try again."); }
     } catch(e) { setError("Memory build failed: "+e.message); }
     setBuildingMemory(false);
   }
 
-  // ── Soul ────────────────────────────────────────────────────────────────────
+  async function proposeFromChat() {
+    setProposing(true);
+    try {
+      const currentMem = buildMemoryString(memObj);
+      const recentChat = (()=>{ try { return JSON.parse(localStorage.getItem("zeus-last-chat")||"[]"); } catch { return []; }})();
+      if (!recentChat.length) { setError("No recent chat to analyze. Chat with Zeus first."); setProposing(false); return; }
+      const prompt = `Review this Zeus conversation. Extract 1-3 NEW facts worth remembering. Only facts NOT already in memory.\n\nCurrent memory:\n${currentMem||"Empty"}\n\nRecent chat:\n${recentChat.slice(-4).map(m=>m.role+": "+m.content.slice(0,150)).join("\n")}\n\nReturn ONLY a JSON array. Each item: {"category":"identity|clients|platforms|patterns|prefs|flags","fact":"under 12 words"}. If nothing new, return [].`;
+      const text = await callLLM([{role:"user",content:prompt}], 250);
+      const clean = text.replace(/```json|```/g,"").trim();
+      try {
+        const updates = JSON.parse(clean);
+        if (Array.isArray(updates) && updates.length > 0) {
+          setPendingUpdates(prev=>[...prev,...updates.map(u=>({...u,action:"add",source:"chat"}))]);
+        } else {
+          setError("No new facts found in recent chat.");
+        }
+      } catch { setError("Couldn't parse suggestions — try again."); }
+    } catch(e) { setError("Proposal failed: "+e.message); }
+    setProposing(false);
+  }
+
+  // Expose for AIAdvisor to call after chat
+  React.useEffect(()=>{ window.__zeusProposeMemory = proposeFromChat; return ()=>{ delete window.__zeusProposeMemory; }; }, [memObj]);
+
   const DEFAULT_SOUL = `You are Zeus — Austin Gagan's personal AI super-agent at Recrue Media.
 
 IDENTITY: You are Austin's right hand. Not a passive analyst — an active operator who takes initiative, surfaces problems before Austin notices, and acts when given direction. You think like a senior media buyer who's been running campaigns for 15 years.
@@ -3723,7 +3863,7 @@ ${s.instructions}`).join("\n");
     return `${soul}
 
 ━━━ BUSINESS CONTEXT & MEMORY ━━━
-${memory||"No memory set — go to Memory tab to add context."}
+${buildMemoryString(memObj)||"No memory set — go to Memory tab to add context."}
 
 ━━━ ACTIVE SKILLS ━━━
 ${skillsSection}
@@ -3769,49 +3909,130 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
 
       {/* ── MEMORY TAB ── */}
       {tab==="memory"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div style={{fontSize:11,color:"#4d6e8a",lineHeight:1.7}}>
-            Zeus reads this on every conversation — no need to re-explain who you are or what you care about. Edit manually or let Zeus build it from your data.
-          </div>
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"14px"}}>
-            <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+
+          {/* ── Header + actions ── */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+            <div>
+              <div style={{fontSize:12,color:"#edf4ff",fontWeight:700,marginBottom:2}}>🧠 Zeus Memory</div>
+              <div style={{fontSize:11,color:"#4d6e8a"}}>{totalFacts} facts · ~{tokenEst} tokens · saves automatically</div>
+            </div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               <button onClick={autoMemory} disabled={buildingMemory}
                 style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:6,padding:"5px 12px",color:buildingMemory?"#f59e0b80":"#f59e0b",fontSize:11,fontWeight:700,cursor:buildingMemory?"default":"pointer",whiteSpace:"nowrap"}}>
-                {buildingMemory?"⚡ Building…":"⚡ Auto-build from data"}
+                {buildingMemory?"⚡ Building…":"⚡ Build from tracker data"}
               </button>
-              {!memory&&<button onClick={()=>saveMemory("Austin Gagan, Account Manager at Recrue Media. Manages ~100 active campaigns across Meta, Snapchat, TTD/DSP, CTV/OTT, Google Ads. Two arms: general agency (auto dealers, home services, universities) and AmbioEdu (35+ college partners, CTV/OTT with matchback). Key clients include Fairmont State University. Always prioritize revenue protection — renewals, pacing, spend vs contract. Campaigns named as: [Tactic] ([Target]).")}
-                style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
-                Use template
-              </button>}
-            </div>
-            <textarea value={memory} onChange={e=>setMemory(e.target.value)}
-              placeholder="Add context Zeus should always remember — key clients, your preferences, campaign patterns, anything recurring..."
-              style={{width:"100%",background:"#07101c",border:"1px solid #1a2744",borderRadius:7,padding:"10px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",resize:"vertical",minHeight:160,boxSizing:"border-box",outline:"none",lineHeight:1.65}}/>
-            <div style={{display:"flex",justifyContent:"space-between",marginTop:8,alignItems:"center"}}>
-              <span style={{fontSize:10,color:"#3d5a72"}}>Stored locally · included in every Zeus conversation</span>
-              <button onClick={()=>saveMemory(memory)} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"4px 12px",color:"#7a9bbf",fontSize:11,fontWeight:600,cursor:"pointer"}}>Save</button>
+              <button onClick={proposeFromChat} disabled={proposing}
+                style={{background:"#001a2e",border:"1px solid #3B8FFF40",borderRadius:6,padding:"5px 12px",color:proposing?"#3B8FFF80":"#3B8FFF",fontSize:11,fontWeight:700,cursor:proposing?"default":"pointer",whiteSpace:"nowrap"}}>
+                {proposing?"⚡ Analyzing…":"💬 Learn from last chat"}
+              </button>
             </div>
           </div>
 
-          {/* What Zeus sees */}
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"14px"}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>📊 Context injected every conversation</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,fontSize:11}}>
+          {/* ── Pending updates — one-click approve ── */}
+          {pendingUpdates.length>0&&(
+            <div style={{background:"#0a1628",border:"1px solid #3B8FFF40",borderRadius:10,padding:"12px 14px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                <span style={{fontSize:11,fontWeight:700,color:"#3B8FFF"}}>⚡ {pendingUpdates.length} proposed memory update{pendingUpdates.length>1?"s":""}</span>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={applyAll} style={{background:"#3B8FFF",border:"none",borderRadius:5,padding:"4px 12px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Accept All</button>
+                  <button onClick={()=>setPendingUpdates([])} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>✕ Dismiss All</button>
+                </div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {pendingUpdates.map((u,i)=>{
+                  const cat = MEMORY_CATEGORIES.find(c=>c.key===u.category)||MEMORY_CATEGORIES[0];
+                  return (
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:8,background:"#07101c",borderRadius:6,padding:"7px 10px"}}>
+                      <span style={{fontSize:10,color:"#3B8FFF",background:"#3B8FFF18",border:"1px solid #3B8FFF30",borderRadius:4,padding:"1px 6px",flexShrink:0,whiteSpace:"nowrap"}}>{cat.label.replace(/^\S+\s/,"")}</span>
+                      <span style={{fontSize:12,color:"#d8eaf8",flex:1}}>{u.fact}</span>
+                      <span style={{fontSize:9,color:"#3d5a72",flexShrink:0}}>{u.source==="chat"?"from chat":"from data"}</span>
+                      <button onClick={()=>applyUpdate(u)} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:4,padding:"3px 9px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>✓</button>
+                      <button onClick={()=>setPendingUpdates(prev=>prev.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:"#3d5a72",fontSize:13,cursor:"pointer",flexShrink:0,lineHeight:1}}>×</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Structured fact categories ── */}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {MEMORY_CATEGORIES.map(cat=>{
+              const facts = Array.isArray(memObj[cat.key]) ? memObj[cat.key] : memObj[cat.key] ? [memObj[cat.key]] : [];
+              return (
+                <div key={cat.key} style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:9,padding:"11px 14px"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:facts.length>0?8:0}}>
+                    <div>
+                      <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{cat.label}</span>
+                      <span style={{fontSize:10,color:"#3d5a72",marginLeft:8}}>{cat.desc}</span>
+                    </div>
+                    <span style={{fontSize:10,color:"#3d5a72"}}>{facts.length} fact{facts.length!==1?"s":""}</span>
+                  </div>
+                  {facts.map((fact,idx)=>(
+                    <div key={idx} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                      {editingFact&&editingFact.cat===cat.key&&editingFact.idx===idx ? (
+                        <>
+                          <input autoFocus value={editDraft} onChange={e=>setEditDraft(e.target.value)}
+                            onKeyDown={e=>{if(e.key==="Enter")updateFact(cat.key,idx,editDraft);if(e.key==="Escape")setEditingFact(null);}}
+                            style={{flex:1,background:"#0e1a2e",border:"1px solid #3B8FFF60",borderRadius:5,padding:"4px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                          <button onClick={()=>updateFact(cat.key,idx,editDraft)} style={{background:"#3B8FFF",border:"none",borderRadius:4,padding:"3px 9px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓</button>
+                          <button onClick={()=>setEditingFact(null)} style={{background:"none",border:"none",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>×</button>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{fontSize:10,color:"#3d5a72",flexShrink:0}}>▸</span>
+                          <span style={{fontSize:12,color:"#a8c4e0",flex:1,lineHeight:1.4}}>{fact}</span>
+                          <button onClick={()=>{setEditingFact({cat:cat.key,idx});setEditDraft(fact);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer",padding:"0 3px",opacity:0.6}} title="Edit">✎</button>
+                          <button onClick={()=>removeFact(cat.key,idx)} style={{background:"none",border:"none",color:"#ef4444",fontSize:12,cursor:"pointer",padding:"0 3px",opacity:0.5,lineHeight:1}} title="Remove">×</button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                  {/* Add fact inline */}
+                  <div style={{display:"flex",gap:5,marginTop:facts.length>0?6:2}}>
+                    <input placeholder={`Add ${cat.label.replace(/^\S+\s/,"").toLowerCase()} fact…`}
+                      onKeyDown={e=>{if(e.key==="Enter"&&e.target.value.trim()){addFact(cat.key,e.target.value);e.target.value="";}}}
+                      style={{flex:1,background:"#07101c",border:"1px solid #1a2744",borderRadius:5,padding:"4px 9px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                    <button onClick={e=>{const inp=e.currentTarget.previousSibling;if(inp.value.trim()){addFact(cat.key,inp.value);inp.value="";}}}
+                      style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 9px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>+ Add</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── Legacy plain text migration ── */}
+          {memObj._legacy&&(
+            <div style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:8,padding:"10px 14px"}}>
+              <div style={{fontSize:11,color:"#f59e0b",fontWeight:700,marginBottom:4}}>⚠ Legacy memory detected</div>
+              <div style={{fontSize:11,color:"#7a9bbf",marginBottom:8,lineHeight:1.5}}>{memObj._legacy.slice(0,200)}{memObj._legacy.length>200?"…":""}</div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={autoMemory} style={{background:"#f59e0b",border:"none",borderRadius:5,padding:"5px 12px",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer"}}>⚡ Convert to structured</button>
+                <button onClick={()=>saveMemObj({})} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>Clear</button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Context stats ── */}
+          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:9,padding:"12px 14px"}}>
+            <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>📊 What Zeus sees every conversation</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,fontSize:11,marginBottom:8}}>
               {[
-                {label:"Active campaigns",   val:campaigns.filter(c=>c.status==="active").length},
-                {label:"Partners",           val:[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].length},
-                {label:"Platforms",          val:[...new Set(campaigns.map(c=>c.platform).filter(Boolean))].length},
-                {label:"Archived",           val:archive.length},
-                {label:"Saved reports",      val:(()=>{ try{ return JSON.parse(localStorage.getItem(VAULT_KEY)||"[]").length; }catch{ return 0; }})()},
-                {label:"Active reminders",   val:reminders.filter(r=>!r.dismissed).length},
+                {label:"Active campaigns", val:campaigns.filter(c=>c.status==="active").length},
+                {label:"Partners",         val:[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].length},
+                {label:"Platforms",        val:[...new Set(campaigns.map(c=>c.platform).filter(Boolean))].length},
+                {label:"Archived",         val:archive.length},
+                {label:"Saved reports",    val:(()=>{ try{ return JSON.parse(localStorage.getItem(VAULT_KEY)||"[]").length; }catch{ return 0; }})()},
+                {label:"Reminders",        val:reminders.filter(r=>!r.dismissed).length},
               ].map(({label,val})=>(
-                <div key={label} style={{background:"#07101c",borderRadius:5,padding:"7px 10px",display:"flex",justifyContent:"space-between"}}>
+                <div key={label} style={{background:"#07101c",borderRadius:5,padding:"6px 10px",display:"flex",justifyContent:"space-between"}}>
                   <span style={{color:"#4d6e8a"}}>{label}</span>
                   <span style={{color:"#edf4ff",fontWeight:700}}>{val}</span>
                 </div>
               ))}
             </div>
-            <div style={{marginTop:8,fontSize:10,color:"#3d5a72"}}>Plus: full campaign list with all metrics, pacing predictions, KPI alerts, report vault summaries, your memory + soul + active skills.</div>
+            <div style={{fontSize:10,color:"#3d5a72"}}>Memory token budget: <span style={{color:tokenEst>400?"#f59e0b":"#00e5a0",fontWeight:700}}>{tokenEst}/500 tokens</span> {tokenEst>400?"— getting long, consider trimming":""}</div>
           </div>
         </div>
       )}
