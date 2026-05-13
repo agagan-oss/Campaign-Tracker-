@@ -6418,37 +6418,90 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     }).filter(r=>Object.values(r).some(v=>v));
   }
 
+  // ── Generic column finder — tries multiple common header names ─────────────
+  function findCol(row, candidates) {
+    const keys = Object.keys(row);
+    for (const c of candidates) {
+      const found = keys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g,"") === c.toLowerCase().replace(/[^a-z0-9]/g,""));
+      if (found && row[found]) return row[found];
+    }
+    // Partial match fallback
+    for (const c of candidates) {
+      const found = keys.find(k => k.toLowerCase().includes(c.toLowerCase().split(" ")[0]));
+      if (found && row[found]) return row[found];
+    }
+    return "";
+  }
+
   function detectSource(rows){
-    if(!rows?.length) return "Unknown";
-    const cols=Object.keys(rows[0]).join("|").toLowerCase();
-    if(cols.includes("paid impressions")||cols.includes("click rate")||cols.includes("ecpc")) return "Snapchat";
-    if(cols.includes("amount spent (usd)")||cols.includes("ctr (link click-through rate)")) return "Facebook/Meta";
-    if(cols.includes("campaign name")&&cols.includes("impressions")) return "Facebook/Meta";
-    return "Unknown";
+    if (!rows || !rows.length) return "Generic";
+    const cols = Object.keys(rows[0]).join("|").toLowerCase();
+    if (cols.includes("paid impressions")||cols.includes("ecpc")) return "Snapchat";
+    if (cols.includes("amount spent (usd)")||cols.includes("ctr (link click-through rate)")) return "Facebook/Meta";
+    if (cols.includes("campaign name")&&(cols.includes("impressions")||cols.includes("spend"))) return "Generic";
+    return "Generic";
   }
 
   function extractMetrics(row, source){
-    let impressions=0, clicks=0, ctr=0, spend=0, cpm=0, reach=0;
-    if(source==="Snapchat"){
+    let impressions=0, clicks=0, ctr=0, spend=0, cpm=0, reach=0, videoViews=0, completionRate=0;
+
+    if (source==="Snapchat") {
       impressions = parseFloat(row["Paid Impressions"]||0)||0;
       clicks      = parseFloat(row["Clicks"]||0)||0;
       spend       = parseFloat(row["Amount Spent"]||0)||0;
       reach       = parseFloat(row["Paid Reach"]||0)||0;
-      // Compute CTR from clicks/impressions (more accurate than Click Rate decimal)
-      ctr = impressions>0 ? clicks/impressions*100 : (parseFloat(row["Click Rate"]||0)*100)||0;
-    } else { // Facebook/Meta
+      ctr         = impressions>0 ? clicks/impressions*100 : (parseFloat(row["Click Rate"]||0)*100)||0;
+
+    } else if (source==="Facebook/Meta") {
       impressions = parseInt((row["Impressions"]||"").replace(/[^0-9]/g,""))||0;
       clicks      = parseInt((row["Link clicks"]||"").replace(/[^0-9]/g,""))||0;
       ctr         = parseFloat(row["CTR (link click-through rate)"]||0)||0;
       cpm         = parseFloat(row["CPM (cost per 1,000 impressions) (USD)"]||0)||0;
       spend       = parseFloat(row["Amount spent (USD)"]||0)||0;
       reach       = parseInt((row["Reach"]||"").replace(/[^0-9]/g,""))||0;
+
+    } else {
+      // ── Generic mode — tries all common column name variants ────────────────
+      const raw = v => (v||"").toString().replace(/[$,%]/g,"").replace(/,/g,"").trim();
+      const num = v => parseFloat(raw(v))||0;
+      const int = v => parseInt(raw(v))||0;
+
+      impressions = int(findCol(row, ["impressions","impr","imp","total impressions","paid impressions"]));
+      clicks      = int(findCol(row, ["clicks","link clicks","total clicks","paid clicks","click"]));
+      spend       = num(findCol(row, ["spend","amount spent","cost","total spend","total cost","media spend","ad spend"]));
+      cpm         = num(findCol(row, ["cpm","cost per 1000","cost per mille","cpm (usd)"]));
+      reach       = int(findCol(row, ["reach","unique reach","paid reach","unique users"]));
+      videoViews  = int(findCol(row, ["video views","views","thruplay","video completions","completed views"]));
+      completionRate = num(findCol(row, ["completion rate","vcr","video completion rate","view through rate","vtr"]));
+
+      // CTR — compute from clicks/impressions if not directly available
+      const rawCtr = findCol(row, ["ctr","click through rate","click-through rate","click rate"]);
+      if (rawCtr) {
+        ctr = num(rawCtr);
+        // If it looks like a decimal (e.g. 0.0044) convert to percent
+        if (ctr > 0 && ctr < 1) ctr = ctr * 100;
+      } else if (impressions > 0 && clicks > 0) {
+        ctr = clicks / impressions * 100;
+      }
     }
-    return {impressions:Math.round(impressions), clicks:Math.round(clicks), ctr:parseFloat(ctr.toFixed(4)), spend:parseFloat(spend.toFixed(2)), cpm:parseFloat(cpm.toFixed(4)), reach:Math.round(reach)};
+
+    return {
+      impressions:    Math.round(impressions),
+      clicks:         Math.round(clicks),
+      ctr:            parseFloat(ctr.toFixed(4)),
+      spend:          parseFloat(spend.toFixed(2)),
+      cpm:            parseFloat(cpm.toFixed(4)),
+      reach:          Math.round(reach),
+      videoViews:     Math.round(videoViews),
+      completionRate: parseFloat(completionRate.toFixed(2)),
+    };
   }
 
   function getCampName(row, source){
-    return (source==="Snapchat" ? row["Campaign Name"] : row["Campaign name"]||row["Campaign"])||"";
+    if (source==="Snapchat") return row["Campaign Name"]||"";
+    if (source==="Facebook/Meta") return row["Campaign name"]||row["Campaign"]||"";
+    // Generic — try common campaign name columns
+    return findCol(row, ["campaign name","campaign","name","ad campaign","campaign title"])||"";
   }
 
   function makeKey(source, rows){
@@ -6554,19 +6607,21 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       if(!campId) return;
       const row=fileRows[parseInt(idxStr)]; if(!row) return;
       const m=extractMetrics(row,fileSource);
-      if(!updates[campId]) updates[campId]={impressions:0,clicks:0,ctr:0,cpm:0,spend:0,reach:0,ctrCount:0};
+      if(!updates[campId]) updates[campId]={impressions:0,clicks:0,ctr:0,cpm:0,spend:0,reach:0,ctrCount:0,videoViews:0,completionRate:0};
       updates[campId].impressions+=m.impressions;
       updates[campId].clicks+=m.clicks;
       updates[campId].spend+=m.spend;
       updates[campId].reach+=m.reach;
       if(m.ctr>0){ updates[campId].ctr+=m.ctr; updates[campId].ctrCount++; }
       if(m.cpm>0) updates[campId].cpm=m.cpm;
+      if(m.videoViews>0) updates[campId].videoViews+=m.videoViews;
+      if(m.completionRate>0) updates[campId].completionRate=m.completionRate;
     });
     setCampaigns(cs=>cs.map(c=>{
       const u=updates[c.id]; if(!u) return c;
       const avgCtr=u.ctrCount>0?u.ctr/u.ctrCount:0;
       const computedCtr=u.impressions>0?u.clicks/u.impressions*100:avgCtr;
-      const histLine=`${stamp} — ${u.impressions.toLocaleString()} impr, ${u.clicks} clicks, CTR ${computedCtr.toFixed(3)}%, $${u.spend.toFixed(2)} spend (${fileSource})`;
+      const histLine=`${stamp} — ${u.impressions.toLocaleString()} impr, ${u.clicks} clicks, CTR ${computedCtr.toFixed(3)}%${u.spend>0?", $"+u.spend.toFixed(2)+" spend":""}${u.videoViews>0?", "+u.videoViews.toLocaleString()+" views":""} (${fileSource})`;
       return {...c,
         impressions:u.impressions>0?String(u.impressions):c.impressions,
         clicks:     u.clicks>0?String(u.clicks):c.clicks,
@@ -6574,6 +6629,8 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         spend:      u.spend>0?String(parseFloat(u.spend.toFixed(2))):c.spend,
         cpm:        u.cpm>0?String(parseFloat(u.cpm.toFixed(4))):c.cpm,
         reach:      u.reach>0?String(u.reach):c.reach,
+        videoViews: u.videoViews>0?String(u.videoViews):c.videoViews,
+        completionRate: u.completionRate>0?String(parseFloat(u.completionRate.toFixed(2))):c.completionRate,
         lastChecked:stamp,
         history:    (c.history?c.history+"\n":"")+histLine,
       };
@@ -6641,7 +6698,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
           onDragOver={e=>{e.preventDefault();e.currentTarget.style.background="#002e24";}}
           onDragLeave={e=>{e.currentTarget.style.background="#001a0e";}}
           onDrop={e=>{e.preventDefault();e.currentTarget.style.background="#001a0e";handleFileDrop(e.dataTransfer.files[0]);}}>
-          📊 Drop FB or Snap export
+          📊 Drop any CSV export
           <input type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={e=>handleFileDrop(e.target.files[0])}/>
         </label>
 
@@ -6690,7 +6747,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         {fileRows&&(
           <div style={{display:"flex",flexDirection:"column"}}>
             <div style={{padding:"6px 12px",background:"#060d18",borderBottom:"1px solid #1a2744",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span style={{fontSize:11,fontWeight:700,color:"#edf4ff"}}>{fileSource} — {fileRows.length} rows</span>
+              <span style={{fontSize:11,fontWeight:700,color:"#edf4ff"}}>{fileSource==="Generic"?"📊 Generic CSV":fileSource} — {fileRows.length} rows</span>
               <span style={{fontSize:10,color:"#3d5a72"}}>matching against {selectedCamps.length>0?`${selectedCamps.length} selected`:`${visibleCamps.length} visible`}</span>
               <div style={{display:"flex",gap:5}}>
                 {btn("Clear",()=>{setFileRows(null);setMapping({});setFileSource("");setSavedMsg("");})}
@@ -6798,7 +6855,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
 
       {/* ── Footer ── */}
       <div style={{padding:"7px 14px",background:"#060d18",borderTop:"1px solid #1a2744",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <span style={{fontSize:10,color:"#3d5a72"}}>Supports FB CSV · Snapchat XLSX/CSV · CTR auto-computed from clicks ÷ impressions</span>
+        <span style={{fontSize:10,color:"#3d5a72"}}>Supports FB CSV · Snapchat XLSX/CSV · any generic CSV with Campaign Name + metrics columns · CTR auto-computed from clicks ÷ impressions</span>
         <button onClick={onClose} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"5px 14px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Done</button>
       </div>
     </div>
