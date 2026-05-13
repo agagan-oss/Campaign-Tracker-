@@ -1216,15 +1216,24 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   const blankR = { type:"ad-swap", note:"", date:"", repeat:"none" };
   const [newReminder, setNewReminder] = useState(blankR);
   const [showAddReminder, setShowAddReminder] = useState(false);
-  const campaignReminders = campaign ? reminders.filter(r=>!r.dismissed&&r.campaignId===campaign.id) : [];
+  const [pendingReminders, setPendingReminders] = useState([]); // reminders added before campaign has an ID
+  const campaignReminders = isNew ? pendingReminders : (campaign ? reminders.filter(r=>!r.dismissed&&r.campaignId===campaign.id) : []);
   function addReminder() {
     if (!newReminder.date) return;
-    const r = { ...newReminder, id: Date.now(), campaignId: campaign?.id||null, dismissed: false };
-    setReminders(prev=>[...prev, r]);
+    if (isNew) {
+      // Store without campaignId — will be linked on submit
+      setPendingReminders(prev=>[...prev, { ...newReminder, id: Date.now(), campaignId: null, dismissed: false }]);
+    } else {
+      const r = { ...newReminder, id: Date.now(), campaignId: campaign?.id||null, dismissed: false };
+      setReminders(prev=>[...prev, r]);
+    }
     setNewReminder(blankR);
     setShowAddReminder(false);
   }
-  function removeReminder(id) { setReminders(prev=>prev.filter(r=>r.id!==id)); }
+  function removeReminder(id) {
+    if (isNew) setPendingReminders(prev=>prev.filter(r=>r.id!==id));
+    else setReminders(prev=>prev.filter(r=>r.id!==id));
+  }
   const set = (k,v) => setF(p=>({...p,[k]:v}));
   const iS = {width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box"};
   const row = (key,label,type="text") => (
@@ -1238,7 +1247,13 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   );
   function submit() {
     if (!f.campaignName.trim()||!f.mediaPartner.trim()) { alert("Campaign name and media partner required."); return; }
-    onSave(isNew?{...f,id:Date.now()}:f);
+    const newId = isNew ? Date.now() : f.id;
+    const saved = isNew ? {...f, id:newId} : f;
+    onSave(saved);
+    // Link any pending reminders to the new campaign ID
+    if (isNew && pendingReminders.length > 0) {
+      setReminders(prev=>[...prev, ...pendingReminders.map(r=>({...r, campaignId:newId}))]);
+    }
   }
   const modalBackdrop = useBackdropClose(onClose);
   return (
@@ -1372,7 +1387,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             </div>
 
             {/* Reminders — only on edit */}
-            {!isNew && campaign && (
+            {true && (
               <div style={{borderTop:"1px solid #1e293b",paddingTop:10}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                   <label style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>🔔 Reminders</label>
