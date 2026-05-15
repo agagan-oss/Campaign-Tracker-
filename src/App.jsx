@@ -514,7 +514,23 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
           {r.note && <div style={{fontSize:12,color:"#7a9bbf",lineHeight:1.4}}>{r.note}</div>}
           {r.repeat!=="none" && <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>↻ Repeats {r.repeat}</div>}
         </div>
-        <div style={{display:"flex",gap:5,flexShrink:0}}>
+        <div style={{display:"flex",gap:5,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          {/* Snooze buttons */}
+          {!r.dismissed && [1,3,7].map(days=>{
+            function snooze() {
+              const d = new Date(r.date+"T00:00:00");
+              d.setDate(d.getDate()+days);
+              const newDate = d.toISOString().slice(0,10);
+              setReminders(prev=>prev.map(x=>x.id===r.id?{...x,date:newDate}:x));
+            }
+            return (
+              <button key={days} onClick={snooze}
+                title={`Push ${days} day${days>1?"s":""}`}
+                style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",fontSize:10,padding:"3px 7px",cursor:"pointer",whiteSpace:"nowrap"}}>
+                +{days}d
+              </button>
+            );
+          })}
           {showEdit && <button onClick={()=>edit(r)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:4,color:"#00e5a0",fontSize:11,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>}
           {!r.dismissed && <button onClick={()=>dismiss(r.id)} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00d48a",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✓ Done</button>}
           <button onClick={()=>del(r.id)} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,color:"#ef4444",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✕</button>
@@ -526,7 +542,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
   const reminderBackdrop = useBackdropClose(onClose);
   return (
     <div {...reminderBackdrop} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:14,padding:24,width:view==="calendar"?"min(1600px,98vw)":"min(700px,96vw)",maxHeight:"96vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:14,padding:24,width:view==="calendar"?"min(1600px,98vw)":"min(920px,96vw)",maxHeight:"96vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:16,fontWeight:800,color:"#edf4ff"}}>🔔 Reminders</span>
@@ -1079,6 +1095,7 @@ function DateBar({ range, setRange }) {
 function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
   const [open, setOpen] = useState(false);
   const [openUp, setOpenUp] = useState(false);
+  const [openLeft, setOpenLeft] = useState(false); // flip to right-align when near right edge
   const [view, setView] = useState(() => {
     if (value) { const [y,m] = value.split("-"); return { y:parseInt(y), m:parseInt(m)-1 }; }
     const n = new Date(); return { y:n.getFullYear(), m:n.getMonth() };
@@ -1099,6 +1116,9 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
     if (ref.current) {
       const rect = ref.current.getBoundingClientRect();
       setOpenUp(rect.bottom + 320 > window.innerHeight);
+      setOpenLeft(rect.right + 280 > window.innerWidth);
+      // Store rect for fixed positioning
+      ref.current._rect = rect;
     }
     setOpen(v => !v);
   }
@@ -1136,12 +1156,16 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
         <span style={{fontSize:11, color:open?"#00c896":"#4d6e8a", marginLeft:8}}>📅</span>
       </div>
 
-      {open && (
+      {open && (()=>{
+        const rect = ref.current?._rect || (ref.current?.getBoundingClientRect()) || {};
+        const calTop = openUp ? (rect.top - 326) : (rect.bottom + 6);
+        const calLeft = openLeft ? (rect.right - 260) : rect.left;
+        return (
         <div style={{
-          position:"absolute",
-          top: openUp ? undefined : "calc(100% + 6px)",
-          bottom: openUp ? "calc(100% + 6px)" : undefined,
-          left:0, zIndex:500,
+          position:"fixed",
+          top: calTop,
+          left: calLeft,
+          zIndex:99999,
           background:"#07101c", border:"1px solid #00c89640", borderRadius:10,
           padding:"14px", boxShadow:"0 12px 48px rgba(0,0,0,.9)",
           minWidth:260,
@@ -1198,7 +1222,7 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
             </div>
           )}
         </div>
-      )}
+        );})()}
     </div>
   );
 }
@@ -6469,11 +6493,16 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
 
     } else if (source==="Facebook/Meta") {
       impressions = parseInt((row["Impressions"]||"").replace(/[^0-9]/g,""))||0;
-      clicks      = parseInt((row["Link clicks"]||"").replace(/[^0-9]/g,""))||0;
-      ctr         = parseFloat(row["CTR (link click-through rate)"]||0)||0;
+      clicks      = parseInt((row["Link clicks"]||row["link clicks"]||"").replace(/[^0-9]/g,""))||0;
+      // CTR comes as a decimal (e.g. 0.6889) — multiply by 100 to get percent
+      const rawCtrVal = parseFloat(row["CTR (link click-through rate)"]||0)||0;
+      ctr = rawCtrVal < 1 ? rawCtrVal * 100 : rawCtrVal;
       cpm         = parseFloat(row["CPM (cost per 1,000 impressions) (USD)"]||0)||0;
       spend       = parseFloat(row["Amount spent (USD)"]||0)||0;
       reach       = parseInt((row["Reach"]||"").replace(/[^0-9]/g,""))||0;
+      // Frequency
+      const freqRaw = parseFloat(row["Frequency"]||0)||0;
+      if (freqRaw > 0) row["_frequency"] = freqRaw;
 
     } else {
       // ── Generic mode — tries all common column name variants ────────────────
@@ -6492,12 +6521,15 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       // CTR — compute from clicks/impressions if not directly available
       const rawCtr = findCol(row, ["ctr","click through rate","click-through rate","click rate"]);
       if (rawCtr) {
-        ctr = num(rawCtr);
+        ctr = parseFloat(rawCtr.toString().replace(/[%,]/g,""))||0;
         // If it looks like a decimal (e.g. 0.0044) convert to percent
         if (ctr > 0 && ctr < 1) ctr = ctr * 100;
       } else if (impressions > 0 && clicks > 0) {
         ctr = clicks / impressions * 100;
       }
+      // Frequency
+      const freqVal = parseFloat(findCol(row, ["frequency","freq"])||0)||0;
+      if (freqVal > 0) row["_frequency"] = freqVal;
     }
 
     return {
@@ -6509,6 +6541,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       reach:          Math.round(reach),
       videoViews:     Math.round(videoViews),
       completionRate: parseFloat(completionRate.toFixed(2)),
+      frequency:      parseFloat((row["_frequency"]||findCol(row,["frequency","freq"])||0)).toFixed(2),
     };
   }
 
@@ -6622,7 +6655,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       if(!campId) return;
       const row=fileRows[parseInt(idxStr)]; if(!row) return;
       const m=extractMetrics(row,fileSource);
-      if(!updates[campId]) updates[campId]={impressions:0,clicks:0,ctr:0,cpm:0,spend:0,reach:0,ctrCount:0,videoViews:0,completionRate:0};
+      if(!updates[campId]) updates[campId]={impressions:0,clicks:0,ctr:0,cpm:0,spend:0,reach:0,ctrCount:0,videoViews:0,completionRate:0,frequency:0,freqCount:0};
       updates[campId].impressions+=m.impressions;
       updates[campId].clicks+=m.clicks;
       updates[campId].spend+=m.spend;
@@ -6631,6 +6664,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       if(m.cpm>0) updates[campId].cpm=m.cpm;
       if(m.videoViews>0) updates[campId].videoViews+=m.videoViews;
       if(m.completionRate>0) updates[campId].completionRate=m.completionRate;
+      if(parseFloat(m.frequency)>0){ updates[campId].frequency+=parseFloat(m.frequency); updates[campId].freqCount++; }
     });
     setCampaigns(cs=>cs.map(c=>{
       const u=updates[c.id]; if(!u) return c;
@@ -6646,6 +6680,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         reach:      u.reach>0?String(u.reach):c.reach,
         videoViews: u.videoViews>0?String(u.videoViews):c.videoViews,
         completionRate: u.completionRate>0?String(parseFloat(u.completionRate.toFixed(2))):c.completionRate,
+        frequency: u.freqCount>0?String(parseFloat((u.frequency/u.freqCount).toFixed(2))):c.frequency,
         lastChecked:stamp,
         history:    (c.history?c.history+"\n":"")+histLine,
       };
@@ -6788,6 +6823,8 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                           <span>{m.clicks} clicks</span>
                           <span>CTR {computedCtr.toFixed(3)}%</span>
                           {m.spend>0&&<span>${m.spend.toFixed(2)}</span>}
+                          {m.cpm>0&&<span>${m.cpm.toFixed(2)} CPM</span>}
+                          {parseFloat(m.frequency)>0&&<span>{parseFloat(m.frequency).toFixed(2)}x freq</span>}
                         </div>
                       </div>
                       <select value={assigned} onChange={e=>setMapping(mp=>({...mp,[i]:e.target.value}))}
