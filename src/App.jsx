@@ -6493,10 +6493,10 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
 
     } else if (source==="Facebook/Meta") {
       impressions = parseInt((row["Impressions"]||"").replace(/[^0-9]/g,""))||0;
+      // Always use "Link clicks" — not "Clicks (all)" which includes all click types
       clicks      = parseInt((row["Link clicks"]||row["link clicks"]||"").replace(/[^0-9]/g,""))||0;
-      // CTR comes as a decimal (e.g. 0.6889) — multiply by 100 to get percent
-      const rawCtrVal = parseFloat(row["CTR (link click-through rate)"]||0)||0;
-      ctr = rawCtrVal < 1 ? rawCtrVal * 100 : rawCtrVal;
+      // Always recompute CTR from link clicks / impressions for accuracy
+      ctr         = impressions > 0 && clicks > 0 ? (clicks / impressions * 100) : 0;
       cpm         = parseFloat(row["CPM (cost per 1,000 impressions) (USD)"]||0)||0;
       spend       = parseFloat(row["Amount spent (USD)"]||0)||0;
       reach       = parseInt((row["Reach"]||"").replace(/[^0-9]/g,""))||0;
@@ -6655,12 +6655,11 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       if(!campId) return;
       const row=fileRows[parseInt(idxStr)]; if(!row) return;
       const m=extractMetrics(row,fileSource);
-      if(!updates[campId]) updates[campId]={impressions:0,clicks:0,ctr:0,cpm:0,spend:0,reach:0,ctrCount:0,videoViews:0,completionRate:0,frequency:0,freqCount:0};
+      if(!updates[campId]) updates[campId]={impressions:0,clicks:0,cpm:0,spend:0,reach:0,videoViews:0,completionRate:0,frequency:0,freqCount:0};
       updates[campId].impressions+=m.impressions;
       updates[campId].clicks+=m.clicks;
       updates[campId].spend+=m.spend;
       updates[campId].reach+=m.reach;
-      if(m.ctr>0){ updates[campId].ctr+=m.ctr; updates[campId].ctrCount++; }
       if(m.cpm>0) updates[campId].cpm=m.cpm;
       if(m.videoViews>0) updates[campId].videoViews+=m.videoViews;
       if(m.completionRate>0) updates[campId].completionRate=m.completionRate;
@@ -6668,8 +6667,8 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     });
     setCampaigns(cs=>cs.map(c=>{
       const u=updates[c.id]; if(!u) return c;
-      const avgCtr=u.ctrCount>0?u.ctr/u.ctrCount:0;
-      const computedCtr=u.impressions>0?u.clicks/u.impressions*100:avgCtr;
+      // Always recompute CTR from total link clicks / total impressions
+      const computedCtr = u.impressions > 0 && u.clicks > 0 ? (u.clicks / u.impressions * 100) : 0;
       const histLine=`${stamp} — ${u.impressions.toLocaleString()} impr, ${u.clicks} clicks, CTR ${computedCtr.toFixed(3)}%${u.spend>0?", $"+u.spend.toFixed(2)+" spend":""}${u.videoViews>0?", "+u.videoViews.toLocaleString()+" views":""} (${fileSource})`;
       return {...c,
         impressions:u.impressions>0?String(u.impressions):c.impressions,
@@ -6798,7 +6797,8 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
           <div style={{display:"flex",flexDirection:"column"}}>
             <div style={{padding:"6px 12px",background:"#060d18",borderBottom:"1px solid #1a2744",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <span style={{fontSize:11,fontWeight:700,color:"#edf4ff"}}>{fileSource==="Generic"?"📊 Generic CSV":fileSource} — {fileRows.length} rows</span>
-              <span style={{fontSize:10,color:"#3d5a72"}}>matching against {selectedCamps.length>0?`${selectedCamps.length} selected`:`${visibleCamps.length} visible`}</span>
+              <span style={{fontSize:10,color:mappedCount<fileRows.length?"#f59e0b":"#00e5a0",fontWeight:600}}>{mappedCount}/{fileRows.length} matched</span>
+              {mappedCount<fileRows.length&&<span style={{fontSize:10,color:"#f59e0b"}}>⚠ assign unmatched rows below</span>}
               <div style={{display:"flex",gap:5}}>
                 {btn("Clear",()=>{setFileRows(null);setMapping({});setFileSource("");setSavedMsg("");})}
                 <button onClick={applyMapping} disabled={!mappedCount}
@@ -6812,12 +6812,15 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                 const m=extractMetrics(row,fileSource);
                 const name=getCampName(row,fileSource);
                 const assigned=mapping[i]||"";
-                const computedCtr=m.impressions>0?m.clicks/m.impressions*100:m.ctr;
+                const isUnmatched=!assigned;
+                const computedCtr=m.impressions>0&&m.clicks>0?m.clicks/m.impressions*100:0;
                 return (
-                  <div key={i} style={{borderBottom:"1px solid #0a1018",background:assigned?"#001a0e":"transparent"}}>
+                  <div key={i} style={{borderBottom:"1px solid #0a1018",background:assigned?"#001a0e":isUnmatched?"#130b00":"transparent"}}>
                     <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px"}}>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:11,color:"#d8eaf8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={name}>{name||"—"}</div>
+                        <div style={{fontSize:11,color:isUnmatched?"#f59e0b":"#d8eaf8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:isUnmatched?600:400}} title={name}>
+                          {isUnmatched?"⚠ ":""}{name||"—"}
+                        </div>
                         <div style={{fontSize:9,color:"#3d5a72",marginTop:1,display:"flex",gap:8}}>
                           <span>{m.impressions.toLocaleString()} impr</span>
                           <span>{m.clicks} clicks</span>
@@ -6828,13 +6831,17 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                         </div>
                       </div>
                       <select value={assigned} onChange={e=>setMapping(mp=>({...mp,[i]:e.target.value}))}
-                        style={{background:assigned?"#002e24":"#0e1a2e",border:`1px solid ${assigned?"#00c89640":"#1e293b"}`,borderRadius:5,padding:"3px 7px",color:assigned?"#00e5a0":"#4d6e8a",fontSize:10,outline:"none",cursor:"pointer",maxWidth:170}}>
-                        <option value="">— assign —</option>
-                        {(selectedCamps.length>0?selectedCamps:visibleCamps).map(c=>(
-                          <option key={c.id} value={c.id}>{c.campaignName.trim()}</option>
+                        style={{background:assigned?"#002e24":isUnmatched?"#1a0e00":"#0e1a2e",border:`1px solid ${assigned?"#00c89640":isUnmatched?"#f59e0b40":"#1e293b"}`,borderRadius:5,padding:"3px 7px",color:assigned?"#00e5a0":isUnmatched?"#f59e0b":"#4d6e8a",fontSize:10,outline:"none",cursor:"pointer",maxWidth:200,minWidth:140}}>
+                        <option value="">— assign to campaign —</option>
+                        {activeCamps.map(c=>(
+                          <option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}</option>
                         ))}
                       </select>
                     </div>
+                    {assigned&&(()=>{
+                      const c=activeCamps.find(x=>x.id===assigned);
+                      return c?<div style={{fontSize:9,color:"#00e5a0",paddingLeft:10,paddingBottom:4}}>→ {c.campaignName.trim()} ({c.platform} · {c.mediaPartner})</div>:null;
+                    })()}
                   </div>
                 );
               })}
