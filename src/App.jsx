@@ -4808,17 +4808,24 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const col=pacing?.color??"#4d6e8a", pCol=PLT_COLORS[c.platform]||PLT_COLORS.default;
     const isCTV=c.platform==="CTV"||c.platform==="OTT";
     const fp=flightPct(c), dr=daysRemaining(c), drc=daysRemainingColor(dr);
-    // Build perf metric boxes
+    // Build perf metric boxes — color-coded from benchmarks
+    const bm = bmFor(c.platform);
+    const ctrRawCard  = parseFloat(disp.ctr)||0;
+    const ctrDispCard = ctrRawCard > 1 ? ctrRawCard : ctrRawCard * 100;
+    const vcrRawCard  = parseFloat(c.completionRate)||0;
+    const vcrDispCard = vcrRawCard > 1 ? vcrRawCard : vcrRawCard * 100;
+    const cpmCard     = parseFloat(disp.cpm)||0;
+    const freqCard    = parseFloat(c.frequency||disp.frequency)||0;
     const perfBoxes=[];
-    if(disp.ctr)         perfBoxes.push({label:"CTR",    val:parseFloat(disp.ctr).toFixed(2)+"%",                     color:"#00ffb3"});
-    if(disp.cpm)         perfBoxes.push({label:"CPM",    val:"$"+parseFloat(disp.cpm).toFixed(2),                     color:"#fb923c"});
-    if(disp.spend)       perfBoxes.push({label:"Spend",  val:"$"+Math.round(parseFloat(disp.spend)).toLocaleString(), color:"#f472b6"});
-    if(disp.clicks)      perfBoxes.push({label:"Clicks", val:parseInt(disp.clicks).toLocaleString(),                  color:"#38bdf8"});
-    if(c.reach)          perfBoxes.push({label:"Reach",  val:parseInt(c.reach).toLocaleString(),                      color:"#e879f9"});
-    if(c.frequency)      perfBoxes.push({label:"Freq",   val:parseFloat(c.frequency).toFixed(2)+"x",                  color:"#fb923c"});
-    if(c.videoViews)     perfBoxes.push({label:"Views",  val:parseInt(c.videoViews).toLocaleString(),                 color:"#a78bfa"});
-    if(c.completionRate) perfBoxes.push({label:isCTV?"Compl%":"VCR", val:parseFloat(c.completionRate).toFixed(1)+"%", color:"#818cf8"});
-    if(c.conversions)    perfBoxes.push({label:"Conv",   val:parseInt(c.conversions).toLocaleString(),                color:"#34d399"});
+    if(ctrDispCard>0)    perfBoxes.push({label:"CTR",    val:ctrDispCard<1?ctrDispCard.toFixed(3)+"%":ctrDispCard.toFixed(2)+"%", color:ctrDisplayColor(c.platform,ctrDispCard)});
+    if(vcrDispCard>0)    perfBoxes.push({label:isCTV?"Compl%":"VCR", val:vcrDispCard.toFixed(1)+"%",                              color:vcrDisplayColor(c.platform,vcrDispCard)});
+    if(cpmCard>0)        perfBoxes.push({label:"CPM",    val:"$"+cpmCard.toFixed(2),                                             color:cpmColor(c.platform,cpmCard)});
+    if(disp.spend)       perfBoxes.push({label:"Spend",  val:"$"+Math.round(parseFloat(disp.spend)).toLocaleString(),            color:"#f472b6"});
+    if(disp.clicks)      perfBoxes.push({label:"Clicks", val:parseInt(disp.clicks).toLocaleString(),                             color:"#38bdf8"});
+    if(c.reach)          perfBoxes.push({label:"Reach",  val:parseInt(c.reach).toLocaleString(),                                 color:"#e879f9"});
+    if(freqCard>0)       perfBoxes.push({label:"Freq",   val:freqCard.toFixed(2)+"x",                                            color:freqCard<=2?"#00d48a":freqCard<=3.5?"#f59e0b":"#ef4444"});
+    if(c.videoViews)     perfBoxes.push({label:"Views",  val:parseInt(c.videoViews).toLocaleString(),                            color:"#a78bfa"});
+    if(c.conversions)    perfBoxes.push({label:"Conv",   val:parseInt(c.conversions).toLocaleString(),                           color:"#34d399"});
 
     return <div style={{background:"#0c1625",border:"1px solid "+(pacing?col+"40":"#1e293b"),borderRadius:9,padding:"13px 16px",marginBottom:7}}>
       {/* Header */}
@@ -4839,7 +4846,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           <span>Monthly Pacing</span><span>Goal: {monthlyGoal.toLocaleString()}</span>
         </div>
         <div style={{position:"relative",background:"#07101c",borderRadius:3,height:6,marginBottom:2,overflow:"visible"}}>
-          <div title={"Expected: "+(exp?.toLocaleString()??"")} style={{position:"absolute",top:-3,left:Math.min(97,pacing.expectedPct*100)+"%",width:2,height:12,background:"#334155",borderRadius:1,zIndex:2}}/>
+          <div title={"Expected: "+(exp?.toLocaleString()??"")} style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:14,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
           <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:3}}/>
         </div>
         <span style={{fontSize:10,color:col,fontWeight:700}}>{(pacing.pct*100).toFixed(1)}% of monthly goal</span>
@@ -5163,19 +5170,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());}} style={{background:"none",border:"1px solid #334155",borderRadius:5,padding:"2px 8px",color:"#7a9bbf",fontSize:11,cursor:"pointer"}}>Clear filters</button>
     </div>}
 
-    {/* Summary pills */}
-    <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16,alignItems:"center"}}>
-      {[{label:"Behind",val:behind.length,color:"#fde047"},{label:"On Track",val:onTrack.length,color:"#00d48a"},{label:"Ahead",val:ahead.length,color:"#fb923c"},{label:"No Impr",val:noPace.length,color:"#4d6e8a"},{label:"No Goal",val:noGoalRows.length,color:"#334155"},{label:"No Activity",val:noActivityRows.length,color:"#ef4444"}].map(s=>(
-        <div key={s.label} style={{background:"#0e1a2e",border:"1px solid "+s.color+"30",borderRadius:7,padding:"8px 13px",minWidth:68,textAlign:"center"}}>
-          <div style={{fontSize:20,fontWeight:800,color:s.color,lineHeight:1}}>{s.val}</div>
-          <div style={{fontSize:10,color:"#4d6e8a",marginTop:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>{s.label}</div>
-        </div>
-      ))}
-      <div style={{marginLeft:"auto",fontSize:10,color:"#3d5a72",display:"flex",gap:10}}>
-        <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> Good</span>
-        <span><span style={{color:"#f59e0b",fontWeight:700}}>●</span> OK</span>
-        <span><span style={{color:"#ef4444",fontWeight:700}}>●</span> Low</span>
-      </div>
+    {/* Benchmark legend — compact, replaces the pill boxes */}
+    <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"center",fontSize:10,color:"#3d5a72",flexWrap:"wrap"}}>
+      <span style={{fontWeight:700,color:"#4d6e8a"}}>{filtered.length} campaigns</span>
+      <span style={{color:"#334155"}}>·</span>
+      <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> On/Ahead</span>
+      <span><span style={{color:"#fde047",fontWeight:700}}>●</span> Behind</span>
+      <span><span style={{color:"#ef4444",fontWeight:700}}>●</span> Low KPI</span>
+      <span><span style={{color:"#f59e0b",fontWeight:700}}>●</span> Warn KPI</span>
+      {noActivityRows.length>0&&<span style={{color:"#ef4444",fontWeight:700,marginLeft:4}}>⚠ {noActivityRows.length} stalled</span>}
     </div>
     <Section label="Behind"         color="#fde047" items={behind}/>
     <Section label="On Track"       color="#00d48a" items={onTrack}/>
@@ -10090,10 +10093,10 @@ export default function App() {
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…" style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"8px 14px",color:"#d8eaf8",fontSize:14,width:280}}/>
           <select
-            value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":fGoalHit?"__goalHit__":fCloseToGoal?"__closeToGoal__":fRecentDays>0?"__recent__":fNote2?"__note2__":fNoRetargeting?"__noRT__":"all")}
+            value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":fGoalHit?"__goalHit__":fCloseToGoal?"__closeToGoal__":fRecentDays>0?"__recent__":fNote2?"__note2__":fNoRetargeting?"__noRT__":fHasData==="yes"?"__hasData__":fHasData==="no"?"__noData__":"all")}
             onChange={e=>{
               const v=e.target.value;
-              setFMonthly(false); setFGoalHit(false); setFCloseToGoal(false); setGroupByClient(false); setFRecentDays(0); setFNote2(false); setFNoRetargeting(false);
+              setFMonthly(false); setFGoalHit(false); setFCloseToGoal(false); setGroupByClient(false); setFRecentDays(0); setFNote2(false); setFNoRetargeting(false); setFHasData("all");
               if(v==="__monthly__"){setFMonthly(true);setFStatus("all");setSortKey("endDate");}
               else if(v==="__reminder__"){setFStatus("all");setSortKey("reminder");}
               else if(v==="__grouped__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(true);}
@@ -10102,9 +10105,11 @@ export default function App() {
               else if(v==="__recent__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFRecentDays(7);}
               else if(v==="__note2__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFNote2(true);}
               else if(v==="__noRT__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFNoRetargeting(true);}
-              else{setFStatus(v);if(sortKey==="reminder")setSortKey("endDate");}
+              else if(v==="__hasData__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFHasData("yes");}
+              else if(v==="__noData__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFHasData("no");}
+              else{setFStatus(v);if(sortKey==="reminder")setSortKey("endDate");setFHasData("all");}
             }}
-            style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":fGoalHit?"#00c896":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":fGoalHit?"#00e5a0":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient||fGoalHit||fCloseToGoal||fRecentDays>0||fNote2||fNoRetargeting)?700:400}}>
+            style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":fGoalHit?"#00c896":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":fHasData==="yes"?"#00c896":fHasData==="no"?"#ef4444":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":fGoalHit?"#00e5a0":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":fHasData==="yes"?"#00e5a0":fHasData==="no"?"#ef4444":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient||fGoalHit||fCloseToGoal||fRecentDays>0||fNote2||fNoRetargeting||fHasData!=="all")?700:400}}>
             <option value="all">All Statuses</option>
             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
             <option value="__monthly__">★ Monthly Flights</option>
@@ -10115,17 +10120,9 @@ export default function App() {
             <option value="__note2__">⚠ Has Note 2</option>
             <option value="__noRT__">⚠ RT Pixel Missing</option>
             <option value="__grouped__">👥 Group by Client</option>
+            <option value="__hasData__">✓ Has Metrics</option>
+            <option value="__noData__">✗ No Metrics</option>
           </select>
-          {/* Has / No Data filter toggle */}
-          <div style={{display:"flex",gap:0,background:"#070d16",border:"1px solid #162236",borderRadius:7,overflow:"hidden",flexShrink:0}}>
-            {[["all","All"],["yes","Has Data"],["no","No Data"]].map(([v,l])=>(
-              <button key={v} onClick={()=>setFHasData(v)}
-                style={{background:fHasData===v?(v==="yes"?"#002e24":v==="no"?"#1a0808":"#0e1a2e"):"transparent",border:"none",padding:"5px 10px",color:fHasData===v?(v==="yes"?"#00e5a0":v==="no"?"#ef4444":"#7a9bbf"):"#3d5a72",fontSize:11,fontWeight:fHasData===v?700:400,cursor:"pointer",whiteSpace:"nowrap",borderRight:v!=="no"?"1px solid #162236":"none",transition:"all .12s"}}>
-                {v==="yes"?"✓ ":v==="no"?"✗ ":""}{l}
-              </button>
-            ))}
-          </div>
-
           {/* Inline day range picker — only shown when Recently Added is active */}
           {fRecentDays>0&&(
             <div style={{display:"flex",alignItems:"center",gap:6,background:"#06101f",border:"1px solid #7dd3fc40",borderRadius:7,padding:"4px 10px"}}>
