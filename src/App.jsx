@@ -121,7 +121,7 @@ function resolveMetrics(c, preset) {
     const s = c.snapSnapshots[key];
     return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", clicks:s.clicks!=null?String(s.clicks):"", source:"snap", snapshotKey:key };
   }
-  return { impressions:c.impressions||"", ctr:c.ctr||"", cpm:c.cpm||"", spend:c.spend||"", clicks:c.clicks||"", source:key?"manual-no-snapshot":"manual", snapshotKey:key };
+  return { impressions:c.impressions||"", ctr:c.ctr||"", cpm:c.cpm||"", spend:c.spend||"", clicks:c.clicks||"", videoViews:c.videoViews||"", completionRate:c.completionRate||"", source:key?"manual-no-snapshot":"manual", snapshotKey:key };
 }
 
 
@@ -153,19 +153,52 @@ function parseMonthlyGoal(note1) {
 
 // Compute monthly pacing: impressions delivered this month vs monthly goal vs days elapsed this month
 // Returns { pct, color, label, delivered, goal } or null
-function computeMonthlyPacing(impressions, note1) {
+// Pacing metric selector — what counts as "delivered" varies by platform.
+// YT: video views · SEM: spend ($) · everything else: impressions
+function pacingMetricFor(platform) {
+  if (platform === "YT")  return "views";
+  if (platform === "SEM") return "spend";
+  return "impressions";
+}
+
+// computeMonthlyPacing
+// Accepts EITHER the old two-arg form (impressions, note1) for back-compat,
+// OR the new three-arg form (campaign, disp, note1) which is platform-aware.
+function computeMonthlyPacing(arg1, arg2, arg3) {
+  let delivered, note1, metricKind = "impressions", unit = "";
+  // Detect new-style (campaign object) vs old-style (number)
+  const looksLikeCampaign = arg1 && typeof arg1 === "object" && ("platform" in arg1 || "campaignName" in arg1);
+  if (looksLikeCampaign) {
+    const c = arg1, disp = arg2 || {};
+    note1 = arg3;
+    metricKind = pacingMetricFor(c.platform);
+    if (metricKind === "views") {
+      delivered = parseInt(disp.videoViews || c.videoViews) || 0;
+      unit = "views";
+    } else if (metricKind === "spend") {
+      delivered = parseFloat(disp.spend || c.spend) || 0;
+      unit = "$";
+    } else {
+      delivered = parseInt(disp.impressions || c.impressions) || 0;
+      unit = "impr";
+    }
+  } else {
+    // Legacy two-arg form: (impressions, note1)
+    delivered = parseInt(arg1) || 0;
+    note1 = arg2;
+    unit = "impr";
+  }
+
   const goal = parseMonthlyGoal(note1);
-  const delivered = parseInt(impressions) || 0;
   if (!goal || goal <= 0 || !delivered) return null;
 
   const now = new Date();
   const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
   const dayOfMonth  = now.getDate();
-  const timeElapsed = dayOfMonth / daysInMonth;         // 0→1
-  const expected    = Math.round(goal * timeElapsed);   // how many expected by today
-  const pct         = delivered / goal;                 // fraction of monthly goal delivered
+  const timeElapsed = dayOfMonth / daysInMonth;
+  const expected    = Math.round(goal * timeElapsed);
+  const pct         = delivered / goal;
 
-  // Pacing ratio: how delivered compares to expected
   const ratio = expected > 0 ? delivered / expected : null;
 
   let color, label;
@@ -174,7 +207,7 @@ function computeMonthlyPacing(impressions, note1) {
   else if (ratio < 1.05)    { color="#00d48a"; label="On Track"; }
   else                      { color="#fb923c"; label="Ahead";    }
 
-  return { pct: Math.min(1, pct), expectedPct: timeElapsed, ratio, color, label, delivered, goal, expected };
+  return { pct: Math.min(1, pct), expectedPct: timeElapsed, ratio, color, label, delivered, goal, expected, metricKind, unit };
 }
 
 // Daily target breakdown — for morning check against yesterday's stats
@@ -4720,7 +4753,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // Build rows for ALL active
   const allRows = allActive.map(c=>{
     const disp=resolveMetrics(c,dateRange.preset);
-    const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+    const pacing=computeMonthlyPacing(c, disp, c.note1);
     const monthlyGoal=parseMonthlyGoal(c.note1);
     return {c,disp,pacing,monthlyGoal};
   });
@@ -4764,27 +4797,48 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const noPace  = withGoal.filter(r=>!r.pacing);
   const anyFilter = q || fPartner!=="all" || fPlatforms.size>0;
 
-  // No Activity: campaigns where current MTD impressions match the last check-in's number
-  // This is gap-proof — if you skip 3 days of check-ins, campaigns only flag when you
-  // actually drop a new file and the numbers haven't moved since the last drop.
+  // Stalled campaigns: campaigns where MTD delivery has not grown since a check-in
+  // from at least 1 calendar day ago. Same-day re-imports of the same CSV will NOT trigger this.
+  // Reads the checkInLog (timestamped lines) to find the most recent prior-day entry.
   const today = getToday();
-  const daysSince = (dateStr) => {
-    if(!dateStr) return 0;
-    const d = new Date(dateStr+"T00:00:00"), now = new Date(today+"T00:00:00");
-    return Math.floor((now - d) / 86400000);
-  };
+  const dismissedStallKey = "campaign-tracker-dismissed-stalls";
+  const [dismissedStalls, setDismissedStalls] = useState(()=>{
+    try { return new Set(JSON.parse(localStorage.getItem(dismissedStallKey)||"[]")); } catch { return new Set(); }
+  });
+  function dismissStall(id) {
+    const next = new Set(dismissedStalls);
+    next.add(`${id}|${today}`); // dismissal expires automatically the next day
+    setDismissedStalls(next);
+    try { localStorage.setItem(dismissedStallKey, JSON.stringify([...next])); } catch {}
+  }
+
+  // Parse a check-in log line like "05/22/2026 9:14am | 41,045 impr | ..." → { dateStr, impr }
+  function parseLogLine(line) {
+    if (!line) return null;
+    // Date pattern at the start (mm/dd/yyyy)
+    const dm = line.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (!dm) return null;
+    const mo = dm[1].padStart(2,"0"), da = dm[2].padStart(2,"0"), yr = dm[3];
+    const iso = `${yr}-${mo}-${da}`;
+    // Impressions pattern: "41,045 impr"
+    const im = line.match(/([\d,]+)\s*impr/);
+    const impr = im ? parseInt(im[1].replace(/,/g,""))||0 : 0;
+    return { dateStr: iso, impr };
+  }
+
   const noActivityRows = filtered.filter(r => {
     const c = r.c;
-    if(c.status !== "active" && c.status !== "behind" && c.status !== "ahead") return false;
-    // Only flag if we have at least two check-ins (need a baseline to compare against)
-    if(!c.checkInLog || !c.lastCheckInImpr) return false;
+    if (dismissedStalls.has(`${c.id}|${today}`)) return false;
+    if (c.status !== "active" && c.status !== "behind" && c.status !== "ahead") return false;
+    if (!c.checkInLog) return false;
     const logLines = c.checkInLog.split("\n").filter(Boolean);
-    if(logLines.length < 2) return false;
-    // Current impressions vs what was recorded at last check-in
+    if (logLines.length < 2) return false;
+    // Find the most recent check-in from a DIFFERENT calendar day (not today)
+    const priorDay = logLines.map(parseLogLine).filter(Boolean).find(e => e.dateStr !== today);
+    if (!priorDay || priorDay.impr <= 0) return false;
     const currentImpr = parseInt(c.impressions)||0;
-    const lastImpr    = parseInt(c.lastCheckInImpr)||0;
-    // Flag if impressions haven't grown since the previous check-in
-    return currentImpr > 0 && currentImpr <= lastImpr;
+    // Flag only if today's number is unchanged or lower than a confirmed prior-day baseline
+    return currentImpr > 0 && currentImpr <= priorDay.impr;
   });
 
   function KpiBox({c,disp}){
@@ -4803,7 +4857,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   function PacingCard({c,disp,pacing,monthlyGoal}){
     const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
-    const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null, del=parseInt(disp.impressions)||0;
+    const cardMetricKind = pacingMetricFor(c.platform);
+    const cardDelivered = cardMetricKind==="views" ? (parseInt(disp.videoViews||c.videoViews)||0)
+                        : cardMetricKind==="spend" ? (parseFloat(disp.spend||c.spend)||0)
+                        : (parseInt(disp.impressions)||0);
+    const cardMetricLabel = cardMetricKind==="views" ? "views" : cardMetricKind==="spend" ? "spend" : "impressions";
+    const fmtGoal = (n) => cardMetricKind==="spend" ? "$"+Math.round(n).toLocaleString() : Math.round(n).toLocaleString();
+    const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null, del=cardDelivered;
     const rem=Math.max(0,monthlyGoal-del), npd=(dim-dom)>0&&del>0?Math.round(rem/(dim-dom)):null;
     const col=pacing?.color??"#4d6e8a", pCol=PLT_COLORS[c.platform]||PLT_COLORS.default;
     const isCTV=c.platform==="CTV"||c.platform==="OTT";
@@ -4843,15 +4903,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Monthly pacing bar */}
       {pacing&&<div style={{marginBottom:6}}>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#3d5a72",marginBottom:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>
-          <span>Monthly Pacing</span><span>Goal: {monthlyGoal.toLocaleString()}</span>
+          <span>Monthly Pacing ({cardMetricLabel})</span><span>Goal: {fmtGoal(monthlyGoal)}</span>
         </div>
         <div style={{position:"relative",background:"#07101c",borderRadius:3,height:6,marginBottom:2,overflow:"visible"}}>
-          <div title={"Expected: "+(exp?.toLocaleString()??"")} style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:14,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
+          <div title={"Expected: "+(exp?fmtGoal(exp):"")} style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:14,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
           <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:3}}/>
         </div>
         <span style={{fontSize:10,color:col,fontWeight:700}}>{(pacing.pct*100).toFixed(1)}% of monthly goal</span>
       </div>}
-      {!pacing&&monthlyGoal&&<div style={{fontSize:10,color:"#3d5a72",fontStyle:"italic",marginBottom:6}}>No impressions yet</div>}
+      {!pacing&&monthlyGoal&&<div style={{fontSize:10,color:"#3d5a72",fontStyle:"italic",marginBottom:6}}>No {cardMetricLabel} yet</div>}
 
       {/* Flight progress bar */}
       {fp!==null&&<div style={{marginBottom:8}}>
@@ -4952,8 +5012,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return cpm <= warnAt ? "#00d48a" : cpm <= badAt ? "#f59e0b" : "#ef4444";
   };
 
-  // grid columns: name | platform | status | pacing bar | impr | gap | CTR/VCR | CPM | spend | reach | freq | days | edit
-  const GRID = "minmax(150px,2fr) 60px 68px 100px 72px 68px 74px 64px 64px 60px 54px 46px 46px";
+  // grid columns: name | platform | status | pacing bar | impr/views | gap | CTR/VCR | Clicks | CPM | spend | reach | freq | days | edit
+  const GRID = "minmax(150px,2fr) 60px 68px 100px 78px 68px 74px 56px 64px 64px 60px 54px 46px 46px";
 
   function TableRow({c,disp,pacing,monthlyGoal}){
     const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
@@ -4990,18 +5050,51 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const freq    = parseFloat(disp.frequency||c.frequency)||0;
     const freqCol = freq <= 0 ? "#3d5a72" : freq <= 2 ? "#00d48a" : freq <= 3.5 ? "#f59e0b" : "#ef4444";
 
-    // Impressions — MTD delivered, color vs monthly goal
+    // Primary delivery metric — platform-aware. YT=views, SEM=spend ($), others=impressions
+    const metricKind = pacingMetricFor(c.platform);
+    const viewsRaw = parseInt(disp.videoViews||c.videoViews)||0;
     const imprRaw = parseInt(disp.impressions)||0;
-    const imprFmt = imprRaw >= 1000000 ? (imprRaw/1000000).toFixed(2)+"M" : imprRaw >= 1000 ? (imprRaw/1000).toFixed(1)+"K" : imprRaw > 0 ? String(imprRaw) : null;
-    // Flag if no impressions at all on an active campaign
-    const noActivity = !imprRaw && (c.status==="active"||c.status==="behind"||c.status==="ahead");
+    const spendRaw = parseFloat(disp.spend||c.spend)||0;
+    let primaryRaw, primaryFmt, primaryLabel, primaryColor;
+    if (metricKind === "views") {
+      primaryRaw = viewsRaw > 0 ? viewsRaw : imprRaw; // fall back to impressions if no views yet
+      primaryLabel = viewsRaw > 0 ? "views" : "impr";
+      primaryColor = "#fda4af"; // pink for views
+    } else if (metricKind === "spend") {
+      primaryRaw = spendRaw;
+      primaryLabel = "spend";
+      primaryColor = "#fbbf24"; // amber for $
+    } else {
+      primaryRaw = imprRaw;
+      primaryLabel = "impr";
+      primaryColor = "#7dd3fc"; // blue for impressions
+    }
+    // Format with $ for spend, K/M for counts
+    if (metricKind === "spend") {
+      primaryFmt = primaryRaw >= 1000 ? "$"+(primaryRaw/1000).toFixed(1)+"k" : primaryRaw > 0 ? "$"+primaryRaw.toFixed(0) : null;
+    } else {
+      primaryFmt = primaryRaw >= 1000000 ? (primaryRaw/1000000).toFixed(2)+"M" : primaryRaw >= 1000 ? (primaryRaw/1000).toFixed(1)+"K" : primaryRaw > 0 ? String(primaryRaw) : null;
+    }
+    // Flag if no activity at all on an active campaign
+    const noActivity = !primaryRaw && (c.status==="active"||c.status==="behind"||c.status==="ahead");
 
-    // Pace gap — delivered minus expected impressions (negative = behind)
-    const paceGap = pacing && monthlyGoal && exp != null ? imprRaw - exp : null;
-    const paceGapFmt = paceGap === null ? null
-      : Math.abs(paceGap) >= 1000000 ? (paceGap >= 0 ? "+" : "") + (paceGap/1000000).toFixed(1)+"M"
-      : Math.abs(paceGap) >= 1000    ? (paceGap >= 0 ? "+" : "") + (paceGap/1000).toFixed(0)+"K"
-      : (paceGap >= 0 ? "+" : "") + String(paceGap);
+    // Clicks — actual count (not the rate)
+    const clicksRaw = parseInt(disp.clicks||c.clicks)||0;
+    const clicksFmt = clicksRaw >= 1000 ? (clicksRaw/1000).toFixed(1)+"K" : clicksRaw > 0 ? String(clicksRaw) : null;
+
+    // Pace gap — delivered minus expected (uses platform-aware primary metric)
+    const paceGap = pacing && monthlyGoal && exp != null ? primaryRaw - exp : null;
+    const fmtGap = (n) => {
+      const abs = Math.abs(n);
+      const sign = n >= 0 ? "+" : "-";
+      if (metricKind === "spend") {
+        return sign + "$" + (abs >= 1000 ? (abs/1000).toFixed(1)+"k" : abs.toFixed(0));
+      }
+      if (abs >= 1000000) return sign + (abs/1000000).toFixed(1)+"M";
+      if (abs >= 1000)    return sign + (abs/1000).toFixed(0)+"K";
+      return sign + Math.round(abs);
+    };
+    const paceGapFmt = paceGap === null ? null : fmtGap(paceGap);
     const paceGapCol = paceGap === null ? "#3d5a72" : paceGap >= 0 ? "#00d48a" : Math.abs(paceGap) < monthlyGoal*0.05 ? "#f59e0b" : "#ef4444";
 
     return <div style={{display:"grid",gridTemplateColumns:GRID,gap:6,padding:"6px 12px",borderBottom:"1px solid #0d1525",alignItems:"center",background:"#0c1625",borderLeft:"3px solid "+col}}>
@@ -5018,7 +5111,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Pacing status */}
       <div>
         {pacing?<span style={{fontSize:10,fontWeight:700,color:col}}>{pacing.label}</span>
-        :monthlyGoal?<span style={{fontSize:10,color:"#3d5a72"}}>No impr</span>
+        :monthlyGoal?<span style={{fontSize:10,color:"#3d5a72"}}>{metricKind==="views"?"No views":metricKind==="spend"?"No spend":"No impr"}</span>
         :<span style={{fontSize:10,color:"#334155"}}>No goal</span>}
       </div>
 
@@ -5037,17 +5130,22 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         </>:<div style={{fontSize:10,color:"#3d5a72"}}>—</div>}
       </div>
 
-      {/* Impressions MTD — own column, most important KPI */}
-      <div title="Impressions delivered this period (MTD)">
-        {imprFmt
-          ? <span style={{fontSize:11,fontWeight:800,color:"#7dd3fc",letterSpacing:"-0.01em"}}>{imprFmt}</span>
+      {/* Primary delivery metric — Views (YT), Spend (SEM), or Impressions */}
+      <div title={metricKind==="views" ? "Views delivered this period (MTD)" : metricKind==="spend" ? "Spend delivered this period (MTD)" : "Impressions delivered this period (MTD)"}>
+        {primaryFmt
+          ? <div style={{display:"flex",alignItems:"baseline",gap:3}}>
+              <span style={{fontSize:11,fontWeight:800,color:primaryColor,letterSpacing:"-0.01em"}}>{primaryFmt}</span>
+              <span style={{fontSize:8,color:"#3d5a72"}}>{primaryLabel}</span>
+            </div>
           : noActivity
             ? <span style={{fontSize:10,fontWeight:700,color:"#ef4444"}}>—</span>
             : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
       </div>
 
-      {/* Pace gap — impressions delivered vs expected right now */}
-      <div title={paceGap !== null ? `Expected ${exp?.toLocaleString()} · Delivered ${imprRaw.toLocaleString()}` : ""}>
+      {/* Pace gap — delivered vs expected right now */}
+      <div title={paceGap !== null ? (metricKind==="spend"
+            ? `Expected $${exp?.toLocaleString()} · Delivered $${primaryRaw.toLocaleString(undefined,{maximumFractionDigits:0})}`
+            : `Expected ${exp?.toLocaleString()} · Delivered ${primaryRaw.toLocaleString()}`) : ""}>
         {paceGapFmt
           ? <span style={{fontSize:10,fontWeight:700,color:paceGapCol}}>{paceGapFmt}</span>
           : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
@@ -5060,6 +5158,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           : ctrDisp > 0
             ? <span style={{fontSize:10,fontWeight:700,color:ctrCol}}>{ctrFmt} CTR</span>
             : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+      </div>
+
+      {/* Clicks — actual count */}
+      <div title="Total clicks this period (link clicks for Meta)">
+        {clicksFmt
+          ? <span style={{fontSize:10,fontWeight:700,color:"#a3bffa"}}>{clicksFmt}</span>
+          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
       </div>
 
       {/* CPM — color-coded from per-platform benchmark */}
@@ -5103,7 +5208,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   function TableHeader(){
     return <div style={{display:"grid",gridTemplateColumns:GRID,gap:6,padding:"5px 12px",borderBottom:"1px solid #1a2744",marginBottom:2}}>
-      {["Campaign","Platform","Status","Mo. Pacing","Impr","Gap","CTR / VCR","CPM","Spend","Reach","Freq","Days",""].map((h,i)=>(
+      {["Campaign","Platform","Status","Mo. Pacing","Impr / Views","Gap","CTR / VCR","Clicks","CPM","Spend","Reach","Freq","Days",""].map((h,i)=>(
         <div key={i} style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
       ))}
     </div>;
@@ -5178,33 +5283,47 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <span><span style={{color:"#fde047",fontWeight:700}}>●</span> Behind</span>
       <span><span style={{color:"#ef4444",fontWeight:700}}>●</span> Low KPI</span>
       <span><span style={{color:"#f59e0b",fontWeight:700}}>●</span> Warn KPI</span>
-      {noActivityRows.length>0&&<span style={{color:"#ef4444",fontWeight:700,marginLeft:4}}>⚠ {noActivityRows.length} stalled</span>}
+      {noActivityRows.length>0&&<span style={{color:"#f59e0b",fontWeight:700,marginLeft:4}}>⏸ {noActivityRows.length} flat</span>}
     </div>
     <Section label="Behind"         color="#fde047" items={behind}/>
     <Section label="On Track"       color="#00d48a" items={onTrack}/>
     <Section label="Ahead"          color="#fb923c" items={ahead}/>
     {noActivityRows.length>0&&(
       <div style={{marginBottom:viewMode==="table"?4:14}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:"#1a0808",border:"1px solid #ef444430",borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
-          <span style={{fontSize:11,fontWeight:800,color:"#ef4444",textTransform:"uppercase",letterSpacing:"0.07em"}}>⚠️ No Activity ({noActivityRows.length})</span>
-          <span style={{fontSize:10,color:"#7a9bbf"}}>These active campaigns haven't received new impressions in 2+ days — check delivery</span>
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:"#1a1208",border:"1px solid #f59e0b40",borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
+          <span style={{fontSize:11,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.07em"}}>⏸ Possibly Stalled ({noActivityRows.length})</span>
+          <span style={{fontSize:10,color:"#7a9bbf"}}>Delivery hasn't grown since a previous-day check-in. Could be paused, finished, or just a slow day — verify, then dismiss.</span>
         </div>
         {viewMode==="table"&&<TableHeader/>}
         {noActivityRows.map(r=>{
-          const lastImpr = parseInt(r.c.lastCheckInImpr)||0;
-          const currentImpr = parseInt(r.c.impressions)||0;
-          const stalledAt = lastImpr > 0 ? (lastImpr >= 1000000 ? (lastImpr/1000000).toFixed(1)+"M" : lastImpr >= 1000 ? (lastImpr/1000).toFixed(0)+"K" : String(lastImpr)) : "0";
+          // Find the prior-day baseline for the "stalled at" display
+          const logLines = (r.c.checkInLog||"").split("\n").filter(Boolean);
+          const priorDay = logLines.map(parseLogLine).filter(Boolean).find(e => e.dateStr !== today);
+          const baselineImpr = priorDay?.impr || parseInt(r.c.lastCheckInImpr)||0;
+          const stalledAt = baselineImpr > 0 ? (baselineImpr >= 1000000 ? (baselineImpr/1000000).toFixed(1)+"M" : baselineImpr >= 1000 ? (baselineImpr/1000).toFixed(0)+"K" : String(baselineImpr)) : "0";
           return viewMode==="table"
             ? <div key={r.c.id} style={{position:"relative"}}>
                 <TableRow {...r}/>
-                <div style={{position:"absolute",right:56,top:"50%",transform:"translateY(-50%)",fontSize:9,color:"#ef4444",fontWeight:700,background:"#1a0808",border:"1px solid #ef444440",borderRadius:3,padding:"1px 5px",whiteSpace:"nowrap"}}>
-                  stalled @ {stalledAt}
+                <div style={{position:"absolute",right:106,top:"50%",transform:"translateY(-50%)",display:"flex",gap:5,alignItems:"center"}}>
+                  <span style={{fontSize:9,color:"#f59e0b",fontWeight:700,background:"#1a1208",border:"1px solid #f59e0b40",borderRadius:3,padding:"1px 5px",whiteSpace:"nowrap"}}>
+                    flat @ {stalledAt}
+                  </span>
+                  <button onClick={(e)=>{e.stopPropagation(); dismissStall(r.c.id);}} title="Dismiss for today"
+                    style={{background:"#162236",border:"1px solid #334155",borderRadius:3,color:"#7a9bbf",fontSize:9,padding:"1px 6px",cursor:"pointer",fontWeight:600}}>
+                    Dismiss
+                  </button>
                 </div>
               </div>
             : <div key={r.c.id} style={{position:"relative"}}>
                 <PacingCard {...r}/>
-                <div style={{position:"absolute",top:10,right:10,fontSize:10,color:"#ef4444",fontWeight:700,background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,padding:"2px 8px"}}>
-                  stalled @ {stalledAt}
+                <div style={{position:"absolute",top:10,right:10,display:"flex",gap:5,alignItems:"center"}}>
+                  <span style={{fontSize:10,color:"#f59e0b",fontWeight:700,background:"#1a1208",border:"1px solid #f59e0b40",borderRadius:4,padding:"2px 8px"}}>
+                    flat @ {stalledAt}
+                  </span>
+                  <button onClick={(e)=>{e.stopPropagation(); dismissStall(r.c.id);}} title="Dismiss for today"
+                    style={{background:"#162236",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",fontSize:10,padding:"2px 8px",cursor:"pointer",fontWeight:600}}>
+                    Dismiss
+                  </button>
                 </div>
               </div>;
         })}
@@ -6793,10 +6912,19 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
   // ── Parse helpers ──────────────────────────────────────────────────────────
   function parseCSVText(text){
     const lines=text.trim().split(/\r?\n/); if(lines.length<2) return null;
-    const headers=lines[0].split(",").map(h=>h.replace(/"/g,"").trim());
-    return lines.slice(1).map(line=>{
+    // Quote-aware line splitter — handles commas inside quoted fields (e.g. "CPM (cost per 1,000 impressions)")
+    function splitCsvLine(line){
       const vals=[]; let cur="",inQ=false;
-      for(const ch of line+","){ if(ch==='"') inQ=!inQ; else if(ch===","&&!inQ){ vals.push(cur.replace(/"/g,"").trim()); cur=""; } else cur+=ch; }
+      for(const ch of line+","){
+        if(ch==='"') inQ=!inQ;
+        else if(ch===","&&!inQ){ vals.push(cur.replace(/"/g,"").trim()); cur=""; }
+        else cur+=ch;
+      }
+      return vals;
+    }
+    const headers=splitCsvLine(lines[0]);
+    return lines.slice(1).map(line=>{
+      const vals=splitCsvLine(line);
       const row={}; headers.forEach((h,i)=>{ row[h]=(vals[i]||"").trim(); }); return row;
     }).filter(r=>Object.values(r).some(v=>v));
   }
@@ -7873,82 +8001,218 @@ function ReportVault({ onAnalyzeWithZeus }) {
 }
 
 
-function RevenueDashboard({ campaigns=[] }) {
-  const [filterPartner, setFilterPartner] = useState("all");
+function RevenueDashboard({ campaigns=[], onEdit=()=>{} }) {
+  const [filterPartner, setFilterPartner]   = useState("all");
+  const [expandedRow, setExpandedRow]       = useState(null);
+  const [sortKey, setSortKey]               = useState("profit"); // "profit" | "loss" | "contract" | "name" | "pending"
+  const [focusMonth, setFocusMonth]         = useState(null); // YYYY-MM, null = current
+  const [cellMode, setCellMode]             = useState("dollar"); // "dollar" | "margin"
   const now = new Date();
+  const thisMonth = now.toISOString().slice(0,7);
+  const activeMonth = focusMonth || thisMonth;
 
-  // Use synced MTD spend if available, otherwise fall back to manually entered spend
-  function resolveSpend(c) {
+  // Pull synced MTD spend (current month actual) from any platform source
+  function getActualMtdSpend(c) {
     const mtd = c.metaSnapshots?.mtd?.spend ?? c.ttdSnapshots?.mtd?.spend ?? c.dspSnapshots?.mtd?.spend ?? c.googleSnapshots?.mtd?.spend ?? c.snapSnapshots?.mtd?.spend;
-    if (mtd != null) return mtd;
+    return mtd != null ? parseFloat(mtd) : null;
+  }
+  function getManualSpend(c) {
     return parseFloat(c.spend) || 0;
+  }
+  // Has the user entered ANY spend data? (manual OR a non-zero synced MTD)
+  // A synced MTD of $0 means "synced but no spend yet" — treated as pending, not zero.
+  function hasSpendData(c) {
+    const mtd = getActualMtdSpend(c);
+    if (mtd != null && mtd > 0) return true;
+    return (parseFloat(c.spend) || 0) > 0;
+  }
+  function getLifetimeSpend(c) {
+    const actual = getActualMtdSpend(c);
+    if (actual != null && actual > 0) return actual;
+    return getManualSpend(c);
+  }
+  // Per-campaign per-month spend resolver — always uses best-available data.
+  // Returns null when no spend data exists for that month.
+  function spendForMonth(c, mo) {
+    if (!hasSpendData(c)) return null;
+    const totalSpend = getLifetimeSpend(c);
+    if (totalSpend <= 0 || !c.startDate || !c.endDate) return null;
+    const prorated = spreadRevenue({...c, contractValue: totalSpend})[mo] || 0;
+    // For current month: use real synced actual if available, otherwise fall back to pro-rated
+    if (mo === thisMonth) {
+      const actual = getActualMtdSpend(c);
+      if (actual != null && actual > 0) return actual;
+    }
+    return prorated;
+  }
+  // Track WHICH source we used for the current month — informational only
+  function currentMonthSource(c) {
+    if (!hasSpendData(c)) return "pending";
+    const actual = getActualMtdSpend(c);
+    if (actual != null && actual > 0) return "synced";
+    return "prorated";
   }
 
   const withContract = campaigns.filter(c => parseFloat(c.contractValue) > 0);
   const partners = ["all", ...new Set(withContract.map(c=>c.mediaPartner))].sort();
   const filtered  = filterPartner==="all" ? withContract : withContract.filter(c=>c.mediaPartner===filterPartner);
 
-  // Build 12-month window: 6 past + current + 5 future
+  // 12-month window
   const months = [];
   for (let i=-6; i<=5; i++) {
     const d = new Date(now.getFullYear(), now.getMonth()+i, 1);
     months.push(d.toISOString().slice(0,7));
   }
-  const thisMonth = now.toISOString().slice(0,7);
 
-  // Aggregate revenue + spend per month
-  const monthRevenue = {};
-  months.forEach(mo => { monthRevenue[mo] = { revenue:0, spend:0 }; });
-
+  // Aggregate per-month rollups
+  // A campaign's revenue counts toward profit ONLY in months where we have real spend data for it.
+  // Otherwise that month's revenue is "pending" (shown amber, excluded from profit math).
+  const monthTotals = {};
+  months.forEach(mo => { monthTotals[mo] = { revenue:0, spend:0, revenueWithSpend:0, pendingRev:0, pendingCount:0 }; });
   filtered.forEach(c => {
     const spread = spreadRevenue(c);
     Object.entries(spread).forEach(([mo, rev]) => {
-      if (monthRevenue[mo]) monthRevenue[mo].revenue += rev;
+      if (!monthTotals[mo]) return;
+      monthTotals[mo].revenue += rev;
+      const s = spendForMonth(c, mo);
+      if (s != null) {
+        // Trackable for THIS month — counts toward profit
+        monthTotals[mo].revenueWithSpend += rev;
+        monthTotals[mo].spend += s;
+      } else if (rev > 0) {
+        // Revenue but no spend data for this month — pending
+        monthTotals[mo].pendingRev += rev;
+        monthTotals[mo].pendingCount += 1;
+      }
     });
-    // Spread spend evenly too (same logic) — prefer synced MTD, fall back to manual
-    const spend = resolveSpend(c);
-    if (spend > 0 && c.startDate && c.endDate) {
-      const spendSpread = spreadRevenue({...c, contractValue: spend});
-      Object.entries(spendSpread).forEach(([mo, s]) => {
-        if (monthRevenue[mo]) monthRevenue[mo].spend += s;
-      });
-    }
   });
 
-  const maxBar = Math.max(...months.map(mo=>monthRevenue[mo].revenue), 1);
-  const $f = v => v>0?"$"+Math.round(v).toLocaleString():"—";
+  // Y-axis scaling now driven by max profit/loss magnitude (NOT revenue) — keeps bars from squashing
+  const monthProfits = months.map(mo => monthTotals[mo].revenueWithSpend - monthTotals[mo].spend);
+  const maxAbsProfit = Math.max(...monthProfits.map(Math.abs), 1);
+
+  const $f = v => { const n=Math.round(v); return n===0?"$0":(n<0?"-$":"$")+Math.abs(n).toLocaleString(); };
+  const $fc = v => v>0?"$"+Math.round(v).toLocaleString():(v<0?"-$"+Math.round(Math.abs(v)).toLocaleString():"—");
+  const $fk = v => { // compact for tight cells
+    const n = Math.round(v);
+    const abs = Math.abs(n);
+    if (abs === 0) return "$0";
+    const sign = n<0?"-":"";
+    if (abs >= 1000) return sign+"$"+(abs/1000).toFixed(abs>=10000?0:1)+"k";
+    return sign+"$"+abs;
+  };
   const profitColor = p => p>0?"#00d48a":p<0?"#ef4444":"#4d6e8a";
   const marginColor = m => m>=30?"#00d48a":m>=15?"#f59e0b":"#ef4444";
 
-  // Totals for this month
-  const tmRev   = monthRevenue[thisMonth]?.revenue || 0;
-  const tmSpend = monthRevenue[thisMonth]?.spend   || 0;
-  const tmProfit= tmRev - tmSpend;
-  const tmMargin= tmRev>0?(tmProfit/tmRev)*100:0;
+  // Focused-month KPIs (only count trackable revenue in profit)
+  const fmTotals = monthTotals[activeMonth] || {revenue:0,spend:0,revenueWithSpend:0,pendingRev:0,pendingCount:0};
+  const fmRev    = fmTotals.revenue;
+  const fmRevWithSpend = fmTotals.revenueWithSpend;
+  const fmSpend  = fmTotals.spend;
+  const fmProfit = fmRevWithSpend - fmSpend;
+  const fmMargin = fmRevWithSpend>0?(fmProfit/fmRevWithSpend)*100:0;
+  const fmPendingCount = fmTotals.pendingCount;
+  const fmPendingRev   = fmTotals.pendingRev;
+  const focusLabel = new Date(activeMonth+"-01").toLocaleDateString("en-US",{month:"long",year:"numeric"});
+  const focusLabelShort = new Date(activeMonth+"-01").toLocaleDateString("en-US",{month:"short",year:"numeric"});
+  const isCurrentFocus = activeMonth===thisMonth;
 
-  // All-time totals across filtered
+  // Per-campaign rows with month grid
+  const rows = filtered.map(c=>{
+    const spread = spreadRevenue(c);
+    const trackable = hasSpendData(c);
+    const monthCells = {};
+    let windowRev=0, windowSpend=0, windowHasSpend=false;
+    months.forEach(mo => {
+      const rev = spread[mo] || 0;
+      const spn = trackable ? (spendForMonth(c, mo) || 0) : null;
+      monthCells[mo] = { rev, spend:spn, profit: spn==null?null:(rev-spn), pending: rev>0 && spn==null };
+      windowRev += rev;
+      if (spn != null) { windowSpend += spn; windowHasSpend = true; }
+    });
+    const contract = parseFloat(c.contractValue)||0;
+    const totalSpend = getLifetimeSpend(c);
+    const lifetimeProfit = trackable ? (contract - totalSpend) : null;
+    const lifetimeMargin = trackable && contract>0 ? (lifetimeProfit/contract)*100 : null;
+    const focusCell = monthCells[activeMonth] || {rev:0,spend:null,profit:null,pending:false};
+    const focusMargin = focusCell.profit!=null && focusCell.rev>0 ? (focusCell.profit/focusCell.rev)*100 : null;
+    return {
+      c, contract, totalSpend, trackable,
+      lifetimeProfit, lifetimeMargin,
+      monthCells, focusCell, focusMargin,
+      windowRev, windowSpend, windowProfit: windowHasSpend ? windowRev - windowSpend : null,
+      pCol: PLT_COLORS[c.platform]||PLT_COLORS.default,
+    };
+  });
+
+  // Sort
+  const sortedRows = [...rows].sort((a,b)=>{
+    if (sortKey==="profit") {
+      const ap = a.focusCell.profit ?? -Infinity, bp = b.focusCell.profit ?? -Infinity;
+      return bp - ap;
+    }
+    if (sortKey==="loss") {
+      const ap = a.focusCell.profit ?? Infinity, bp = b.focusCell.profit ?? Infinity;
+      return ap - bp;
+    }
+    if (sortKey==="pending") {
+      const ap = a.trackable ? 1 : 0, bp = b.trackable ? 1 : 0;
+      if (ap !== bp) return ap - bp; // pending (0) first
+      return b.contract - a.contract;
+    }
+    if (sortKey==="contract") return b.contract - a.contract;
+    if (sortKey==="name") return (a.c.campaignName||"").localeCompare(b.c.campaignName||"");
+    return 0;
+  });
+
+  // Losers and pending in focus month
+  const losersThisFocus  = rows.filter(r => r.focusCell.profit != null && r.focusCell.profit < 0 && r.focusCell.rev > 0);
+  const pendingThisFocus = rows.filter(r => r.focusCell.pending);
+
+  // All-time totals
   const totRev   = filtered.reduce((s,c)=>s+(parseFloat(c.contractValue)||0),0);
-  const totSpend = filtered.reduce((s,c)=>s+resolveSpend(c),0);
-  const totProfit= totRev - totSpend;
+  const trackableCampaigns = filtered.filter(hasSpendData);
+  const totRevWithSpend = trackableCampaigns.reduce((s,c)=>s+(parseFloat(c.contractValue)||0),0);
+  const totSpend = trackableCampaigns.reduce((s,c)=>s+getLifetimeSpend(c),0);
+  const totProfit= totRevWithSpend - totSpend;
+  const totMargin= totRevWithSpend>0?(totProfit/totRevWithSpend)*100:0;
+  const totPendingCampaigns = filtered.length - trackableCampaigns.length;
 
-  // Per-campaign rows sorted by contract desc
-  const rows = filtered.map(c=>({
-    c,
-    contract: parseFloat(c.contractValue)||0,
-    spend:    resolveSpend(c),
-    profit:   (parseFloat(c.contractValue)||0)-resolveSpend(c),
-    margin:   (parseFloat(c.contractValue)||0)>0?((parseFloat(c.contractValue)||0)-resolveSpend(c))/(parseFloat(c.contractValue)||0)*100:0,
-    pCol:     PLT_COLORS[c.platform]||PLT_COLORS.default,
-    moRevenue: spreadRevenue(c)[thisMonth]||0,
-  })).sort((a,b)=>b.contract-a.contract);
+  // Current-month data-source breakdown (informational only — for the Spend KPI subtitle)
+  // Only counts campaigns that have revenue in the focus month
+  const focusActiveCampaigns = filtered.filter(c => (spreadRevenue(c)[activeMonth] || 0) > 0);
+  let focusSyncedCount = 0, focusProratedCount = 0, focusPendingCount = 0;
+  focusActiveCampaigns.forEach(c => {
+    if (!hasSpendData(c)) { focusPendingCount++; return; }
+    const actual = getActualMtdSpend(c);
+    if (activeMonth === thisMonth && actual != null && actual > 0) {
+      focusSyncedCount++;
+    } else {
+      focusProratedCount++;
+    }
+  });
+
+  const card = {background:"#0c1625",border:"1px solid #1a2744",borderRadius:10};
+  const labelStyle = {fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700};
+
+  // ═══════ Chart geometry (fixed, no overflow) ═══════
+  // Vertical layout for the chart:
+  //   [top profit label row: 16px]
+  //   [positive bar half: 80px]
+  //   [zero baseline + month label row: 22px]
+  //   [negative bar half: 60px]
+  //   [bottom loss label row: 16px]
+  // Total: 194px — explicit, nothing absolute-positioned outside the container.
+  const POS_HALF = 80;
+  const NEG_HALF = 60;
 
   return (
     <div style={{color:"#d8eaf8"}}>
-      {/* Header */}
-      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:18}}>
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:14}}>
         <div>
           <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:2}}>💰 Revenue Dashboard</div>
-          <div style={{fontSize:11,color:"#4d6e8a"}}>{withContract.length} campaigns with contract values · revenue spread by flight dates</div>
+          <div style={{fontSize:11,color:"#4d6e8a"}}>{withContract.length} campaigns · {trackableCampaigns.length} with spend data{totPendingCampaigns>0?` · ${totPendingCampaigns} pending`:""}</div>
         </div>
         <select value={filterPartner} onChange={e=>setFilterPartner(e.target.value)}
           style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"6px 12px",color:"#d8eaf8",fontSize:12,cursor:"pointer"}}>
@@ -7956,20 +8220,90 @@ function RevenueDashboard({ campaigns=[] }) {
         </select>
       </div>
 
-      {/* This month highlights */}
-      <div style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:10,padding:"16px 20px",marginBottom:18}}>
-        <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:12}}>
-          {new Date(thisMonth+"-01").toLocaleDateString("en-US",{month:"long",year:"numeric"})} (This Month)
+      {/* ── Alert row: losses + pending ───────────────────────── */}
+      {(losersThisFocus.length>0 || pendingThisFocus.length>0) && (
+        <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+          {losersThisFocus.length>0 && (
+            <div style={{flex:"1 1 240px",background:"#2a0d12",border:"1px solid #ef444455",borderRadius:9,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:16}}>⚠️</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#fca5a5"}}>{losersThisFocus.length} losing money in {focusLabelShort}</div>
+                <div style={{fontSize:10,color:"#9ca3af",marginTop:2}}>Combined: {$f(losersThisFocus.reduce((s,r)=>s+r.focusCell.profit,0))}</div>
+              </div>
+              <button onClick={()=>setSortKey("loss")}
+                style={{background:"#ef444422",border:"1px solid #ef444466",color:"#fca5a5",borderRadius:6,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                Sort →
+              </button>
+            </div>
+          )}
+          {pendingThisFocus.length>0 && (
+            <div style={{flex:"1 1 240px",background:"#2a1f0a",border:"1px solid #f59e0b55",borderRadius:9,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:16}}>⏳</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#fcd34d"}}>{pendingThisFocus.length} awaiting spend entry</div>
+                <div style={{fontSize:10,color:"#9ca3af",marginTop:2}}>Untracked revenue: {$f(pendingThisFocus.reduce((s,r)=>s+r.focusCell.rev,0))}</div>
+              </div>
+              <button onClick={()=>setSortKey("pending")}
+                style={{background:"#f59e0b22",border:"1px solid #f59e0b66",color:"#fcd34d",borderRadius:6,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                Sort →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Month selector pill bar ───────────────────────────── */}
+      <div style={{...card,padding:"12px 14px",marginBottom:14}}>
+        <div style={{...labelStyle,marginBottom:8}}>Focus Month — click to change</div>
+        <div style={{display:"flex",gap:5,overflowX:"auto",paddingBottom:2}}>
+          {months.map(mo=>{
+            const isFocus = mo===activeMonth;
+            const isCurr  = mo===thisMonth;
+            const t = monthTotals[mo];
+            const p = t.revenueWithSpend - t.spend;
+            const hasTrackable = t.revenueWithSpend > 0;
+            const label = new Date(mo+"-01").toLocaleDateString("en-US",{month:"short"});
+            const yr = mo.slice(2,4);
+            return (
+              <button key={mo} onClick={()=>setFocusMonth(mo===thisMonth?null:mo)}
+                style={{
+                  flex:"0 0 auto",
+                  background:isFocus?"#1a2744":"transparent",
+                  border:isFocus?"1px solid #00e5a055":isCurr?"1px solid #00e5a033":"1px solid #1e293b",
+                  borderRadius:7,padding:"6px 10px",cursor:"pointer",minWidth:64,
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:2,
+                }}>
+                <div style={{fontSize:10,color:isFocus?"#00e5a0":isCurr?"#7a9bbf":"#4d6e8a",fontWeight:isFocus||isCurr?700:500}}>{label} '{yr}{isCurr?" •":""}</div>
+                <div style={{fontSize:10,fontWeight:700,color:hasTrackable?profitColor(p):"#3d5a72"}}>
+                  {hasTrackable?(p>=0?"+":"")+$fk(p):(t.revenue>0?"⏳":"—")}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Focused month KPIs ────────────────────────────────── */}
+      <div style={{...card,padding:"16px 20px",marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+          <div style={{...labelStyle}}>{focusLabel}</div>
+          {isCurrentFocus && <span style={{fontSize:9,background:"#00e5a022",color:"#00e5a0",padding:"2px 7px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em"}}>CURRENT</span>}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
           {[
-            {label:"Revenue",  val:$f(tmRev),    color:"#7a9bbf",   sub:"client billed"},
-            {label:"Spend",    val:$f(tmSpend),  color:"#f59e0b",   sub:"to platform"},
-            {label:"Profit",   val:tmRev>0?(tmProfit>=0?"+":"")+$f(tmProfit):"—", color:profitColor(tmProfit), sub:"rev − spend"},
-            {label:"Margin",   val:tmRev>0?tmMargin.toFixed(1)+"%":"—", color:marginColor(tmMargin), sub:"this month"},
+            {label:"Revenue (total)", val:$fc(fmRev), color:"#7a9bbf", sub: fmPendingRev>0?`${$fk(fmRevWithSpend)} tracked · ${$fk(fmPendingRev)} pending`:"all tracked"},
+            {label:"Spend",   val:$fc(fmSpend), color:"#f59e0b", sub: (() => {
+              const parts = [];
+              if (focusSyncedCount > 0) parts.push(`${focusSyncedCount} synced`);
+              if (focusProratedCount > 0) parts.push(`${focusProratedCount} pro-rated`);
+              if (focusPendingCount > 0) parts.push(`${focusPendingCount} pending`);
+              return parts.length ? parts.join(" · ") : "no active campaigns";
+            })()},
+            {label:"Profit (so far)",  val:fmRevWithSpend>0?(fmProfit>=0?"+":"")+$f(fmProfit):"—", color:profitColor(fmProfit), sub: fmPendingCount>0?`excludes ${fmPendingCount} pending`:fmRevWithSpend>0?"all campaigns tracked":"no spend data yet"},
+            {label:"Margin",  val:fmRevWithSpend>0?fmMargin.toFixed(1)+"%":"—", color:marginColor(fmMargin), sub:"on tracked revenue"},
           ].map(s=>(
             <div key={s.label}>
-              <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>{s.label}</div>
+              <div style={{...labelStyle,marginBottom:4}}>{s.label}</div>
               <div style={{fontSize:24,fontWeight:800,color:s.color,lineHeight:1,marginBottom:3}}>{s.val}</div>
               <div style={{fontSize:10,color:"#3d5a72"}}>{s.sub}</div>
             </div>
@@ -7977,89 +8311,251 @@ function RevenueDashboard({ campaigns=[] }) {
         </div>
       </div>
 
-      {/* Monthly bar chart — 12 months */}
-      <div style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:10,padding:"18px 20px",marginBottom:18}}>
-        <div style={{fontSize:11,fontWeight:700,color:"#7a9bbf",marginBottom:14,textTransform:"uppercase",letterSpacing:"0.07em"}}>Monthly Revenue (pro-rated by flight dates)</div>
-        <div style={{display:"flex",gap:5,alignItems:"flex-end",height:130,overflowX:"auto"}}>
-          {months.map(mo=>{
-            const {revenue,spend} = monthRevenue[mo];
-            const revH  = revenue>0?Math.max(5,(revenue/maxBar)*118):0;
-            const spendH= spend>0?Math.max(3,(spend/maxBar)*118):0;
-            const profit= revenue-spend;
-            const isCurrent = mo===thisMonth;
-            const label = new Date(mo+"-01").toLocaleDateString("en-US",{month:"short"});
-            const yr = mo.slice(2,4);
-            return (
-              <div key={mo} style={{flex:"1 0 44px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                <div style={{width:"100%",display:"flex",gap:2,alignItems:"flex-end",justifyContent:"center",height:120}}>
-                  {revenue>0?(
-                    <>
-                      <div title={"Revenue: "+$f(revenue)} style={{flex:1,background:isCurrent?"#3b82f6":"#3b82f680",borderRadius:"3px 3px 0 0",height:revH,cursor:"default",maxWidth:18,border:isCurrent?"1px solid #60a5fa40":"none"}}/>
-                      {spend>0&&<div title={"Spend: "+$f(spend)} style={{flex:1,background:isCurrent?"#f59e0b":"#f59e0b80",borderRadius:"3px 3px 0 0",height:spendH,cursor:"default",maxWidth:18}}/>}
-                    </>
-                  ):<div style={{flex:1,background:"#162236",borderRadius:"3px 3px 0 0",height:4,maxWidth:38}}/>}
-                </div>
-                <div style={{fontSize:9,color:isCurrent?"#00e5a0":"#3d5a72",textAlign:"center",fontWeight:isCurrent?700:400}}>{label}</div>
-                <div style={{fontSize:8,color:"#3d5a72"}}>{yr}</div>
-                {revenue>0&&<div style={{fontSize:8,fontWeight:700,color:profitColor(profit),textAlign:"center",whiteSpace:"nowrap"}}>{profit>=0?"+":""}{$f(profit)}</div>}
+      {/* ── 12-month PROFIT bar chart (big & clean) ─────────── */}
+      <div style={{...card,padding:"22px 26px",marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>Monthly Profit</div>
+          <div style={{display:"flex",gap:16,fontSize:11,color:"#7a9bbf",alignItems:"center"}}>
+            <span><span style={{display:"inline-block",width:10,height:10,background:"#00d48a",borderRadius:2,marginRight:6,verticalAlign:"middle"}}/>Profit</span>
+            <span><span style={{display:"inline-block",width:10,height:10,background:"#ef4444",borderRadius:2,marginRight:6,verticalAlign:"middle"}}/>Loss</span>
+            <span style={{color:"#f59e0b"}}><span style={{display:"inline-block",width:10,height:10,background:"#f59e0b",borderRadius:2,marginRight:6,verticalAlign:"middle"}}/>Pending</span>
+          </div>
+        </div>
+        {(() => {
+          // Big chart geometry: 340px tall total
+          const POS_H = 200; // positive bar zone
+          const NEG_H = 100; // negative bar zone
+          const LABEL_H = 40; // month label zone with year + value
+          return (
+            <div style={{overflowX:"auto",overflowY:"hidden"}}>
+              <div style={{minWidth: months.length*64, display:"flex",gap:8,alignItems:"stretch"}}>
+                {months.map(mo=>{
+                  const t = monthTotals[mo];
+                  const profit = t.revenueWithSpend - t.spend;
+                  const isFocus = mo===activeMonth;
+                  const isCurr  = mo===thisMonth;
+                  const hasTrackable = t.revenueWithSpend > 0;
+                  const hasPending = !hasTrackable && t.revenue > 0;
+                  const label = new Date(mo+"-01").toLocaleDateString("en-US",{month:"short"});
+                  const yr = mo.slice(2,4);
+                  const posH = hasTrackable && profit > 0 ? Math.max(6, Math.min(POS_H-4, (profit/maxAbsProfit)*POS_H)) : 0;
+                  const negH = hasTrackable && profit < 0 ? Math.max(6, Math.min(NEG_H-4, (Math.abs(profit)/maxAbsProfit)*NEG_H)) : 0;
+                  // Pending bar: faint amber column up to half the positive zone
+                  const pendingH = hasPending ? Math.max(6, Math.min(POS_H-4, (t.pendingRev/maxAbsProfit)*POS_H*0.4)) : 0;
+                  const pColor = profit>=0?"#00d48a":"#ef4444";
+
+                  return (
+                    <div key={mo} onClick={()=>setFocusMonth(mo===thisMonth?null:mo)}
+                      style={{flex:"1 0 56px",cursor:"pointer",borderRadius:6,background:isFocus?"#1a274455":"transparent",display:"flex",flexDirection:"column",padding:"0 4px"}}>
+                      {/* Value above bar */}
+                      <div style={{height:20,display:"flex",alignItems:"flex-end",justifyContent:"center",fontSize:11,fontWeight:600,color:hasPending?"#f59e0b":pColor}}>
+                        {hasTrackable && profit > 0 ? "+"+$fk(profit) : hasPending ? $fk(t.pendingRev) : ""}
+                      </div>
+                      {/* Positive bar zone */}
+                      <div style={{height:POS_H,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+                        {posH > 0 && (
+                          <div title={`${label} '${yr} profit: ${$f(profit)}`}
+                            style={{width:"100%",maxWidth:42,height:posH,background:isFocus?"#00d48a":isCurr?"#00d48acc":"#00d48a99",borderRadius:"4px 4px 0 0",transition:"background 0.15s"}}/>
+                        )}
+                        {pendingH > 0 && (
+                          <div title={`${label} '${yr} revenue (pending spend): ${$f(t.pendingRev)}`}
+                            style={{width:"100%",maxWidth:42,height:pendingH,background:isFocus?"#f59e0b":"#f59e0b88",borderRadius:"4px 4px 0 0",border:"1px dashed #f59e0bcc",borderBottom:"none",boxSizing:"border-box"}}/>
+                        )}
+                      </div>
+                      {/* Zero baseline */}
+                      <div style={{height:2,background:"#1a2744",margin:"0 -4px"}}/>
+                      {/* Negative bar zone */}
+                      <div style={{height:NEG_H,display:"flex",alignItems:"flex-start",justifyContent:"center"}}>
+                        {negH > 0 && (
+                          <div title={`${label} '${yr} loss: ${$f(profit)}`}
+                            style={{width:"100%",maxWidth:42,height:negH,background:isFocus?"#ef4444":isCurr?"#ef4444cc":"#ef444499",borderRadius:"0 0 4px 4px",transition:"background 0.15s"}}/>
+                        )}
+                      </div>
+                      {/* Value below bar (negative) */}
+                      <div style={{height:16,display:"flex",alignItems:"flex-start",justifyContent:"center",fontSize:11,fontWeight:600,color:pColor}}>
+                        {hasTrackable && profit < 0 ? $fk(profit) : ""}
+                      </div>
+                      {/* Month label */}
+                      <div style={{height:LABEL_H,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-start",paddingTop:8,gap:2}}>
+                        <div style={{fontSize:12,color:isFocus?"#00e5a0":isCurr?"#7a9bbf":"#4d6e8a",fontWeight:isFocus||isCurr?700:500,lineHeight:1}}>{label}{isCurr?" •":""}</div>
+                        <div style={{fontSize:10,color:"#3d5a72",lineHeight:1}}>'{yr}</div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
-        <div style={{display:"flex",gap:14,marginTop:10,fontSize:10,color:"#4d6e8a"}}>
-          <span><span style={{display:"inline-block",width:9,height:9,background:"#3b82f6",borderRadius:2,marginRight:4,verticalAlign:"middle"}}/>Revenue</span>
-          <span><span style={{display:"inline-block",width:9,height:9,background:"#f59e0b",borderRadius:2,marginRight:4,verticalAlign:"middle"}}/>Spend</span>
-          <span style={{marginLeft:"auto",color:"#3d5a72"}}>Profit shown below each bar · current month highlighted</span>
-        </div>
+            </div>
+          );
+        })()}
       </div>
 
-      {/* All-time totals */}
+      {/* ── All-time totals ───────────────────────────────────── */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:18}}>
         {[
-          {label:"Total Contract", val:$f(totRev),    color:"#7a9bbf", sub:"all flights"},
-          {label:"Total Spend",    val:$f(totSpend),  color:"#f59e0b", sub:"all platforms"},
-          {label:"Total Profit",   val:totRev>0?(totProfit>=0?"+":"")+$f(totProfit):"—", color:profitColor(totProfit), sub:"all time"},
+          {label:"Total Contract", val:$fc(totRev),    color:"#7a9bbf", sub:`${filtered.length} flights`},
+          {label:"Tracked Spend",  val:$fc(totSpend),  color:"#f59e0b", sub:`${trackableCampaigns.length} of ${filtered.length} campaigns`},
+          {label:"Total Profit",   val:totRevWithSpend>0?(totProfit>=0?"+":"")+$f(totProfit):"—", color:profitColor(totProfit), sub:"on tracked campaigns"},
+          {label:"Avg Margin",     val:totRevWithSpend>0?totMargin.toFixed(1)+"%":"—", color:marginColor(totMargin), sub:"on tracked campaigns"},
         ].map(s=>(
-          <div key={s.label} style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:9,padding:"12px 16px"}}>
-            <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>{s.label}</div>
+          <div key={s.label} style={{...card,padding:"12px 16px"}}>
+            <div style={{...labelStyle,marginBottom:5}}>{s.label}</div>
             <div style={{fontSize:20,fontWeight:800,color:s.color,lineHeight:1,marginBottom:3}}>{s.val}</div>
             <div style={{fontSize:10,color:"#3d5a72"}}>{s.sub}</div>
           </div>
         ))}
       </div>
 
-      {/* Per-campaign table */}
-      {rows.length===0?(
+      {/* ── Per-campaign × month profit GRID ──────────────────── */}
+      {sortedRows.length===0?(
         <div style={{textAlign:"center",padding:"40px 0",color:"#3d5a72"}}>
           <div style={{fontSize:28,marginBottom:8}}>💰</div>
           <div style={{fontSize:13}}>No campaigns with contract values yet.</div>
           <div style={{fontSize:11,marginTop:5}}>Edit a campaign and fill in the Contract Value field to start tracking.</div>
         </div>
       ):(
-        <div>
-          <div style={{fontSize:11,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Campaign Breakdown</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 70px 80px",gap:6,padding:"5px 10px",fontSize:9,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #1a2744",marginBottom:3}}>
-            <span>Campaign</span><span style={{textAlign:"right"}}>Contract</span><span style={{textAlign:"right"}}>Spend</span><span style={{textAlign:"right"}}>Profit</span><span style={{textAlign:"right"}}>Margin</span><span style={{textAlign:"right"}}>This Mo.</span>
-          </div>
-          {rows.map(({c,contract,spend,profit,margin,pCol,moRevenue})=>(
-            <div key={c.id} style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 70px 80px",gap:6,padding:"8px 10px",borderBottom:"1px solid #0e1828",alignItems:"center",background:"#0c1625",borderRadius:6,marginBottom:2}}>
-              <div>
-                <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
-                  <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"0 4px",fontSize:9,fontWeight:700}}>{c.platform}</span>
-                  <span style={{fontSize:11,fontWeight:600,color:"#d8eaf8"}}>{c.campaignName.trim()}</span>
-                </div>
-                <div style={{fontSize:10,color:"#3d5a72"}}>{c.mediaPartner}{c.startDate&&c.endDate?` · ${c.startDate} → ${c.endDate}`:""}</div>
+        <div style={{...card,padding:"14px 16px",marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+            <div style={{...labelStyle}}>Campaign × Month Grid — {focusLabelShort} highlighted</div>
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              {/* Cell display toggle */}
+              <div style={{display:"flex",background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:1}}>
+                {[{k:"dollar",l:"$"},{k:"margin",l:"%"}].map(o=>(
+                  <button key={o.k} onClick={()=>setCellMode(o.k)}
+                    title={o.k==="dollar"?"Show profit in dollars":"Show profit margin %"}
+                    style={{background:cellMode===o.k?"#1a2744":"transparent",border:"none",color:cellMode===o.k?"#00e5a0":"#4d6e8a",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:4,cursor:"pointer",minWidth:24}}>
+                    {o.l}
+                  </button>
+                ))}
               </div>
-              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:"#7a9bbf"}}>{$f(contract)}</div>
-              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:"#f59e0b"}}>{spend>0?$f(spend):"—"}</div>
-              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:profitColor(profit)}}>{spend>0?(profit>=0?"+":"")+$f(profit):"—"}</div>
-              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:marginColor(margin)}}>{spend>0?margin.toFixed(1)+"%":"—"}</div>
-              <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:"#7a9bbf"}}>{moRevenue>0?$f(moRevenue):"—"}</div>
+              {/* Sort */}
+              <span style={{fontSize:10,color:"#4d6e8a"}}>Sort:</span>
+              {[
+                {k:"profit",  l:"Top profit"},
+                {k:"loss",    l:"Biggest loss"},
+                {k:"pending", l:"Pending first"},
+                {k:"contract",l:"Contract"},
+                {k:"name",    l:"Name"},
+              ].map(o=>(
+                <button key={o.k} onClick={()=>setSortKey(o.k)}
+                  style={{background:sortKey===o.k?"#1a2744":"transparent",border:"1px solid "+(sortKey===o.k?"#00e5a055":"#1e293b"),color:sortKey===o.k?"#00e5a0":"#7a9bbf",fontSize:10,fontWeight:sortKey===o.k?700:500,padding:"3px 8px",borderRadius:5,cursor:"pointer"}}>
+                  {o.l}
+                </button>
+              ))}
             </div>
-          ))}
           </div>
-        )}
-      </div>
+          <div style={{overflowX:"auto",position:"relative"}}>
+            <div style={{minWidth: 220 + months.length*60 + 90 + 90}}>
+              {/* Header row */}
+              <div style={{display:"grid",gridTemplateColumns:`220px repeat(${months.length}, 60px) 90px 90px`,gap:2,padding:"6px 8px",fontSize:9,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #1a2744",marginBottom:3,alignItems:"center",position:"sticky",top:0,background:"#0c1625",zIndex:2}}>
+                <span style={{position:"sticky",left:0,background:"#0c1625",paddingRight:4,zIndex:3}}>Campaign</span>
+                {months.map(mo=>{
+                  const isFocus = mo===activeMonth;
+                  const isCurr  = mo===thisMonth;
+                  const label = new Date(mo+"-01").toLocaleDateString("en-US",{month:"short"});
+                  const yr = mo.slice(2,4);
+                  return (
+                    <span key={mo} onClick={()=>setFocusMonth(mo===thisMonth?null:mo)}
+                      style={{textAlign:"center",cursor:"pointer",color:isFocus?"#00e5a0":isCurr?"#7a9bbf":"#3d5a72",fontWeight:700,background:isFocus?"#1a274488":"transparent",padding:"3px 2px",borderRadius:4,lineHeight:1.2}}>
+                      {label}<br/>'{yr}
+                    </span>
+                  );
+                })}
+                <span style={{textAlign:"right",color:"#7a9bbf"}}>12-Mo</span>
+                <span style={{textAlign:"right",color:"#7a9bbf"}}>Lifetime</span>
+              </div>
+              {/* Data rows */}
+              {sortedRows.map(r=>{
+                const isOpen = expandedRow===r.c.id;
+                return (
+                  <Fragment key={r.c.id}>
+                    <div onClick={()=>setExpandedRow(isOpen?null:r.c.id)}
+                      style={{display:"grid",gridTemplateColumns:`220px repeat(${months.length}, 60px) 90px 90px`,gap:2,padding:"7px 8px",borderBottom:"1px solid #0e1828",alignItems:"center",cursor:"pointer",background:isOpen?"#0e1828":"transparent",borderRadius:5,marginBottom:1}}>
+                      {/* Sticky campaign column */}
+                      <div style={{overflow:"hidden",position:"sticky",left:0,background:isOpen?"#0e1828":"#0c1625",paddingRight:4,zIndex:1}}>
+                        <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
+                          <span style={{color:"#4d6e8a",fontSize:9}}>{isOpen?"▼":"▶"}</span>
+                          <span style={{background:r.pCol+"22",color:r.pCol,border:"1px solid "+r.pCol+"55",borderRadius:3,padding:"0 4px",fontSize:9,fontWeight:700}}>{r.c.platform}</span>
+                          <span style={{fontSize:11,fontWeight:600,color:"#d8eaf8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.c.campaignName.trim()}</span>
+                          {!r.trackable && <span title="No spend data yet" style={{fontSize:9,color:"#f59e0b"}}>⏳</span>}
+                        </div>
+                        <div style={{fontSize:9,color:"#3d5a72",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",paddingLeft:14}}>{r.c.mediaPartner}</div>
+                      </div>
+                      {months.map(mo=>{
+                        const cell = r.monthCells[mo];
+                        const isFocus = mo===activeMonth;
+                        const hasRev = cell.rev > 0;
+                        const hasProfit = cell.profit != null;
+                        const margin = hasProfit && cell.rev>0 ? (cell.profit/cell.rev)*100 : null;
+                        const bg = isFocus ? (hasProfit ? (cell.profit>=0?"#00d48a14":"#ef444414") : (cell.pending?"#f59e0b14":"transparent")) : "transparent";
+                        const border = isFocus ? "1px solid "+(hasProfit?(cell.profit>=0?"#00d48a33":"#ef444433"):(cell.pending?"#f59e0b33":"#1a2744")) : "1px solid transparent";
+                        let display;
+                        let color;
+                        if (!hasRev) { display="·"; color="#1e293b"; }
+                        else if (cell.pending) { display="⏳"; color="#f59e0b"; }
+                        else if (cellMode==="margin") { display=(margin>=0?"+":"")+margin.toFixed(0)+"%"; color=profitColor(cell.profit); }
+                        else { display=(cell.profit>=0?"+":"")+$fk(cell.profit); color=profitColor(cell.profit); }
+                        const tooltip = hasRev
+                          ? `${new Date(mo+"-01").toLocaleDateString("en-US",{month:"short",year:"numeric"})}\nRevenue: ${$f(cell.rev)}${cell.pending?"\nSpend: not entered yet":`\nSpend: ${$f(cell.spend)}\nProfit: ${$f(cell.profit)}\nMargin: ${margin.toFixed(1)}%`}`
+                          : "";
+                        return (
+                          <div key={mo} title={tooltip}
+                            style={{textAlign:"center",fontSize:10,fontWeight:700,color,padding:"3px 2px",borderRadius:3,background:bg,border}}>
+                            {display}
+                          </div>
+                        );
+                      })}
+                      <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:r.windowProfit!=null?profitColor(r.windowProfit):"#3d5a72"}}>
+                        {r.windowProfit!=null?(r.windowProfit>=0?"+":"")+$fk(r.windowProfit):"⏳"}
+                      </div>
+                      <div style={{textAlign:"right",fontSize:11,fontWeight:800,color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):"#3d5a72"}}>
+                        {r.lifetimeProfit!=null?(r.lifetimeProfit>=0?"+":"")+$fk(r.lifetimeProfit):"⏳"}
+                      </div>
+                    </div>
+                    {/* Expanded detail row — minimal */}
+                    {isOpen && (
+                      <div style={{background:"#0a1320",border:"1px solid #1a2744",borderRadius:8,padding:"18px 22px",margin:"4px 4px 10px"}}>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:24,alignItems:"end"}}>
+                          <div>
+                            <div style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Contract · {focusLabelShort}</div>
+                            <div style={{fontSize:26,fontWeight:700,color:"#7a9bbf",lineHeight:1}}>{$fc(r.focusCell.rev)}</div>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Spend</div>
+                            <div style={{fontSize:26,fontWeight:700,color:"#f59e0b",lineHeight:1}}>
+                              {r.focusCell.spend==null?<span style={{color:"#f59e0b",fontSize:18}}>⏳ pending</span>:$fc(r.focusCell.spend)}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
+                              Profit{r.focusMargin!=null?<span style={{color:marginColor(r.focusMargin),marginLeft:6,fontWeight:700}}>· {r.focusMargin.toFixed(0)}%</span>:""}
+                            </div>
+                            <div style={{fontSize:26,fontWeight:700,color:r.focusCell.profit!=null?profitColor(r.focusCell.profit):"#3d5a72",lineHeight:1}}>
+                              {r.focusCell.profit==null?<span style={{fontSize:18}}>—</span>:r.focusCell.rev>0?(r.focusCell.profit>=0?"+":"")+$f(r.focusCell.profit):"—"}
+                            </div>
+                          </div>
+                          <button onClick={(e)=>{ e.stopPropagation(); onEdit(r.c); }}
+                            style={{background:"#162236",border:"1px solid #334155",color:"#7a9bbf",fontSize:12,fontWeight:600,padding:"7px 16px",borderRadius:6,cursor:"pointer",whiteSpace:"nowrap"}}>
+                            Edit →
+                          </button>
+                        </div>
+                        <div style={{fontSize:11,color:"#4d6e8a",marginTop:14,paddingTop:12,borderTop:"1px solid #1a2744",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                          <span>{r.c.mediaPartner||"—"} · {r.c.startDate||"—"} → {r.c.endDate||"—"}</span>
+                          <span>Lifetime: <span style={{color:"#7a9bbf"}}>{$fc(r.contract)}</span> contract / <span style={{color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):"#3d5a72",fontWeight:700}}>{r.lifetimeProfit==null?"⏳":((r.lifetimeProfit>=0?"+":"")+$f(r.lifetimeProfit))}</span> profit</span>
+                        </div>
+                      </div>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{marginTop:10,fontSize:10,color:"#3d5a72",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+            <span>Click campaign to expand · click month header to focus · ⏳ = revenue billed, spend not yet entered</span>
+            <span><span style={{color:"#00d48a"}}>green</span> profit · <span style={{color:"#ef4444"}}>red</span> loss · <span style={{color:"#f59e0b"}}>amber</span> pending · <span style={{color:"#3d5a72"}}>·</span> no activity</span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -9920,7 +10416,7 @@ export default function App() {
             try{ localStorage.setItem("campaign-tracker-zeus-prompt", prompt); }catch{}
           }}/>
         ) : activeTab==="revenue" ? (
-          <RevenueDashboard campaigns={[...campaigns,...archive]}/>
+          <RevenueDashboard campaigns={[...campaigns,...archive]} onEdit={(camp)=>setEditTarget(camp)}/>
         ) : (<>
         <ReminderAlertBanner reminders={reminders} onOpen={()=>setShowReminderModal(true)} onDismissAll={()=>setReminders(prev=>prev.map(r=>r.date<=today?{...r,dismissed:true}:r))}/>
 
