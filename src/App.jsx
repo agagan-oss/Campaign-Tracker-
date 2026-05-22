@@ -7,6 +7,7 @@ const REMINDERS_KEY = "campaign-tracker-reminders";
 const ACTIVITY_KEY = "campaign-tracker-activity";
 const ARCHIVE_KEY = "campaign-tracker-archive";
 const CSV_MAPPINGS_KEY = "campaign-tracker-csv-mappings";
+const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 const VAULT_KEY = "campaign-tracker-report-vault"; // [{id, savedAt, client, title, dateRange, brandColor, totals, campaigns, notes}]
 const ARCHIVE_DAYS = 5;
 const MAX_LOG_ENTRIES = 500;
@@ -1054,24 +1055,52 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
             </div>
           </div>
 
-          {/* ── CHANGE HISTORY ── */}
-          <div style={{paddingTop:12,borderTop:"1px solid #1a2744"}}>
-            <div style={{fontSize:9,color:"#3B8FFF",textTransform:"uppercase",letterSpacing:".07em",fontWeight:700,marginBottom:6}}>📋 History</div>
-            <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"stretch"}}>
-              <button onClick={()=>{ if(!newEntry.trim()) return; const today=getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${newEntry.trim()}`; const updated=historyDraft.trim()?`${line}\n${historyDraft}`:line; setHistoryDraft(updated); onUpdate({...c,history:updated}); setNewEntry(""); }}
-                disabled={!newEntry.trim()}
-                style={{background:newEntry.trim()?"#3B8FFF":"#0a1422",border:"none",borderRadius:5,padding:"0 12px",color:newEntry.trim()?"#fff":"#3d5a72",fontSize:11,fontWeight:700,cursor:newEntry.trim()?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
-                + Add
-              </button>
-              <input value={newEntry} onChange={e=>setNewEntry(e.target.value)}
-                onKeyDown={e=>{ if(e.key==="Enter"&&newEntry.trim()){ const today=getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${newEntry.trim()}`; const updated=historyDraft.trim()?`${line}\n${historyDraft}`:line; setHistoryDraft(updated); onUpdate({...c,history:updated}); setNewEntry(""); }}}
-                placeholder="Add a note…"
-                style={{flex:1,background:"#0a1422",border:`1px solid ${newEntry.trim()?"#3B8FFF60":"#1a2744"}`,borderRadius:5,padding:"5px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
-            </div>
-            <textarea value={historyDraft} onChange={e=>{ setHistoryDraft(e.target.value); onUpdate({...c,history:e.target.value}); }}
-              placeholder="Entries appear here…"
-              style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"7px 10px",color:"#3B8FFF",fontSize:11,fontFamily:"inherit",whiteSpace:"pre-wrap",lineHeight:1.6,resize:"vertical",minHeight:70,boxSizing:"border-box",outline:"none"}}/>
-          </div>
+          {/* ── NOTES + CHECK-IN LOG ── */}
+          {(()=>{
+            const [histTab, setHistTab] = React.useState("notes");
+            const checkInLines = (c.checkInLog||"").trim().split("\n").filter(Boolean);
+            return (
+              <div style={{paddingTop:12,borderTop:"1px solid #1a2744"}}>
+                {/* Tab switcher */}
+                <div style={{display:"flex",gap:0,marginBottom:8,background:"#060d18",borderRadius:6,border:"1px solid #1a2744",overflow:"hidden",alignSelf:"flex-start",width:"fit-content"}}>
+                  {[["notes","📋 My Notes"],["log","⚡ Check-in Log"]].map(([k,label])=>(
+                    <button key={k} onClick={()=>setHistTab(k)}
+                      style={{background:histTab===k?"#0e1a2e":"transparent",border:"none",padding:"5px 12px",color:histTab===k?"#edf4ff":"#4d6e8a",fontSize:10,fontWeight:histTab===k?700:400,cursor:"pointer",whiteSpace:"nowrap",borderRight:k==="notes"?"1px solid #1a2744":"none"}}>
+                      {label}{k==="log"&&checkInLines.length>0?<span style={{marginLeft:4,background:"#ef444430",color:"#ef4444",borderRadius:3,padding:"0 4px",fontSize:9,fontWeight:700}}>{checkInLines.length}</span>:null}
+                    </button>
+                  ))}
+                </div>
+
+                {histTab==="notes"&&<>
+                  <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"stretch"}}>
+                    <button onClick={()=>{ if(!newEntry.trim()) return; const today=getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${newEntry.trim()}`; const updated=historyDraft.trim()?`${line}\n${historyDraft}`:line; setHistoryDraft(updated); onUpdate({...c,history:updated}); setNewEntry(""); }}
+                      disabled={!newEntry.trim()}
+                      style={{background:newEntry.trim()?"#3B8FFF":"#0a1422",border:"none",borderRadius:5,padding:"0 12px",color:newEntry.trim()?"#fff":"#3d5a72",fontSize:11,fontWeight:700,cursor:newEntry.trim()?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
+                      + Add
+                    </button>
+                    <input value={newEntry} onChange={e=>setNewEntry(e.target.value)}
+                      onKeyDown={e=>{ if(e.key==="Enter"&&newEntry.trim()){ const today=getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${newEntry.trim()}`; const updated=historyDraft.trim()?`${line}\n${historyDraft}`:line; setHistoryDraft(updated); onUpdate({...c,history:updated}); setNewEntry(""); }}}
+                      placeholder="Add a personal note…"
+                      style={{flex:1,background:"#0a1422",border:`1px solid ${newEntry.trim()?"#3B8FFF60":"#1a2744"}`,borderRadius:5,padding:"5px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                  </div>
+                  <textarea value={historyDraft} onChange={e=>{ setHistoryDraft(e.target.value); onUpdate({...c,history:e.target.value}); }}
+                    placeholder="Your personal notes appear here…"
+                    style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"7px 10px",color:"#3B8FFF",fontSize:11,fontFamily:"inherit",whiteSpace:"pre-wrap",lineHeight:1.6,resize:"vertical",minHeight:70,boxSizing:"border-box",outline:"none"}}/>
+                </>}
+
+                {histTab==="log"&&(
+                  <div style={{background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"7px 10px",maxHeight:160,overflowY:"auto"}}>
+                    {checkInLines.length===0
+                      ? <div style={{fontSize:11,color:"#3d5a72",fontStyle:"italic"}}>No check-in data yet — drop a CSV in Quick Check-in to populate this.</div>
+                      : checkInLines.map((line,i)=>(
+                          <div key={i} style={{fontSize:10,color:"#7a9bbf",fontFamily:"monospace",lineHeight:1.7,borderBottom:i<checkInLines.length-1?"1px solid #0d1525":"none",paddingBottom:i<checkInLines.length-1?2:0}}>{line}</div>
+                        ))
+                    }
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </td>
     </tr>
@@ -1241,6 +1270,8 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   const [newReminder, setNewReminder] = useState(blankR);
   const [showAddReminder, setShowAddReminder] = useState(false);
   const [pendingReminders, setPendingReminders] = useState([]); // reminders added before campaign has an ID
+  const [editingReminderId, setEditingReminderId] = useState(null); // id of reminder currently being edited inline
+  const [editReminderDraft, setEditReminderDraft] = useState(blankR); // draft values for inline edit
   const campaignReminders = isNew ? pendingReminders : (campaign ? reminders.filter(r=>!r.dismissed&&r.campaignId===campaign.id) : []);
   function addReminder() {
     if (!newReminder.date) return;
@@ -1258,6 +1289,21 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     if (isNew) setPendingReminders(prev=>prev.filter(r=>r.id!==id));
     else setReminders(prev=>prev.filter(r=>r.id!==id));
   }
+  function startEditReminder(r) {
+    setEditingReminderId(r.id);
+    setEditReminderDraft({ type:r.type, note:r.note||"", date:r.date, repeat:r.repeat||"none" });
+    setShowAddReminder(false); // close add form if open
+  }
+  function saveEditReminder(id) {
+    if (!editReminderDraft.date) return;
+    if (isNew) {
+      setPendingReminders(prev=>prev.map(r=>r.id===id ? {...r,...editReminderDraft} : r));
+    } else {
+      setReminders(prev=>prev.map(r=>r.id===id ? {...r,...editReminderDraft} : r));
+    }
+    setEditingReminderId(null);
+  }
+  function cancelEditReminder() { setEditingReminderId(null); }
   const set = (k,v) => setF(p=>({...p,[k]:v}));
   const iS = {width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box"};
   const row = (key,label,type="text") => (
@@ -1419,14 +1465,48 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 </div>
                 {campaignReminders.length>0 && (
                   <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
-                    {campaignReminders.map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5]; return (
-                      <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,background:"#0a1628",border:`1px solid ${rt.color}30`,borderRadius:5,padding:"5px 10px"}}>
-                        <span style={{fontSize:11,color:rt.color,fontWeight:600}}>{rt.label}</span>
-                        <span style={{fontSize:11,color:"#4d6e8a",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.note||""}</span>
-                        <span style={{fontSize:10,color:"#3d5a72",fontFamily:"monospace",flexShrink:0}}>{fmtDate(r.date)}</span>
-                        <button onClick={()=>removeReminder(r.id)} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13,lineHeight:1,flexShrink:0}}>×</button>
-                      </div>
-                    );})}
+                    {campaignReminders.map(r=>{
+                      const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
+                      const isEditing = editingReminderId===r.id;
+                      if (isEditing) {
+                        // Inline edit form
+                        return (
+                          <div key={r.id} style={{background:"#0a1628",border:`1px solid ${rt.color}50`,borderRadius:7,padding:"10px",display:"flex",flexDirection:"column",gap:8}}>
+                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                              <div>
+                                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Type</label>
+                                <select value={editReminderDraft.type} onChange={e=>setEditReminderDraft(p=>({...p,type:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit"}}>
+                                  {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
+                                <DatePicker value={editReminderDraft.date} onChange={v=>setEditReminderDraft(p=>({...p,date:v}))}/>
+                              </div>
+                            </div>
+                            <div>
+                              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Note (optional)</label>
+                              <textarea value={editReminderDraft.note} onChange={e=>setEditReminderDraft(p=>({...p,note:e.target.value}))} rows={2} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",lineHeight:1.5,outline:"none"}}/>
+                            </div>
+                            <div style={{display:"flex",gap:6}}>
+                              <button onClick={()=>saveEditReminder(r.id)} disabled={!editReminderDraft.date} style={{flex:1,background:editReminderDraft.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"7px 0",color:editReminderDraft.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:editReminderDraft.date?"pointer":"default"}}>Update</button>
+                              <button onClick={cancelEditReminder} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"7px 12px",color:"#7a9bbf",fontSize:12,cursor:"pointer"}}>Cancel</button>
+                              <button onClick={()=>removeReminder(r.id)} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,padding:"7px 10px",color:"#ef4444",fontSize:12,cursor:"pointer"}}>Delete</button>
+                            </div>
+                          </div>
+                        );
+                      }
+                      // Collapsed chip — click anywhere (except ×) to edit
+                      return (
+                        <div key={r.id} onClick={()=>startEditReminder(r)} style={{display:"flex",alignItems:"center",gap:8,background:"#0a1628",border:`1px solid ${rt.color}30`,borderRadius:5,padding:"5px 10px",cursor:"pointer"}} title="Click to edit">
+                          <span style={{fontSize:11,color:rt.color,fontWeight:600}}>{rt.label}</span>
+                          <span style={{fontSize:11,color:"#4d6e8a",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.note||""}</span>
+                          <span style={{fontSize:10,color:"#3d5a72",fontFamily:"monospace",flexShrink:0}}>{fmtDate(r.date)}</span>
+                          <span style={{fontSize:10,color:"#4d6e8a",flexShrink:0,opacity:0.6}}>✎</span>
+                          <button onClick={e=>{e.stopPropagation();removeReminder(r.id);}} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13,lineHeight:1,flexShrink:0}}>×</button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 {campaignReminders.length===0 && !showAddReminder && <div style={{fontSize:11,color:"#2a4060",marginBottom:4}}>No active reminders.</div>}
@@ -1602,18 +1682,18 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
 
   // ── Editable KPI benchmarks ─────────────────────────────────────────────────
   const defaultBenchmarks = {
-    FB:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Meta Feed" },
-    FBV:   { metric:"VCR", warn:50,   bad:30,   unit:"%", label:"Video Completion", desc:"Meta Video" },
-    IG:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Instagram" },
-    DSP:   { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"DSP Display" },
-    TD:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"The Trade Desk" },
-    SP:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"Snapchat" },
-    SEM:   { metric:"CTR", warn:2.0,  bad:1.0,  unit:"%", label:"CTR",             desc:"Search" },
-    CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV" },
-    OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming" },
-    YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube" },
-    TT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"Video Completion", desc:"TikTok" },
-    EMAIL: { metric:"CTR", warn:1.0,  bad:0.5,  unit:"%", label:"Click Rate",      desc:"Email" },
+    FB:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Meta Feed",        cpmWarn:12, cpmBad:20 },
+    FBV:   { metric:"VCR", warn:50,   bad:30,   unit:"%", label:"Video Completion", desc:"Meta Video",       cpmWarn:10, cpmBad:18 },
+    IG:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Instagram",        cpmWarn:12, cpmBad:20 },
+    DSP:   { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"DSP Display",      cpmWarn:6,  cpmBad:12 },
+    TD:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"The Trade Desk",   cpmWarn:6,  cpmBad:12 },
+    SP:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"Snapchat",         cpmWarn:5,  cpmBad:10 },
+    SEM:   { metric:"CTR", warn:2.0,  bad:1.0,  unit:"%", label:"CTR",             desc:"Search",           cpmWarn:8,  cpmBad:15 },
+    CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV",     cpmWarn:25, cpmBad:45 },
+    OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming",  cpmWarn:25, cpmBad:45 },
+    YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube",          cpmWarn:8,  cpmBad:15 },
+    TT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"Video Completion", desc:"TikTok",           cpmWarn:8,  cpmBad:14 },
+    EMAIL: { metric:"CTR", warn:1.0,  bad:0.5,  unit:"%", label:"Click Rate",      desc:"Email",            cpmWarn:5,  cpmBad:10 },
   };
   const [kpiBenchmarks, setKpiBenchmarks] = useState(() => {
     try { const s = localStorage.getItem("zeus-benchmarks"); return s ? {...defaultBenchmarks,...JSON.parse(s)} : defaultBenchmarks; } catch { return defaultBenchmarks; }
@@ -3025,19 +3105,33 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                   <span style={{fontSize:12,color:"#7a9bbf"}}>{b.desc}</span>
                   <span style={{fontSize:11,color:"#4d6e8a",marginLeft:"auto"}}>KPI: <span style={{color:"#edf4ff",fontWeight:600}}>{b.label}</span></span>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>⚠️ Warn Below</label>
-                    <div style={{display:"flex",alignItems:"center",gap:6}}>
-                      <input type="number" step="0.01" min="0" value={b.warn} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],warn:parseFloat(e.target.value)||0}}))} style={{flex:1,background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"7px 10px",color:"#f59e0b",fontSize:13,fontFamily:"inherit",outline:"none",minWidth:0}}/>
-                      <span style={{fontSize:12,color:"#4d6e8a",flexShrink:0}}>{b.unit}</span>
+                    <label style={{display:"block",fontSize:9,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>⚠️ {b.label} Warn</label>
+                    <div style={{display:"flex",alignItems:"center",gap:5}}>
+                      <input type="number" step="0.01" min="0" value={b.warn} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],warn:parseFloat(e.target.value)||0}}))} style={{flex:1,background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"6px 8px",color:"#f59e0b",fontSize:12,fontFamily:"inherit",outline:"none",minWidth:0}}/>
+                      <span style={{fontSize:11,color:"#4d6e8a",flexShrink:0}}>{b.unit}</span>
                     </div>
                   </div>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#ef4444",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>🚨 Critical Below</label>
-                    <div style={{display:"flex",alignItems:"center",gap:6}}>
-                      <input type="number" step="0.01" min="0" value={b.bad} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],bad:parseFloat(e.target.value)||0}}))} style={{flex:1,background:"#07101c",border:"1px solid #ef444440",borderRadius:6,padding:"7px 10px",color:"#ef4444",fontSize:13,fontFamily:"inherit",outline:"none",minWidth:0}}/>
-                      <span style={{fontSize:12,color:"#4d6e8a",flexShrink:0}}>{b.unit}</span>
+                    <label style={{display:"block",fontSize:9,color:"#ef4444",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>🚨 {b.label} Critical</label>
+                    <div style={{display:"flex",alignItems:"center",gap:5}}>
+                      <input type="number" step="0.01" min="0" value={b.bad} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],bad:parseFloat(e.target.value)||0}}))} style={{flex:1,background:"#07101c",border:"1px solid #ef444440",borderRadius:6,padding:"6px 8px",color:"#ef4444",fontSize:12,fontFamily:"inherit",outline:"none",minWidth:0}}/>
+                      <span style={{fontSize:11,color:"#4d6e8a",flexShrink:0}}>{b.unit}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:9,color:"#00d48a",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>💰 CPM OK Below</label>
+                    <div style={{display:"flex",alignItems:"center",gap:5}}>
+                      <input type="number" step="0.50" min="0" value={b.cpmWarn??15} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],cpmWarn:parseFloat(e.target.value)||0}}))} style={{flex:1,background:"#07101c",border:"1px solid #00d48a40",borderRadius:6,padding:"6px 8px",color:"#00d48a",fontSize:12,fontFamily:"inherit",outline:"none",minWidth:0}}/>
+                      <span style={{fontSize:11,color:"#4d6e8a",flexShrink:0}}>$</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:9,color:"#ef4444",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>🔺 CPM Too High</label>
+                    <div style={{display:"flex",alignItems:"center",gap:5}}>
+                      <input type="number" step="0.50" min="0" value={b.cpmBad??25} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],cpmBad:parseFloat(e.target.value)||0}}))} style={{flex:1,background:"#07101c",border:"1px solid #ef444440",borderRadius:6,padding:"6px 8px",color:"#ef4444",fontSize:12,fontFamily:"inherit",outline:"none",minWidth:0}}/>
+                      <span style={{fontSize:11,color:"#4d6e8a",flexShrink:0}}>$</span>
                     </div>
                   </div>
                 </div>
@@ -4563,12 +4657,41 @@ function PacingDateBar({ range, setRange }) {
 
 // ─── Pacing Dashboard ─────────────────────────────────────────────────────
 function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, onEdit=()=>{} }) {
+  // Read benchmarks from localStorage (same key AIAdvisor writes to) — no prop needed
+  const [kpiBenchmarks, setKpiBenchmarks] = useState(() => {
+    const defaults = {
+      FB:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Meta Feed",        cpmWarn:12, cpmBad:20 },
+      FBV:   { metric:"VCR", warn:50,   bad:30,   unit:"%", label:"Video Completion", desc:"Meta Video",       cpmWarn:10, cpmBad:18 },
+      IG:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Instagram",        cpmWarn:12, cpmBad:20 },
+      DSP:   { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"DSP Display",      cpmWarn:6,  cpmBad:12 },
+      TD:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"The Trade Desk",   cpmWarn:6,  cpmBad:12 },
+      SP:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"Snapchat",         cpmWarn:5,  cpmBad:10 },
+      SEM:   { metric:"CTR", warn:2.0,  bad:1.0,  unit:"%", label:"CTR",             desc:"Search",           cpmWarn:8,  cpmBad:15 },
+      CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV",     cpmWarn:25, cpmBad:45 },
+      OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming",  cpmWarn:25, cpmBad:45 },
+      YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube",          cpmWarn:8,  cpmBad:15 },
+      TT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"Video Completion", desc:"TikTok",           cpmWarn:8,  cpmBad:14 },
+      EMAIL: { metric:"CTR", warn:1.0,  bad:0.5,  unit:"%", label:"Click Rate",      desc:"Email",            cpmWarn:5,  cpmBad:10 },
+    };
+    try { const s = localStorage.getItem("zeus-benchmarks"); return s ? {...defaults, ...JSON.parse(s)} : defaults; } catch { return defaults; }
+  });
+  // Re-sync if AIAdvisor updates benchmarks while pacing tab is open
+  useEffect(() => {
+    const onStorage = (e) => {
+      if(e.key === "zeus-benchmarks" && e.newValue) {
+        try { setKpiBenchmarks(prev => ({...prev, ...JSON.parse(e.newValue)})); } catch {}
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   const [showNoGoal,   setShowNoGoal]   = useState(false);
   const [search,       setSearch]       = useState("");
   const [fPartner,     setFPartner]     = useState("all");
   const [fPlatforms,   setFPlatforms]   = useState(new Set());
   const [sortKey,      setSortKey]      = useState("pacing"); // pacing | name | partner | platform
-  const [viewMode,     setViewMode]     = useState("cards");  // cards | table
+  const [viewMode,     setViewMode]     = useState("table");  // table | cards — table is the default single-line view
 
   // Flight progress helpers
   function flightPct(c) {
@@ -4616,25 +4739,53 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   // Sort
   const orderMap={"Behind":0,"No data":1,"On Track":2,"Ahead":3};
-  withGoal.sort((a,b)=>{
+  const sortFn = (a,b) => {
     if(sortKey==="name")     return a.c.campaignName.localeCompare(b.c.campaignName);
     if(sortKey==="partner")  return a.c.mediaPartner.localeCompare(b.c.mediaPartner);
     if(sortKey==="platform") return a.c.platform.localeCompare(b.c.platform);
-    // default: pacing (worst first)
+    if(sortKey==="impr")     return (parseInt(b.disp?.impressions)||0)-(parseInt(a.disp?.impressions)||0);
+    if(sortKey==="gap"){
+      // Sort by pace gap: how far behind/ahead in raw impressions (negative = behind)
+      const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
+      const gapA = a.monthlyGoal ? (parseInt(a.disp?.impressions)||0) - Math.round(a.monthlyGoal*(dom/dim)) : 0;
+      const gapB = b.monthlyGoal ? (parseInt(b.disp?.impressions)||0) - Math.round(b.monthlyGoal*(dom/dim)) : 0;
+      return gapA - gapB; // most behind first
+    }
+    if(sortKey==="days")     return (daysRemaining(a.c)??999)-(daysRemaining(b.c)??999);
+    // default: pacing status then ratio
     const oa=orderMap[a.pacing?.label??"No data"],ob=orderMap[b.pacing?.label??"No data"];
     return oa!==ob?oa-ob:(a.pacing?.ratio??0)-(b.pacing?.ratio??0);
-  });
-  noGoalRows.sort((a,b)=>{
-    if(sortKey==="name")     return a.c.campaignName.localeCompare(b.c.campaignName);
-    if(sortKey==="partner")  return a.c.mediaPartner.localeCompare(b.c.mediaPartner);
-    if(sortKey==="platform") return a.c.platform.localeCompare(b.c.platform);
-    return 0;
-  });
+  };
+  withGoal.sort(sortFn);
+  noGoalRows.sort(sortFn);
   const behind  = withGoal.filter(r=>r.pacing?.label==="Behind");
   const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
   const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
   const noPace  = withGoal.filter(r=>!r.pacing);
   const anyFilter = q || fPartner!=="all" || fPlatforms.size>0;
+
+  // No Activity: campaigns where current MTD impressions match the last check-in's number
+  // This is gap-proof — if you skip 3 days of check-ins, campaigns only flag when you
+  // actually drop a new file and the numbers haven't moved since the last drop.
+  const today = getToday();
+  const daysSince = (dateStr) => {
+    if(!dateStr) return 0;
+    const d = new Date(dateStr+"T00:00:00"), now = new Date(today+"T00:00:00");
+    return Math.floor((now - d) / 86400000);
+  };
+  const noActivityRows = filtered.filter(r => {
+    const c = r.c;
+    if(c.status !== "active" && c.status !== "behind" && c.status !== "ahead") return false;
+    // Only flag if we have at least two check-ins (need a baseline to compare against)
+    if(!c.checkInLog || !c.lastCheckInImpr) return false;
+    const logLines = c.checkInLog.split("\n").filter(Boolean);
+    if(logLines.length < 2) return false;
+    // Current impressions vs what was recorded at last check-in
+    const currentImpr = parseInt(c.impressions)||0;
+    const lastImpr    = parseInt(c.lastCheckInImpr)||0;
+    // Flag if impressions haven't grown since the previous check-in
+    return currentImpr > 0 && currentImpr <= lastImpr;
+  });
 
   function KpiBox({c,disp}){
     const kpi=PLT_KPI[c.platform]; if(!kpi) return null;
@@ -4768,69 +4919,184 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     </div>;
   }
 
+  // ── Benchmark-driven KPI color helpers (const arrows — not hoisted, correctly close over kpiBenchmarks prop)
+  const bmFor = (platform) => kpiBenchmarks[platform] || null;
+
+  const ctrDisplayColor = (platform, ctrPct) => {
+    // ctrPct is display percent e.g. 0.25; benchmarks store warn/bad as percent e.g. warn:0.10
+    const bm = bmFor(platform);
+    if(!bm || bm.metric !== "CTR" || !ctrPct) return "#3d5a72";
+    return ctrPct >= bm.warn ? "#00d48a" : ctrPct >= bm.bad ? "#f59e0b" : "#ef4444";
+  };
+
+  const vcrDisplayColor = (platform, vcrPct) => {
+    // vcrPct is 0-100; benchmarks store warn/bad as 0-100 e.g. warn:85
+    const bm = bmFor(platform);
+    if(!bm || bm.metric !== "VCR" || !vcrPct) return "#3d5a72";
+    return vcrPct >= bm.warn ? "#00d48a" : vcrPct >= bm.bad ? "#f59e0b" : "#ef4444";
+  };
+
+  const cpmColor = (platform, cpm) => {
+    if(!cpm) return "#3d5a72";
+    const bm = bmFor(platform);
+    const warnAt = bm?.cpmWarn ?? 15;  // fallback if no platform benchmark
+    const badAt  = bm?.cpmBad  ?? 25;
+    // CPM: lower is better, so green = below warn, yellow = warn→bad, red = above bad
+    return cpm <= warnAt ? "#00d48a" : cpm <= badAt ? "#f59e0b" : "#ef4444";
+  };
+
+  // grid columns: name | platform | status | pacing bar | impr | gap | CTR/VCR | CPM | spend | reach | freq | days | edit
+  const GRID = "minmax(150px,2fr) 60px 68px 100px 72px 68px 74px 64px 64px 60px 54px 46px 46px";
+
   function TableRow({c,disp,pacing,monthlyGoal}){
     const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
-    const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null, del=parseInt(disp.impressions)||0;
-    const rem=Math.max(0,monthlyGoal-del), npd=(dim-dom)>0&&del>0?Math.round(rem/(dim-dom)):null;
+    const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null;
     const col=pacing?.color??"#3d5a72", pCol=PLT_COLORS[c.platform]||PLT_COLORS.default;
-    const isCTV=c.platform==="CTV"||c.platform==="OTT";
-    const fp=flightPct(c), dr=daysRemaining(c), drc=daysRemainingColor(dr);
+    const dr=daysRemaining(c), drc=daysRemainingColor(dr);
     const kpi=PLT_KPI[c.platform];
-    const rawKpi=kpi?.primary==="VCR"?(parseFloat(c.completionRate)||0)/100:(parseFloat(disp.ctr)||0)/100;
-    const kpiColor=kpi&&rawKpi?rawKpi>=kpi.good?"#00d48a":rawKpi>=kpi.ok?"#f59e0b":"#ef4444":null;
+    const isVCR = kpi?.primary==="VCR";
 
-    return <div style={{display:"grid",gridTemplateColumns:"minmax(160px,2fr) 70px 80px 100px 110px 110px 80px 60px",gap:8,padding:"8px 12px",borderBottom:"1px solid #0d1525",alignItems:"center",background:"#0c1625",borderLeft:"3px solid "+col}}>
+    // CTR — normalize to display percent e.g. 0.25%
+    const ctrRaw  = parseFloat(disp.ctr)||0;
+    const ctrDisp = ctrRaw > 1 ? ctrRaw : ctrRaw * 100;
+    const ctrFmt  = ctrDisp < 1 ? ctrDisp.toFixed(3)+"%" : ctrDisp.toFixed(2)+"%";
+    const ctrCol  = ctrDisplayColor(c.platform, ctrDisp);
+
+    // VCR — display as 0-100
+    const vcrRaw  = parseFloat(c.completionRate)||0;
+    const vcrDisp = vcrRaw > 1 ? vcrRaw : vcrRaw * 100;
+    const vcrCol  = vcrDisplayColor(c.platform, vcrDisp);
+
+    // CPM — color from per-platform benchmark
+    const cpm    = parseFloat(disp.cpm)||parseFloat(c.cpm)||0;
+    const cpmCol = cpmColor(c.platform, cpm);
+    const bm     = bmFor(c.platform);
+    const cpmTip = bm ? `CPM benchmark: ≤$${bm.cpmWarn} good · ≤$${bm.cpmBad} ok · >$${bm.cpmBad} high` : "";
+
+    // Spend
+    const spend = parseFloat(disp.spend)||parseFloat(c.spend)||0;
+
+    // Reach
+    const reach = parseInt(disp.reach)||parseInt(c.reach)||0;
+
+    // Frequency — flag high freq (>3 is generally a concern)
+    const freq    = parseFloat(disp.frequency||c.frequency)||0;
+    const freqCol = freq <= 0 ? "#3d5a72" : freq <= 2 ? "#00d48a" : freq <= 3.5 ? "#f59e0b" : "#ef4444";
+
+    // Impressions — MTD delivered, color vs monthly goal
+    const imprRaw = parseInt(disp.impressions)||0;
+    const imprFmt = imprRaw >= 1000000 ? (imprRaw/1000000).toFixed(2)+"M" : imprRaw >= 1000 ? (imprRaw/1000).toFixed(1)+"K" : imprRaw > 0 ? String(imprRaw) : null;
+    // Flag if no impressions at all on an active campaign
+    const noActivity = !imprRaw && (c.status==="active"||c.status==="behind"||c.status==="ahead");
+
+    // Pace gap — delivered minus expected impressions (negative = behind)
+    const paceGap = pacing && monthlyGoal && exp != null ? imprRaw - exp : null;
+    const paceGapFmt = paceGap === null ? null
+      : Math.abs(paceGap) >= 1000000 ? (paceGap >= 0 ? "+" : "") + (paceGap/1000000).toFixed(1)+"M"
+      : Math.abs(paceGap) >= 1000    ? (paceGap >= 0 ? "+" : "") + (paceGap/1000).toFixed(0)+"K"
+      : (paceGap >= 0 ? "+" : "") + String(paceGap);
+    const paceGapCol = paceGap === null ? "#3d5a72" : paceGap >= 0 ? "#00d48a" : Math.abs(paceGap) < monthlyGoal*0.05 ? "#f59e0b" : "#ef4444";
+
+    return <div style={{display:"grid",gridTemplateColumns:GRID,gap:6,padding:"6px 12px",borderBottom:"1px solid #0d1525",alignItems:"center",background:"#0c1625",borderLeft:"3px solid "+col}}>
+
       {/* Campaign + partner */}
       <div style={{minWidth:0}}>
         <div style={{fontSize:11,fontWeight:700,color:"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
-        <div style={{fontSize:10,color:"#4d6e8a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
+        <div style={{fontSize:9,color:"#4d6e8a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
       </div>
+
       {/* Platform */}
       <div><span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span></div>
+
       {/* Pacing status */}
       <div>
         {pacing?<span style={{fontSize:10,fontWeight:700,color:col}}>{pacing.label}</span>
         :monthlyGoal?<span style={{fontSize:10,color:"#3d5a72"}}>No impr</span>
         :<span style={{fontSize:10,color:"#334155"}}>No goal</span>}
       </div>
-      {/* Monthly pacing bar */}
+
+      {/* Monthly pacing bar — green/yellow/red fill, electric blue expected tick, exp% below */}
       <div>
         {pacing?<>
-          <div style={{position:"relative",background:"#07101c",borderRadius:2,height:5,overflow:"visible",marginBottom:2}}>
-            <div title={"Expected: "+(exp?.toLocaleString()??"")} style={{position:"absolute",top:-2,left:Math.min(97,pacing.expectedPct*100)+"%",width:2,height:9,background:"#334155",borderRadius:1,zIndex:2}}/>
-            <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:2}}/>
+          <div style={{position:"relative",background:"#07101c",borderRadius:3,height:7,overflow:"visible",marginBottom:2}}>
+            <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:3}}/>
+            <div title={"Expected: "+(exp?.toLocaleString()??"")}
+              style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:15,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
           </div>
-          <div style={{fontSize:9,color:col,fontWeight:700}}>{(pacing.pct*100).toFixed(1)}%</div>
+          <div style={{display:"flex",alignItems:"center",gap:4}}>
+            <span style={{fontSize:9,color:col,fontWeight:700}}>{(pacing.pct*100).toFixed(1)}%</span>
+            {exp&&<span style={{fontSize:8,color:"#38bdf8aa"}}>/{(pacing.expectedPct*100).toFixed(0)}%</span>}
+          </div>
         </>:<div style={{fontSize:10,color:"#3d5a72"}}>—</div>}
       </div>
-      {/* Flight progress bar */}
-      <div>
-        {fp!==null?<>
-          <div style={{background:"#07101c",borderRadius:2,height:5,marginBottom:2}}>
-            <div style={{background:"#334155",height:"100%",width:Math.min(100,fp*100)+"%",borderRadius:2}}/>
-          </div>
-          <div style={{fontSize:9,color:"#3d5a72"}}>{(fp*100).toFixed(0)}% of flight</div>
-        </>:<div style={{fontSize:10,color:"#3d5a72"}}>—</div>}
+
+      {/* Impressions MTD — own column, most important KPI */}
+      <div title="Impressions delivered this period (MTD)">
+        {imprFmt
+          ? <span style={{fontSize:11,fontWeight:800,color:"#7dd3fc",letterSpacing:"-0.01em"}}>{imprFmt}</span>
+          : noActivity
+            ? <span style={{fontSize:10,fontWeight:700,color:"#ef4444"}}>—</span>
+            : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
       </div>
-      {/* Key metric (CTR or VCR) */}
-      <div>
-        {kpi&&rawKpi?<span style={{fontSize:10,fontWeight:700,color:kpiColor}}>{kpi.label}: {kpi.primary==="VCR"?(rawKpi*100).toFixed(0)+"%":(rawKpi*100).toFixed(2)+"%"}</span>
-        :disp.cpm?<span style={{fontSize:10,color:"#fb923c"}}>${parseFloat(disp.cpm).toFixed(2)} CPM</span>
-        :<span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+
+      {/* Pace gap — impressions delivered vs expected right now */}
+      <div title={paceGap !== null ? `Expected ${exp?.toLocaleString()} · Delivered ${imprRaw.toLocaleString()}` : ""}>
+        {paceGapFmt
+          ? <span style={{fontSize:10,fontWeight:700,color:paceGapCol}}>{paceGapFmt}</span>
+          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
       </div>
+
+      {/* CTR or VCR — color-coded from benchmarks */}
+      <div title={kpi?.tip||""}>
+        {isVCR && vcrDisp > 0
+          ? <span style={{fontSize:10,fontWeight:700,color:vcrCol}}>{vcrDisp.toFixed(0)}% VCR</span>
+          : ctrDisp > 0
+            ? <span style={{fontSize:10,fontWeight:700,color:ctrCol}}>{ctrFmt} CTR</span>
+            : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+      </div>
+
+      {/* CPM — color-coded from per-platform benchmark */}
+      <div title={cpmTip}>
+        {cpm > 0
+          ? <span style={{fontSize:10,fontWeight:700,color:cpmCol}}>${cpm.toFixed(2)}</span>
+          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+      </div>
+
+      {/* Spend */}
+      <div>
+        {spend > 0
+          ? <span style={{fontSize:10,color:"#7a9bbf"}}>${spend >= 1000 ? (spend/1000).toFixed(1)+"k" : spend.toFixed(0)}</span>
+          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+      </div>
+
+      {/* Reach */}
+      <div>
+        {reach > 0
+          ? <span style={{fontSize:10,color:"#7a9bbf"}}>{reach >= 1000000 ? (reach/1000000).toFixed(1)+"M" : reach >= 1000 ? (reach/1000).toFixed(0)+"k" : reach}</span>
+          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+      </div>
+
+      {/* Frequency — color-coded: ≤2 green, ≤3.5 yellow, >3.5 red */}
+      <div title="Frequency: avg times a user saw this ad">
+        {freq > 0
+          ? <span style={{fontSize:10,fontWeight:700,color:freqCol}}>{freq.toFixed(2)}x</span>
+          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+      </div>
+
       {/* Days remaining */}
       <div>
         {dr!==null?<span style={{fontSize:10,fontWeight:700,color:drc}}>{dr<=0?"Done":dr+"d"}</span>
         :<span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
       </div>
+
       {/* Edit */}
-      <div><button onClick={()=>onEdit(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",fontSize:10,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button></div>
+      <div><button onClick={()=>onEdit(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",fontSize:10,padding:"2px 6px",cursor:"pointer",fontWeight:600}}>Edit</button></div>
     </div>;
   }
 
   function TableHeader(){
-    return <div style={{display:"grid",gridTemplateColumns:"minmax(160px,2fr) 70px 80px 100px 110px 110px 80px 60px",gap:8,padding:"6px 12px",borderBottom:"1px solid #1a2744",marginBottom:2}}>
-      {["Campaign","Platform","Status","Mo. Pacing","Flight","KPI","Days Left",""].map((h,i)=>(
+    return <div style={{display:"grid",gridTemplateColumns:GRID,gap:6,padding:"5px 12px",borderBottom:"1px solid #1a2744",marginBottom:2}}>
+      {["Campaign","Platform","Status","Mo. Pacing","Impr","Gap","CTR / VCR","CPM","Spend","Reach","Freq","Days",""].map((h,i)=>(
         <div key={i} style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
       ))}
     </div>;
@@ -4877,7 +5143,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
       <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
         <span style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
-        {[["pacing","Pacing"],["name","Name"],["partner","Partner"],["platform","Platform"]].map(([k,l])=>(
+        {[["pacing","Pacing"],["gap","Gap"],["impr","Impr"],["days","Days"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
           <button key={k} onClick={()=>setSortKey(k)}
             style={{background:sortKey===k?"#002e24":"#0e1a2e",border:"1px solid "+(sortKey===k?"#00c896":"#1e293b"),borderRadius:6,padding:"4px 10px",color:sortKey===k?"#00e5a0":"#4d6e8a",fontSize:11,fontWeight:sortKey===k?700:400,cursor:"pointer"}}>
             {l}
@@ -4899,7 +5165,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
     {/* Summary pills */}
     <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16,alignItems:"center"}}>
-      {[{label:"Behind",val:behind.length,color:"#fde047"},{label:"On Track",val:onTrack.length,color:"#00d48a"},{label:"Ahead",val:ahead.length,color:"#fb923c"},{label:"No Impr",val:noPace.length,color:"#4d6e8a"},{label:"No Goal",val:noGoalRows.length,color:"#334155"}].map(s=>(
+      {[{label:"Behind",val:behind.length,color:"#fde047"},{label:"On Track",val:onTrack.length,color:"#00d48a"},{label:"Ahead",val:ahead.length,color:"#fb923c"},{label:"No Impr",val:noPace.length,color:"#4d6e8a"},{label:"No Goal",val:noGoalRows.length,color:"#334155"},{label:"No Activity",val:noActivityRows.length,color:"#ef4444"}].map(s=>(
         <div key={s.label} style={{background:"#0e1a2e",border:"1px solid "+s.color+"30",borderRadius:7,padding:"8px 13px",minWidth:68,textAlign:"center"}}>
           <div style={{fontSize:20,fontWeight:800,color:s.color,lineHeight:1}}>{s.val}</div>
           <div style={{fontSize:10,color:"#4d6e8a",marginTop:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>{s.label}</div>
@@ -4914,6 +5180,33 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     <Section label="Behind"         color="#fde047" items={behind}/>
     <Section label="On Track"       color="#00d48a" items={onTrack}/>
     <Section label="Ahead"          color="#fb923c" items={ahead}/>
+    {noActivityRows.length>0&&(
+      <div style={{marginBottom:viewMode==="table"?4:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:"#1a0808",border:"1px solid #ef444430",borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
+          <span style={{fontSize:11,fontWeight:800,color:"#ef4444",textTransform:"uppercase",letterSpacing:"0.07em"}}>⚠️ No Activity ({noActivityRows.length})</span>
+          <span style={{fontSize:10,color:"#7a9bbf"}}>These active campaigns haven't received new impressions in 2+ days — check delivery</span>
+        </div>
+        {viewMode==="table"&&<TableHeader/>}
+        {noActivityRows.map(r=>{
+          const lastImpr = parseInt(r.c.lastCheckInImpr)||0;
+          const currentImpr = parseInt(r.c.impressions)||0;
+          const stalledAt = lastImpr > 0 ? (lastImpr >= 1000000 ? (lastImpr/1000000).toFixed(1)+"M" : lastImpr >= 1000 ? (lastImpr/1000).toFixed(0)+"K" : String(lastImpr)) : "0";
+          return viewMode==="table"
+            ? <div key={r.c.id} style={{position:"relative"}}>
+                <TableRow {...r}/>
+                <div style={{position:"absolute",right:56,top:"50%",transform:"translateY(-50%)",fontSize:9,color:"#ef4444",fontWeight:700,background:"#1a0808",border:"1px solid #ef444440",borderRadius:3,padding:"1px 5px",whiteSpace:"nowrap"}}>
+                  stalled @ {stalledAt}
+                </div>
+              </div>
+            : <div key={r.c.id} style={{position:"relative"}}>
+                <PacingCard {...r}/>
+                <div style={{position:"absolute",top:10,right:10,fontSize:10,color:"#ef4444",fontWeight:700,background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,padding:"2px 8px"}}>
+                  stalled @ {stalledAt}
+                </div>
+              </div>;
+        })}
+      </div>
+    )}
     <Section label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>
     {noGoalRows.length>0&&<div style={{marginTop:4}}>
       <div onClick={()=>setShowNoGoal(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:showNoGoal?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
@@ -6405,15 +6698,51 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 // Supports FB (CSV) and Snapchat (XLSX or CSV) exports + manual entry
 // Single-screen design: select campaigns → drop file → review → apply
 
+// ── Initials Prompt — inline modal for setting rep initials ──────────────────
+function InitialsPrompt({ current, onSave, onClose }){
+  const [val, setVal] = React.useState(current||"");
+  return (
+    <div style={{padding:"10px 14px",background:"#0c1a2e",borderBottom:"1px solid #f59e0b40",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <span style={{fontSize:12,color:"#f59e0b",fontWeight:700}}>Your rep initials</span>
+      <span style={{fontSize:11,color:"#4d6e8a"}}>Used to filter company-wide DSP exports to just your campaigns (e.g. <code style={{color:"#7a9bbf"}}>_AG</code>)</span>
+      <input
+        autoFocus
+        value={val}
+        onChange={e=>setVal(e.target.value.toUpperCase().replace(/[^A-Z]/g,""))}
+        onKeyDown={e=>{ if(e.key==="Enter"&&val.length>=2) onSave(val); if(e.key==="Escape") onClose(); }}
+        maxLength={3}
+        placeholder="AG"
+        style={{background:"#0e1a2e",border:"1px solid #f59e0b60",borderRadius:5,padding:"4px 10px",color:"#f59e0b",fontSize:13,fontWeight:700,fontFamily:"monospace",width:60,outline:"none",textAlign:"center",letterSpacing:2}}
+      />
+      <button onClick={()=>{ if(val.length>=2) onSave(val); }}
+        disabled={val.length<2}
+        style={{background:val.length>=2?"#001a0e":"#0a1020",border:"1px solid #00c89640",borderRadius:5,padding:"4px 12px",color:val.length>=2?"#00e5a0":"#334155",fontSize:11,fontWeight:700,cursor:val.length>=2?"pointer":"default"}}>
+        Save
+      </button>
+      <button onClick={onClose}
+        style={{background:"none",border:"none",color:"#4d6e8a",fontSize:11,cursor:"pointer",textDecoration:"underline"}}>
+        Cancel
+      </button>
+      {current&&(
+        <span style={{fontSize:10,color:"#334155",marginLeft:"auto"}}>Currently: <b style={{color:"#7a9bbf"}}>_{current}</b></span>
+      )}
+    </div>
+  );
+}
+
 function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
-  const activeCamps = filtered.filter(c=>c.status==="active"||c.status==="behind"||c.status==="ahead");
+  // Always use ALL campaigns as the matching pool — never restrict by the dashboard's current platform/search filter
+  // For CSV mapping: include ALL campaigns regardless of status (off/paused/pending campaigns still need data imports)
+  const activeCamps = campaigns;
 
   const [qciSearch,    setQciSearch]    = React.useState("");
-  const [qciPlatform,  setQciPlatform]  = React.useState("all");
+  const [qciPlatforms, setQciPlatforms] = React.useState(new Set()); // empty = all platforms
   const [selected,     setSelected]     = React.useState(new Set());
   const [fileRows,     setFileRows]     = React.useState(null);   // parsed rows from file drop
   const [fileSource,   setFileSource]   = React.useState("");     // "Facebook/Meta" | "Snapchat"
-  const [mapping,      setMapping]      = React.useState({});     // fileRowIdx -> campId
+  const [mapping,      setMapping]      = React.useState({});     // fileRowIdx -> campId (integers only)
+  const [showAllMap,   setShowAllMap]   = React.useState({});     // fileRowIdx -> bool (separate from mapping)
+  const [leftPickCampId, setLeftPickCampId] = React.useState(null); // campaign id being manually assigned from left panel
   const [fileError,    setFileError]    = React.useState("");
   const [savedMsg,     setSavedMsg]     = React.useState("");
   const [drafts,       setDrafts]       = React.useState({});
@@ -6424,14 +6753,26 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
   });
   function persistMappings(m){ setSavedMappings(m); try{ localStorage.setItem(CSV_MAPPINGS_KEY,JSON.stringify(m)); }catch{} }
 
-  const qciPlatforms = [...new Set(activeCamps.map(c=>c.platform).filter(Boolean))].sort();
+  // ── User initials — used to filter company-wide DSP dumps to just your campaigns ──
+  const [userInitials, setUserInitialsState] = React.useState(()=>{
+    try{ return localStorage.getItem(USER_INITIALS_KEY)||""; } catch{ return ""; }
+  });
+  const [showInitialsPrompt, setShowInitialsPrompt] = React.useState(false);
+  function saveUserInitials(val){
+    const v = val.trim().toUpperCase();
+    setUserInitialsState(v);
+    try{ localStorage.setItem(USER_INITIALS_KEY, v); }catch{}
+    setShowInitialsPrompt(false);
+  }
+
+  const qciPlatformList = [...new Set(activeCamps.map(c=>c.platform).filter(Boolean))].sort();
   const selectedCamps = activeCamps.filter(c=>selected.has(c.id));
   const mappedCount = Object.values(mapping).filter(Boolean).length;
 
   const visibleCamps = activeCamps.filter(c=>{
     const q=qciSearch.toLowerCase();
     return (!q||c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q))
-      &&(qciPlatform==="all"||c.platform===qciPlatform);
+      &&(qciPlatforms.size===0||qciPlatforms.has(c.platform));
   });
 
   // ── Init drafts when campaigns change ──────────────────────────────────────
@@ -6477,6 +6818,10 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     const cols = Object.keys(rows[0]).join("|").toLowerCase();
     if (cols.includes("paid impressions")||cols.includes("ecpc")) return "Snapchat";
     if (cols.includes("amount spent (usd)")||cols.includes("ctr (link click-through rate)")) return "Facebook/Meta";
+    // TradeDesk export — "Advertiser Name" + "Impressions Won" + "Data Source" (title-case, space-delimited columns)
+    if (cols.includes("advertiser name") && cols.includes("impressions won") && cols.includes("data source")) return "TradeDesk";
+    // Company-wide DSP / programmatic dump — has advertiser_name + campaign + impressions_won (snake_case)
+    if (cols.includes("advertiser_name") && cols.includes("impressions_won")) return "DSP-Internal";
     if (cols.includes("campaign name")&&(cols.includes("impressions")||cols.includes("spend"))) return "Generic";
     return "Generic";
   }
@@ -6484,7 +6829,27 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
   function extractMetrics(row, source){
     let impressions=0, clicks=0, ctr=0, spend=0, cpm=0, reach=0, videoViews=0, completionRate=0;
 
-    if (source==="Snapchat") {
+    if (source==="TradeDesk") {
+      // TradeDesk export columns: Impressions Won, Clicks, CTR, Video Completion Rate, Advertiser eCPM, Advertiser Cost
+      impressions    = parseInt((row["Impressions Won"]||"").toString().replace(/[^0-9]/g,""))||0;
+      clicks         = parseInt((row["Clicks"]||"").toString().replace(/[^0-9]/g,""))||0;
+      spend          = parseFloat(row["Advertiser Cost"]||0)||0;
+      cpm            = parseFloat(row["Advertiser eCPM"]||0)||0;
+      const rawVcr   = parseFloat(row["Video Completion Rate"]||0)||0;
+      completionRate = rawVcr > 0 && rawVcr <= 1 ? rawVcr * 100 : rawVcr; // normalize 0-1 to 0-100
+      // CTR: recompute from clicks/impressions for accuracy; TTD exports decimal (0.001) not percent
+      ctr = impressions > 0 && clicks > 0 ? (clicks / impressions * 100) : 0;
+
+    } else if (source==="DSP-Internal") {
+      impressions    = parseInt((row["impressions_won"]||"").toString().replace(/[^0-9]/g,""))||0;
+      clicks         = parseInt((row["clicks"]||"").toString().replace(/[^0-9]/g,""))||0;
+      spend          = parseFloat(row["advertiser_cost"]||0)||0;
+      cpm            = parseFloat(row["advertiser_ecpm"]||0)||0;
+      completionRate = parseFloat(row["video_completion_rate"]||0)||0;
+      ctr            = impressions>0 && clicks>0 ? (clicks/impressions*100) : (parseFloat((row["ctr"]||"0").toString().replace(/[%,]/g,""))||0);
+      if(ctr>0&&ctr<1) ctr=ctr*100; // normalize decimal CTR to percent
+
+    } else if (source==="Snapchat") {
       impressions = parseFloat(row["Paid Impressions"]||0)||0;
       clicks      = parseFloat(row["Clicks"]||0)||0;
       spend       = parseFloat(row["Amount Spent"]||0)||0;
@@ -6548,10 +6913,122 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
   function getCampName(row, source){
     if (source==="Snapchat") return row["Campaign Name"]||"";
     if (source==="Facebook/Meta") return row["Campaign name"]||row["Campaign"]||"";
+    if (source==="DSP-Internal") return row["campaign"]||"";
+    // TradeDesk: use Campaign column for display; matching uses advertiser name (see matchTTDClientToTracker)
+    if (source==="TradeDesk") return row["Campaign"]||row["campaign"]||"";
     // Generic — try common campaign name columns
     return findCol(row, ["campaign name","campaign","name","ad campaign","campaign title"])||"";
   }
 
+  // For DSP-Internal: the advertiser_name field contains the rep initials suffix (_AG, _ZB, etc.)
+  function getDSPAdvertiser(row){ return row["advertiser_name"]||""; }
+  function getDSPInitials(advertiserName){
+    const match = advertiserName.match(/_([A-Z]{2,3})$/);
+    return match ? match[1] : null;
+  }
+
+  // ── TradeDesk advertiser helpers ───────────────────────────────────────────
+  // Returns the raw Advertiser Name from a TradeDesk row
+  function getTTDAdvertiserName(row){ return (row["Advertiser Name"]||"").trim(); }
+
+  // Returns true only if this row belongs to this account (has _AG suffix)
+  function isTTDAgRow(advertiserName){ return /_AG\s*$/.test(advertiserName.trim()); }
+
+  // Strips the prefix codes (e.g. "COM-", "ALP-SAN-", "SPI-", "ALL-KITV-") and the "_AG" suffix
+  // to yield the bare client name used to match tracker campaignName.
+  // e.g. "COM-Farm Bureau Financial-Jim Waters_AG"  => "Farm Bureau Financial-Jim Waters"
+  //      "SPI-Shining Star Schools_AG"              => "Shining Star Schools"
+  //      "ALP-SAN-Olympia Hills Golf Course_AG"     => "Olympia Hills Golf Course"
+  //      "ALL-KITV-Big City Diner_AG"               => "Big City Diner"
+  function getTTDClientName(advertiserName){
+    let s = advertiserName.trim();
+    // Remove _AG suffix (with optional trailing spaces)
+    s = s.replace(/_AG\s*$/, "");
+    // Remove leading prefix groups: sequences of 2-5 uppercase chars optionally followed by digits, separated by "-"
+    // e.g. "ALL-", "ALP-SAN-", "BTM-", "COM-", "SPI-", "ALL-KITV-", "ALL-KWWL-"
+    s = s.replace(/^([A-Z]{2,5}\d*-)+/, "");
+    return s.trim();
+  }
+
+  // TradeDesk-only platforms — the data source platforms this file can map to
+  const TTD_PLATFORMS = new Set(["TD", "TDV", "TDA", "CTV", "OTT", "OTTD"]);
+
+  // Exact-first matching: given a TTD client name, find the tracker campaign.
+  // ONLY searches TD/TDV/TDA/CTV/OTT campaigns — never matches FB, FBV, DSP, etc.
+  // This prevents "Shining Star Schools" from matching the FB variant instead of TD.
+  function matchTTDClientToTracker(clientName, camps){
+    if (!clientName) return "";
+    const cn = clientName.toLowerCase().trim();
+    // Always restrict to TradeDesk-relevant platforms
+    const tdCamps = camps.filter(c => TTD_PLATFORMS.has(c.platform));
+    // 1. Exact match on trimmed campaignName (TD platforms only)
+    const exact = tdCamps.find(c => c.campaignName.trim().toLowerCase() === cn);
+    if (exact) return String(exact.id);
+    // 2. Tracker campaignName contains the full client name as a substring
+    const sub = tdCamps.find(c => c.campaignName.trim().toLowerCase().includes(cn));
+    if (sub) return String(sub.id);
+    // 3. Client name contains the full tracker campaignName as a substring
+    const rev = tdCamps.find(c => cn.includes(c.campaignName.trim().toLowerCase()));
+    if (rev) return String(rev.id);
+    // 4. Strict word overlap — require >60% of meaningful client words in campaign name
+    const clientWords = cn.split(/\s+/).filter(w => w.length > 3);
+    if (clientWords.length > 0) {
+      let best = null, bestCount = 0;
+      tdCamps.forEach(c => {
+        const campLower = c.campaignName.trim().toLowerCase();
+        const matches = clientWords.filter(w => campLower.includes(w)).length;
+        const ratio = matches / clientWords.length;
+        if (ratio > 0.6 && matches > bestCount) { best = c; bestCount = matches; }
+      });
+      if (best) return String(best.id);
+    }
+    return "";
+  }
+
+  // Memory key per individual CSV row name (not the whole file fingerprint)
+  // Format: "source||csvRowName"  →  { campId, campName }
+  // Memory key: source + the stable row identifier.
+  // For TradeDesk: use the Advertiser Name (stable) not the campaign name (can change between exports).
+  // For all other sources: use the campaign name as before.
+  function makeNameKey(source, csvName){ return `${source}||${csvName.trim().toLowerCase()}`; }
+  function makeTTDNameKey(advertiserName){ return `TradeDesk||adv:${advertiserName.trim().toLowerCase()}`; }
+
+  // lookupMemory: for TradeDesk, the csvName passed here is the TTD campaign name,
+  // but the stable key we save is the advertiser name. So we try both.
+  function lookupMemory(source, csvName, row){
+    // For TradeDesk: primary key is advertiser name (stable across exports)
+    if(source==="TradeDesk" && row){
+      const advKey = makeTTDNameKey(getTTDAdvertiserName(row));
+      const advEntry = savedMappings[advKey];
+      // Compare as strings to handle both number and string campId
+      if(advEntry && campaigns.find(c=>String(c.id)===String(advEntry.campId))) return advEntry.campId;
+    }
+    // Fallback: legacy key by campaign name (covers old saves + non-TTD sources)
+    const key=makeNameKey(source,csvName);
+    const entry=savedMappings[key];
+    if(entry && campaigns.find(c=>String(c.id)===String(entry.campId))) return entry.campId;
+    return null;
+  }
+
+  function persistNameMappings(source, mappingEntries){
+    // mappingEntries: [{csvName, campId, campName, advertiserName?}]
+    // For TradeDesk: save under the stable advertiser name key (not the campaign name).
+    // Also save under the campaign name key as a legacy fallback.
+    const next={...savedMappings};
+    mappingEntries.forEach(({csvName,campId,campName,advertiserName})=>{
+      if(!csvName||!campId) return;
+      const payload={campId,campName,source,learnedAt:getToday()};
+      if(source==="TradeDesk" && advertiserName){
+        // Primary stable key: advertiser name (same across all future exports)
+        next[makeTTDNameKey(advertiserName)]={...payload,advertiserName};
+      }
+      // Always also save by campaign name as legacy fallback
+      next[makeNameKey(source,csvName)]=payload;
+    });
+    persistMappings(next);
+  }
+
+  // Legacy: kept only for backward-compat reads; new saves use per-name keys above
   function makeKey(source, rows){
     const names=rows.map(r=>getCampName(r,source)).filter(Boolean).sort();
     return `${source}||${names.join("|")}`;
@@ -6612,39 +7089,92 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     const source=detectSource(rows);
     setFileSource(source);
 
-    // Check saved template
-    const key=makeKey(source,rows);
-    const saved=savedMappings[key];
+    // ── TradeDesk export: filter to only _AG rows (this account's campaigns) ──
+    if(source==="TradeDesk"){
+      const before = rows.length;
+      rows = rows.filter(row => isTTDAgRow(getTTDAdvertiserName(row)));
+      if(!rows.length){
+        setFileError(`No _AG rows found in this TradeDesk file. Make sure you're using the full company export — it should contain rows with advertiser names ending in _AG.`);
+        return;
+      }
+      setSavedMsg(`Filtered ${before.toLocaleString()} rows → ${rows.length} rows for _AG account`);
+    }
+
+    // ── DSP-Internal: filter to only this rep's rows ───────────────────────────
+    if(source==="DSP-Internal"){
+      if(!userInitials){
+        // No initials set yet — prompt the user and bail
+        setShowInitialsPrompt(true);
+        setFileError("Please set your rep initials so we can filter this company-wide file to just your campaigns.");
+        return;
+      }
+      const before = rows.length;
+      rows = rows.filter(row=>{
+        const adv = getDSPAdvertiser(row);
+        return getDSPInitials(adv)===userInitials || adv.toUpperCase().endsWith("_"+userInitials);
+      });
+      if(!rows.length){
+        setFileError(`No rows found for initials _${userInitials} in this file. Check your initials in settings or verify the file contains your campaigns.`);
+        return;
+      }
+      setSavedMsg(`Filtered ${before.toLocaleString()} rows → ${rows.length} rows for _${userInitials}`);
+    }
+
+    // Build initial mapping: 1) per-name memory, 2) legacy whole-file memory, 3) source-aware auto-match
     let initMap={};
     let savedCount=0;
+    let autoCount=0;
 
-    if(saved){
+    // Step 1: per-name memory (reliable — persists across different file exports)
+    // For TradeDesk: lookupMemory uses advertiser name (stable). For others: uses campaign name.
+    rows.forEach((row,i)=>{
+      const csvName=getCampName(row,source);
+      const rememberedId=lookupMemory(source,csvName,row);
+      if(rememberedId){ initMap[i]=rememberedId; savedCount++; }
+      else initMap[i]="";
+    });
+
+    // Step 2: legacy whole-file memory for any still-unmatched rows
+    const legacyKey=makeKey(source,rows);
+    const legacySaved=savedMappings[legacyKey];
+    if(legacySaved){
       rows.forEach((row,i)=>{
+        if(initMap[i]) return;
         const csvName=getCampName(row,source);
-        const entry=saved.find(e=>e.csvName===csvName);
-        if(entry&&campaigns.find(c=>c.id===entry.campId)){ initMap[i]=entry.campId; savedCount++; }
-        else initMap[i]="";
+        const entry=legacySaved.find(e=>e.csvName===csvName);
+        if(entry&&campaigns.find(c=>String(c.id)===String(entry.campId))){ initMap[i]=String(entry.campId); savedCount++; }
       });
     }
 
-    // Auto-match remaining unassigned rows against selected (or all active) camps
-    const matchPool=selectedCamps.length>0?selectedCamps:visibleCamps.length<activeCamps.length?visibleCamps:activeCamps;
+    // Step 3: source-aware auto-match for remaining unassigned rows
     rows.forEach((row,i)=>{
       if(initMap[i]) return;
-      const csvName=getCampName(row,source);
-      let bestId="",bestScore=0;
-      matchPool.forEach(c=>{
-        const score=fuzzyScore(csvName,c.campaignName);
-        if(score>bestScore&&score>=0.25){ bestScore=score; bestId=c.id; }
-      });
-      initMap[i]=bestId;
+
+      if(source==="TradeDesk"){
+        // TradeDesk: match by advertiser name (client name), not campaign name
+        // This is exact/substring matching — not fuzzy guessing
+        const advName = getTTDAdvertiserName(row);
+        const clientName = getTTDClientName(advName);
+        const matchedId = matchTTDClientToTracker(clientName, activeCamps);
+        if(matchedId){ initMap[i]=matchedId; autoCount++; }
+      } else {
+        // All other sources: fuzzy match by campaign name
+        const csvName=getCampName(row,source);
+        let bestId="",bestScore=0;
+        activeCamps.forEach(c=>{
+          const score=fuzzyScore(csvName,c.campaignName);
+          if(score>bestScore&&score>=0.25){ bestScore=score; bestId=String(c.id); }
+        });
+        if(bestId){ initMap[i]=bestId; autoCount++; }
+      }
     });
 
-    const autoCount=Object.values(initMap).filter(Boolean).length;
+    const totalMatched=Object.values(initMap).filter(Boolean).length;
     setFileRows(rows);
     setMapping(initMap);
-    if(savedCount>0) setSavedMsg(`✓ ${savedCount} remembered from last time`);
-    else if(autoCount>0) setSavedMsg(`⚡ Auto-matched ${autoCount} of ${rows.length}`);
+    if(savedCount>0 && autoCount>0) setSavedMsg(`✓ ${savedCount} remembered · ⚡ ${autoCount} auto-matched · ${totalMatched}/${rows.length} total`);
+    else if(savedCount>0) setSavedMsg(`✓ ${savedCount} of ${rows.length} remembered from past sessions`);
+    else if(autoCount>0) setSavedMsg(`⚡ Auto-matched ${autoCount} of ${rows.length} — review and apply to save for next time`);
     setView("split");
   }
 
@@ -6666,11 +7196,29 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       if(parseFloat(m.frequency)>0){ updates[campId].frequency+=parseFloat(m.frequency); updates[campId].freqCount++; }
     });
     setCampaigns(cs=>cs.map(c=>{
-      const u=updates[c.id]; if(!u) return c;
-      // Always recompute CTR from total link clicks / total impressions
+      const u=updates[c.id]||updates[String(c.id)]; if(!u) return c;
+      // Always recompute CTR from total clicks / total impressions
       const computedCtr = u.impressions > 0 && u.clicks > 0 ? (u.clicks / u.impressions * 100) : 0;
-      const histLine=`${stamp} — ${u.impressions.toLocaleString()} impr, ${u.clicks} clicks, CTR ${computedCtr.toFixed(3)}%${u.spend>0?", $"+u.spend.toFixed(2)+" spend":""}${u.videoViews>0?", "+u.videoViews.toLocaleString()+" views":""} (${fileSource})`;
+      const sourceLabel = fileSource==="TradeDesk" ? "TradeDesk" : fileSource;
+      // Check-in log line — stored in checkInLog (separate from personal history notes)
+      const histLine=`${stamp} | ${u.impressions.toLocaleString()} impr | ${u.clicks} clicks | CTR ${computedCtr.toFixed(3)}%${u.spend>0?" | $"+u.spend.toFixed(2)+" spend":""}${u.completionRate>0?" | VCR "+u.completionRate.toFixed(1)+"%":""} | ${sourceLabel}`;
+      // For TradeDesk imports, save to ttdSnapshots.mtd so the ⬡ TTD badge shows and Zeus can reference it
+      const ttdSnap = fileSource==="TradeDesk" ? {
+        ttdSnapshots: {
+          ...(c.ttdSnapshots||{}),
+          mtd: {
+            impressions: u.impressions||null,
+            clicks:      u.clicks||null,
+            ctr:         computedCtr||null,
+            spend:       u.spend||null,
+            cpm:         u.cpm||null,
+            vcr:         u.completionRate||null,
+            updatedAt:   stamp,
+          }
+        }
+      } : {};
       return {...c,
+        ...ttdSnap,
         impressions:u.impressions>0?String(u.impressions):c.impressions,
         clicks:     u.clicks>0?String(u.clicks):c.clicks,
         ctr:        computedCtr>0?String(parseFloat(computedCtr.toFixed(4))):c.ctr,
@@ -6681,16 +7229,31 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         completionRate: u.completionRate>0?String(parseFloat(u.completionRate.toFixed(2))):c.completionRate,
         frequency: u.freqCount>0?String(parseFloat((u.frequency/u.freqCount).toFixed(2))):c.frequency,
         lastChecked:stamp,
-        history:    (c.history?c.history+"\n":"")+histLine,
+        // checkInLog: auto-populated from daily CSV drops — keep last 30 entries only
+        checkInLog: ((c.checkInLog?c.checkInLog+"\n":"")+histLine)
+          .split("\n").filter(Boolean).slice(0,30).join("\n"),
+        // lastCheckInImpr: MTD impressions as of the most recent check-in
+        // Used to detect dead campaigns: if next check-in shows same/lower number, campaign went dark
+        lastCheckInImpr: String(u.impressions||0),
       };
     }));
-    // Save template
-    const key=makeKey(fileSource,fileRows);
-    const entries=Object.entries(mapping).filter(([i,id])=>id&&fileRows[parseInt(i)])
-      .map(([i,campId])=>({csvName:getCampName(fileRows[parseInt(i)],fileSource),campId,campName:campaigns.find(c=>c.id===campId)?.campaignName||""}))
+    // Save per-name memory (persists across future file drops even if file contents change)
+    // For TradeDesk: also save the advertiser name so lookup is stable regardless of campaign name changes.
+    const entries=Object.entries(mapping)
+      .filter(([idxStr,campId])=>{
+        const idx=parseInt(idxStr);
+        return campId && !isNaN(idx) && fileRows[idx];
+      })
+      .map(([idxStr,campId])=>{
+        const row=fileRows[parseInt(idxStr)];
+        const csvName=getCampName(row,fileSource);
+        const campName=campaigns.find(c=>String(c.id)===String(campId))?.campaignName||"";
+        const advertiserName = fileSource==="TradeDesk" ? getTTDAdvertiserName(row) : undefined;
+        return {csvName,campId:String(campId),campName,advertiserName};
+      })
       .filter(e=>e.csvName&&e.campId);
-    if(entries.length){ persistMappings({...savedMappings,[key]:entries}); }
-    setSavedMsg(`✓ Applied ${Object.keys(updates).length} campaigns — mapping saved`);
+    if(entries.length){ persistNameMappings(fileSource,entries); }
+    setSavedMsg(`✓ Applied ${Object.keys(updates).length} campaigns · ${entries.length} mappings saved for next time`);
     setFileRows(null); setMapping({});
   }
 
@@ -6727,12 +7290,28 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
           placeholder="Search campaigns…"
           style={{background:"#0a1628",border:"1px solid #1e293b",borderRadius:6,padding:"4px 10px",color:"#d8eaf8",fontSize:12,outline:"none",width:180,flexShrink:0}}/>
 
-        {/* Platform filter */}
-        <select value={qciPlatform} onChange={e=>setQciPlatform(e.target.value)}
-          style={{background:"#0a1628",border:"1px solid #1e293b",borderRadius:6,padding:"4px 8px",color:"#7a9bbf",fontSize:12,outline:"none",cursor:"pointer",flexShrink:0}}>
-          <option value="all">All Platforms</option>
-          {qciPlatforms.map(p=><option key={p} value={p}>{p}</option>)}
-        </select>
+        {/* Platform filter — multi-select pill toggles */}
+        <div style={{display:"flex",gap:3,flexWrap:"wrap",alignItems:"center",flexShrink:0}}>
+          {qciPlatformList.map(p=>{
+            const active = qciPlatforms.has(p);
+            return (
+              <button key={p} onClick={()=>setQciPlatforms(prev=>{
+                const next=new Set(prev);
+                next.has(p)?next.delete(p):next.add(p);
+                return next;
+              })}
+              style={{background:active?"#1a3a5c":"#0a1628",border:`1px solid ${active?"#3B8FFF":"#1e293b"}`,borderRadius:4,padding:"2px 8px",color:active?"#7ec8ff":"#4d6e8a",fontSize:11,fontWeight:active?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>
+                {p}
+              </button>
+            );
+          })}
+          {qciPlatforms.size>0&&(
+            <button onClick={()=>setQciPlatforms(new Set())}
+              style={{background:"none",border:"none",color:"#3d5a72",fontSize:10,cursor:"pointer",padding:"0 2px",textDecoration:"underline"}}>
+              clear
+            </button>
+          )}
+        </div>
 
         <div style={{display:"flex",gap:5,flexShrink:0}}>
           {btn(`+ Visible (${visibleCamps.length})`,()=>setSelected(s=>{const n=new Set(s);visibleCamps.forEach(c=>n.add(c.id));return n;}))}
@@ -6743,21 +7322,41 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         <span style={{fontSize:11,color:"#4d6e8a",flexShrink:0}}>{selected.size>0?`${selected.size} selected`:"Select campaigns below"}</span>
 
         {/* File drop — always visible */}
-        <label style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:7,background:"#001a0e",border:"1px solid #00c89640",borderRadius:7,padding:"5px 13px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}
-          onDragOver={e=>{e.preventDefault();e.currentTarget.style.background="#002e24";}}
-          onDragLeave={e=>{e.currentTarget.style.background="#001a0e";}}
-          onDrop={e=>{e.preventDefault();e.currentTarget.style.background="#001a0e";handleFileDrop(e.dataTransfer.files[0]);}}>
-          📊 Drop any CSV export
-          <input type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={e=>handleFileDrop(e.target.files[0])}/>
-        </label>
+        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+          <label style={{display:"flex",alignItems:"center",gap:7,background:"#001a0e",border:"1px solid #00c89640",borderRadius:7,padding:"5px 13px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}
+            onDragOver={e=>{e.preventDefault();e.currentTarget.style.background="#002e24";}}
+            onDragLeave={e=>{e.currentTarget.style.background="#001a0e";}}
+            onDrop={e=>{e.preventDefault();e.currentTarget.style.background="#001a0e";handleFileDrop(e.dataTransfer.files[0]);}}>
+            📊 Drop any CSV export
+            <input type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={e=>handleFileDrop(e.target.files[0])}/>
+          </label>
+          {/* Rep initials badge — click to change */}
+          <button
+            onClick={()=>setShowInitialsPrompt(p=>!p)}
+            title={userInitials?"Your rep initials (click to change)":"Set your rep initials to filter company-wide files"}
+            style={{background:userInitials?"#001a2e":"#1a0e00",border:`1px solid ${userInitials?"#00c89640":"#f59e0b60"}`,borderRadius:6,padding:"4px 9px",color:userInitials?"#00c896":"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+            {userInitials?`_${userInitials}`:"Set initials"}
+          </button>
+        </div>
 
         <button onClick={onClose} style={{background:"none",border:"none",color:"#4d6e8a",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>
       </div>
 
+      {/* ── Initials prompt ── */}
+      {showInitialsPrompt&&(
+        <InitialsPrompt current={userInitials} onSave={saveUserInitials} onClose={()=>setShowInitialsPrompt(false)}/>
+      )}
+
       {/* ── Status / messages ── */}
       {(fileError||savedMsg)&&(
-        <div style={{padding:"5px 14px",background:fileError?"#1a0808":"#001a0e",fontSize:10,color:fileError?"#ef4444":"#00e5a0",borderBottom:"1px solid #1a2744"}}>
-          {fileError||savedMsg}
+        <div style={{padding:"5px 14px",background:fileError?"#1a0808":"#001a0e",fontSize:10,color:fileError?"#ef4444":"#00e5a0",borderBottom:"1px solid #1a2744",display:"flex",alignItems:"center",gap:8}}>
+          <span style={{flex:1}}>{fileError||savedMsg}</span>
+          {fileError&&fileError.includes("initials")&&(
+            <button onClick={()=>setShowInitialsPrompt(true)}
+              style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:4,padding:"2px 8px",color:"#f59e0b",fontSize:10,cursor:"pointer"}}>
+              Set Initials
+            </button>
+          )}
         </div>
       )}
 
@@ -6770,22 +7369,55 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
             {visibleCamps.map(c=>{
               const sel=selected.has(c.id);
               const daysAgo=c.lastChecked?-Math.min(0,getDaysLeft(c.lastChecked)||0):null;
-              // Is this campaign mapped from the file?
-              const isMapped=fileRows&&Object.values(mapping).includes(c.id);
+              const isMapped=fileRows&&Object.values(mapping).some(v=>String(v)===String(c.id));
+              const isPickTarget = leftPickCampId===c.id;
+              // Rows already assigned to this campaign from the right side
+              const assignedRowIdxs = fileRows ? Object.entries(mapping).filter(([,id])=>id===c.id).map(([idx])=>parseInt(idx)) : [];
               return (
-                <div key={c.id} onClick={()=>setSelected(s=>{const n=new Set(s);sel?n.delete(c.id):n.add(c.id);return n;})}
-                  style={{display:"flex",alignItems:"center",gap:8,padding:"6px 12px",borderBottom:"1px solid #0a1018",cursor:"pointer",background:isMapped?"#001a0e":sel?"#001020":"transparent"}}>
-                  <div style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${sel?"#00c896":"#334155"}`,background:sel?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                    {sel&&<span style={{color:"#000",fontSize:8,fontWeight:900}}>✓</span>}
-                  </div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:11,color:isMapped?"#00e5a0":sel?"#edf4ff":"#7a9bbf",fontWeight:sel?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                      {isMapped&&"✓ "}{c.campaignName.trim()}
+                <div key={c.id}>
+                  <div
+                    onClick={()=>{
+                      if(fileRows && !isMapped){
+                        // Toggle left-side pick mode for this campaign
+                        setLeftPickCampId(prev => prev===c.id ? null : c.id);
+                      } else {
+                        setLeftPickCampId(null);
+                        setSelected(s=>{const n=new Set(s);sel?n.delete(c.id):n.add(c.id);return n;});
+                      }
+                    }}
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"6px 12px",borderBottom:"1px solid #0a1018",cursor:"pointer",
+                      background:isPickTarget?"#1a1000":isMapped?"#001a0e":sel?"#001020":"transparent"}}>
+                    <div style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${isMapped?"#00c896":isPickTarget?"#f59e0b":sel?"#00c896":"#334155"}`,background:isMapped?"#00c896":sel?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      {(isMapped||sel)&&<span style={{color:"#000",fontSize:8,fontWeight:900}}>✓</span>}
+                      {isPickTarget&&!isMapped&&!sel&&<span style={{color:"#f59e0b",fontSize:8,fontWeight:900}}>→</span>}
                     </div>
-                    <div style={{fontSize:9,color:"#3d5a72"}}>{c.mediaPartner}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:11,color:isMapped?"#00e5a0":isPickTarget?"#f59e0b":sel?"#edf4ff":"#7a9bbf",fontWeight:(sel||isPickTarget)?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {isMapped&&"✓ "}{isPickTarget&&!isMapped&&"→ "}{c.campaignName.trim()}
+                      </div>
+                      <div style={{fontSize:9,color:isPickTarget&&!isMapped?"#a07000":"#3d5a72"}}>
+                        {isPickTarget&&!isMapped ? "click a row on the right to assign →" : c.mediaPartner}
+                      </div>
+                    </div>
+                    <span style={{background:(PLT_COLORS[c.platform]||"#7a9bbf")+"22",color:PLT_COLORS[c.platform]||"#7a9bbf",border:`1px solid ${PLT_COLORS[c.platform]||"#7a9bbf"}40`,borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+                    {daysAgo>=2&&<span style={{fontSize:9,color:"#f59e0b",flexShrink:0}}>{daysAgo}d</span>}
                   </div>
-                  <span style={{background:(PLT_COLORS[c.platform]||"#7a9bbf")+"22",color:PLT_COLORS[c.platform]||"#7a9bbf",border:`1px solid ${PLT_COLORS[c.platform]||"#7a9bbf"}40`,borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
-                  {daysAgo>=2&&<span style={{fontSize:9,color:"#f59e0b",flexShrink:0}}>{daysAgo}d</span>}
+                  {/* Inline assigned rows preview — shows which file rows are currently mapped here */}
+                  {isMapped && assignedRowIdxs.length>0 && (
+                    <div style={{padding:"2px 12px 4px 34px",display:"flex",flexWrap:"wrap",gap:4}}>
+                      {assignedRowIdxs.map(idx=>{
+                        const row=fileRows[idx];
+                        if(!row) return null;
+                        const lbl = fileSource==="TradeDesk" ? getTTDClientName(getTTDAdvertiserName(row)) : getCampName(row,fileSource);
+                        return (
+                          <span key={idx} style={{fontSize:9,background:"#002018",border:"1px solid #00c89630",borderRadius:3,padding:"1px 6px",color:"#00c896",display:"flex",alignItems:"center",gap:4}}>
+                            {lbl||"row "+(idx+1)}
+                            <button onClick={e=>{e.stopPropagation();setMapping(m=>({...m,[idx]:""}));}} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:11,lineHeight:1,padding:0}} title="Remove this row mapping">×</button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -6796,7 +7428,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         {fileRows&&(
           <div style={{display:"flex",flexDirection:"column"}}>
             <div style={{padding:"6px 12px",background:"#060d18",borderBottom:"1px solid #1a2744",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span style={{fontSize:11,fontWeight:700,color:"#edf4ff"}}>{fileSource==="Generic"?"📊 Generic CSV":fileSource} — {fileRows.length} rows</span>
+              <span style={{fontSize:11,fontWeight:700,color:"#edf4ff"}}>{fileSource==="Generic"?"📊 Generic CSV":fileSource==="TradeDesk"?"📡 TradeDesk (_AG only)":fileSource} — {fileRows.length} rows</span>
               <span style={{fontSize:10,color:mappedCount<fileRows.length?"#f59e0b":"#00e5a0",fontWeight:600}}>{mappedCount}/{fileRows.length} matched</span>
               {mappedCount<fileRows.length&&<span style={{fontSize:10,color:"#f59e0b"}}>⚠ assign unmatched rows below</span>}
               <div style={{display:"flex",gap:5}}>
@@ -6807,19 +7439,46 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                 </button>
               </div>
             </div>
+            {/* Pick-mode banner — shown when user clicked an unmapped left-side campaign */}
+            {leftPickCampId && (()=>{
+              const c = activeCamps.find(x=>x.id===leftPickCampId);
+              return c ? (
+                <div style={{padding:"5px 10px",background:"#1a1000",borderBottom:"1px solid #f59e0b40",display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:11,color:"#f59e0b",fontWeight:700,flex:1}}>
+                    → Click any row below to assign it to <span style={{color:"#edf4ff"}}>{c.campaignName.trim()}</span> ({c.platform})
+                  </span>
+                  <button onClick={()=>setLeftPickCampId(null)}
+                    style={{background:"none",border:"1px solid #f59e0b40",borderRadius:4,padding:"2px 8px",color:"#f59e0b",fontSize:10,cursor:"pointer"}}>
+                    Cancel
+                  </button>
+                </div>
+              ) : null;
+            })()}
             <div style={{maxHeight:320,overflowY:"auto",flex:1}}>
               {fileRows.map((row,i)=>{
                 const m=extractMetrics(row,fileSource);
                 const name=getCampName(row,fileSource);
+                // For TradeDesk rows, show the advertiser name (client name) as the primary label
+                const ttdAdvName = fileSource==="TradeDesk" ? getTTDAdvertiserName(row) : "";
+                const ttdClientName = fileSource==="TradeDesk" ? getTTDClientName(ttdAdvName) : "";
+                const displayName = fileSource==="TradeDesk" ? (ttdClientName || name) : name;
                 const assigned=mapping[i]||"";
                 const isUnmatched=!assigned;
                 const computedCtr=m.impressions>0&&m.clicks>0?m.clicks/m.impressions*100:0;
+                const isPickMode = !!leftPickCampId;
+                const isPickTarget = isPickMode && !assigned; // only offer unassigned rows in pick mode
                 return (
-                  <div key={i} style={{borderBottom:"1px solid #0a1018",background:assigned?"#001a0e":isUnmatched?"#130b00":"transparent"}}>
+                  <div key={i}
+                    onClick={isPickTarget ? ()=>{ setMapping(m=>({...m,[i]:String(leftPickCampId)})); setLeftPickCampId(null); } : undefined}
+                    style={{borderBottom:"1px solid #0a1018",
+                      background:isPickTarget?"#1a1000":assigned?"#001a0e":isUnmatched?"#130b00":"transparent",
+                      cursor:isPickTarget?"pointer":"default",
+                      outline:isPickTarget?"1px solid #f59e0b40":"none"}}>
                     <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px"}}>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:11,color:isUnmatched?"#f59e0b":"#d8eaf8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:isUnmatched?600:400}} title={name}>
-                          {isUnmatched?"⚠ ":""}{name||"—"}
+                        <div style={{fontSize:11,color:isUnmatched?"#f59e0b":"#d8eaf8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:isUnmatched?600:400}} title={fileSource==="TradeDesk"?(ttdAdvName+" → "+name):name}>
+                          {isUnmatched?"⚠ ":""}{displayName||"—"}
+                          {fileSource==="TradeDesk"&&name&&<span style={{fontSize:9,color:"#3d5a72",marginLeft:6}}>({name})</span>}
                         </div>
                         <div style={{fontSize:9,color:"#3d5a72",marginTop:1,display:"flex",gap:8}}>
                           <span>{m.impressions.toLocaleString()} impr</span>
@@ -6830,16 +7489,68 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                           {parseFloat(m.frequency)>0&&<span>{parseFloat(m.frequency).toFixed(2)}x freq</span>}
                         </div>
                       </div>
-                      <select value={assigned} onChange={e=>setMapping(mp=>({...mp,[i]:e.target.value}))}
-                        style={{background:assigned?"#002e24":isUnmatched?"#1a0e00":"#0e1a2e",border:`1px solid ${assigned?"#00c89640":isUnmatched?"#f59e0b40":"#1e293b"}`,borderRadius:5,padding:"3px 7px",color:assigned?"#00e5a0":isUnmatched?"#f59e0b":"#4d6e8a",fontSize:10,outline:"none",cursor:"pointer",maxWidth:200,minWidth:140}}>
-                        <option value="">— assign to campaign —</option>
-                        {activeCamps.map(c=>(
-                          <option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}</option>
-                        ))}
-                      </select>
+                      {(()=>{
+                        // For TradeDesk: score using client name (stripped advertiser), not TTD campaign name.
+                        const isTTD = fileSource==="TradeDesk";
+                        const scoreLabel = isTTD ? displayName : name;
+                        const stopWords = new Set(["with","from","campaign","targeting","ads","the","and","for","this","that","2024","2025","2026","display","preroll","audio","retargeting","keyword","instream"]);
+                        // Include 2-char words for scoring (e.g. "HR") — only filter pure numbers
+                        const scoreWords = scoreLabel.toLowerCase()
+                          .replace(/[^a-z0-9\s]/g," ").split(/\s+/)
+                          .filter(w=>w.length>=2 && !stopWords.has(w) && isNaN(w));
+
+                        const showingAll = showAllMap[i];
+
+                        // Default pool for TradeDesk: TD/TDV/TDA/CTV/OTT campaigns
+                        // "show all" expands to every campaign regardless of platform
+                        const tdPool = isTTD && !showingAll
+                          ? activeCamps.filter(c => TTD_PLATFORMS.has(c.platform))
+                          : activeCamps;
+                        const pool = isTTD ? tdPool : activeCamps;
+
+                        // Score candidates — use all words ≥2 chars
+                        const scored = pool.map(c=>{
+                          const cn = c.campaignName.toLowerCase();
+                          const mp = (c.mediaPartner||"").toLowerCase();
+                          let score = 0;
+                          scoreWords.forEach(w=>{ if(cn.includes(w)||mp.includes(w)) score++; });
+                          return {c, score};
+                        });
+                        const maxScore = Math.max(...scored.map(s=>s.score), 0);
+                        const smartFiltered = maxScore > 0
+                          ? scored.filter(s=>s.score>=Math.max(1, Math.ceil(maxScore*0.5))).map(s=>s.c)
+                          : [];
+
+                        // If smart filter found good candidates, show them; otherwise show full pool
+                        // This ensures campaigns like Landrum HR always have options even with no keyword match
+                        const hasSmartMatch = smartFiltered.length > 0;
+                        const displayList = (showingAll || !hasSmartMatch) ? pool : smartFiltered;
+                        const isFiltered = hasSmartMatch && displayList.length < pool.length;
+
+                        return (
+                          <div style={{display:"flex",flexDirection:"column",gap:2,minWidth:160,maxWidth:230}}>
+                            <div style={{fontSize:9,color:"#4d6e8a",textAlign:"right",display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
+                              {isTTD && !showingAll && <span style={{color:"#a78bfa",fontSize:9}}>TD/TDA/TDV</span>}
+                              {(isFiltered||isTTD) && (
+                                <button onClick={()=>setShowAllMap(m=>({...m,[i]:!m[i]}))}
+                                  style={{background:"none",border:"none",color:"#4d6e8a",fontSize:9,cursor:"pointer",textDecoration:"underline",padding:0}}>
+                                  {showingAll ? (isTTD?"TD/TDA/TDV only":"smart filter") : "show all"}
+                                </button>
+                              )}
+                            </div>
+                            <select value={assigned} onChange={e=>setMapping(mp=>({...mp,[i]:e.target.value}))}
+                              style={{background:assigned?"#002e24":isUnmatched?"#1a0e00":"#0e1a2e",border:`1px solid ${assigned?"#00c89640":isUnmatched?"#f59e0b40":"#1e293b"}`,borderRadius:5,padding:"3px 7px",color:assigned?"#00e5a0":isUnmatched?"#f59e0b":"#4d6e8a",fontSize:10,outline:"none",cursor:"pointer",width:"100%"}}>
+                              <option value="">— assign to campaign —</option>
+                              {displayList.map(c=>(
+                                <option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}</option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      })()}
                     </div>
                     {assigned&&(()=>{
-                      const c=activeCamps.find(x=>x.id===assigned);
+                      const c=activeCamps.find(x=>String(x.id)===String(assigned));
                       return c?<div style={{fontSize:9,color:"#00e5a0",paddingLeft:10,paddingBottom:4}}>→ {c.campaignName.trim()} ({c.platform} · {c.mediaPartner})</div>:null;
                     })()}
                   </div>
@@ -8549,6 +9260,7 @@ export default function App() {
   const [fExcludeGoalHit, setFExcludeGoalHit]   = useState(false);
   const [fRecentDays, setFRecentDays]           = useState(0);   // 0 = off, else show added within N days
   const [fNote2, setFNote2]                     = useState(false); // show only campaigns with Note 2 filled
+  const [fHasData, setFHasData]                 = useState("all"); // all | yes | no — filter by whether campaign has metrics
   const [fNoRetargeting, setFNoRetargeting]     = useState(false); // show only campaigns without retargeting
   const [showDailyGoal, setShowDailyGoal]       = useState(true);
   const [quickCheckIn, setQuickCheckIn]         = useState(false);
@@ -8843,6 +9555,12 @@ export default function App() {
         if(c.retargeting) return false;
         if((c.status||"")!=="active") return false;
       }
+      if(fHasData!=="all") {
+        const disp = resolveMetrics(c, dateRange.preset);
+        const hasMetrics = !!(parseFloat(disp.impressions)||parseFloat(disp.spend)||parseFloat(disp.ctr)||parseFloat(disp.cpm)||parseFloat(disp.clicks));
+        if(fHasData==="yes" && !hasMetrics) return false;
+        if(fHasData==="no"  &&  hasMetrics) return false;
+      }
       return ms&&(fStatus==="all"||(c.status||"")===fStatus)&&(fPlatforms.size===0||fPlatforms.has(c.platform))&&(!fMonthly||c.monthlyFlight);
     });
     return [...list].sort((a,b)=>{
@@ -8854,7 +9572,7 @@ export default function App() {
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
     });
-  },[campaigns,reminders,search,fStatus,fPlatforms,fMonthly,fGoalHit,fCloseToGoal,fExcludeGoalHit,fRecentDays,fNote2,fNoRetargeting,sortKey,sortDir,dateRange.preset]);
+  },[campaigns,reminders,search,fStatus,fPlatforms,fMonthly,fGoalHit,fCloseToGoal,fExcludeGoalHit,fRecentDays,fNote2,fNoRetargeting,fHasData,sortKey,sortDir,dateRange.preset]);
 
   const stats = useMemo(()=>({
     total: campaigns.length,
@@ -9398,6 +10116,16 @@ export default function App() {
             <option value="__noRT__">⚠ RT Pixel Missing</option>
             <option value="__grouped__">👥 Group by Client</option>
           </select>
+          {/* Has / No Data filter toggle */}
+          <div style={{display:"flex",gap:0,background:"#070d16",border:"1px solid #162236",borderRadius:7,overflow:"hidden",flexShrink:0}}>
+            {[["all","All"],["yes","Has Data"],["no","No Data"]].map(([v,l])=>(
+              <button key={v} onClick={()=>setFHasData(v)}
+                style={{background:fHasData===v?(v==="yes"?"#002e24":v==="no"?"#1a0808":"#0e1a2e"):"transparent",border:"none",padding:"5px 10px",color:fHasData===v?(v==="yes"?"#00e5a0":v==="no"?"#ef4444":"#7a9bbf"):"#3d5a72",fontSize:11,fontWeight:fHasData===v?700:400,cursor:"pointer",whiteSpace:"nowrap",borderRight:v!=="no"?"1px solid #162236":"none",transition:"all .12s"}}>
+                {v==="yes"?"✓ ":v==="no"?"✗ ":""}{l}
+              </button>
+            ))}
+          </div>
+
           {/* Inline day range picker — only shown when Recently Added is active */}
           {fRecentDays>0&&(
             <div style={{display:"flex",alignItems:"center",gap:6,background:"#06101f",border:"1px solid #7dd3fc40",borderRadius:7,padding:"4px 10px"}}>
