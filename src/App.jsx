@@ -9,6 +9,7 @@ const ARCHIVE_KEY = "campaign-tracker-archive";
 const CSV_MAPPINGS_KEY = "campaign-tracker-csv-mappings";
 const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 const VAULT_KEY = "campaign-tracker-report-vault"; // [{id, savedAt, client, title, dateRange, brandColor, totals, campaigns, notes}]
+const MONTH_LOCK_KEY = "campaign-tracker-month-locks"; // {"2026-05":{lockedAt,label,totalRevenue,totalSpend,totalProfit,margin,campaigns:[]}}
 const ARCHIVE_DAYS = 5;
 const MAX_LOG_ENTRIES = 500;
 
@@ -130,7 +131,8 @@ function resolveMetrics(c, preset) {
 // Returns number or null
 function parseMonthlyGoal(note1) {
   if (!note1) return null;
-  const s = note1.trim();
+  // Strip leading $ so SEM goals like "$900/Mo" and "$2,925/Mo" parse correctly
+  const s = note1.trim().replace(/^\$/, "");
   function parseNum(str) {
     const m = str.replace(/,/g,"").match(/^([\d.]+)\s*([KkMm])?/);
     if (!m) return null;
@@ -139,8 +141,9 @@ function parseMonthlyGoal(note1) {
     if (m[2] && m[2].toLowerCase()==="m") n *= 1000000;
     return isNaN(n) ? null : Math.round(n);
   }
-  // "125K/Mo", "100K Monthly", "72K/Mo (extra notes)"
-  const moMatch = s.match(/^([\d.,]+\s*[KkMm]?)\s*(?:\/Mo|Monthly|\/month)/i);
+  // "125K/Mo", "100K Monthly", "72K/Mo (extra notes)", "3K Views/Mo" (YT), "$900/Mo" (SEM)
+  // (?:\s+\w+)? allows an optional word like "Views" between the number and /Mo
+  const moMatch = s.match(/^([\d.,]+\s*[KkMm]?)(?:\s+\w+)?\s*(?:\/Mo|Monthly|\/month)/i);
   if (moMatch) return parseNum(moMatch[1]);
   // "40K Feb/March" = two months, divide by 2
   const twoMonthMatch = s.match(/^([\d.,]+\s*[KkMm]?)\s+\w+\/\w+$/i);
@@ -1390,7 +1393,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               {row("endDate","End Date","date")}
               {row("status","Status")}
               <div style={{marginBottom:12}}>
-                <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 1</label>
+                <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Goal</label>
                 <input type="text" value={f["note1"]||""} onChange={e=>set("note1",e.target.value)} style={{...iS,borderColor:f["note1"]?"#3B8FFF60":"#334155"}}/>
               </div>
               <div style={{marginBottom:12}}>
@@ -1724,6 +1727,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     SEM:   { metric:"CTR", warn:2.0,  bad:1.0,  unit:"%", label:"CTR",             desc:"Search",           cpmWarn:8,  cpmBad:15 },
     CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV",     cpmWarn:25, cpmBad:45 },
     OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming",  cpmWarn:25, cpmBad:45 },
+    TDV:   { metric:"VCR", warn:80,   bad:65,   unit:"%", label:"Completion Rate", desc:"TradeDesk Video",  cpmWarn:8,  cpmBad:15 },
     YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube",          cpmWarn:8,  cpmBad:15 },
     TT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"Video Completion", desc:"TikTok",           cpmWarn:8,  cpmBad:14 },
     EMAIL: { metric:"CTR", warn:1.0,  bad:0.5,  unit:"%", label:"Click Rate",      desc:"Email",            cpmWarn:5,  cpmBad:10 },
@@ -1888,10 +1892,12 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       const t = KPI_THRESHOLDS[c.platform];
       const disp = resolveMetrics(c, dateRange.preset);
       if (t) {
-        let raw = t.metric==="CTR" ? parseFloat(disp.ctr)/100||null : parseFloat(c.completionRate)/100||null;
-        if (raw !== null) {
-          if (raw < t.bad) alerts.push({ level:"danger", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:t.label, value:(raw*t.multiply).toFixed(2)+t.unit, threshold:(t.bad*t.multiply).toFixed(2)+t.unit, msg:"critically low", id:c.id });
-          else if (raw < t.warn) alerts.push({ level:"warn", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:t.label, value:(raw*t.multiply).toFixed(2)+t.unit, threshold:(t.warn*t.multiply).toFixed(2)+t.unit, msg:"below benchmark", id:c.id });
+        // CTR stored as ratio (0.003531); multiply by 100 to get display percent (0.3531%) for comparison to thresholds
+        const rawRatio = t.metric==="CTR" ? parseFloat(disp.ctr)||null : parseFloat(c.completionRate)/100||null;
+        const rawPct = rawRatio !== null ? (t.metric==="CTR" ? rawRatio * 100 : rawRatio) : null;
+        if (rawPct !== null) {
+          if (rawPct < t.bad) alerts.push({ level:"danger", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:t.label, value:rawPct.toFixed(2)+t.unit, threshold:t.bad.toFixed(2)+t.unit, msg:"critically low", id:c.id });
+          else if (rawPct < t.warn) alerts.push({ level:"warn", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:t.label, value:rawPct.toFixed(2)+t.unit, threshold:t.warn.toFixed(2)+t.unit, msg:"below benchmark", id:c.id });
         }
       }
       const spend = parseFloat(c.spend)||0; const contract = parseFloat(c.contractValue);
@@ -1903,7 +1909,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
         const days = Math.floor((new Date()-new Date(c.lastCreativeUpdate))/86400000);
         if (days > watchThresholds.creativeAgeDays) alerts.push({ level:"warn", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:"Creative Age", value:`${days} days`, threshold:`${watchThresholds.creativeAgeDays} days`, msg:"creatives may be stale", id:c.id });
       }
-      const pacing = computeMonthlyPacing(disp.impressions, c.note1);
+      const pacing = computeMonthlyPacing(c, disp, c.note1);
       const daysLeft = getDaysLeft(c.endDate);
       if (pacing && pacing.label==="Behind" && daysLeft <= 5 && daysLeft >= 0)
         alerts.push({ level:"danger", campaign:c.campaignName.trim(), partner:c.mediaPartner, platform:c.platform, label:"EOM Pacing Crisis", value:`${Math.round(pacing.pct*100)}% of goal`, threshold:`${daysLeft}d left`, msg:"end-of-month delivery at risk", id:c.id });
@@ -1916,7 +1922,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     const now = new Date(); now.setHours(0,0,0,0);
     return campaigns.filter(c=>c.status==="active"&&c.endDate).map(c => {
       const disp = resolveMetrics(c, dateRange.preset);
-      const pacing = computeMonthlyPacing(disp.impressions, c.note1);
+      const pacing = computeMonthlyPacing(c, disp, c.note1);
       if (!pacing || !pacing.goal || pacing.delivered === 0) return null;
       const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
       const dom = now.getDate(); const daysRemaining = daysInMonth - dom;
@@ -1945,12 +1951,13 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     // ── Lean row builder — only include fields that have values ──────────────
     const rows = active.map(c => {
       const disp = resolveMetrics(c, dateRange.preset);
-      const pacing = computeMonthlyPacing(disp.impressions, c.note1);
+      const pacing = computeMonthlyPacing(c, disp, c.note1);
       const t = KPI_THRESHOLDS[c.platform];
       let kpiValue=null, kpiLabel=null;
       if (t) {
-        const raw = t.metric==="CTR" ? parseFloat(disp.ctr)/100 : parseFloat(c.completionRate)/100;
-        if (!isNaN(raw)&&raw>0) { kpiValue=(raw*t.multiply).toFixed(2)+t.unit; kpiLabel=t.label; }
+        const rawR = t.metric==="CTR" ? parseFloat(disp.ctr) : parseFloat(c.completionRate)/100;
+        const kpiPct = t.metric==="CTR" ? rawR*100 : rawR;
+        if (!isNaN(kpiPct)&&kpiPct>0) { kpiValue=kpiPct.toFixed(2)+t.unit; kpiLabel=t.label; }
       }
       const pred = predictions.find(p=>p.id===c.id);
 
@@ -2367,7 +2374,7 @@ Rules: Use real campaign names and numbers from the data. Keep each line short a
       if (active.length < 2) return;
       const behind = active.filter(c => {
         const disp = resolveMetrics(c, dateRange.preset);
-        const p = computeMonthlyPacing(disp.impressions, c.note1);
+        const p = computeMonthlyPacing(c, disp, c.note1);
         return p && p.label === "Behind";
       });
       if (behind.length >= 2 && behind.length === active.length) {
@@ -2390,12 +2397,12 @@ Rules: Use real campaign names and numbers from the data. Keep each line short a
       if (group.length < 2) return;
       const behind = group.filter(c => {
         const disp = resolveMetrics(c, dateRange.preset);
-        const p = computeMonthlyPacing(disp.impressions, c.note1);
+        const p = computeMonthlyPacing(c, disp, c.note1);
         return p && p.label === "Behind";
       });
       const ahead = group.filter(c => {
         const disp = resolveMetrics(c, dateRange.preset);
-        const p = computeMonthlyPacing(disp.impressions, c.note1);
+        const p = computeMonthlyPacing(c, disp, c.note1);
         return p && p.label === "Ahead";
       });
       if (behind.length > 0 && ahead.length > 0) {
@@ -4475,6 +4482,7 @@ const LOG_ICONS = {
   metrics:    { icon: "📊", color: "#fb923c", label: "Metrics" },
   checked:    { icon: "✓",  color: "#00e5a0", label: "Checked" },
   edited:     { icon: "✏️", color: "#a855f7", label: "Edited" },
+  lock:       { icon: "🔒", color: "#7a9bbf", label: "Month Lock" },
 };
 
 function formatLogTime(ts) {
@@ -4487,7 +4495,8 @@ function formatLogTime(ts) {
 function ActivityLog({ log, campaigns, onClear, onUndo }) {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const types = ["all", "created", "edited", "status", "metrics", "checked", "duplicated", "deleted"];
+  const [expandedLocks, setExpandedLocks] = useState(new Set());
+  const types = ["all", "lock", "created", "edited", "status", "metrics", "checked", "duplicated", "deleted"];
 
   const filtered = log.filter(e => {
     const matchType = filter === "all" || e.type === filter;
@@ -4564,6 +4573,33 @@ function ActivityLog({ log, campaigns, onClear, onUndo }) {
                             borderRadius: 3, padding: "1px 5px", fontWeight: 700 }}>{e.platform}</span>}
                         </div>
                         {e.detail && <div style={{ fontSize: 11, color: e.undone ? "#2a4060" : "#4d6e8a", marginTop: 3 }}>{e.undone ? `Undone — ${e.detail}` : e.detail}</div>}
+                        {e.type === "lock" && e.lockData?.campaigns?.length > 0 && (
+                          <div style={{ marginTop: 6 }}>
+                            <button onClick={() => setExpandedLocks(s => { const n = new Set(s); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n; })}
+                              style={{ background: "none", border: "none", color: "#4d6e8a", fontSize: 10, cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+                              {expandedLocks.has(e.id) ? "Hide campaigns" : `Show ${e.lockData.campaigns.length} campaigns`}
+                            </button>
+                            {expandedLocks.has(e.id) && (
+                              <div style={{ marginTop: 6, background: "#07101c", borderRadius: 5, padding: "6px 10px", maxHeight: 200, overflowY: "auto" }}>
+                                {e.lockData.campaigns.map(r => {
+                                  const ctrPct = r.ctr > 0 ? (r.ctr < 1 ? (r.ctr*100).toFixed(2) : r.ctr.toFixed(2)) : null;
+                                  return (
+                                    <div key={r.id} style={{ fontSize: 10, color: "#7a9bbf", fontFamily: "monospace", lineHeight: 1.9, borderBottom: "1px solid #0d1525", paddingBottom: 2, marginBottom: 2 }}>
+                                      <span style={{ color: "#a8c4e0", fontWeight: 600 }}>{r.name}</span>
+                                      <span style={{ color: "#3d5a72", marginLeft: 6 }}>
+                                        {r.impressions > 0 ? ` · ${r.impressions.toLocaleString()} impr` : ""}
+                                        {r.clicks > 0 ? ` · ${r.clicks} clicks` : ""}
+                                        {ctrPct ? ` · ${ctrPct}% CTR` : ""}
+                                        {r.spend > 0 ? ` · $${r.spend.toFixed(2)} spend` : ""}
+                                        {r.completionRate > 0 && r.completionRate <= 100 ? ` · ${r.completionRate.toFixed(1)}% VCR` : ""}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                         <span style={{ fontSize: 11, color: "#2a4060", whiteSpace: "nowrap" }}>{time}</span>
@@ -4646,6 +4682,7 @@ const PLT_KPI = {
   SP:    { primary:"CTR", good:0.0008, ok:0.0003, label:"CTR",        tip:"Good >0.08% · OK >0.03%" },
   CTV:   { primary:"VCR", good:0.95,   ok:0.85,   label:"Completion", tip:"Good >95% · OK >85%"     },
   OTT:   { primary:"VCR", good:0.95,   ok:0.85,   label:"Completion", tip:"Good >95% · OK >85%"     },
+  TDV:   { primary:"VCR", good:0.80,   ok:0.65,   label:"Completion", tip:"Good >80% · OK >65%"     },
   SEM:   { primary:"CTR", good:0.05,   ok:0.02,   label:"CTR",        tip:"Good >5% · OK >2%"       },
   YT:    { primary:"VCR", good:0.35,   ok:0.20,   label:"View Rate",  tip:"Good >35% · OK >20%"     },
   EMAIL: { primary:"CTR", good:0.03,   ok:0.01,   label:"Click Rate", tip:"Good >3% · OK >1%"       },
@@ -4702,6 +4739,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       SEM:   { metric:"CTR", warn:2.0,  bad:1.0,  unit:"%", label:"CTR",             desc:"Search",           cpmWarn:8,  cpmBad:15 },
       CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV",     cpmWarn:25, cpmBad:45 },
       OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming",  cpmWarn:25, cpmBad:45 },
+      TDV:   { metric:"VCR", warn:80,   bad:65,   unit:"%", label:"Completion Rate", desc:"TradeDesk Video",  cpmWarn:8,  cpmBad:15 },
       YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube",          cpmWarn:8,  cpmBad:15 },
       TT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"Video Completion", desc:"TikTok",           cpmWarn:8,  cpmBad:14 },
       EMAIL: { metric:"CTR", warn:1.0,  bad:0.5,  unit:"%", label:"Click Rate",      desc:"Email",            cpmWarn:5,  cpmBad:10 },
@@ -4812,15 +4850,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     try { localStorage.setItem(dismissedStallKey, JSON.stringify([...next])); } catch {}
   }
 
-  // Parse a check-in log line like "05/22/2026 9:14am | 41,045 impr | ..." → { dateStr, impr }
+  // Parse a check-in log line like "2026-05-23 | 41,045 impr | ..." → { dateStr, impr }
+  // Logs are written by applyMapping using getToday() which returns YYYY-MM-DD
   function parseLogLine(line) {
     if (!line) return null;
-    // Date pattern at the start (mm/dd/yyyy)
-    const dm = line.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    const dm = line.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (!dm) return null;
-    const mo = dm[1].padStart(2,"0"), da = dm[2].padStart(2,"0"), yr = dm[3];
-    const iso = `${yr}-${mo}-${da}`;
-    // Impressions pattern: "41,045 impr"
+    const iso = `${dm[1]}-${dm[2]}-${dm[3]}`;
     const im = line.match(/([\d,]+)\s*impr/);
     const impr = im ? parseInt(im[1].replace(/,/g,""))||0 : 0;
     return { dateStr: iso, impr };
@@ -4832,19 +4868,21 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if (c.status !== "active" && c.status !== "behind" && c.status !== "ahead") return false;
     if (!c.checkInLog) return false;
     const logLines = c.checkInLog.split("\n").filter(Boolean);
-    if (logLines.length < 2) return false;
-    // Find the most recent check-in from a DIFFERENT calendar day (not today)
-    const priorDay = logLines.map(parseLogLine).filter(Boolean).find(e => e.dateStr !== today);
+    const parsed = logLines.map(parseLogLine).filter(Boolean);
+    // Only flag if a CSV was actually imported TODAY — no today entry means no comparison
+    if (!parsed.some(e => e.dateStr === today)) return false;
+    // Find the most recent baseline from a prior day
+    const priorDay = parsed.find(e => e.dateStr !== today);
     if (!priorDay || priorDay.impr <= 0) return false;
     const currentImpr = parseInt(c.impressions)||0;
-    // Flag only if today's number is unchanged or lower than a confirmed prior-day baseline
+    // Flag if impressions haven't grown beyond the prior-day baseline
     return currentImpr > 0 && currentImpr <= priorDay.impr;
   });
 
   function KpiBox({c,disp}){
     const kpi=PLT_KPI[c.platform]; if(!kpi) return null;
     const isCTV=c.platform==="CTV"||c.platform==="OTT";
-    const rawVcr=(parseFloat(c.completionRate)||0)/100, rawCtr=(parseFloat(disp.ctr)||0)/100;
+    const rawVcr=(parseFloat(c.completionRate)||0)/100, rawCtr=parseFloat(disp.ctr)||0;
     const val=kpi.primary==="VCR"?rawVcr:rawCtr; if(!val) return null;
     const color=val>=kpi.good?"#00d48a":val>=kpi.ok?"#f59e0b":"#ef4444";
     return <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:4}}>
@@ -4864,16 +4902,21 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const cardMetricLabel = cardMetricKind==="views" ? "views" : cardMetricKind==="spend" ? "spend" : "impressions";
     const fmtGoal = (n) => cardMetricKind==="spend" ? "$"+Math.round(n).toLocaleString() : Math.round(n).toLocaleString();
     const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null, del=cardDelivered;
-    const rem=Math.max(0,monthlyGoal-del), npd=(dim-dom)>0&&del>0?Math.round(rem/(dim-dom)):null;
+    const rem=Math.max(0,monthlyGoal-del);
+    const fp=flightPct(c), dr=daysRemaining(c), drc=daysRemainingColor(dr);
+    // Days left to hit goal: use whichever deadline comes first — flight end or month end
+    const daysLeftMonth = dim - dom;
+    const daysLeft = (dr !== null && dr >= 0 && dr < daysLeftMonth) ? dr : daysLeftMonth;
+    const npd = daysLeft > 0 && monthlyGoal > 0 ? Math.round(rem / daysLeft) : null;
+    const fmtNpd = npd === null ? "—" : cardMetricKind === "spend" ? "$"+npd.toLocaleString() : npd.toLocaleString();
     const col=pacing?.color??"#4d6e8a", pCol=PLT_COLORS[c.platform]||PLT_COLORS.default;
     const isCTV=c.platform==="CTV"||c.platform==="OTT";
-    const fp=flightPct(c), dr=daysRemaining(c), drc=daysRemainingColor(dr);
     // Build perf metric boxes — color-coded from benchmarks
     const bm = bmFor(c.platform);
     const ctrRawCard  = parseFloat(disp.ctr)||0;
     const ctrDispCard = ctrRawCard > 1 ? ctrRawCard : ctrRawCard * 100;
     const vcrRawCard  = parseFloat(c.completionRate)||0;
-    const vcrDispCard = vcrRawCard > 1 ? vcrRawCard : vcrRawCard * 100;
+    const vcrDispCard = vcrRawCard <= 0 ? 0 : vcrRawCard > 100 ? 0 : vcrRawCard > 1 ? vcrRawCard : vcrRawCard * 100;
     const cpmCard     = parseFloat(disp.cpm)||0;
     const freqCard    = parseFloat(c.frequency||disp.frequency)||0;
     const perfBoxes=[];
@@ -4931,7 +4974,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           {label:"Delivered",val:del>0?del.toLocaleString():"—",color:"#00e5a0"},
           {label:"Expected", val:exp?exp.toLocaleString():"—",  color:"#7a9bbf"},
           {label:"Remaining",val:del>0?rem.toLocaleString():"—",color:rem>0?"#f59e0b":"#00d48a"},
-          {label:"Need/Day", val:npd?npd.toLocaleString():"—",  color:"#fb923c"},
+          {label:"Need/Day", val:fmtNpd, color:pacing?.label==="Behind"?"#ef4444":"#fb923c"},
         ].map(({label,val,color})=><div key={label} style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:5,padding:"5px 9px",minWidth:60,textAlign:"center"}}>
           <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
           <div style={{fontSize:11,fontWeight:700,color}}>{val}</div>
@@ -5013,7 +5056,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   };
 
   // grid columns: name | platform | status | pacing bar | impr/views | gap | CTR/VCR | Clicks | CPM | spend | reach | freq | days | edit
-  const GRID = "minmax(150px,2fr) 60px 68px 100px 78px 68px 74px 56px 64px 64px 60px 54px 46px 46px";
+  const GRID = "minmax(150px,1.2fr) 55px 62px 92px 72px 60px 64px 68px 50px 58px 58px 52px 48px 42px 42px";
 
   function TableRow({c,disp,pacing,monthlyGoal}){
     const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
@@ -5029,9 +5072,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const ctrFmt  = ctrDisp < 1 ? ctrDisp.toFixed(3)+"%" : ctrDisp.toFixed(2)+"%";
     const ctrCol  = ctrDisplayColor(c.platform, ctrDisp);
 
-    // VCR — display as 0-100
+    // VCR — display as 0-100; values > 100 are data errors (e.g. view count mistakenly stored)
     const vcrRaw  = parseFloat(c.completionRate)||0;
-    const vcrDisp = vcrRaw > 1 ? vcrRaw : vcrRaw * 100;
+    const vcrDisp = vcrRaw <= 0 ? 0 : vcrRaw > 100 ? 0 : vcrRaw > 1 ? vcrRaw : vcrRaw * 100;
     const vcrCol  = vcrDisplayColor(c.platform, vcrDisp);
 
     // CPM — color from per-platform benchmark
@@ -5292,7 +5335,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <div style={{marginBottom:viewMode==="table"?4:14}}>
         <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:"#1a1208",border:"1px solid #f59e0b40",borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
           <span style={{fontSize:11,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.07em"}}>⏸ Possibly Stalled ({noActivityRows.length})</span>
-          <span style={{fontSize:10,color:"#7a9bbf"}}>Delivery hasn't grown since a previous-day check-in. Could be paused, finished, or just a slow day — verify, then dismiss.</span>
+          <span style={{fontSize:10,color:"#7a9bbf",flex:1}}>Delivery hasn't grown since a previous-day check-in. Could be paused, finished, or just a slow day — verify, then dismiss.</span>
+          <button onClick={()=>noActivityRows.forEach(r=>dismissStall(r.c.id))}
+            style={{background:"#1a2a1a",border:"1px solid #f59e0b60",borderRadius:4,color:"#f59e0b",fontSize:10,padding:"2px 10px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>
+            Dismiss All
+          </button>
         </div>
         {viewMode==="table"&&<TableHeader/>}
         {noActivityRows.map(r=>{
@@ -5362,7 +5409,7 @@ function spreadRevenue(c) {
   let cur = new Date(start.getFullYear(), start.getMonth(), 1);
   const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
   while (cur <= endMonth) {
-    const mo = cur.toISOString().slice(0,7);
+    const mo = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`;
     // Days active in this month
     const mStart = new Date(Math.max(start, new Date(cur.getFullYear(), cur.getMonth(), 1)));
     const mEnd   = new Date(Math.min(end,   new Date(cur.getFullYear(), cur.getMonth()+1, 0)));
@@ -6964,12 +7011,13 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       // TradeDesk export columns: Impressions Won, Clicks, CTR, Video Completion Rate, Advertiser eCPM, Advertiser Cost
       impressions    = parseInt((row["Impressions Won"]||"").toString().replace(/[^0-9]/g,""))||0;
       clicks         = parseInt((row["Clicks"]||"").toString().replace(/[^0-9]/g,""))||0;
-      spend          = parseFloat(row["Advertiser Cost"]||0)||0;
-      cpm            = parseFloat(row["Advertiser eCPM"]||0)||0;
-      const rawVcr   = parseFloat(row["Video Completion Rate"]||0)||0;
+      // Strip $ and commas — SheetJS may return these as strings depending on cell formatting
+      spend          = parseFloat((row["Advertiser Cost"]||"").toString().replace(/[$,\s]/g,""))||0;
+      cpm            = parseFloat((row["Advertiser eCPM"]||"").toString().replace(/[$,\s]/g,""))||0;
+      const rawVcr   = parseFloat((row["Video Completion Rate"]||"").toString().replace(/[%,\s]/g,""))||0;
       completionRate = rawVcr > 0 && rawVcr <= 1 ? rawVcr * 100 : rawVcr; // normalize 0-1 to 0-100
-      // CTR: recompute from clicks/impressions for accuracy; TTD exports decimal (0.001) not percent
-      ctr = impressions > 0 && clicks > 0 ? (clicks / impressions * 100) : 0;
+      // CTR column is unreliable (Excel % formatting ambiguity) — always compute from clicks/impressions
+      ctr = impressions > 0 && clicks > 0 ? clicks / impressions : 0;
 
     } else if (source==="DSP-Internal") {
       impressions    = parseInt((row["impressions_won"]||"").toString().replace(/[^0-9]/g,""))||0;
@@ -6977,22 +7025,23 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       spend          = parseFloat(row["advertiser_cost"]||0)||0;
       cpm            = parseFloat(row["advertiser_ecpm"]||0)||0;
       completionRate = parseFloat(row["video_completion_rate"]||0)||0;
-      ctr            = impressions>0 && clicks>0 ? (clicks/impressions*100) : (parseFloat((row["ctr"]||"0").toString().replace(/[%,]/g,""))||0);
-      if(ctr>0&&ctr<1) ctr=ctr*100; // normalize decimal CTR to percent
+      const dspRawCtr = impressions>0 && clicks>0 ? (clicks/impressions) : (parseFloat((row["ctr"]||"0").toString().replace(/[%,]/g,""))||0);
+      ctr = dspRawCtr > 1 ? dspRawCtr/100 : dspRawCtr; // normalize: if large percent (e.g. 35.3) convert to ratio
 
     } else if (source==="Snapchat") {
       impressions = parseFloat(row["Paid Impressions"]||0)||0;
       clicks      = parseFloat(row["Clicks"]||0)||0;
       spend       = parseFloat(row["Amount Spent"]||0)||0;
       reach       = parseFloat(row["Paid Reach"]||0)||0;
-      ctr         = impressions>0 ? clicks/impressions*100 : (parseFloat(row["Click Rate"]||0)*100)||0;
+      // CTR column ("Click Rate") stores a % value whose scale is ambiguous — always compute from clicks/impressions
+      ctr = impressions > 0 && clicks > 0 ? clicks / impressions : 0;
 
     } else if (source==="Facebook/Meta") {
       impressions = parseInt((row["Impressions"]||"").replace(/[^0-9]/g,""))||0;
-      // Always use "Link clicks" — not "Clicks (all)" which includes all click types
-      clicks      = parseInt((row["Link clicks"]||row["link clicks"]||"").replace(/[^0-9]/g,""))||0;
-      // Always recompute CTR from link clicks / impressions for accuracy
-      ctr         = impressions > 0 && clicks > 0 ? (clicks / impressions * 100) : 0;
+      // Link clicks = intentional ad clicks; avoid "Clicks (all)" which includes page/profile clicks
+      clicks      = parseInt((row["Link clicks"]||row["link clicks"]||row["Link Clicks"]||"").replace(/[^0-9]/g,""))||0;
+      // CTR stored as raw ratio (0.003531 for 0.353%); display layer multiplies by 100
+      ctr         = impressions > 0 && clicks > 0 ? (clicks / impressions) : 0;
       cpm         = parseFloat(row["CPM (cost per 1,000 impressions) (USD)"]||0)||0;
       spend       = parseFloat(row["Amount spent (USD)"]||0)||0;
       reach       = parseInt((row["Reach"]||"").replace(/[^0-9]/g,""))||0;
@@ -7012,16 +7061,18 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       cpm         = num(findCol(row, ["cpm","cost per 1000","cost per mille","cpm (usd)"]));
       reach       = int(findCol(row, ["reach","unique reach","paid reach","unique users"]));
       videoViews  = int(findCol(row, ["video views","views","thruplay","video completions","completed views"]));
-      completionRate = num(findCol(row, ["completion rate","vcr","video completion rate","view through rate","vtr"]));
+      // Use normalized no-space names so partial match won't hit "Video views" via "video" or "Views" via "view"
+      completionRate = num(findCol(row, ["completion rate","vcr","videocompletionrate","viewthroughrate","vtr"]));
+      if (completionRate > 100) completionRate = 0; // discard counts that snuck in (e.g. "Video views" matched)
 
-      // CTR — compute from clicks/impressions if not directly available
+      // CTR — compute from clicks/impressions; store as raw ratio (e.g. 0.003531 for 0.353%)
       const rawCtr = findCol(row, ["ctr","click through rate","click-through rate","click rate"]);
       if (rawCtr) {
-        ctr = parseFloat(rawCtr.toString().replace(/[%,]/g,""))||0;
-        // If it looks like a decimal (e.g. 0.0044) convert to percent
-        if (ctr > 0 && ctr < 1) ctr = ctr * 100;
+        const parsedCtr = parseFloat(rawCtr.toString().replace(/[%,]/g,""))||0;
+        // If value > 1 it's already expressed as a whole percent (e.g. 35.3) — convert to ratio
+        ctr = parsedCtr > 1 ? parsedCtr / 100 : parsedCtr;
       } else if (impressions > 0 && clicks > 0) {
-        ctr = clicks / impressions * 100;
+        ctr = clicks / impressions;
       }
       // Frequency
       const freqVal = parseFloat(findCol(row, ["frequency","freq"])||0)||0;
@@ -7328,11 +7379,12 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     });
     setCampaigns(cs=>cs.map(c=>{
       const u=updates[c.id]||updates[String(c.id)]; if(!u) return c;
-      // Always recompute CTR from total clicks / total impressions
-      const computedCtr = u.impressions > 0 && u.clicks > 0 ? (u.clicks / u.impressions * 100) : 0;
+      // Recompute CTR from aggregated clicks/impressions; stored as raw ratio (0.003531 = 0.353%)
+      const computedCtr = u.impressions > 0 && u.clicks > 0 ? (u.clicks / u.impressions) : 0;
       const sourceLabel = fileSource==="TradeDesk" ? "TradeDesk" : fileSource;
+      const ctrDisplay = (computedCtr * 100).toFixed(3);
       // Check-in log line — stored in checkInLog (separate from personal history notes)
-      const histLine=`${stamp} | ${u.impressions.toLocaleString()} impr | ${u.clicks} clicks | CTR ${computedCtr.toFixed(3)}%${u.spend>0?" | $"+u.spend.toFixed(2)+" spend":""}${u.completionRate>0?" | VCR "+u.completionRate.toFixed(1)+"%":""} | ${sourceLabel}`;
+      const histLine=`${stamp} | ${u.impressions.toLocaleString()} impr | ${u.clicks} clicks | CTR ${ctrDisplay}%${u.spend>0?" | $"+u.spend.toFixed(2)+" spend":""}${u.completionRate>0?" | VCR "+u.completionRate.toFixed(1)+"%":""} | ${sourceLabel}`;
       // For TradeDesk imports, save to ttdSnapshots.mtd so the ⬡ TTD badge shows and Zeus can reference it
       const ttdSnap = fileSource==="TradeDesk" ? {
         ttdSnapshots: {
@@ -7558,6 +7610,18 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         {/* ── Right: File mapping (only when file is loaded) ── */}
         {fileRows&&(
           <div style={{display:"flex",flexDirection:"column"}}>
+            {(()=>{
+              const totals = fileRows.reduce((acc,row)=>{ const m=extractMetrics(row,fileSource); acc.spend+=m.spend; acc.impressions+=m.impressions; acc.clicks+=m.clicks; return acc; },{spend:0,impressions:0,clicks:0});
+              return totals.spend > 0 || totals.impressions > 0 ? (
+                <div style={{padding:"5px 12px",background:"#03080f",borderBottom:"1px solid #0d1525",display:"flex",gap:16,flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,color:"#3d5a72"}}>File totals:</span>
+                  {totals.impressions > 0 && <span style={{fontSize:10,color:"#7a9bbf",fontWeight:600}}>{totals.impressions.toLocaleString()} impr</span>}
+                  {totals.clicks > 0 && <span style={{fontSize:10,color:"#7a9bbf",fontWeight:600}}>{totals.clicks.toLocaleString()} clicks</span>}
+                  {totals.spend > 0 && <span style={{fontSize:10,color:"#00e5a0",fontWeight:700}}>${totals.spend.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} spend</span>}
+                  <span style={{fontSize:10,color:"#2a4060"}}>— verify against platform report before applying</span>
+                </div>
+              ) : null;
+            })()}
             <div style={{padding:"6px 12px",background:"#060d18",borderBottom:"1px solid #1a2744",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <span style={{fontSize:11,fontWeight:700,color:"#edf4ff"}}>{fileSource==="Generic"?"📊 Generic CSV":fileSource==="TradeDesk"?"📡 TradeDesk (_AG only)":fileSource} — {fileRows.length} rows</span>
               <span style={{fontSize:10,color:mappedCount<fileRows.length?"#f59e0b":"#00e5a0",fontWeight:600}}>{mappedCount}/{fileRows.length} matched</span>
@@ -7632,12 +7696,21 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
 
                         const showingAll = showAllMap[i];
 
-                        // Default pool for TradeDesk: TD/TDV/TDA/CTV/OTT campaigns
-                        // "show all" expands to every campaign regardless of platform
+                        // Respect the user's left-panel platform + search filters in the assign dropdown.
+                        // "show all" bypasses these to reveal every campaign.
+                        const qciPool = showingAll ? activeCamps : activeCamps.filter(c => {
+                          if (qciPlatforms.size > 0 && !qciPlatforms.has(c.platform)) return false;
+                          if (qciSearch) {
+                            const q = qciSearch.toLowerCase();
+                            if (!c.campaignName.toLowerCase().includes(q) && !(c.mediaPartner||"").toLowerCase().includes(q)) return false;
+                          }
+                          return true;
+                        });
+                        // Default pool for TradeDesk: TD/TDV/TDA/CTV/OTT campaigns within the qci filter
                         const tdPool = isTTD && !showingAll
-                          ? activeCamps.filter(c => TTD_PLATFORMS.has(c.platform))
-                          : activeCamps;
-                        const pool = isTTD ? tdPool : activeCamps;
+                          ? qciPool.filter(c => TTD_PLATFORMS.has(c.platform))
+                          : qciPool;
+                        const pool = isTTD ? tdPool : qciPool;
 
                         // Score candidates — use all words ≥2 chars
                         const scored = pool.map(c=>{
@@ -8001,15 +8074,50 @@ function ReportVault({ onAnalyzeWithZeus }) {
 }
 
 
-function RevenueDashboard({ campaigns=[], onEdit=()=>{} }) {
+function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
   const [filterPartner, setFilterPartner]   = useState("all");
   const [expandedRow, setExpandedRow]       = useState(null);
   const [sortKey, setSortKey]               = useState("profit"); // "profit" | "loss" | "contract" | "name" | "pending"
   const [focusMonth, setFocusMonth]         = useState(null); // YYYY-MM, null = current
   const [cellMode, setCellMode]             = useState("dollar"); // "dollar" | "margin"
+  const [monthLocks, setMonthLocks]         = useState(() => { try { return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); } catch { return {}; } });
+  const [showPLReport, setShowPLReport]     = useState(false);
   const now = new Date();
-  const thisMonth = now.toISOString().slice(0,7);
+  // Use local-time formatting — toISOString() converts to UTC and can roll back a month for US timezones
+  const moStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  // Parse a YYYY-MM string into a local-midnight Date (not UTC) to avoid timezone display bugs
+  const moDate = (mo) => new Date(parseInt(mo.slice(0,4)), parseInt(mo.slice(5,7))-1, 1);
+  const thisMonth = moStr(now);
   const activeMonth = focusMonth || thisMonth;
+
+  function saveMonthLocks(locks) { setMonthLocks(locks); localStorage.setItem(MONTH_LOCK_KEY, JSON.stringify(locks)); }
+  function unlockMonth(month) { const next={...monthLocks}; delete next[month]; saveMonthLocks(next); }
+  function lockMonth(month) {
+    const campData = rows.map(r => ({
+      id: r.c.id, name: r.c.campaignName.trim(), partner: r.c.mediaPartner, platform: r.c.platform,
+      revenue: r.monthCells[month]?.rev || 0,
+      spend:   r.monthCells[month]?.spend ?? 0,
+      profit:  r.monthCells[month]?.profit ?? null,
+      // Live campaign metrics — frozen here so next CSV drop can't overwrite them
+      impressions:    parseInt(r.c.impressions)||0,
+      clicks:         parseInt(r.c.clicks)||0,
+      ctr:            parseFloat(r.c.ctr)||0,
+      completionRate: parseFloat(r.c.completionRate)||0,
+      reach:          parseInt(r.c.reach)||0,
+      cpm:            parseFloat(r.c.cpm)||0,
+      videoViews:     parseInt(r.c.videoViews)||0,
+    })).filter(r => r.revenue > 0 || r.spend > 0);
+    const totalRevenue = campData.reduce((s,r)=>s+r.revenue,0);
+    const totalSpend   = campData.reduce((s,r)=>s+r.spend,0);
+    const totalProfit  = totalRevenue - totalSpend;
+    const lockObj = {
+      lockedAt: getToday(), label: moDate(month).toLocaleDateString("en-US",{month:"long",year:"numeric"}),
+      totalRevenue, totalSpend, totalProfit, margin: totalRevenue>0?(totalProfit/totalRevenue)*100:0,
+      campaigns: campData,
+    };
+    saveMonthLocks({ ...monthLocks, [month]: lockObj });
+    onLock(month, lockObj);
+  }
 
   // Pull synced MTD spend (current month actual) from any platform source
   function getActualMtdSpend(c) {
@@ -8031,9 +8139,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{} }) {
     if (actual != null && actual > 0) return actual;
     return getManualSpend(c);
   }
-  // Per-campaign per-month spend resolver — always uses best-available data.
+  // Per-campaign per-month spend resolver — locked months take priority.
   // Returns null when no spend data exists for that month.
   function spendForMonth(c, mo) {
+    // Locked months: use the frozen snapshot — immune to future CSV drops
+    if (monthLocks[mo]) {
+      const lc = monthLocks[mo].campaigns?.find(r => String(r.id) === String(c.id));
+      return lc ? lc.spend : null;
+    }
     if (!hasSpendData(c)) return null;
     const totalSpend = getLifetimeSpend(c);
     if (totalSpend <= 0 || !c.startDate || !c.endDate) return null;
@@ -8057,11 +8170,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{} }) {
   const partners = ["all", ...new Set(withContract.map(c=>c.mediaPartner))].sort();
   const filtered  = filterPartner==="all" ? withContract : withContract.filter(c=>c.mediaPartner===filterPartner);
 
-  // 12-month window
+  // 12-month window — use moStr() not toISOString() to avoid UTC timezone rollback
   const months = [];
   for (let i=-6; i<=5; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth()+i, 1);
-    months.push(d.toISOString().slice(0,7));
+    months.push(moStr(new Date(now.getFullYear(), now.getMonth()+i, 1)));
   }
 
   // Aggregate per-month rollups
@@ -8113,9 +8225,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{} }) {
   const fmMargin = fmRevWithSpend>0?(fmProfit/fmRevWithSpend)*100:0;
   const fmPendingCount = fmTotals.pendingCount;
   const fmPendingRev   = fmTotals.pendingRev;
-  const focusLabel = new Date(activeMonth+"-01").toLocaleDateString("en-US",{month:"long",year:"numeric"});
-  const focusLabelShort = new Date(activeMonth+"-01").toLocaleDateString("en-US",{month:"short",year:"numeric"});
+  const focusLabel = moDate(activeMonth).toLocaleDateString("en-US",{month:"long",year:"numeric"});
+  const focusLabelShort = moDate(activeMonth).toLocaleDateString("en-US",{month:"short",year:"numeric"});
   const isCurrentFocus = activeMonth===thisMonth;
+  const isLockedFocus  = !!monthLocks[activeMonth];
+  const isPastFocus    = activeMonth < thisMonth;
 
   // Per-campaign rows with month grid
   const rows = filtered.map(c=>{
@@ -8258,22 +8372,23 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{} }) {
         <div style={{display:"flex",gap:5,overflowX:"auto",paddingBottom:2}}>
           {months.map(mo=>{
             const isFocus = mo===activeMonth;
-            const isCurr  = mo===thisMonth;
+            const isCurr   = mo===thisMonth;
+            const isLocked = !!monthLocks[mo];
             const t = monthTotals[mo];
             const p = t.revenueWithSpend - t.spend;
             const hasTrackable = t.revenueWithSpend > 0;
-            const label = new Date(mo+"-01").toLocaleDateString("en-US",{month:"short"});
+            const label = moDate(mo).toLocaleDateString("en-US",{month:"short"});
             const yr = mo.slice(2,4);
             return (
               <button key={mo} onClick={()=>setFocusMonth(mo===thisMonth?null:mo)}
                 style={{
                   flex:"0 0 auto",
                   background:isFocus?"#1a2744":"transparent",
-                  border:isFocus?"1px solid #00e5a055":isCurr?"1px solid #00e5a033":"1px solid #1e293b",
+                  border:isFocus?"1px solid #00e5a055":isCurr?"1px solid #00e5a033":isLocked?"1px solid #7a9bbf55":"1px solid #1e293b",
                   borderRadius:7,padding:"6px 10px",cursor:"pointer",minWidth:64,
                   display:"flex",flexDirection:"column",alignItems:"center",gap:2,
                 }}>
-                <div style={{fontSize:10,color:isFocus?"#00e5a0":isCurr?"#7a9bbf":"#4d6e8a",fontWeight:isFocus||isCurr?700:500}}>{label} '{yr}{isCurr?" •":""}</div>
+                <div style={{fontSize:10,color:isFocus?"#00e5a0":isCurr?"#7a9bbf":"#4d6e8a",fontWeight:isFocus||isCurr?700:500}}>{label} '{yr}{isCurr?" •":""}{isLocked?" 🔒":""}</div>
                 <div style={{fontSize:10,fontWeight:700,color:hasTrackable?profitColor(p):"#3d5a72"}}>
                   {hasTrackable?(p>=0?"+":"")+$fk(p):(t.revenue>0?"⏳":"—")}
                 </div>
@@ -8285,9 +8400,32 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{} }) {
 
       {/* ── Focused month KPIs ────────────────────────────────── */}
       <div style={{...card,padding:"16px 20px",marginBottom:14}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-          <div style={{...labelStyle}}>{focusLabel}</div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+          <div style={{...labelStyle,flex:1}}>{focusLabel}</div>
           {isCurrentFocus && <span style={{fontSize:9,background:"#00e5a022",color:"#00e5a0",padding:"2px 7px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em"}}>CURRENT</span>}
+          {isLockedFocus && <span title={`Locked on ${monthLocks[activeMonth]?.lockedAt} — spend data frozen`} style={{fontSize:9,background:"#7a9bbf22",color:"#7a9bbf",padding:"2px 7px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em",cursor:"default"}}>🔒 LOCKED</span>}
+          {/* Export P&L — available any time there is data */}
+          {(fmRevWithSpend>0||fmRev>0) && (
+            <button onClick={()=>setShowPLReport(true)}
+              style={{background:"#0d1a2e",border:"1px solid #3B8FFF60",borderRadius:7,padding:"5px 12px",color:"#7dd3fc",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+              📊 Export P&L
+            </button>
+          )}
+          {/* Lock / Unlock — only for completed past months */}
+          {isPastFocus && !isLockedFocus && fmRevWithSpend>0 && (
+            <button onClick={()=>lockMonth(activeMonth)}
+              style={{background:"#0d1a0a",border:"1px solid #00d48a60",borderRadius:7,padding:"5px 12px",color:"#00d48a",fontSize:11,fontWeight:700,cursor:"pointer"}}
+              title={`Freeze ${focusLabel} spend data so future CSV drops don't overwrite it`}>
+              🔒 Lock {focusLabelShort} Final Data
+            </button>
+          )}
+          {isPastFocus && isLockedFocus && (
+            <button onClick={()=>unlockMonth(activeMonth)}
+              style={{background:"#1a0808",border:"1px solid #ef444460",borderRadius:7,padding:"5px 12px",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer"}}
+              title="Remove lock — spend data will update from next CSV drop">
+              Unlock
+            </button>
+          )}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
           {[
@@ -8336,7 +8474,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{} }) {
                   const isCurr  = mo===thisMonth;
                   const hasTrackable = t.revenueWithSpend > 0;
                   const hasPending = !hasTrackable && t.revenue > 0;
-                  const label = new Date(mo+"-01").toLocaleDateString("en-US",{month:"short"});
+                  const label = moDate(mo).toLocaleDateString("en-US",{month:"short"});
                   const yr = mo.slice(2,4);
                   const posH = hasTrackable && profit > 0 ? Math.max(6, Math.min(POS_H-4, (profit/maxAbsProfit)*POS_H)) : 0;
                   const negH = hasTrackable && profit < 0 ? Math.max(6, Math.min(NEG_H-4, (Math.abs(profit)/maxAbsProfit)*NEG_H)) : 0;
@@ -8444,14 +8582,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{} }) {
             </div>
           </div>
           <div style={{overflowX:"auto",position:"relative"}}>
-            <div style={{minWidth: 220 + months.length*60 + 90 + 90}}>
+            <div style={{width:"100%",minWidth: 220 + months.length*60 + 90 + 90}}>
               {/* Header row */}
-              <div style={{display:"grid",gridTemplateColumns:`220px repeat(${months.length}, 60px) 90px 90px`,gap:2,padding:"6px 8px",fontSize:9,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #1a2744",marginBottom:3,alignItems:"center",position:"sticky",top:0,background:"#0c1625",zIndex:2}}>
+              <div style={{display:"grid",gridTemplateColumns:`minmax(220px,1fr) repeat(${months.length}, 60px) 90px 90px`,gap:2,padding:"6px 8px",fontSize:9,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #1a2744",marginBottom:3,alignItems:"center",position:"sticky",top:0,background:"#0c1625",zIndex:2}}>
                 <span style={{position:"sticky",left:0,background:"#0c1625",paddingRight:4,zIndex:3}}>Campaign</span>
                 {months.map(mo=>{
                   const isFocus = mo===activeMonth;
                   const isCurr  = mo===thisMonth;
-                  const label = new Date(mo+"-01").toLocaleDateString("en-US",{month:"short"});
+                  const label = moDate(mo).toLocaleDateString("en-US",{month:"short"});
                   const yr = mo.slice(2,4);
                   return (
                     <span key={mo} onClick={()=>setFocusMonth(mo===thisMonth?null:mo)}
@@ -8469,7 +8607,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{} }) {
                 return (
                   <Fragment key={r.c.id}>
                     <div onClick={()=>setExpandedRow(isOpen?null:r.c.id)}
-                      style={{display:"grid",gridTemplateColumns:`220px repeat(${months.length}, 60px) 90px 90px`,gap:2,padding:"7px 8px",borderBottom:"1px solid #0e1828",alignItems:"center",cursor:"pointer",background:isOpen?"#0e1828":"transparent",borderRadius:5,marginBottom:1}}>
+                      style={{display:"grid",gridTemplateColumns:`minmax(220px,1fr) repeat(${months.length}, 60px) 90px 90px`,gap:2,padding:"7px 8px",borderBottom:"1px solid #0e1828",alignItems:"center",cursor:"pointer",background:isOpen?"#0e1828":"transparent",borderRadius:5,marginBottom:1}}>
                       {/* Sticky campaign column */}
                       <div style={{overflow:"hidden",position:"sticky",left:0,background:isOpen?"#0e1828":"#0c1625",paddingRight:4,zIndex:1}}>
                         <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
@@ -8495,7 +8633,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{} }) {
                         else if (cellMode==="margin") { display=(margin>=0?"+":"")+margin.toFixed(0)+"%"; color=profitColor(cell.profit); }
                         else { display=(cell.profit>=0?"+":"")+$fk(cell.profit); color=profitColor(cell.profit); }
                         const tooltip = hasRev
-                          ? `${new Date(mo+"-01").toLocaleDateString("en-US",{month:"short",year:"numeric"})}\nRevenue: ${$f(cell.rev)}${cell.pending?"\nSpend: not entered yet":`\nSpend: ${$f(cell.spend)}\nProfit: ${$f(cell.profit)}\nMargin: ${margin.toFixed(1)}%`}`
+                          ? `${moDate(mo).toLocaleDateString("en-US",{month:"short",year:"numeric"})}\nRevenue: ${$f(cell.rev)}${cell.pending?"\nSpend: not entered yet":`\nSpend: ${$f(cell.spend)}\nProfit: ${$f(cell.profit)}\nMargin: ${margin.toFixed(1)}%`}`
                           : "";
                         return (
                           <div key={mo} title={tooltip}
@@ -8555,6 +8693,97 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{} }) {
           </div>
         </div>
       )}
+
+      {/* ── P&L Export Modal ──────────────────────────────────── */}
+      {showPLReport && (()=>{
+        const lock = monthLocks[activeMonth];
+        // Use locked data if available, otherwise build from live rows
+        const reportRows = lock
+          ? lock.campaigns
+          : rows.filter(r=>r.monthCells[activeMonth]?.rev>0||r.monthCells[activeMonth]?.spend>0).map(r=>({
+              name:r.c.campaignName.trim(), partner:r.c.mediaPartner, platform:r.c.platform,
+              revenue:r.monthCells[activeMonth]?.rev||0,
+              spend:r.monthCells[activeMonth]?.spend||0,
+              profit:r.monthCells[activeMonth]?.profit||null,
+            }));
+        const totalRev   = reportRows.reduce((s,r)=>s+r.revenue,0);
+        const totalSpend = reportRows.reduce((s,r)=>s+(r.spend||0),0);
+        const totalProfit= totalRev - totalSpend;
+        const totalMargin= totalRev>0?(totalProfit/totalRev)*100:0;
+        const printId = "pl-report-"+activeMonth;
+        return (
+          <div style={{position:"fixed",inset:0,background:"#000a",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+            onClick={e=>{if(e.target===e.currentTarget)setShowPLReport(false);}}>
+            <div style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:14,width:"100%",maxWidth:820,maxHeight:"90vh",overflow:"auto",padding:0}}>
+              {/* Modal header */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 22px",borderBottom:"1px solid #1a2744",position:"sticky",top:0,background:"#0c1625",zIndex:2}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:800,color:"#edf4ff"}}>📊 P&L Report — {focusLabel}</div>
+                  <div style={{fontSize:11,color:"#4d6e8a",marginTop:2}}>{lock?`Locked ${lock.lockedAt}`:"Live data — lock the month to freeze"} · {reportRows.length} campaigns</div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>window.print()} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"7px 14px",color:"#7dd3fc",fontSize:12,fontWeight:700,cursor:"pointer"}}>🖨 Print / Save PDF</button>
+                  <button onClick={()=>setShowPLReport(false)} style={{background:"none",border:"1px solid #334155",borderRadius:7,padding:"7px 12px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>✕ Close</button>
+                </div>
+              </div>
+              {/* Summary KPIs */}
+              <div id={printId} style={{padding:"18px 22px"}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20}}>
+                  {[
+                    {label:"Revenue",val:"$"+Math.round(totalRev).toLocaleString(),color:"#7dd3fc"},
+                    {label:"Platform Spend",val:"$"+Math.round(totalSpend).toLocaleString(),color:"#f59e0b"},
+                    {label:"Gross Profit",val:(totalProfit>=0?"+":"-")+"$"+Math.round(Math.abs(totalProfit)).toLocaleString(),color:totalProfit>=0?"#00d48a":"#ef4444"},
+                    {label:"Margin",val:totalRev>0?totalMargin.toFixed(1)+"%":"—",color:totalMargin>=30?"#00d48a":totalMargin>=15?"#f59e0b":"#ef4444"},
+                  ].map(s=>(
+                    <div key={s.label} style={{background:"#0a1628",border:"1px solid #1a2744",borderRadius:8,padding:"12px 14px"}}>
+                      <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:4}}>{s.label}</div>
+                      <div style={{fontSize:22,fontWeight:800,color:s.color,lineHeight:1}}>{s.val}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* Campaign table */}
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr style={{borderBottom:"2px solid #1a2744"}}>
+                      {["Campaign","Partner","Plt","Revenue","Spend","Profit","Margin"].map(h=>(
+                        <th key={h} style={{padding:"7px 8px",textAlign:["Revenue","Spend","Profit","Margin"].includes(h)?"right":"left",color:"#3d5a72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...reportRows].sort((a,b)=>(b.profit||0)-(a.profit||0)).map((r,i)=>{
+                      const margin = r.revenue>0&&r.spend!=null?((r.profit||0)/r.revenue*100):null;
+                      return (
+                        <tr key={i} style={{borderBottom:"1px solid #0d1525",background:i%2===0?"transparent":"#06101a"}}>
+                          <td style={{padding:"6px 8px",color:"#d8eaf8",fontWeight:600,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</td>
+                          <td style={{padding:"6px 8px",color:"#7a9bbf",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.partner}</td>
+                          <td style={{padding:"6px 8px"}}><span style={{background:(PLT_COLORS[r.platform]||"#4d6e8a")+"22",color:PLT_COLORS[r.platform]||"#4d6e8a",border:"1px solid "+(PLT_COLORS[r.platform]||"#4d6e8a")+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.platform}</span></td>
+                          <td style={{padding:"6px 8px",textAlign:"right",color:"#7dd3fc",fontWeight:600}}>${Math.round(r.revenue).toLocaleString()}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",color:"#f59e0b"}}>{r.spend!=null?"$"+Math.round(r.spend).toLocaleString():"⏳"}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:r.profit==null?"#3d5a72":r.profit>=0?"#00d48a":"#ef4444"}}>{r.profit==null?"—":(r.profit>=0?"+":"-")+"$"+Math.round(Math.abs(r.profit||0)).toLocaleString()}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",color:margin==null?"#3d5a72":margin>=30?"#00d48a":margin>=15?"#f59e0b":"#ef4444"}}>{margin==null?"—":margin.toFixed(1)+"%"}</td>
+                        </tr>
+                      );
+                    })}
+                    {/* Totals row */}
+                    <tr style={{borderTop:"2px solid #1a2744",background:"#0a1628"}}>
+                      <td colSpan={3} style={{padding:"8px 8px",color:"#edf4ff",fontWeight:800,fontSize:13}}>TOTAL</td>
+                      <td style={{padding:"8px 8px",textAlign:"right",color:"#7dd3fc",fontWeight:800,fontSize:13}}>${Math.round(totalRev).toLocaleString()}</td>
+                      <td style={{padding:"8px 8px",textAlign:"right",color:"#f59e0b",fontWeight:800,fontSize:13}}>${Math.round(totalSpend).toLocaleString()}</td>
+                      <td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,fontSize:13,color:totalProfit>=0?"#00d48a":"#ef4444"}}>{(totalProfit>=0?"+":"-")+"$"+Math.round(Math.abs(totalProfit)).toLocaleString()}</td>
+                      <td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,fontSize:13,color:totalMargin>=30?"#00d48a":totalMargin>=15?"#f59e0b":"#ef4444"}}>{totalRev>0?totalMargin.toFixed(1)+"%":"—"}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div style={{marginTop:14,fontSize:10,color:"#3d5a72",display:"flex",justifyContent:"space-between"}}>
+                  <span>Recrue Media · {focusLabel} P&L{lock?" · 🔒 Locked "+lock.lockedAt:" · Live data (not locked)"}</span>
+                  <span>Generated {new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -9691,7 +9920,7 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
 
         {/* Goal */}
         <div style={{marginBottom:14}}>
-          <label style={labelS}>Goal / Note 1
+          <label style={labelS}>Monthly Goal
             {applyAll && clientCampaigns.length > 1 &&
               <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}> — leave blank to keep each platform's goal</span>}
           </label>
@@ -9777,7 +10006,7 @@ export default function App() {
     campaigns.filter(c=>{
       if(c.status!=="active") return false;
       const disp=resolveMetrics(c,dateRange.preset);
-      const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+      const pacing=computeMonthlyPacing(c, disp, c.note1);
       return pacing?.label==="Behind";
     }).length
   ,[campaigns,dateRange.preset]);
@@ -10027,19 +10256,19 @@ export default function App() {
       if(sortKey==="reminder" && !hasReminder) return false;
       if(fGoalHit) {
         const disp=resolveMetrics(c,dateRange.preset);
-        const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+        const pacing=computeMonthlyPacing(c, disp, c.note1);
         if(!(c.goalHit||(pacing&&pacing.pct>=1))) return false;
       }
       if(fCloseToGoal) {
         const disp=resolveMetrics(c,dateRange.preset);
-        const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+        const pacing=computeMonthlyPacing(c, disp, c.note1);
         const isGoalHit = c.goalHit||(pacing&&pacing.pct>=1);
         if(isGoalHit) return false; // goal hit takes priority — never show in close-to-goal filter
         if(!(c.closeToGoal||(pacing&&pacing.pct>=0.8&&pacing.pct<1))) return false;
       }
       if(fExcludeGoalHit) {
         const disp=resolveMetrics(c,dateRange.preset);
-        const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+        const pacing=computeMonthlyPacing(c, disp, c.note1);
         if(c.goalHit||(pacing&&pacing.pct>=1)) return false;
       }
       if(fRecentDays>0) {
@@ -10165,6 +10394,33 @@ export default function App() {
     }));
     setSelectedIds(new Set());
     setShowBulkEdit(false);
+    setBulkDraft({ note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
+  }
+
+  async function applyBulkClearMetrics() {
+    const count = selectedIds.size;
+    if (!await confirm({
+      title: `Clear metrics for ${count} campaign${count !== 1 ? "s" : ""}?`,
+      message: "Clears impressions, clicks, CTR, CPM, spend, reach, frequency, video views, completion rate, check-in log, and all platform snapshots. Use this at the start of a new month.",
+      confirmLabel: "Clear Metrics",
+    })) return;
+    const stamp = getToday();
+    setCampaigns(cs => cs.map(c => {
+      if (!selectedIds.has(c.id)) return c;
+      addLog({ type:"edited", campaignName:c.campaignName, partner:c.mediaPartner, platform:c.platform,
+        detail:"Bulk: metrics cleared (new month reset)", prevSnapshot:{...c}, campaignId:c.id });
+      return { ...c,
+        impressions:"", ctr:"", cpm:"", spend:"",
+        clicks:"", reach:"", frequency:"", videoViews:"",
+        completionRate:"", conversions:"",
+        checkInLog:"", lastCheckInImpr:"",
+        metaSnapshots: undefined, ttdSnapshots: undefined,
+        dspSnapshots: undefined, googleSnapshots: undefined, snapSnapshots: undefined,
+        lastChecked: stamp,
+      };
+    }));
+    setShowBulkEdit(false);
+    setSelectedIds(new Set());
     setBulkDraft({ note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
   }
 
@@ -10416,7 +10672,26 @@ export default function App() {
             try{ localStorage.setItem("campaign-tracker-zeus-prompt", prompt); }catch{}
           }}/>
         ) : activeTab==="revenue" ? (
-          <RevenueDashboard campaigns={[...campaigns,...archive]} onEdit={(camp)=>setEditTarget(camp)}/>
+          <RevenueDashboard campaigns={[...campaigns,...archive]} onEdit={(camp)=>setEditTarget(camp)} onLock={(month, lockObj)=>{
+            // Activity log entry — permanent record of the lock event
+            addLog({ type:"lock", campaignName:`${lockObj.label} — Final Lock`, partner:"", platform:"",
+              detail:`${lockObj.campaigns.length} campaigns · $${lockObj.totalSpend.toFixed(2)} spend · $${lockObj.totalRevenue.toFixed(2)} revenue · $${lockObj.totalProfit.toFixed(2)} profit`,
+              lockData: lockObj, month });
+            // Write a history note to each campaign in the snapshot — survives bulk clear + future CSV drops
+            setCampaigns(cs => cs.map(c => {
+              const snap = lockObj.campaigns.find(r => String(r.id) === String(c.id));
+              if (!snap) return c;
+              const ctrPct = snap.ctr > 0 ? (snap.ctr < 1 ? (snap.ctr*100).toFixed(3) : snap.ctr.toFixed(3)) : null;
+              const parts = [`🔒 ${lockObj.label} LOCKED`,
+                snap.impressions > 0 ? snap.impressions.toLocaleString()+' impr' : null,
+                snap.clicks > 0 ? snap.clicks+' clicks' : null,
+                ctrPct ? ctrPct+'% CTR' : null,
+                snap.spend > 0 ? '$'+snap.spend.toFixed(2)+' spend' : null,
+                snap.completionRate > 0 && snap.completionRate <= 100 ? snap.completionRate.toFixed(1)+'% VCR' : null,
+              ].filter(Boolean).join(' | ');
+              return { ...c, history: c.history?.trim() ? parts+'\n'+c.history : parts };
+            }));
+          }}/>
         ) : (<>
         <ReminderAlertBanner reminders={reminders} onOpen={()=>setShowReminderModal(true)} onDismissAll={()=>setReminders(prev=>prev.map(r=>r.date<=today?{...r,dismissed:true}:r))}/>
 
@@ -10490,7 +10765,7 @@ export default function App() {
                 {/* ── Row 3: Notes ── */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 1</label>
+                    <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Goal</label>
                     <input value={bulkDraft.note1} onChange={e=>setBulkDraft(p=>({...p,note1:e.target.value}))} placeholder="e.g. 125K/Mo" style={{width:"100%",background:"#162236",border:`1px solid ${bulkDraft.note1.trim()?"#3B8FFF60":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
                   </div>
                   <div>
@@ -10538,6 +10813,7 @@ export default function App() {
                 {/* ── Actions ── */}
                 <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                   <button onClick={applyBulkEdit} style={{background:"#00c896",border:"none",borderRadius:7,padding:"9px 24px",color:"#000",fontWeight:700,fontSize:13,cursor:"pointer"}}>Apply to {selectedIds.size} Campaign{selectedIds.size!==1?"s":""}</button>
+                  <button onClick={applyBulkClearMetrics} title="Zero out all metric data — use at the start of a new month" style={{background:"#1a0808",border:"1px solid #ef444460",borderRadius:7,padding:"9px 16px",color:"#ef4444",fontWeight:700,fontSize:13,cursor:"pointer"}}>🗑 Clear Metrics</button>
                   <button onClick={()=>{ setShowBulkEdit(false); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",startDate:"",endDate:"",projectionUrl:"",clientWebsite:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",contractValue:"",monthlyFlight:"",platform:"",history:""}); }} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"9px 16px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>Cancel</button>
                   <button onClick={()=>{ setShowBulkEdit(false); setSelectedIds(new Set()); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",startDate:"",endDate:"",projectionUrl:"",clientWebsite:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",contractValue:"",monthlyFlight:"",platform:"",history:""}); }} style={{background:"none",border:"1px solid #334155",borderRadius:7,padding:"9px 12px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>Clear selection</button>
                   <span style={{fontSize:11,color:"#3d5a72",marginLeft:4}}>{Object.values(bulkDraft).filter(v=>v!=="").length} field{Object.values(bulkDraft).filter(v=>v!=="").length!==1?"s":""} set</span>
@@ -10795,12 +11071,13 @@ export default function App() {
                                   <span style={{color:"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
                                   {(()=>{
                                     const disp=resolveMetrics(c,dateRange.preset);
-                                    const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+                                    const pacing=computeMonthlyPacing(c, disp, c.note1);
                                     const autoGoalHit=pacing&&pacing.pct>=1;
                                     const autoClose=pacing&&pacing.pct>=0.8&&pacing.pct<1;
                                     const showGoalHit=autoGoalHit||c.goalHit;
                                     const showClose=!showGoalHit&&(autoClose||c.closeToGoal);
-                                    const tip=pacing?`${pacing.delivered.toLocaleString()} / ${pacing.goal.toLocaleString()} (${(pacing.pct*100).toFixed(0)}%)`:"Manual";
+                                    const fmtPacVal=(v)=>pacing?.unit==="$"?"$"+Math.round(v).toLocaleString():v.toLocaleString()+(pacing?.unit?" "+pacing.unit:"");
+                                    const tip=pacing?`${fmtPacVal(pacing.delivered)} / ${fmtPacVal(pacing.goal)} (${(pacing.pct*100).toFixed(0)}%)`:"Manual";
                                     return (<>
                                       {showGoalHit&&<button onClick={()=>updateCampaign({...c,goalHit:!c.goalHit,closeToGoal:false})} title={`🎯 Goal hit! ${tip}`} style={{background:"#00c89620",border:"1px solid #00c89660",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#00e5a0",fontWeight:700,cursor:"pointer"}}>🎯 Goal Hit</button>}
                                       {showClose&&<button onClick={()=>updateCampaign({...c,closeToGoal:!c.closeToGoal,goalHit:false})} title={`⏳ Close to goal! ${tip}`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>⏳ Close</button>}
@@ -10888,12 +11165,13 @@ export default function App() {
                             {!c.retargeting && <button onClick={()=>updateCampaign({...c,retargeting:true})} title="Pixel placed — click to flag as missing" style={{background:"none",border:"1px solid #1e3048",borderRadius:4,padding:"0px 5px",cursor:"pointer",color:"#FF6B6B",fontSize:10,lineHeight:1.6,flexShrink:0,fontWeight:900,opacity:0}} className="star-toggle">RT</button>}
                             {(()=>{
                               const disp=resolveMetrics(c,dateRange.preset);
-                              const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+                              const pacing=computeMonthlyPacing(c, disp, c.note1);
                               const autoGoalHit = pacing&&pacing.pct>=1;
                               const autoCloseToGoal = pacing&&pacing.pct>=0.8&&pacing.pct<1;
                               const showGoalHit = autoGoalHit||c.goalHit;
                               const showCloseToGoal = !showGoalHit&&(autoCloseToGoal||c.closeToGoal);
-                              const tip = pacing?`${pacing.delivered.toLocaleString()} / ${pacing.goal.toLocaleString()} (${(pacing.pct*100).toFixed(0)}%)`:"Manual";
+                              const fmtPV=(v)=>pacing?.unit==="$"?"$"+Math.round(v).toLocaleString():v.toLocaleString()+(pacing?.unit?" "+pacing.unit:"");
+                              const tip = pacing?`${fmtPV(pacing.delivered)} / ${fmtPV(pacing.goal)} (${(pacing.pct*100).toFixed(0)}%)`:"Manual";
                               return (<>
                                 {showGoalHit
                                   ? <button onClick={()=>updateCampaign({...c,goalHit:!c.goalHit,closeToGoal:false})} title={`🎯 Monthly goal hit! ${tip} — click to unpin`} style={{background:"#00c89620",border:"1px solid #00c89660",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#00e5a0",fontWeight:700,flexShrink:0,cursor:"pointer"}}>🎯 Goal Hit</button>
@@ -10926,10 +11204,12 @@ export default function App() {
 
                           {!open&&(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
-                            const pacing=computeMonthlyPacing(disp.impressions,c.note1);
+                            const pacing=computeMonthlyPacing(c, disp, c.note1);
                             if(!pacing) return null;
+                            const pacingTipDel = pacing.unit==="$" ? "$"+Math.round(pacing.delivered).toLocaleString() : pacing.delivered.toLocaleString()+" "+pacing.unit;
+                            const pacingTipGoal = pacing.unit==="$" ? "$"+Math.round(pacing.goal).toLocaleString() : pacing.goal.toLocaleString()+" "+pacing.unit;
                             return (
-                              <div style={{marginTop:4,width:140}} title={`${pacing.label}: ${pacing.delivered.toLocaleString()} of ${pacing.goal.toLocaleString()} goal`}>
+                              <div style={{marginTop:4,width:140}} title={`${pacing.label}: ${pacingTipDel} of ${pacingTipGoal} goal`}>
                                 <div style={{position:"relative",background:"#0e1a2e",borderRadius:3,height:5,width:"100%",overflow:"visible",marginBottom:2}}>
                                   <div style={{position:"absolute",top:-2,left:`${Math.min(97,pacing.expectedPct*100)}%`,width:2,height:9,background:"#334155",borderRadius:1,zIndex:2}}/>
                                   <div style={{background:pacing.color,height:"100%",width:`${Math.min(100,pacing.pct*100)}%`,borderRadius:3,transition:"width .3s"}}/>
@@ -10998,3 +11278,4 @@ export default function App() {
   </div>
   );
 }
+window.App = App;
