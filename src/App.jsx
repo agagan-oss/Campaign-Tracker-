@@ -5056,7 +5056,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   };
 
   // grid columns: name | platform | status | pacing bar | impr/views | gap | CTR/VCR | Clicks | CPM | spend | reach | freq | days | edit
-  const GRID = "minmax(150px,1.2fr) 55px 62px 92px 72px 60px 64px 68px 50px 58px 58px 52px 48px 42px 42px";
+  const GRID = "minmax(160px,260px) 55px 62px 150px 72px 60px 64px 68px 50px 58px 58px 52px 48px 42px 1fr";
 
   function TableRow({c,disp,pacing,monthlyGoal}){
     const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
@@ -5138,7 +5138,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       return sign + Math.round(abs);
     };
     const paceGapFmt = paceGap === null ? null : fmtGap(paceGap);
-    const paceGapCol = paceGap === null ? "#3d5a72" : paceGap >= 0 ? "#00d48a" : Math.abs(paceGap) < monthlyGoal*0.05 ? "#f59e0b" : "#ef4444";
+    const paceGapCol = paceGap === null ? "#3d5a72" : paceGap >= 0 ? "#00d48a" : Math.abs(paceGap) < monthlyGoal*0.05 ? "#fde047" : "#ef4444";
+
+    // Need/Day — how many impr/views/$ must deliver per remaining day to hit goal
+    const npdRem = Math.max(0, (monthlyGoal||0) - primaryRaw);
+    const npdDaysMonth = dim - dom;
+    const npdDaysLeft = (dr !== null && dr >= 0 && dr < npdDaysMonth) ? dr : npdDaysMonth;
+    const npd = npdDaysLeft > 0 && monthlyGoal > 0 ? Math.round(npdRem / npdDaysLeft) : null;
+    const npdFmt = npd === null ? null
+      : metricKind === "spend" ? "$"+(npd>=1000?(npd/1000).toFixed(1)+"k":npd.toFixed(0))
+      : npd >= 1000 ? (npd/1000).toFixed(0)+"K" : String(npd);
+    const npdCol = paceGap === null ? "#3d5a72" : paceGap < 0 ? "#ef4444" : "#fb923c";
 
     return <div style={{display:"grid",gridTemplateColumns:GRID,gap:6,padding:"6px 12px",borderBottom:"1px solid #0d1525",alignItems:"center",background:"#0c1625",borderLeft:"3px solid "+col}}>
 
@@ -5191,6 +5201,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             : `Expected ${exp?.toLocaleString()} · Delivered ${primaryRaw.toLocaleString()}`) : ""}>
         {paceGapFmt
           ? <span style={{fontSize:10,fontWeight:700,color:paceGapCol}}>{paceGapFmt}</span>
+          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+      </div>
+
+      {/* Need/Day — impr/views/$ required per remaining day to hit goal */}
+      <div title={npd !== null ? `${npdFmt} ${metricKind==="spend"?"spend":metricKind==="views"?"views":"impr"}/day needed · ${npdDaysLeft}d left` : ""}>
+        {npdFmt
+          ? <span style={{fontSize:10,fontWeight:700,color:npdCol}}>{npdFmt}</span>
           : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
       </div>
 
@@ -5251,7 +5268,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   function TableHeader(){
     return <div style={{display:"grid",gridTemplateColumns:GRID,gap:6,padding:"5px 12px",borderBottom:"1px solid #1a2744",marginBottom:2}}>
-      {["Campaign","Platform","Status","Mo. Pacing","Impr / Views","Gap","CTR / VCR","Clicks","CPM","Spend","Reach","Freq","Days",""].map((h,i)=>(
+      {["Campaign","Platform","Status","Mo. Pacing","Impr / Views","Gap","Need/Day","CTR / VCR","Clicks","CPM","Spend","Reach","Freq","Days",""].map((h,i)=>(
         <div key={i} style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
       ))}
     </div>;
@@ -8321,7 +8338,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
   const NEG_HALF = 60;
 
   return (
-    <div style={{color:"#d8eaf8"}}>
+    <div style={{color:"#d8eaf8", maxWidth:1500, margin:"0 auto"}}>
       {/* ── Header ─────────────────────────────────────────────── */}
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:14}}>
         <div>
