@@ -10038,6 +10038,7 @@ export default function App() {
   const [fHasData, setFHasData]                 = useState("all"); // all | yes | no — filter by whether campaign has metrics
   const [fNoRetargeting, setFNoRetargeting]     = useState(false); // show only campaigns without retargeting
   const [showDailyGoal, setShowDailyGoal]       = useState(false);
+  const [showPacingBar, setShowPacingBar]       = useState(true);
   const [quickCheckIn, setQuickCheckIn]         = useState(false);
   const [collapsedClients, setCollapsedClients] = useState(new Set());
   const [dragId, setDragId]       = useState(null);
@@ -11001,6 +11002,16 @@ export default function App() {
             }} title={showDailyGoal?"Hide daily impression target":"Show daily impression target"}>
             {showDailyGoal?"🟣 Daily Goal":"⬛ Daily Goal"}
           </button>
+          <button onClick={()=>setShowPacingBar(v=>!v)}
+            style={{background:showPacingBar?"#001a2e":"#0e1a2e",
+              border:`1px solid ${showPacingBar?"#38bdf860":"#1e293b"}`,
+              borderRadius:7,padding:"7px 11px",
+              color:showPacingBar?"#38bdf8":"#4d6e8a",
+              fontSize:12,fontWeight:showPacingBar?700:400,
+              cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s",
+            }} title={showPacingBar?"Hide pacing bars":"Show pacing bars"}>
+            {showPacingBar?"📊 Pacing Bar":"📊 Pacing Bar"}
+          </button>
           <button onClick={()=>setQuickCheckIn(v=>!v)}
             style={{background:quickCheckIn?"#001a2e":"#0e1a2e",
               border:`1px solid ${quickCheckIn?"#00c896":"#1e293b"}`,
@@ -11158,7 +11169,7 @@ export default function App() {
                                   const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
                                   return (
                                     <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,paddingLeft:12,flexWrap:"wrap"}}>
-                                      <div style={{fontSize:11,color:"#00ffb3",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
+                                      <div style={{fontSize:11,color:"#00e5ff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
                                       {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                                     </div>
                                   );
@@ -11263,13 +11274,13 @@ export default function App() {
                             const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
                             return (
                               <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,flexWrap:"wrap"}}>
-                                <div style={{fontSize:11,color:"#00ffb3",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
+                                <div style={{fontSize:11,color:"#00e5ff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
                                 {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                               </div>
                             );
                           })()}
 
-                          {!open&&(()=>{
+                          {showPacingBar&&!open&&(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
                             const pacing=computeMonthlyPacing(c, disp, c.note1);
                             if(!pacing) return null;
