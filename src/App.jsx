@@ -5271,13 +5271,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </div>
 
       {/* Edit + Clear */}
-      <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"flex-start"}}>
-        <button onClick={()=>onEdit(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",fontSize:10,padding:"2px 6px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>Edit</button>
+      <div style={{display:"flex",flexDirection:"row",gap:6,alignItems:"center"}}>
+        <button onClick={()=>onEdit(c)} title="Edit campaign" style={{background:"none",border:"none",color:"#7a9bbf",fontSize:14,padding:"2px 3px",cursor:"pointer",lineHeight:1}}>✎</button>
         {clearPendingId===c.id
-          ? <button onClick={()=>{ onClearMetrics(c.id); setClearPendingId(null); }}
-              style={{background:"#2a0808",border:"1px solid #ef444480",borderRadius:4,color:"#ef4444",fontSize:10,padding:"2px 6px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>Sure?</button>
-          : <button onClick={()=>setClearPendingId(c.id)}
-              style={{background:"transparent",border:"1px solid #334155",borderRadius:4,color:"#4d6e8a",fontSize:10,padding:"2px 6px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>Clear</button>}
+          ? <button onClick={()=>{ onClearMetrics(c.id); setClearPendingId(null); }} title="Confirm clear"
+              style={{background:"none",border:"none",color:"#ef4444",fontSize:15,padding:"2px 3px",cursor:"pointer",fontWeight:700,lineHeight:1}}>✕</button>
+          : <button onClick={()=>setClearPendingId(c.id)} title="Clear metrics"
+              style={{background:"none",border:"none",color:"#3d5a72",fontSize:15,padding:"2px 3px",cursor:"pointer",lineHeight:1}}>✕</button>}
       </div>
     </div>;
   }
@@ -10049,10 +10049,10 @@ export default function App() {
   const [dateRange, setDateRange] = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
   const [activeTab, setActiveTab] = useState("campaigns");
 
-  // Count "behind" campaigns for the tab badge
+  // Count "behind" campaigns for the tab badge — use same filter as the pacing dashboard (anything not "off")
   const behindCount = useMemo(()=>
     campaigns.filter(c=>{
-      if(c.status!=="active") return false;
+      if(c.status==="off") return false;
       const disp=resolveMetrics(c,dateRange.preset);
       const pacing=computeMonthlyPacing(c, disp, c.note1);
       return pacing?.label==="Behind";
@@ -11169,7 +11169,7 @@ export default function App() {
                                   const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
                                   return (
                                     <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,paddingLeft:12,flexWrap:"wrap"}}>
-                                      <div style={{fontSize:11,color:"#00e5ff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
+                                      <div style={{fontSize:11,color:"#00ffb3",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
                                       {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                                     </div>
                                   );
@@ -11274,7 +11274,7 @@ export default function App() {
                             const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
                             return (
                               <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,flexWrap:"wrap"}}>
-                                <div style={{fontSize:11,color:"#00e5ff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
+                                <div style={{fontSize:11,color:"#00ffb3",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
                                 {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                               </div>
                             );
