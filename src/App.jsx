@@ -4762,7 +4762,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [fPartner,     setFPartner]     = useState("all");
   const [fPlatforms,   setFPlatforms]   = useState(new Set());
   const [sortKey,      setSortKey]      = useState("pacing"); // pacing | name | partner | platform
-  const [viewMode,     setViewMode]     = useState("table");  // table | cards — table is the default single-line view
+  const viewMode = "table"; // table-only — card view removed
 
   // Flight progress helpers
   function flightPct(c) {
@@ -5056,7 +5056,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   };
 
   // grid columns: name | platform | status | pacing bar | impr/views | gap | CTR/VCR | Clicks | CPM | spend | reach | freq | days | edit
-  const GRID = "minmax(160px,260px) 55px 62px 150px 72px 60px 64px 68px 50px 58px 58px 52px 48px 42px 1fr";
+  const GRID = "minmax(200px,1fr) 72px 82px 240px 80px 100px 84px 84px 90px 68px 76px 76px 68px 62px 60px";
 
   function TableRow({c,disp,pacing,monthlyGoal}){
     const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
@@ -5150,12 +5150,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       : npd >= 1000 ? (npd/1000).toFixed(0)+"K" : String(npd);
     const npdCol = paceGap === null ? "#3d5a72" : paceGap < 0 ? "#ef4444" : "#fb923c";
 
-    return <div style={{display:"grid",gridTemplateColumns:GRID,gap:6,padding:"6px 12px",borderBottom:"1px solid #0d1525",alignItems:"center",background:"#0c1625",borderLeft:"3px solid "+col}}>
+    return <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 16px",borderBottom:"1px solid #0d1525",alignItems:"center",background:"#0c1625",borderLeft:"3px solid "+col}}>
 
       {/* Campaign + partner */}
       <div style={{minWidth:0}}>
-        <div style={{fontSize:11,fontWeight:700,color:"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
-        <div style={{fontSize:9,color:"#4d6e8a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
+        <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
+        <div style={{fontSize:10,color:"#4d6e8a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
       </div>
 
       {/* Platform */}
@@ -5171,10 +5171,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Monthly pacing bar — green/yellow/red fill, electric blue expected tick, exp% below */}
       <div>
         {pacing?<>
-          <div style={{position:"relative",background:"#07101c",borderRadius:3,height:7,overflow:"visible",marginBottom:2}}>
-            <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:3}}/>
+          <div style={{position:"relative",background:"#07101c",borderRadius:4,height:10,overflow:"visible",marginBottom:2}}>
+            <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:4}}/>
             <div title={"Expected: "+(exp?.toLocaleString()??"")}
-              style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:15,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
+              style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:18,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:4}}>
             <span style={{fontSize:9,color:col,fontWeight:700}}>{(pacing.pct*100).toFixed(1)}%</span>
@@ -5183,16 +5183,27 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         </>:<div style={{fontSize:10,color:"#3d5a72"}}>—</div>}
       </div>
 
+      {/* Monthly Goal */}
+      <div>
+        {monthlyGoal
+          ? <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}}>
+              {metricKind==="spend"
+                ? "$"+(monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"k":monthlyGoal.toFixed(0))
+                : monthlyGoal>=1000000?(monthlyGoal/1000000).toFixed(2)+"M":monthlyGoal>=1000?(monthlyGoal/1000).toFixed(0)+"K":String(monthlyGoal)}
+            </span>
+          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
+      </div>
+
       {/* Primary delivery metric — Views (YT), Spend (SEM), or Impressions */}
       <div title={metricKind==="views" ? "Views delivered this period (MTD)" : metricKind==="spend" ? "Spend delivered this period (MTD)" : "Impressions delivered this period (MTD)"}>
         {primaryFmt
           ? <div style={{display:"flex",alignItems:"baseline",gap:3}}>
-              <span style={{fontSize:11,fontWeight:800,color:primaryColor,letterSpacing:"-0.01em"}}>{primaryFmt}</span>
-              <span style={{fontSize:8,color:"#3d5a72"}}>{primaryLabel}</span>
+              <span style={{fontSize:12,fontWeight:800,color:primaryColor,letterSpacing:"-0.01em"}}>{primaryFmt}</span>
+              <span style={{fontSize:9,color:"#3d5a72"}}>{primaryLabel}</span>
             </div>
           : noActivity
-            ? <span style={{fontSize:10,fontWeight:700,color:"#ef4444"}}>—</span>
-            : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+            ? <span style={{fontSize:11,fontWeight:700,color:"#ef4444"}}>—</span>
+            : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
       {/* Pace gap — delivered vs expected right now */}
@@ -5200,65 +5211,59 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             ? `Expected $${exp?.toLocaleString()} · Delivered $${primaryRaw.toLocaleString(undefined,{maximumFractionDigits:0})}`
             : `Expected ${exp?.toLocaleString()} · Delivered ${primaryRaw.toLocaleString()}`) : ""}>
         {paceGapFmt
-          ? <span style={{fontSize:10,fontWeight:700,color:paceGapCol}}>{paceGapFmt}</span>
-          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+          ? <span style={{fontSize:11,fontWeight:700,color:paceGapCol}}>{paceGapFmt}</span>
+          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
       {/* Need/Day — impr/views/$ required per remaining day to hit goal */}
       <div title={npd !== null ? `${npdFmt} ${metricKind==="spend"?"spend":metricKind==="views"?"views":"impr"}/day needed · ${npdDaysLeft}d left` : ""}>
         {npdFmt
-          ? <span style={{fontSize:10,fontWeight:700,color:npdCol}}>{npdFmt}</span>
-          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+          ? <span style={{fontSize:11,fontWeight:700,color:npdCol}}>{npdFmt}</span>
+          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
       {/* CTR or VCR — color-coded from benchmarks */}
       <div title={kpi?.tip||""}>
         {isVCR && vcrDisp > 0
-          ? <span style={{fontSize:10,fontWeight:700,color:vcrCol}}>{vcrDisp.toFixed(0)}% VCR</span>
+          ? <span style={{fontSize:11,fontWeight:700,color:vcrCol}}>{vcrDisp.toFixed(0)}% VCR</span>
           : ctrDisp > 0
-            ? <span style={{fontSize:10,fontWeight:700,color:ctrCol}}>{ctrFmt} CTR</span>
-            : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+            ? <span style={{fontSize:11,fontWeight:700,color:ctrCol}}>{ctrFmt} CTR</span>
+            : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
       {/* Clicks — actual count */}
       <div title="Total clicks this period (link clicks for Meta)">
         {clicksFmt
-          ? <span style={{fontSize:10,fontWeight:700,color:"#a3bffa"}}>{clicksFmt}</span>
-          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+          ? <span style={{fontSize:11,fontWeight:700,color:"#a3bffa"}}>{clicksFmt}</span>
+          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
       {/* CPM — color-coded from per-platform benchmark */}
       <div title={cpmTip}>
         {cpm > 0
-          ? <span style={{fontSize:10,fontWeight:700,color:cpmCol}}>${cpm.toFixed(2)}</span>
-          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+          ? <span style={{fontSize:11,fontWeight:700,color:cpmCol}}>${cpm.toFixed(2)}</span>
+          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
       {/* Spend */}
       <div>
         {spend > 0
-          ? <span style={{fontSize:10,color:"#7a9bbf"}}>${spend >= 1000 ? (spend/1000).toFixed(1)+"k" : spend.toFixed(0)}</span>
-          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+          ? <span style={{fontSize:11,color:"#7a9bbf"}}>${spend >= 1000 ? (spend/1000).toFixed(1)+"k" : spend.toFixed(0)}</span>
+          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
       {/* Reach */}
       <div>
         {reach > 0
-          ? <span style={{fontSize:10,color:"#7a9bbf"}}>{reach >= 1000000 ? (reach/1000000).toFixed(1)+"M" : reach >= 1000 ? (reach/1000).toFixed(0)+"k" : reach}</span>
-          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+          ? <span style={{fontSize:11,color:"#7a9bbf"}}>{reach >= 1000000 ? (reach/1000000).toFixed(1)+"M" : reach >= 1000 ? (reach/1000).toFixed(0)+"k" : reach}</span>
+          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
       {/* Frequency — color-coded: ≤2 green, ≤3.5 yellow, >3.5 red */}
       <div title="Frequency: avg times a user saw this ad">
         {freq > 0
-          ? <span style={{fontSize:10,fontWeight:700,color:freqCol}}>{freq.toFixed(2)}x</span>
-          : <span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
-      </div>
-
-      {/* Days remaining */}
-      <div>
-        {dr!==null?<span style={{fontSize:10,fontWeight:700,color:drc}}>{dr<=0?"Done":dr+"d"}</span>
-        :<span style={{fontSize:10,color:"#3d5a72"}}>—</span>}
+          ? <span style={{fontSize:11,fontWeight:700,color:freqCol}}>{freq.toFixed(2)}x</span>
+          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
       {/* Edit */}
@@ -5267,9 +5272,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   }
 
   function TableHeader(){
-    return <div style={{display:"grid",gridTemplateColumns:GRID,gap:6,padding:"5px 12px",borderBottom:"1px solid #1a2744",marginBottom:2}}>
-      {["Campaign","Platform","Status","Mo. Pacing","Impr / Views","Gap","Need/Day","CTR / VCR","Clicks","CPM","Spend","Reach","Freq","Days",""].map((h,i)=>(
-        <div key={i} style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
+    return <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"6px 16px",borderBottom:"1px solid #1a2744",marginBottom:2}}>
+      {["Campaign","Platform","Status","Mo. Pacing","Goal","Impr / Views","Gap","Need/Day","CTR / VCR","Clicks","CPM","Spend","Reach","Freq",""].map((h,i)=>(
+        <div key={i} style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
       ))}
     </div>;
   }
@@ -5289,7 +5294,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     </div>;
   }
 
-  return <div style={{color:"#d8eaf8"}}>
+  return <div style={{color:"#d8eaf8",maxWidth:1700,margin:"0 auto"}}>
     {/* Header */}
     <div style={{marginBottom:14}}>
       <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:2}}>📈 Pacing Dashboard</div>
@@ -5319,13 +5324,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           <button key={k} onClick={()=>setSortKey(k)}
             style={{background:sortKey===k?"#002e24":"#0e1a2e",border:"1px solid "+(sortKey===k?"#00c896":"#1e293b"),borderRadius:6,padding:"4px 10px",color:sortKey===k?"#00e5a0":"#4d6e8a",fontSize:11,fontWeight:sortKey===k?700:400,cursor:"pointer"}}>
             {l}
-          </button>
-        ))}
-        <div style={{width:1,height:18,background:"#162236",margin:"0 2px"}}/>
-        {[["cards","⊞"],["table","☰"]].map(([m,icon])=>(
-          <button key={m} onClick={()=>setViewMode(m)} title={m==="cards"?"Card view":"Table view"}
-            style={{background:viewMode===m?"#002e24":"#0e1a2e",border:"1px solid "+(viewMode===m?"#00c896":"#1e293b"),borderRadius:6,padding:"4px 9px",color:viewMode===m?"#00e5a0":"#4d6e8a",fontSize:14,cursor:"pointer",lineHeight:1}}>
-            {icon}
           </button>
         ))}
       </div>
@@ -8383,31 +8381,58 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
         </div>
       )}
 
-      {/* ── Month selector pill bar ───────────────────────────── */}
-      <div style={{...card,padding:"12px 14px",marginBottom:14}}>
-        <div style={{...labelStyle,marginBottom:8}}>Focus Month — click to change</div>
-        <div style={{display:"flex",gap:5,overflowX:"auto",paddingBottom:2}}>
+      {/* ── Month navigator — prev/next + mini strip ─────────── */}
+      <div style={{...card,padding:"16px 20px",marginBottom:14}}>
+        {/* Big prev / current month / next row */}
+        {(()=>{
+          const activeIdx = months.indexOf(activeMonth);
+          const canPrev = activeIdx > 0;
+          const canNext = activeIdx < months.length - 1;
+          const navBtn = (label, onClick, enabled) => (
+            <button onClick={onClick} disabled={!enabled}
+              style={{background:"#1a2744",border:"1px solid #1e3a5f",borderRadius:8,color:"#7a9bbf",
+                fontSize:28,fontWeight:700,padding:"4px 20px",cursor:enabled?"pointer":"default",
+                lineHeight:1,opacity:enabled?1:0.25,transition:"opacity .15s",userSelect:"none"}}>
+              {label}
+            </button>
+          );
+          const goPrev = () => { const m=months[activeIdx-1]; setFocusMonth(m===thisMonth?null:m); };
+          const goNext = () => { const m=months[activeIdx+1]; setFocusMonth(m===thisMonth?null:m); };
+          return (
+            <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:24,marginBottom:14}}>
+              {navBtn("‹", goPrev, canPrev)}
+              <div style={{textAlign:"center",minWidth:220}}>
+                <div style={{fontSize:26,fontWeight:800,color:"#edf4ff",lineHeight:1,marginBottom:6}}>{focusLabel}</div>
+                <div style={{display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap",alignItems:"center"}}>
+                  {isCurrentFocus && <span style={{fontSize:9,background:"#00e5a022",color:"#00e5a0",padding:"2px 8px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em"}}>CURRENT</span>}
+                  {isLockedFocus && <span style={{fontSize:9,background:"#7a9bbf22",color:"#7a9bbf",padding:"2px 8px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em"}}>🔒 LOCKED</span>}
+                  {!isCurrentFocus && <button onClick={()=>setFocusMonth(null)} style={{fontSize:9,background:"transparent",border:"1px solid #1e293b",color:"#4d6e8a",padding:"2px 8px",borderRadius:10,fontWeight:600,cursor:"pointer",letterSpacing:"0.04em"}}>↩ Current</button>}
+                </div>
+              </div>
+              {navBtn("›", goNext, canNext)}
+            </div>
+          );
+        })()}
+        {/* Mini month dot strip — quick jump */}
+        <div style={{display:"flex",justifyContent:"center",gap:4,flexWrap:"wrap"}}>
           {months.map(mo=>{
             const isFocus = mo===activeMonth;
-            const isCurr   = mo===thisMonth;
+            const isCurr  = mo===thisMonth;
             const isLocked = !!monthLocks[mo];
             const t = monthTotals[mo];
             const p = t.revenueWithSpend - t.spend;
             const hasTrackable = t.revenueWithSpend > 0;
-            const label = moDate(mo).toLocaleDateString("en-US",{month:"short"});
-            const yr = mo.slice(2,4);
             return (
               <button key={mo} onClick={()=>setFocusMonth(mo===thisMonth?null:mo)}
-                style={{
-                  flex:"0 0 auto",
-                  background:isFocus?"#1a2744":"transparent",
-                  border:isFocus?"1px solid #00e5a055":isCurr?"1px solid #00e5a033":isLocked?"1px solid #7a9bbf55":"1px solid #1e293b",
-                  borderRadius:7,padding:"6px 10px",cursor:"pointer",minWidth:64,
-                  display:"flex",flexDirection:"column",alignItems:"center",gap:2,
-                }}>
-                <div style={{fontSize:10,color:isFocus?"#00e5a0":isCurr?"#7a9bbf":"#4d6e8a",fontWeight:isFocus||isCurr?700:500}}>{label} '{yr}{isCurr?" •":""}{isLocked?" 🔒":""}</div>
-                <div style={{fontSize:10,fontWeight:700,color:hasTrackable?profitColor(p):"#3d5a72"}}>
-                  {hasTrackable?(p>=0?"+":"")+$fk(p):(t.revenue>0?"⏳":"—")}
+                style={{background:isFocus?"#1a2744":"transparent",
+                  border:isFocus?"1px solid #00e5a055":isCurr?"1px solid #00e5a033":isLocked?"1px solid #7a9bbf44":"1px solid #1e293b",
+                  borderRadius:6,padding:"4px 9px",cursor:"pointer",minWidth:52,
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                <div style={{fontSize:9,color:isFocus?"#00e5a0":isCurr?"#7a9bbf":"#4d6e8a",fontWeight:isFocus||isCurr?700:500}}>
+                  {moDate(mo).toLocaleDateString("en-US",{month:"short"})} '{mo.slice(2,4)}{isLocked?" 🔒":""}
+                </div>
+                <div style={{fontSize:9,fontWeight:700,color:hasTrackable?profitColor(p):"#3d5a72"}}>
+                  {hasTrackable?(p>=0?"+":"")+$fk(p):(t.revenue>0?"⏳":"·")}
                 </div>
               </button>
             );
@@ -8560,7 +8585,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
         ))}
       </div>
 
-      {/* ── Per-campaign × month profit GRID ──────────────────── */}
+      {/* ── Campaign breakdown — focused month ───────────────── */}
       {sortedRows.length===0?(
         <div style={{textAlign:"center",padding:"40px 0",color:"#3d5a72"}}>
           <div style={{fontSize:28,marginBottom:8}}>💰</div>
@@ -8570,9 +8595,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
       ):(
         <div style={{...card,padding:"14px 16px",marginBottom:16}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
-            <div style={{...labelStyle}}>Campaign × Month Grid — {focusLabelShort} highlighted</div>
+            <div style={{...labelStyle}}>Campaign Breakdown — {focusLabelShort}</div>
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-              {/* Cell display toggle */}
               <div style={{display:"flex",background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:1}}>
                 {[{k:"dollar",l:"$"},{k:"margin",l:"%"}].map(o=>(
                   <button key={o.k} onClick={()=>setCellMode(o.k)}
@@ -8582,7 +8606,6 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                   </button>
                 ))}
               </div>
-              {/* Sort */}
               <span style={{fontSize:10,color:"#4d6e8a"}}>Sort:</span>
               {[
                 {k:"profit",  l:"Top profit"},
@@ -8598,115 +8621,102 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
               ))}
             </div>
           </div>
-          <div style={{overflowX:"auto",position:"relative"}}>
-            <div style={{width:"100%",minWidth: 220 + months.length*60 + 90 + 90}}>
-              {/* Header row */}
-              <div style={{display:"grid",gridTemplateColumns:`minmax(220px,1fr) repeat(${months.length}, 60px) 90px 90px`,gap:2,padding:"6px 8px",fontSize:9,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #1a2744",marginBottom:3,alignItems:"center",position:"sticky",top:0,background:"#0c1625",zIndex:2}}>
-                <span style={{position:"sticky",left:0,background:"#0c1625",paddingRight:4,zIndex:3}}>Campaign</span>
-                {months.map(mo=>{
-                  const isFocus = mo===activeMonth;
-                  const isCurr  = mo===thisMonth;
-                  const label = moDate(mo).toLocaleDateString("en-US",{month:"short"});
-                  const yr = mo.slice(2,4);
-                  return (
-                    <span key={mo} onClick={()=>setFocusMonth(mo===thisMonth?null:mo)}
-                      style={{textAlign:"center",cursor:"pointer",color:isFocus?"#00e5a0":isCurr?"#7a9bbf":"#3d5a72",fontWeight:700,background:isFocus?"#1a274488":"transparent",padding:"3px 2px",borderRadius:4,lineHeight:1.2}}>
-                      {label}<br/>'{yr}
-                    </span>
-                  );
-                })}
-                <span style={{textAlign:"right",color:"#7a9bbf"}}>12-Mo</span>
-                <span style={{textAlign:"right",color:"#7a9bbf"}}>Lifetime</span>
-              </div>
-              {/* Data rows */}
-              {sortedRows.map(r=>{
-                const isOpen = expandedRow===r.c.id;
-                return (
-                  <Fragment key={r.c.id}>
-                    <div onClick={()=>setExpandedRow(isOpen?null:r.c.id)}
-                      style={{display:"grid",gridTemplateColumns:`minmax(220px,1fr) repeat(${months.length}, 60px) 90px 90px`,gap:2,padding:"7px 8px",borderBottom:"1px solid #0e1828",alignItems:"center",cursor:"pointer",background:isOpen?"#0e1828":"transparent",borderRadius:5,marginBottom:1}}>
-                      {/* Sticky campaign column */}
-                      <div style={{overflow:"hidden",position:"sticky",left:0,background:isOpen?"#0e1828":"#0c1625",paddingRight:4,zIndex:1}}>
-                        <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
-                          <span style={{color:"#4d6e8a",fontSize:9}}>{isOpen?"▼":"▶"}</span>
-                          <span style={{background:r.pCol+"22",color:r.pCol,border:"1px solid "+r.pCol+"55",borderRadius:3,padding:"0 4px",fontSize:9,fontWeight:700}}>{r.c.platform}</span>
-                          <span style={{fontSize:11,fontWeight:600,color:"#d8eaf8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.c.campaignName.trim()}</span>
-                          {!r.trackable && <span title="No spend data yet" style={{fontSize:9,color:"#f59e0b"}}>⏳</span>}
-                        </div>
-                        <div style={{fontSize:9,color:"#3d5a72",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",paddingLeft:14}}>{r.c.mediaPartner}</div>
-                      </div>
-                      {months.map(mo=>{
-                        const cell = r.monthCells[mo];
-                        const isFocus = mo===activeMonth;
-                        const hasRev = cell.rev > 0;
-                        const hasProfit = cell.profit != null;
-                        const margin = hasProfit && cell.rev>0 ? (cell.profit/cell.rev)*100 : null;
-                        const bg = isFocus ? (hasProfit ? (cell.profit>=0?"#00d48a14":"#ef444414") : (cell.pending?"#f59e0b14":"transparent")) : "transparent";
-                        const border = isFocus ? "1px solid "+(hasProfit?(cell.profit>=0?"#00d48a33":"#ef444433"):(cell.pending?"#f59e0b33":"#1a2744")) : "1px solid transparent";
-                        let display;
-                        let color;
-                        if (!hasRev) { display="·"; color="#1e293b"; }
-                        else if (cell.pending) { display="⏳"; color="#f59e0b"; }
-                        else if (cellMode==="margin") { display=(margin>=0?"+":"")+margin.toFixed(0)+"%"; color=profitColor(cell.profit); }
-                        else { display=(cell.profit>=0?"+":"")+$fk(cell.profit); color=profitColor(cell.profit); }
-                        const tooltip = hasRev
-                          ? `${moDate(mo).toLocaleDateString("en-US",{month:"short",year:"numeric"})}\nRevenue: ${$f(cell.rev)}${cell.pending?"\nSpend: not entered yet":`\nSpend: ${$f(cell.spend)}\nProfit: ${$f(cell.profit)}\nMargin: ${margin.toFixed(1)}%`}`
-                          : "";
-                        return (
-                          <div key={mo} title={tooltip}
-                            style={{textAlign:"center",fontSize:10,fontWeight:700,color,padding:"3px 2px",borderRadius:3,background:bg,border}}>
-                            {display}
-                          </div>
-                        );
-                      })}
-                      <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:r.windowProfit!=null?profitColor(r.windowProfit):"#3d5a72"}}>
-                        {r.windowProfit!=null?(r.windowProfit>=0?"+":"")+$fk(r.windowProfit):"⏳"}
-                      </div>
-                      <div style={{textAlign:"right",fontSize:11,fontWeight:800,color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):"#3d5a72"}}>
-                        {r.lifetimeProfit!=null?(r.lifetimeProfit>=0?"+":"")+$fk(r.lifetimeProfit):"⏳"}
-                      </div>
-                    </div>
-                    {/* Expanded detail row — minimal */}
-                    {isOpen && (
-                      <div style={{background:"#0a1320",border:"1px solid #1a2744",borderRadius:8,padding:"18px 22px",margin:"4px 4px 10px"}}>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:24,alignItems:"end"}}>
-                          <div>
-                            <div style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Contract · {focusLabelShort}</div>
-                            <div style={{fontSize:26,fontWeight:700,color:"#7a9bbf",lineHeight:1}}>{$fc(r.focusCell.rev)}</div>
-                          </div>
-                          <div>
-                            <div style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Spend</div>
-                            <div style={{fontSize:26,fontWeight:700,color:"#f59e0b",lineHeight:1}}>
-                              {r.focusCell.spend==null?<span style={{color:"#f59e0b",fontSize:18}}>⏳ pending</span>:$fc(r.focusCell.spend)}
-                            </div>
-                          </div>
-                          <div>
-                            <div style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
-                              Profit{r.focusMargin!=null?<span style={{color:marginColor(r.focusMargin),marginLeft:6,fontWeight:700}}>· {r.focusMargin.toFixed(0)}%</span>:""}
-                            </div>
-                            <div style={{fontSize:26,fontWeight:700,color:r.focusCell.profit!=null?profitColor(r.focusCell.profit):"#3d5a72",lineHeight:1}}>
-                              {r.focusCell.profit==null?<span style={{fontSize:18}}>—</span>:r.focusCell.rev>0?(r.focusCell.profit>=0?"+":"")+$f(r.focusCell.profit):"—"}
-                            </div>
-                          </div>
-                          <button onClick={(e)=>{ e.stopPropagation(); onEdit(r.c); }}
-                            style={{background:"#162236",border:"1px solid #334155",color:"#7a9bbf",fontSize:12,fontWeight:600,padding:"7px 16px",borderRadius:6,cursor:"pointer",whiteSpace:"nowrap"}}>
-                            Edit →
-                          </button>
-                        </div>
-                        <div style={{fontSize:11,color:"#4d6e8a",marginTop:14,paddingTop:12,borderTop:"1px solid #1a2744",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-                          <span>{r.c.mediaPartner||"—"} · {r.c.startDate||"—"} → {r.c.endDate||"—"}</span>
-                          <span>Lifetime: <span style={{color:"#7a9bbf"}}>{$fc(r.contract)}</span> contract / <span style={{color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):"#3d5a72",fontWeight:700}}>{r.lifetimeProfit==null?"⏳":((r.lifetimeProfit>=0?"+":"")+$f(r.lifetimeProfit))}</span> profit</span>
-                        </div>
-                      </div>
-                    )}
-                  </Fragment>
-                );
-              })}
-            </div>
+          {/* Header */}
+          <div style={{display:"grid",gridTemplateColumns:"minmax(200px,1fr) 100px 100px 110px 72px 90px 90px",gap:4,padding:"5px 8px",fontSize:9,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #1a2744",marginBottom:3,alignItems:"center"}}>
+            <span>Campaign</span>
+            <span style={{textAlign:"right"}}>Revenue</span>
+            <span style={{textAlign:"right"}}>Spend</span>
+            <span style={{textAlign:"right"}}>Profit</span>
+            <span style={{textAlign:"right"}}>Margin</span>
+            <span style={{textAlign:"right"}}>12-Mo</span>
+            <span style={{textAlign:"right"}}>Lifetime</span>
           </div>
+          {/* Rows */}
+          {sortedRows.map(r=>{
+            const isOpen = expandedRow===r.c.id;
+            const profCol = r.focusCell.profit!=null ? profitColor(r.focusCell.profit) : "#3d5a72";
+            const margCol = r.focusMargin!=null ? marginColor(r.focusMargin) : "#3d5a72";
+            const profDisp = cellMode==="margin"
+              ? (r.focusMargin!=null ? (r.focusMargin>=0?"+":"")+r.focusMargin.toFixed(0)+"%" : "—")
+              : (r.focusCell.profit!=null && r.focusCell.rev>0 ? (r.focusCell.profit>=0?"+":"")+$fk(r.focusCell.profit) : r.focusCell.pending?"⏳":"—");
+            return (
+              <Fragment key={r.c.id}>
+                <div onClick={()=>setExpandedRow(isOpen?null:r.c.id)}
+                  style={{display:"grid",gridTemplateColumns:"minmax(200px,1fr) 100px 100px 110px 72px 90px 90px",gap:4,padding:"8px 8px",borderBottom:"1px solid #0e1828",alignItems:"center",cursor:"pointer",background:isOpen?"#0e1828":"transparent",borderRadius:5,marginBottom:1}}>
+                  {/* Campaign name */}
+                  <div style={{overflow:"hidden"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
+                      <span style={{color:"#4d6e8a",fontSize:9}}>{isOpen?"▼":"▶"}</span>
+                      <span style={{background:r.pCol+"22",color:r.pCol,border:"1px solid "+r.pCol+"55",borderRadius:3,padding:"0 4px",fontSize:9,fontWeight:700}}>{r.c.platform}</span>
+                      <span style={{fontSize:11,fontWeight:600,color:"#d8eaf8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.c.campaignName.trim()}</span>
+                      {!r.trackable && <span title="No spend data yet" style={{fontSize:9,color:"#f59e0b"}}>⏳</span>}
+                    </div>
+                    <div style={{fontSize:9,color:"#3d5a72",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",paddingLeft:14}}>{r.c.mediaPartner}</div>
+                  </div>
+                  {/* Revenue */}
+                  <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:r.focusCell.rev>0?"#7a9bbf":"#3d5a72"}}>
+                    {r.focusCell.rev>0?$fk(r.focusCell.rev):"—"}
+                  </div>
+                  {/* Spend */}
+                  <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:r.focusCell.spend!=null?"#f59e0b":r.focusCell.pending?"#f59e0b88":"#3d5a72"}}>
+                    {r.focusCell.spend!=null?$fk(r.focusCell.spend):r.focusCell.pending?"⏳":"—"}
+                  </div>
+                  {/* Profit or Margin (toggled) */}
+                  <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:cellMode==="margin"?margCol:profCol}}>
+                    {profDisp}
+                  </div>
+                  {/* Margin % (always) */}
+                  <div style={{textAlign:"right",fontSize:11,color:margCol}}>
+                    {r.focusMargin!=null?r.focusMargin.toFixed(0)+"%":"—"}
+                  </div>
+                  {/* 12-Mo profit */}
+                  <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:r.windowProfit!=null?profitColor(r.windowProfit):"#3d5a72"}}>
+                    {r.windowProfit!=null?(r.windowProfit>=0?"+":"")+$fk(r.windowProfit):"⏳"}
+                  </div>
+                  {/* Lifetime profit */}
+                  <div style={{textAlign:"right",fontSize:11,fontWeight:800,color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):"#3d5a72"}}>
+                    {r.lifetimeProfit!=null?(r.lifetimeProfit>=0?"+":"")+$fk(r.lifetimeProfit):"⏳"}
+                  </div>
+                </div>
+                {/* Expanded detail row */}
+                {isOpen && (
+                  <div style={{background:"#0a1320",border:"1px solid #1a2744",borderRadius:8,padding:"18px 22px",margin:"4px 4px 10px"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:24,alignItems:"end"}}>
+                      <div>
+                        <div style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Contract · {focusLabelShort}</div>
+                        <div style={{fontSize:26,fontWeight:700,color:"#7a9bbf",lineHeight:1}}>{$fc(r.focusCell.rev)}</div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Spend</div>
+                        <div style={{fontSize:26,fontWeight:700,color:"#f59e0b",lineHeight:1}}>
+                          {r.focusCell.spend==null?<span style={{color:"#f59e0b",fontSize:18}}>⏳ pending</span>:$fc(r.focusCell.spend)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
+                          Profit{r.focusMargin!=null?<span style={{color:marginColor(r.focusMargin),marginLeft:6,fontWeight:700}}>· {r.focusMargin.toFixed(0)}%</span>:""}
+                        </div>
+                        <div style={{fontSize:26,fontWeight:700,color:r.focusCell.profit!=null?profitColor(r.focusCell.profit):"#3d5a72",lineHeight:1}}>
+                          {r.focusCell.profit==null?<span style={{fontSize:18}}>—</span>:r.focusCell.rev>0?(r.focusCell.profit>=0?"+":"")+$f(r.focusCell.profit):"—"}
+                        </div>
+                      </div>
+                      <button onClick={(e)=>{ e.stopPropagation(); onEdit(r.c); }}
+                        style={{background:"#162236",border:"1px solid #334155",color:"#7a9bbf",fontSize:12,fontWeight:600,padding:"7px 16px",borderRadius:6,cursor:"pointer",whiteSpace:"nowrap"}}>
+                        Edit →
+                      </button>
+                    </div>
+                    <div style={{fontSize:11,color:"#4d6e8a",marginTop:14,paddingTop:12,borderTop:"1px solid #1a2744",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                      <span>{r.c.mediaPartner||"—"} · {r.c.startDate||"—"} → {r.c.endDate||"—"}</span>
+                      <span>Lifetime: <span style={{color:"#7a9bbf"}}>{$fc(r.contract)}</span> contract / <span style={{color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):"#3d5a72",fontWeight:700}}>{r.lifetimeProfit==null?"⏳":((r.lifetimeProfit>=0?"+":"")+$f(r.lifetimeProfit))}</span> profit</span>
+                    </div>
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
           <div style={{marginTop:10,fontSize:10,color:"#3d5a72",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-            <span>Click campaign to expand · click month header to focus · ⏳ = revenue billed, spend not yet entered</span>
-            <span><span style={{color:"#00d48a"}}>green</span> profit · <span style={{color:"#ef4444"}}>red</span> loss · <span style={{color:"#f59e0b"}}>amber</span> pending · <span style={{color:"#3d5a72"}}>·</span> no activity</span>
+            <span>Click campaign to expand · use ‹ › arrows or mini strip to change month · ⏳ = spend not yet entered</span>
+            <span><span style={{color:"#00d48a"}}>green</span> profit · <span style={{color:"#ef4444"}}>red</span> loss · <span style={{color:"#f59e0b"}}>amber</span> pending</span>
           </div>
         </div>
       )}
