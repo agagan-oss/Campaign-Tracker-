@@ -4726,7 +4726,7 @@ function PacingDateBar({ range, setRange }) {
 }
 
 // ─── Pacing Dashboard ─────────────────────────────────────────────────────
-function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, onEdit=()=>{} }) {
+function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, onEdit=()=>{}, onClearMetrics=()=>{} }) {
   // Read benchmarks from localStorage (same key AIAdvisor writes to) — no prop needed
   const [kpiBenchmarks, setKpiBenchmarks] = useState(() => {
     const defaults = {
@@ -4757,11 +4757,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  const [showNoGoal,   setShowNoGoal]   = useState(false);
-  const [search,       setSearch]       = useState("");
-  const [fPartner,     setFPartner]     = useState("all");
-  const [fPlatforms,   setFPlatforms]   = useState(new Set());
-  const [sortKey,      setSortKey]      = useState("pacing"); // pacing | name | partner | platform
+  const [showNoGoal,     setShowNoGoal]     = useState(false);
+  const [search,         setSearch]         = useState("");
+  const [fPartner,       setFPartner]       = useState("all");
+  const [fPlatforms,     setFPlatforms]     = useState(new Set());
+  const [sortKey,        setSortKey]        = useState("pacing"); // pacing | name | partner | platform
+  const [clearPendingId, setClearPendingId] = useState(null); // campaign id awaiting clear confirm
   const viewMode = "table"; // table-only — card view removed
 
   // Flight progress helpers
@@ -5269,8 +5270,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
-      {/* Edit */}
-      <div><button onClick={()=>onEdit(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",fontSize:10,padding:"2px 6px",cursor:"pointer",fontWeight:600}}>Edit</button></div>
+      {/* Edit + Clear */}
+      <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"flex-start"}}>
+        <button onClick={()=>onEdit(c)} style={{background:"#162236",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",fontSize:10,padding:"2px 6px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>Edit</button>
+        {clearPendingId===c.id
+          ? <button onClick={()=>{ onClearMetrics(c.id); setClearPendingId(null); }}
+              style={{background:"#2a0808",border:"1px solid #ef444480",borderRadius:4,color:"#ef4444",fontSize:10,padding:"2px 6px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>Sure?</button>
+          : <button onClick={()=>setClearPendingId(c.id)}
+              style={{background:"transparent",border:"1px solid #334155",borderRadius:4,color:"#4d6e8a",fontSize:10,padding:"2px 6px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>Clear</button>}
+      </div>
     </div>;
   }
 
@@ -7350,18 +7358,25 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     rows.forEach((row,i)=>{
       if(initMap[i]) return;
 
+      // When a platform filter is active, restrict auto-match candidates to those platforms.
+      // This is what prevents a CTV campaign from being auto-matched when the user filtered
+      // the panel to TD/TDV/TDA — the platform filter now means something during mapping.
+      const matchCandidates = qciPlatforms.size > 0
+        ? activeCamps.filter(c => qciPlatforms.has(c.platform))
+        : activeCamps;
+
       if(source==="TradeDesk"){
         // TradeDesk: match by advertiser name (client name), not campaign name
         // This is exact/substring matching — not fuzzy guessing
         const advName = getTTDAdvertiserName(row);
         const clientName = getTTDClientName(advName);
-        const matchedId = matchTTDClientToTracker(clientName, activeCamps);
+        const matchedId = matchTTDClientToTracker(clientName, matchCandidates);
         if(matchedId){ initMap[i]=matchedId; autoCount++; }
       } else {
         // All other sources: fuzzy match by campaign name
         const csvName=getCampName(row,source);
         let bestId="",bestScore=0;
-        activeCamps.forEach(c=>{
+        matchCandidates.forEach(c=>{
           const score=fuzzyScore(csvName,c.campaignName);
           if(score>bestScore&&score>=0.25){ bestScore=score; bestId=String(c.id); }
         });
@@ -10690,7 +10705,27 @@ export default function App() {
         ) : activeTab==="activity" ? (
           <ActivityLog log={activityLog} campaigns={campaigns} onUndo={handleUndo} onClear={async()=>{ if(await confirm({title:"Clear activity log?",message:"This cannot be undone.",confirmLabel:"Clear",danger:true})){ setActivityLog([]); try{localStorage.removeItem(ACTIVITY_KEY);}catch(e){} }}} />
         ) : activeTab==="pacing" ? (
-          <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} onEdit={(camp)=>setEditTarget(camp)}/>
+          <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} onEdit={(camp)=>setEditTarget(camp)}
+            onClearMetrics={(id)=>{
+              setCampaigns(cs=>cs.map(c=>{
+                if(c.id!==id) return c;
+                const cleared = {
+                  ...c,
+                  impressions:"", clicks:"", ctr:"", cpm:"", spend:"",
+                  reach:"", frequency:"", videoViews:"", completionRate:"",
+                  checkInLog:"", lastCheckInImpr:"",
+                  goalHit: false, closeToGoal: false, goalHitDismissed: false,
+                };
+                // Clear MTD snapshot data from each platform source, preserve config keys
+                if(c.ttdSnapshots)    cleared.ttdSnapshots    = {...c.ttdSnapshots,    mtd:undefined};
+                if(c.metaSnapshots)   cleared.metaSnapshots   = {...c.metaSnapshots,   mtd:undefined};
+                if(c.dspSnapshots)    cleared.dspSnapshots    = {...c.dspSnapshots,    mtd:undefined};
+                if(c.googleSnapshots) cleared.googleSnapshots = {...c.googleSnapshots, mtd:undefined};
+                if(c.snapSnapshots)   cleared.snapSnapshots   = {...c.snapSnapshots,   mtd:undefined};
+                return cleared;
+              }));
+              addLog({type:"checked", campaignName: campaigns.find(c=>c.id===id)?.campaignName||"", partner:"", platform:"", detail:"Metrics cleared from pacing tab"});
+            }}/>
         ) : activeTab==="reports" ? (
           <ReportingDashboard campaigns={campaigns} archive={archive}/>
         ) : activeTab==="vault" ? (
@@ -10880,9 +10915,9 @@ export default function App() {
             </div>
           ))}
           <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
-            {campaigns.some(c=>c.goalHit||c.closeToGoal) && (
+            {campaigns.some(c=>c.goalHit||c.closeToGoal||c.goalHitDismissed) && (
               <button
-                onClick={async()=>{ if(await confirm({title:"Reset all goal badges?",message:"Clears 🎯 Goal Hit and ⏳ Close to Goal from all campaigns. Monthly Flight ★ and Reminders 🔔 are not affected.",confirmLabel:"Reset"})) setCampaigns(cs=>cs.map(c=>({...c,goalHit:false,closeToGoal:false}))); }}
+                onClick={async()=>{ if(await confirm({title:"Reset all goal badges?",message:"Clears 🎯 Goal Hit and ⏳ Close to Goal from all campaigns. Monthly Flight ★ and Reminders 🔔 are not affected.",confirmLabel:"Reset"})) setCampaigns(cs=>cs.map(c=>({...c,goalHit:false,closeToGoal:false,goalHitDismissed:false}))); }}
                 title="Clear all Goal Hit and Close to Goal badges — use at the start of a new month"
                 style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:7,padding:"7px 13px",color:"#4d6e8a",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}
               >↺ Reset Goals</button>
@@ -11106,12 +11141,12 @@ export default function App() {
                                     const pacing=computeMonthlyPacing(c, disp, c.note1);
                                     const autoGoalHit=pacing&&pacing.pct>=1;
                                     const autoClose=pacing&&pacing.pct>=0.8&&pacing.pct<1;
-                                    const showGoalHit=autoGoalHit||c.goalHit;
+                                    const showGoalHit=(autoGoalHit||c.goalHit)&&!c.goalHitDismissed;
                                     const showClose=!showGoalHit&&(autoClose||c.closeToGoal);
                                     const fmtPacVal=(v)=>pacing?.unit==="$"?"$"+Math.round(v).toLocaleString():v.toLocaleString()+(pacing?.unit?" "+pacing.unit:"");
                                     const tip=pacing?`${fmtPacVal(pacing.delivered)} / ${fmtPacVal(pacing.goal)} (${(pacing.pct*100).toFixed(0)}%)`:"Manual";
                                     return (<>
-                                      {showGoalHit&&<button onClick={()=>updateCampaign({...c,goalHit:!c.goalHit,closeToGoal:false})} title={`🎯 Goal hit! ${tip}`} style={{background:"#00c89620",border:"1px solid #00c89660",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#00e5a0",fontWeight:700,cursor:"pointer"}}>🎯 Goal Hit</button>}
+                                      {showGoalHit&&<button onClick={()=>updateCampaign({...c,goalHit:false,goalHitDismissed:true,closeToGoal:false})} title={`🎯 Goal hit! ${tip} — click to dismiss`} style={{background:"#00c89620",border:"1px solid #00c89660",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#00e5a0",fontWeight:700,cursor:"pointer"}}>🎯 Goal Hit</button>}
                                       {showClose&&<button onClick={()=>updateCampaign({...c,closeToGoal:!c.closeToGoal,goalHit:false})} title={`⏳ Close to goal! ${tip}`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>⏳ Close</button>}
                                     </>);
                                   })()}
@@ -11200,14 +11235,14 @@ export default function App() {
                               const pacing=computeMonthlyPacing(c, disp, c.note1);
                               const autoGoalHit = pacing&&pacing.pct>=1;
                               const autoCloseToGoal = pacing&&pacing.pct>=0.8&&pacing.pct<1;
-                              const showGoalHit = autoGoalHit||c.goalHit;
+                              const showGoalHit = (autoGoalHit||c.goalHit)&&!c.goalHitDismissed;
                               const showCloseToGoal = !showGoalHit&&(autoCloseToGoal||c.closeToGoal);
                               const fmtPV=(v)=>pacing?.unit==="$"?"$"+Math.round(v).toLocaleString():v.toLocaleString()+(pacing?.unit?" "+pacing.unit:"");
                               const tip = pacing?`${fmtPV(pacing.delivered)} / ${fmtPV(pacing.goal)} (${(pacing.pct*100).toFixed(0)}%)`:"Manual";
                               return (<>
                                 {showGoalHit
-                                  ? <button onClick={()=>updateCampaign({...c,goalHit:!c.goalHit,closeToGoal:false})} title={`🎯 Monthly goal hit! ${tip} — click to unpin`} style={{background:"#00c89620",border:"1px solid #00c89660",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#00e5a0",fontWeight:700,flexShrink:0,cursor:"pointer"}}>🎯 Goal Hit</button>
-                                  : <button onClick={()=>updateCampaign({...c,goalHit:true,closeToGoal:false})} title="Mark goal as hit" style={{background:"none",border:"none",padding:"1px 2px",fontSize:10,color:"#1e3048",fontWeight:700,flexShrink:0,cursor:"pointer",opacity:0}} className="star-toggle">🎯</button>
+                                  ? <button onClick={()=>updateCampaign({...c,goalHit:false,goalHitDismissed:true,closeToGoal:false})} title={`🎯 Monthly goal hit! ${tip} — click to dismiss`} style={{background:"#00c89620",border:"1px solid #00c89660",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#00e5a0",fontWeight:700,flexShrink:0,cursor:"pointer"}}>🎯 Goal Hit</button>
+                                  : <button onClick={()=>updateCampaign({...c,goalHit:true,goalHitDismissed:false,closeToGoal:false})} title="Mark goal as hit" style={{background:"none",border:"none",padding:"1px 2px",fontSize:10,color:"#1e3048",fontWeight:700,flexShrink:0,cursor:"pointer",opacity:0}} className="star-toggle">🎯</button>
                                 }
                                 {showCloseToGoal
                                   ? <button onClick={()=>updateCampaign({...c,closeToGoal:!c.closeToGoal,goalHit:false})} title={`⏳ Close to goal! ${tip} — click to unpin`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,flexShrink:0,cursor:"pointer"}}>⏳ Close</button>
