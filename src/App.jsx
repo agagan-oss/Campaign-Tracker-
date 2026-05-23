@@ -10037,7 +10037,7 @@ export default function App() {
   const [fNote2, setFNote2]                     = useState(false); // show only campaigns with Note 2 filled
   const [fHasData, setFHasData]                 = useState("all"); // all | yes | no — filter by whether campaign has metrics
   const [fNoRetargeting, setFNoRetargeting]     = useState(false); // show only campaigns without retargeting
-  const [showDailyGoal, setShowDailyGoal]       = useState(true);
+  const [showDailyGoal, setShowDailyGoal]       = useState(false);
   const [quickCheckIn, setQuickCheckIn]         = useState(false);
   const [collapsedClients, setCollapsedClients] = useState(new Set());
   const [dragId, setDragId]       = useState(null);
@@ -11288,6 +11288,7 @@ export default function App() {
                               </div>
                             );
                           })()}
+
                         </TD>
                         <TD><PlatformTag p={c.platform}/></TD>
                         <TD>
