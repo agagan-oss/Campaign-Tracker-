@@ -4784,7 +4784,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return "#4d6e8a";
   }
 
-  const allActive = campaigns.filter(c=>c.status==="active");
+  // Include all "running" statuses — not just "active".
+  // "pacing-ahead", "pacing-behind", "close-to-goal", and "" (unknown/new) are all
+  // campaigns that need pacing visibility. Only "off" is intentionally excluded.
+  const allActive = campaigns.filter(c=>c.status!=="off");
   const partners  = ["all", ...new Set(allActive.map(c=>c.mediaPartner).filter(Boolean))].sort();
   const platforms = [...new Set(allActive.map(c=>c.platform).filter(Boolean))].sort();
 
@@ -7417,6 +7420,8 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       } : {};
       return {...c,
         ...ttdSnap,
+        // Auto-activate if status was blank (new campaign added but never set to Active)
+        status: c.status===""?"active":c.status,
         impressions:u.impressions>0?String(u.impressions):c.impressions,
         clicks:     u.clicks>0?String(u.clicks):c.clicks,
         ctr:        computedCtr>0?String(parseFloat(computedCtr.toFixed(4))):c.ctr,
@@ -8622,7 +8627,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
             </div>
           </div>
           {/* Header */}
-          <div style={{display:"grid",gridTemplateColumns:"minmax(200px,1fr) 100px 100px 110px 72px 90px 90px",gap:4,padding:"5px 8px",fontSize:9,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #1a2744",marginBottom:3,alignItems:"center"}}>
+          <div style={{display:"grid",gridTemplateColumns:"minmax(240px,1fr) 130px 130px 140px 90px 120px 120px",gap:10,padding:"6px 12px",fontSize:10,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #1a2744",marginBottom:4,alignItems:"center"}}>
             <span>Campaign</span>
             <span style={{textAlign:"right"}}>Revenue</span>
             <span style={{textAlign:"right"}}>Spend</span>
@@ -8642,39 +8647,39 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
             return (
               <Fragment key={r.c.id}>
                 <div onClick={()=>setExpandedRow(isOpen?null:r.c.id)}
-                  style={{display:"grid",gridTemplateColumns:"minmax(200px,1fr) 100px 100px 110px 72px 90px 90px",gap:4,padding:"8px 8px",borderBottom:"1px solid #0e1828",alignItems:"center",cursor:"pointer",background:isOpen?"#0e1828":"transparent",borderRadius:5,marginBottom:1}}>
+                  style={{display:"grid",gridTemplateColumns:"minmax(240px,1fr) 130px 130px 140px 90px 120px 120px",gap:10,padding:"12px 12px",borderBottom:"1px solid #0e1828",alignItems:"center",cursor:"pointer",background:isOpen?"#0e1828":"transparent",borderRadius:5,marginBottom:1}}>
                   {/* Campaign name */}
                   <div style={{overflow:"hidden"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
-                      <span style={{color:"#4d6e8a",fontSize:9}}>{isOpen?"▼":"▶"}</span>
-                      <span style={{background:r.pCol+"22",color:r.pCol,border:"1px solid "+r.pCol+"55",borderRadius:3,padding:"0 4px",fontSize:9,fontWeight:700}}>{r.c.platform}</span>
-                      <span style={{fontSize:11,fontWeight:600,color:"#d8eaf8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.c.campaignName.trim()}</span>
-                      {!r.trackable && <span title="No spend data yet" style={{fontSize:9,color:"#f59e0b"}}>⏳</span>}
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                      <span style={{color:"#4d6e8a",fontSize:10}}>{isOpen?"▼":"▶"}</span>
+                      <span style={{background:r.pCol+"22",color:r.pCol,border:"1px solid "+r.pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.c.platform}</span>
+                      <span style={{fontSize:13,fontWeight:600,color:"#d8eaf8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.c.campaignName.trim()}</span>
+                      {!r.trackable && <span title="No spend data yet" style={{fontSize:10,color:"#f59e0b"}}>⏳</span>}
                     </div>
-                    <div style={{fontSize:9,color:"#3d5a72",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",paddingLeft:14}}>{r.c.mediaPartner}</div>
+                    <div style={{fontSize:10,color:"#3d5a72",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",paddingLeft:16}}>{r.c.mediaPartner}</div>
                   </div>
                   {/* Revenue */}
-                  <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:r.focusCell.rev>0?"#7a9bbf":"#3d5a72"}}>
+                  <div style={{textAlign:"right",fontSize:14,fontWeight:700,color:r.focusCell.rev>0?"#7a9bbf":"#3d5a72"}}>
                     {r.focusCell.rev>0?$fk(r.focusCell.rev):"—"}
                   </div>
                   {/* Spend */}
-                  <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:r.focusCell.spend!=null?"#f59e0b":r.focusCell.pending?"#f59e0b88":"#3d5a72"}}>
+                  <div style={{textAlign:"right",fontSize:14,fontWeight:700,color:r.focusCell.spend!=null?"#f59e0b":r.focusCell.pending?"#f59e0b88":"#3d5a72"}}>
                     {r.focusCell.spend!=null?$fk(r.focusCell.spend):r.focusCell.pending?"⏳":"—"}
                   </div>
                   {/* Profit or Margin (toggled) */}
-                  <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:cellMode==="margin"?margCol:profCol}}>
+                  <div style={{textAlign:"right",fontSize:14,fontWeight:700,color:cellMode==="margin"?margCol:profCol}}>
                     {profDisp}
                   </div>
                   {/* Margin % (always) */}
-                  <div style={{textAlign:"right",fontSize:11,color:margCol}}>
+                  <div style={{textAlign:"right",fontSize:13,fontWeight:600,color:margCol}}>
                     {r.focusMargin!=null?r.focusMargin.toFixed(0)+"%":"—"}
                   </div>
                   {/* 12-Mo profit */}
-                  <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:r.windowProfit!=null?profitColor(r.windowProfit):"#3d5a72"}}>
+                  <div style={{textAlign:"right",fontSize:13,fontWeight:700,color:r.windowProfit!=null?profitColor(r.windowProfit):"#3d5a72"}}>
                     {r.windowProfit!=null?(r.windowProfit>=0?"+":"")+$fk(r.windowProfit):"⏳"}
                   </div>
                   {/* Lifetime profit */}
-                  <div style={{textAlign:"right",fontSize:11,fontWeight:800,color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):"#3d5a72"}}>
+                  <div style={{textAlign:"right",fontSize:13,fontWeight:800,color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):"#3d5a72"}}>
                     {r.lifetimeProfit!=null?(r.lifetimeProfit>=0?"+":"")+$fk(r.lifetimeProfit):"⏳"}
                   </div>
                 </div>
