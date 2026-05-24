@@ -6936,6 +6936,8 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
   const [fileRows,     setFileRows]     = React.useState(null);   // parsed rows from file drop
   const [fileSource,   setFileSource]   = React.useState("");     // "Facebook/Meta" | "Snapchat"
   const [mapping,      setMapping]      = React.useState({});     // fileRowIdx -> campId (integers only)
+  const [matchConf,    setMatchConf]    = React.useState({});     // fileRowIdx -> confidence (1.0=memory, 0.8=TTD, fuzzy score for others)
+  const [confirmApplyPending, setConfirmApplyPending] = React.useState(false); // pre-apply low-conf review
   const [showAllMap,   setShowAllMap]   = React.useState({});     // fileRowIdx -> bool (separate from mapping)
   const [leftPickCampId, setLeftPickCampId] = React.useState(null); // campaign id being manually assigned from left panel
   const [fileError,    setFileError]    = React.useState("");
@@ -7017,6 +7019,19 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     return "";
   }
 
+  // ── Filename-based source detection — runs BEFORE header sniffing ─────────
+  // TapClicks names files consistently, so the filename is more reliable than guessing headers.
+  function detectSourceFromFilename(filename){
+    if(!filename) return null;
+    const f = filename.toLowerCase().replace(/[\s_\-().]/g,"");
+    if(f.includes("tradedesk"))                          return "TradeDesk";
+    if(f.includes("googleads")||f.includes("youtube"))   return "Google";
+    if(f.includes("facebook")||f.includes("fbads")||f.includes("meta")) return "Facebook/Meta";
+    if(f.includes("snapchat")||f.includes("snapads"))    return "Snapchat";
+    if(f.includes("dspinternal")||f.includes("allreps")) return "DSP-Internal";
+    return null;
+  }
+
   function detectSource(rows){
     if (!rows || !rows.length) return "Generic";
     const cols = Object.keys(rows[0]).join("|").toLowerCase();
@@ -7026,6 +7041,8 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     if (cols.includes("advertiser name") && cols.includes("impressions won") && cols.includes("data source")) return "TradeDesk";
     // Company-wide DSP / programmatic dump — has advertiser_name + campaign + impressions_won (snake_case)
     if (cols.includes("advertiser_name") && cols.includes("impressions_won")) return "DSP-Internal";
+    // Google Ads / YouTube — "campaign" + impressions/clicks + cost, but NOT TradeDesk or Meta columns
+    if (cols.includes("campaign") && (cols.includes("impressions")||cols.includes("clicks")) && (cols.includes("cost")||cols.includes("spend")) && !cols.includes("advertiser name") && !cols.includes("amount spent")) return "Google";
     if (cols.includes("campaign name")&&(cols.includes("impressions")||cols.includes("spend"))) return "Generic";
     return "Generic";
   }
@@ -7074,6 +7091,21 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       // Frequency
       const freqRaw = parseFloat(row["Frequency"]||0)||0;
       if (freqRaw > 0) row["_frequency"] = freqRaw;
+
+    } else if (source==="Google") {
+      // ── Google Ads / YouTube (TapClicks export) ────────────────────────────
+      const clean = v => (v||"").toString().replace(/[$,%,\s]/g,"");
+      impressions    = parseInt(clean(row["Impressions"]||row["impressions"]))||0;
+      clicks         = parseInt(clean(row["Clicks"]||row["clicks"]))||0;
+      spend          = parseFloat(clean(row["Cost"]||row["Spend"]||row["cost"]||row["spend"]))||0;
+      cpm            = parseFloat(clean(row["Avg. CPM"]||row["CPM"]||row["cpm"]))||0;
+      videoViews     = parseInt(clean(row["Views"]||row["Video views"]||row["Video Views"]||row["views"]))||0;
+      reach          = parseInt(clean(row["Reach"]||row["reach"]))||0;
+      // View rate / VCR — TapClicks may store as decimal (0.45) or percent (45.0)
+      const vrRaw    = parseFloat(clean(row["Video played to: 100%"]||row["View rate"]||row["VCR"]||row["vcr"]))||0;
+      completionRate = vrRaw > 1 ? vrRaw : vrRaw * 100;
+      // CTR — compute from clicks/impressions for consistency
+      ctr = impressions > 0 && clicks > 0 ? clicks / impressions : 0;
 
     } else {
       // ── Generic mode — tries all common column name variants ────────────────
@@ -7124,6 +7156,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     if (source==="DSP-Internal") return row["campaign"]||"";
     // TradeDesk: use Campaign column for display; matching uses advertiser name (see matchTTDClientToTracker)
     if (source==="TradeDesk") return row["Campaign"]||row["campaign"]||"";
+    if (source==="Google") return row["Campaign"]||row["Campaign name"]||row["campaign_name"]||"";
     // Generic — try common campaign name columns
     return findCol(row, ["campaign name","campaign","name","ad campaign","campaign title"])||"";
   }
@@ -7160,6 +7193,17 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
 
   // TradeDesk-only platforms — the data source platforms this file can map to
   const TTD_PLATFORMS = new Set(["TD", "TDV", "TDA", "CTV", "OTT", "OTTD"]);
+
+  // Source → platform class map — restricts fuzzy matching to only campaigns that can appear in each file type.
+  // A Google CSV should NEVER match a TD campaign; a Facebook CSV should NEVER match a SEM campaign.
+  // This is the primary guard against cross-platform false matches (e.g. Netflix TD → Pearl Hawaii CTV).
+  const SOURCE_PLATFORMS = {
+    "TradeDesk":     new Set(["TD","TDV","TDA","CTV","OTT","OTTD"]),
+    "Google":        new Set(["SEM","YT"]),
+    "Facebook/Meta": new Set(["FB","FBV","IG"]),
+    "Snapchat":      new Set(["SP"]),
+    "DSP-Internal":  new Set(["DSP"]),
+  };
 
   // Exact-first matching: given a TTD client name, find the tracker campaign.
   // ONLY searches TD/TDV/TDA/CTV/OTT campaigns — never matches FB, FBV, DSP, etc.
@@ -7260,7 +7304,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       let bestId="",bestScore=0;
       camps.forEach(c=>{
         const score=fuzzyScore(csvName,c.campaignName);
-        if(score>bestScore&&score>=0.25){ bestScore=score; bestId=c.id; }
+        if(score>bestScore&&score>=0.45){ bestScore=score; bestId=c.id; }
       });
       m[i]=bestId;
     });
@@ -7294,7 +7338,8 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
 
     if(!rows?.length){ setFileError("No data found in file"); return; }
 
-    const source=detectSource(rows);
+    // Filename detection wins — it's explicit. Fall back to header sniffing only if unknown.
+    const source = detectSourceFromFilename(file.name) || detectSource(rows);
     setFileSource(source);
 
     // ── TradeDesk export: filter to only _AG rows (this account's campaigns) ──
@@ -7355,38 +7400,51 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     }
 
     // Step 3: source-aware auto-match for remaining unassigned rows
+    // Builds a confidence map so the UI can warn about weak/risky matches.
+    const initConf = {};
+    // Seed confidence 1.0 for all memory-matched rows (Steps 1+2 above)
+    rows.forEach((_,i) => { if(initMap[i]) initConf[i] = 1.0; });
+
     rows.forEach((row,i)=>{
       if(initMap[i]) return;
 
-      // When a platform filter is active, restrict auto-match candidates to those platforms.
-      // This is what prevents a CTV campaign from being auto-matched when the user filtered
-      // the panel to TD/TDV/TDA — the platform filter now means something during mapping.
-      const matchCandidates = qciPlatforms.size > 0
+      // Layer 1: respect the user's active platform filter in the QCI panel
+      const qciFiltered = qciPlatforms.size > 0
         ? activeCamps.filter(c => qciPlatforms.has(c.platform))
         : activeCamps;
 
+      // Layer 2: SOURCE_PLATFORMS — hard constraint by file type.
+      // A Google file can ONLY match SEM/YT campaigns; a TradeDesk file can ONLY match TD/TDV/etc.
+      // This is the primary guard against cross-platform false matches.
+      const sourcePlats = SOURCE_PLATFORMS[source];
+      const matchCandidates = sourcePlats
+        ? qciFiltered.filter(c => sourcePlats.has(c.platform))
+        : qciFiltered;
+
       if(source==="TradeDesk"){
-        // TradeDesk: match by advertiser name (client name), not campaign name
-        // This is exact/substring matching — not fuzzy guessing
+        // TradeDesk: match by advertiser name (client name) — exact/substring, not fuzzy guessing
         const advName = getTTDAdvertiserName(row);
         const clientName = getTTDClientName(advName);
         const matchedId = matchTTDClientToTracker(clientName, matchCandidates);
-        if(matchedId){ initMap[i]=matchedId; autoCount++; }
+        // TTD matching is deterministic (exact/substring/word-overlap) — assign 0.8 base confidence
+        if(matchedId){ initMap[i]=matchedId; initConf[i]=0.8; autoCount++; }
       } else {
-        // All other sources: fuzzy match by campaign name
+        // All other sources: fuzzy match by campaign name — raised threshold to 0.45 to avoid false matches
         const csvName=getCampName(row,source);
         let bestId="",bestScore=0;
         matchCandidates.forEach(c=>{
           const score=fuzzyScore(csvName,c.campaignName);
-          if(score>bestScore&&score>=0.25){ bestScore=score; bestId=String(c.id); }
+          if(score>bestScore&&score>=0.45){ bestScore=score; bestId=String(c.id); }
         });
-        if(bestId){ initMap[i]=bestId; autoCount++; }
+        if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; }
       }
     });
 
     const totalMatched=Object.values(initMap).filter(Boolean).length;
     setFileRows(rows);
     setMapping(initMap);
+    setMatchConf(initConf);
+    setConfirmApplyPending(false);
     if(savedCount>0 && autoCount>0) setSavedMsg(`✓ ${savedCount} remembered · ⚡ ${autoCount} auto-matched · ${totalMatched}/${rows.length} total`);
     else if(savedCount>0) setSavedMsg(`✓ ${savedCount} of ${rows.length} remembered from past sessions`);
     else if(autoCount>0) setSavedMsg(`⚡ Auto-matched ${autoCount} of ${rows.length} — review and apply to save for next time`);
@@ -7433,8 +7491,24 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
           }
         }
       } : {};
+      // For Google imports, save to googleSnapshots.mtd (same pattern as TTD)
+      const googleSnap = fileSource==="Google" ? {
+        googleSnapshots: {
+          ...(c.googleSnapshots||{}),
+          mtd: {
+            impressions: u.impressions||null,
+            clicks:      u.clicks||null,
+            ctr:         computedCtr||null,
+            spend:       u.spend||null,
+            cpm:         u.cpm||null,
+            vcr:         u.completionRate||null,
+            updatedAt:   stamp,
+          }
+        }
+      } : {};
       return {...c,
         ...ttdSnap,
+        ...googleSnap,
         // Auto-activate if status was blank (new campaign added but never set to Active)
         status: c.status===""?"active":c.status,
         impressions:u.impressions>0?String(u.impressions):c.impressions,
@@ -7460,7 +7534,11 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     const entries=Object.entries(mapping)
       .filter(([idxStr,campId])=>{
         const idx=parseInt(idxStr);
-        return campId && !isNaN(idx) && fileRows[idx];
+        if(!campId || isNaN(idx) || !fileRows[idx]) return false;
+        // Only save high-confidence matches to memory — low-confidence auto-matches may be wrong
+        // and we don't want them poisoning future sessions with bad pairings.
+        const conf = matchConf[idx];
+        return conf === undefined || conf >= 0.7;
       })
       .map(([idxStr,campId])=>{
         const row=fileRows[parseInt(idxStr)];
@@ -7472,7 +7550,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       .filter(e=>e.csvName&&e.campId);
     if(entries.length){ persistNameMappings(fileSource,entries); }
     setSavedMsg(`✓ Applied ${Object.keys(updates).length} campaigns · ${entries.length} mappings saved for next time`);
-    setFileRows(null); setMapping({});
+    setFileRows(null); setMapping({}); setMatchConf({}); setConfirmApplyPending(false);
   }
 
   function saveDraftField(campId,field,value){
@@ -7545,7 +7623,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
             onDragOver={e=>{e.preventDefault();e.currentTarget.style.background="#002e24";}}
             onDragLeave={e=>{e.currentTarget.style.background="#001a0e";}}
             onDrop={e=>{e.preventDefault();e.currentTarget.style.background="#001a0e";handleFileDrop(e.dataTransfer.files[0]);}}>
-            📊 Drop any CSV export
+            📊 Drop CSV or XLSX
             <input type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={e=>handleFileDrop(e.target.files[0])}/>
           </label>
           {/* Rep initials badge — click to change */}
@@ -7630,7 +7708,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                         return (
                           <span key={idx} style={{fontSize:9,background:"#002018",border:"1px solid #00c89630",borderRadius:3,padding:"1px 6px",color:"#00c896",display:"flex",alignItems:"center",gap:4}}>
                             {lbl||"row "+(idx+1)}
-                            <button onClick={e=>{e.stopPropagation();setMapping(m=>({...m,[idx]:""}));}} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:11,lineHeight:1,padding:0}} title="Remove this row mapping">×</button>
+                            <button onClick={e=>{e.stopPropagation();setMapping(m=>({...m,[idx]:""}));setMatchConf(mc=>{const n={...mc};delete n[idx];return n;});}} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:11,lineHeight:1,padding:0}} title="Remove this row mapping">×</button>
                           </span>
                         );
                       })}
@@ -7662,10 +7740,24 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
               <span style={{fontSize:10,color:mappedCount<fileRows.length?"#f59e0b":"#00e5a0",fontWeight:600}}>{mappedCount}/{fileRows.length} matched</span>
               {mappedCount<fileRows.length&&<span style={{fontSize:10,color:"#f59e0b"}}>⚠ assign unmatched rows below</span>}
               <div style={{display:"flex",gap:5}}>
-                {btn("Clear",()=>{setFileRows(null);setMapping({});setFileSource("");setSavedMsg("");})}
-                <button onClick={applyMapping} disabled={!mappedCount}
+                {btn("Clear",()=>{setFileRows(null);setMapping({});setMatchConf({});setConfirmApplyPending(false);setFileSource("");setSavedMsg("");})}
+                <button onClick={()=>{
+                  if(!mappedCount) return;
+                  // Count low-confidence auto-matches (not manually assigned, not memory)
+                  const lowConfCount = Object.entries(mapping).filter(([idxStr,campId])=>{
+                    if(!campId) return false;
+                    const conf = matchConf[parseInt(idxStr)];
+                    return conf !== undefined && conf < 0.7;
+                  }).length;
+                  if(lowConfCount > 0 && !confirmApplyPending){
+                    setConfirmApplyPending(true);
+                  } else {
+                    setConfirmApplyPending(false);
+                    applyMapping();
+                  }
+                }} disabled={!mappedCount}
                   style={{background:mappedCount?"#002e24":"#162236",border:`1px solid ${mappedCount?"#00c89640":"#334155"}`,borderRadius:5,padding:"5px 12px",color:mappedCount?"#00e5a0":"#3d5a72",fontSize:11,fontWeight:700,cursor:mappedCount?"pointer":"default",whiteSpace:"nowrap"}}>
-                  ✓ Apply {mappedCount}
+                  {confirmApplyPending?"⚠ Review below":"✓ Apply"} {mappedCount}
                 </button>
               </div>
             </div>
@@ -7684,6 +7776,56 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                 </div>
               ) : null;
             })()}
+
+            {/* ── Low-confidence review panel — appears when user clicks Apply with uncertain matches ── */}
+            {confirmApplyPending && (()=>{
+              const lowRows = Object.entries(mapping).filter(([idxStr,campId])=>{
+                if(!campId) return false;
+                const conf = matchConf[parseInt(idxStr)];
+                return conf !== undefined && conf < 0.7;
+              });
+              return lowRows.length > 0 ? (
+                <div style={{padding:"10px 14px",background:"#130800",borderBottom:"1px solid #f59e0b60"}}>
+                  <div style={{fontSize:11,color:"#f59e0b",fontWeight:700,marginBottom:8}}>
+                    ⚠ {lowRows.length} low-confidence auto-match{lowRows.length>1?"es":""} — verify these before applying:
+                  </div>
+                  <div style={{maxHeight:160,overflowY:"auto",marginBottom:10,display:"flex",flexDirection:"column",gap:4}}>
+                    {lowRows.map(([idxStr,campId])=>{
+                      const idx=parseInt(idxStr);
+                      const row=fileRows[idx];
+                      const camp=activeCamps.find(c=>String(c.id)===String(campId));
+                      const conf=matchConf[idx];
+                      const rowLabel=fileSource==="TradeDesk"?getTTDClientName(getTTDAdvertiserName(row)):getCampName(row,fileSource);
+                      const m=extractMetrics(row,fileSource);
+                      return (
+                        <div key={idxStr} style={{display:"flex",gap:8,alignItems:"center",background:"#1a0e00",border:"1px solid #f59e0b30",borderRadius:5,padding:"5px 8px",fontSize:10}}>
+                          <span style={{color:"#f59e0b",fontWeight:700,minWidth:38,flexShrink:0}}>⚠ {Math.round(conf*100)}%</span>
+                          <span style={{color:"#d8eaf8",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={rowLabel}>{rowLabel||"—"}</span>
+                          <span style={{color:"#4d6e8a",flexShrink:0}}>→</span>
+                          <span style={{color:"#00e5a0",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{camp?.campaignName||"?"}</span>
+                          {camp&&<span style={{background:(PLT_COLORS[camp.platform]||"#7a9bbf")+"22",color:PLT_COLORS[camp.platform]||"#7a9bbf",borderRadius:3,padding:"0 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{camp.platform}</span>}
+                          <span style={{color:"#3d5a72",flexShrink:0,whiteSpace:"nowrap"}}>{m.impressions.toLocaleString()} impr{m.spend>0?` · $${m.spend.toFixed(0)}`:""}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{fontSize:10,color:"#7a9bbf",marginBottom:8}}>
+                    These were auto-guessed — if any look wrong, close this and fix the dropdown above before applying.
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>{setConfirmApplyPending(false);applyMapping();}}
+                      style={{background:"#1a0800",border:"1px solid #f59e0b",borderRadius:5,padding:"5px 16px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                      Apply Anyway
+                    </button>
+                    <button onClick={()=>setConfirmApplyPending(false)}
+                      style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 16px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
+                      Go Back & Fix
+                    </button>
+                  </div>
+                </div>
+              ) : null;
+            })()}
+
             <div style={{maxHeight:320,overflowY:"auto",flex:1}}>
               {fileRows.map((row,i)=>{
                 const m=extractMetrics(row,fileSource);
@@ -7697,18 +7839,39 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                 const computedCtr=m.impressions>0&&m.clicks>0?m.clicks/m.impressions*100:0;
                 const isPickMode = !!leftPickCampId;
                 const isPickTarget = isPickMode && !assigned; // only offer unassigned rows in pick mode
+                const rowConf = matchConf[i];
+                const isLowConf = assigned && rowConf !== undefined && rowConf < 0.7;
+                const isMemory  = assigned && rowConf === 1.0;
                 return (
                   <div key={i}
-                    onClick={isPickTarget ? ()=>{ setMapping(m=>({...m,[i]:String(leftPickCampId)})); setLeftPickCampId(null); } : undefined}
+                    onClick={isPickTarget ? ()=>{ setMapping(m=>({...m,[i]:String(leftPickCampId)})); setMatchConf(mc=>({...mc,[i]:1.0})); setLeftPickCampId(null); } : undefined}
                     style={{borderBottom:"1px solid #0a1018",
-                      background:isPickTarget?"#1a1000":assigned?"#001a0e":isUnmatched?"#130b00":"transparent",
+                      background:isPickTarget?"#1a1000":isLowConf?"#100800":assigned?"#001a0e":isUnmatched?"#130b00":"transparent",
                       cursor:isPickTarget?"pointer":"default",
-                      outline:isPickTarget?"1px solid #f59e0b40":"none"}}>
+                      outline:isPickTarget?"1px solid #f59e0b40":isLowConf?"1px solid #f59e0b20":"none"}}>
                     <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px"}}>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:11,color:isUnmatched?"#f59e0b":"#d8eaf8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:isUnmatched?600:400}} title={fileSource==="TradeDesk"?(ttdAdvName+" → "+name):name}>
-                          {isUnmatched?"⚠ ":""}{displayName||"—"}
-                          {fileSource==="TradeDesk"&&name&&<span style={{fontSize:9,color:"#3d5a72",marginLeft:6}}>({name})</span>}
+                        <div style={{display:"flex",alignItems:"center",gap:4}}>
+                          <div style={{fontSize:11,color:isUnmatched?"#f59e0b":"#d8eaf8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:isUnmatched?600:400,flex:1}} title={fileSource==="TradeDesk"?(ttdAdvName+" → "+name):name}>
+                            {isUnmatched?"⚠ ":""}{displayName||"—"}
+                            {fileSource==="TradeDesk"&&name&&<span style={{fontSize:9,color:"#3d5a72",marginLeft:6}}>({name})</span>}
+                          </div>
+                          {isLowConf&&(
+                            <span title={`Low-confidence auto-match (${Math.round(rowConf*100)}%) — verify this is correct before applying`}
+                              style={{fontSize:9,color:"#f59e0b",background:"#1a0e00",border:"1px solid #f59e0b50",borderRadius:3,padding:"0 4px",whiteSpace:"nowrap",flexShrink:0}}>
+                              ⚠ {Math.round(rowConf*100)}%
+                            </span>
+                          )}
+                          {!isLowConf&&assigned&&rowConf!==undefined&&rowConf<1.0&&(
+                            <span title={`Auto-matched at ${Math.round(rowConf*100)}% confidence`}
+                              style={{fontSize:9,color:"#00c896",background:"#001a0e",border:"1px solid #00c89630",borderRadius:3,padding:"0 4px",whiteSpace:"nowrap",flexShrink:0}}>
+                              {Math.round(rowConf*100)}%
+                            </span>
+                          )}
+                          {isMemory&&(
+                            <span title="Remembered from a previous session"
+                              style={{fontSize:9,color:"#a78bfa",flexShrink:0}}>✓</span>
+                          )}
                         </div>
                         <div style={{fontSize:9,color:"#3d5a72",marginTop:1,display:"flex",gap:8}}>
                           <span>{m.impressions.toLocaleString()} impr</span>
@@ -7777,7 +7940,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                                 </button>
                               )}
                             </div>
-                            <select value={assigned} onChange={e=>setMapping(mp=>({...mp,[i]:e.target.value}))}
+                            <select value={assigned} onChange={e=>{setMapping(mp=>({...mp,[i]:e.target.value}));if(e.target.value)setMatchConf(mc=>({...mc,[i]:1.0}));else setMatchConf(mc=>{const n={...mc};delete n[i];return n;});}}
                               style={{background:assigned?"#002e24":isUnmatched?"#1a0e00":"#0e1a2e",border:`1px solid ${assigned?"#00c89640":isUnmatched?"#f59e0b40":"#1e293b"}`,borderRadius:5,padding:"3px 7px",color:assigned?"#00e5a0":isUnmatched?"#f59e0b":"#4d6e8a",fontSize:10,outline:"none",cursor:"pointer",width:"100%"}}>
                               <option value="">— assign to campaign —</option>
                               {displayList.map(c=>(
@@ -8652,17 +8815,18 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
             <span style={{textAlign:"right"}}>Lifetime</span>
           </div>
           {/* Rows */}
-          {sortedRows.map(r=>{
+          {sortedRows.map((r,idx)=>{
             const isOpen = expandedRow===r.c.id;
             const profCol = r.focusCell.profit!=null ? profitColor(r.focusCell.profit) : "#3d5a72";
             const margCol = r.focusMargin!=null ? marginColor(r.focusMargin) : "#3d5a72";
             const profDisp = cellMode==="margin"
               ? (r.focusMargin!=null ? (r.focusMargin>=0?"+":"")+r.focusMargin.toFixed(0)+"%" : "—")
               : (r.focusCell.profit!=null && r.focusCell.rev>0 ? (r.focusCell.profit>=0?"+":"")+$fk(r.focusCell.profit) : r.focusCell.pending?"⏳":"—");
+            const rowBg = isOpen ? "#0e1828" : idx%2===1 ? "#060e1a" : "transparent";
             return (
               <Fragment key={r.c.id}>
                 <div onClick={()=>setExpandedRow(isOpen?null:r.c.id)}
-                  style={{display:"grid",gridTemplateColumns:"minmax(240px,1fr) 130px 130px 140px 90px 120px 120px",gap:10,padding:"12px 12px",borderBottom:"1px solid #0e1828",alignItems:"center",cursor:"pointer",background:isOpen?"#0e1828":"transparent",borderRadius:5,marginBottom:1}}>
+                  style={{display:"grid",gridTemplateColumns:"minmax(240px,1fr) 130px 130px 140px 90px 120px 120px",gap:10,padding:"12px 12px",borderBottom:"1px solid #0e1828",alignItems:"center",cursor:"pointer",background:rowBg,borderRadius:5,marginBottom:1}}>
                   {/* Campaign name */}
                   <div style={{overflow:"hidden"}}>
                     <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
@@ -10048,6 +10212,8 @@ export default function App() {
   const [bulkDraft, setBulkDraft] = useState({ note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
   const [dateRange, setDateRange] = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
   const [activeTab, setActiveTab] = useState("campaigns");
+  const [lightMode, setLightMode] = useState(()=>localStorage.getItem("zeus-light-mode")==="true");
+  useEffect(()=>{ localStorage.setItem("zeus-light-mode", lightMode); }, [lightMode]);
 
   // Count "behind" campaigns for the tab badge — use same filter as the pacing dashboard (anything not "off")
   const behindCount = useMemo(()=>
@@ -10597,7 +10763,7 @@ export default function App() {
   const TD = ({children,style={}}) => <td style={{padding:"9px 12px",borderBottom:"1px solid #060c18",verticalAlign:"middle",...style}}>{children}</td>;
 
   return (
-    <div style={{minHeight:"100vh",background:"#070d16",fontFamily:"'Inter','Segoe UI',sans-serif",color:"#d8eaf8",fontSize:14}}>
+    <div style={{minHeight:"100vh",background:"#070d16",fontFamily:"'Inter','Segoe UI',sans-serif",color:"#d8eaf8",fontSize:14,filter:lightMode?"invert(1) hue-rotate(180deg)":"none",transition:"filter .25s ease"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         *{box-sizing:border-box;}
@@ -10650,6 +10816,10 @@ export default function App() {
             <label style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"6px 13px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>
               ↑ Import<input type="file" accept=".json" style={{display:"none"}} onChange={doImport}/>
             </label>
+            <button onClick={()=>setLightMode(v=>!v)} title={lightMode?"Switch to dark mode":"Switch to light mode"}
+              style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"6px 13px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>
+              {lightMode?"🌙 Dark":"☀️ Light"}
+            </button>
           </div>
         </div>
       </div>
