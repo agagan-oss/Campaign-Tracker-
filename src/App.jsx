@@ -24,15 +24,15 @@ function saveCustomPlatforms(d){try{localStorage.setItem(CUSTOM_PLATFORMS_KEY,JS
 const ALL_PLATFORMS = (()=>{const c=loadCustomPlatforms();return[...ALL_PLATFORMS_DEFAULT,...c.platforms.filter(p=>!ALL_PLATFORMS_DEFAULT.includes(p))];})();
 const REMINDER_TYPES = [
   { value:"ad-swap",      label:"🔄 Ad Swap",         color:"#f472b6" },
-  { value:"budget-check", label:"💰 Budget Check",    color:"#fb923c" },
+  { value:"budget-check", label:"💰 Budget Check",    color:"#f97316" },
   { value:"creative",     label:"🎨 Creative Update", color:"#a855f7" },
   { value:"report",       label:"📊 Report Due",      color:"#7dd3fc" },
-  { value:"end-soon",     label:"⏱ Campaign Ending", color:"#fde047" },
+  { value:"end-soon",     label:"⏱ Campaign Ending", color:"#f59e0b" },
   { value:"other",        label:"📌 Other",           color:"#00d48a" },
 ];
 const STATUS_CFG = {
   "active":        { label:"Active",        color:"#00d48a", bg:"#00200f" },
-  "pacing-ahead":  { label:"Pacing Ahead",  color:"#fb923c", bg:"#151000" },
+  "pacing-ahead":  { label:"Pacing Ahead",  color:"#f97316", bg:"#151000" },
   "pacing-behind": { label:"Pacing Behind", color:"#fde047", bg:"#151a00" },
   "off":           { label:"Off",           color:"#ef4444", bg:"#1a0808" },
   "close-to-goal": { label:"Close to Goal", color:"#00e5c0", bg:"#00201a" },
@@ -41,7 +41,7 @@ const STATUS_CFG = {
 const PLT_COLORS_DEFAULT = {
   SEM:"#b91c1c", TD:"#00ffb3", DSP:"#7dd3fc", FB:"#f472b6",
   FBV:"#a855f7", CTV:"#a8c4e0", OTT:"#6b7280", OTTD:"#003a5c",
-  YT:"#6effd8", SP:"#fde047", EMAIL:"#fb923c", TT:"#7a9bbf",
+  YT:"#6effd8", SP:"#fde047", EMAIL:"#f97316", TT:"#7a9bbf",
   IG:"#e1306c", default:"#4d6e8a"
 };
 const PLT_COLORS = (()=>{const c=loadCustomPlatforms();return{...PLT_COLORS_DEFAULT,...c.colors};})();
@@ -208,7 +208,7 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
   if (ratio === null)       { color="#4d6e8a"; label="No data";  }
   else if (ratio < 0.80)    { color="#fde047"; label="Behind";   }
   else if (ratio < 1.05)    { color="#00d48a"; label="On Track"; }
-  else                      { color="#fb923c"; label="Ahead";    }
+  else                      { color="#f97316"; label="Ahead";    }
 
   return { pct: Math.min(1, pct), expectedPct: timeElapsed, ratio, color, label, delivered, goal, expected, metricKind, unit };
 }
@@ -235,9 +235,9 @@ function computeDailyTarget(impressions, note1, startDate, endDate) {
   // Status vs daily target
   let status, color;
   if (!actualDailyRate) { status = "No data yet"; color = "#4d6e8a"; }
-  else if (actualDailyRate >= dailyTarget * 1.05) { status = "Ahead of pace"; color = "#fb923c"; }
+  else if (actualDailyRate >= dailyTarget * 1.05) { status = "Ahead of pace"; color = "#f97316"; }
   else if (actualDailyRate >= dailyTarget * 0.90) { status = "On pace"; color = "#00d48a"; }
-  else if (actualDailyRate >= dailyTarget * 0.75) { status = "Slightly behind"; color = "#fde047"; }
+  else if (actualDailyRate >= dailyTarget * 0.75) { status = "Slightly behind"; color = "#f59e0b"; }
   else { status = "Behind — needs push"; color = "#ef4444"; }
 
   return { dailyTarget, neededPerDay, actualDailyRate, daysLeft, remaining, delivered, goal, status, color, daysInMonth, dayOfMonth };
@@ -826,7 +826,7 @@ function RowActions({ c, onEdit, onRenew, onDuplicate, onDelete, onArchive }) {
   return (
     <div ref={ref} style={{display:"flex",gap:5,alignItems:"center",position:"relative"}}>
       <button onClick={onEdit}
-        style={{background:"#1a0e00",border:"1px solid #fb923c60",borderRadius:5,color:"#fb923c",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>
+        style={{background:"#1a0e00",border:"1px solid #f9731660",borderRadius:5,color:"#f97316",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>
         Edit
       </button>
       <button ref={btnRef} onClick={handleOpen}
@@ -903,7 +903,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
   const metrics = [
     {key:"impressions",label:"Impressions",color:"#00e5a0",prefix:"",suffix:""},
     {key:"ctr",label:"CTR",color:"#00ffb3",prefix:"",suffix:"%"},
-    {key:"cpm",label:"CPM",color:"#fb923c",prefix:"$",suffix:""},
+    {key:"cpm",label:"CPM",color:"#f97316",prefix:"$",suffix:""},
     {key:"spend",label:"Spend",color:"#f472b6",prefix:"$",suffix:""},
   ];
   return (
@@ -1002,11 +1002,11 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
               const allFields=[
                 {key:"impressions",label:"Impr",      color:"#00e5a0",prefix:"",  suffix:"",w:86},
                 {key:"ctr",        label:"CTR",       color:"#00ffb3",prefix:"",  suffix:"%",w:68},
-                {key:"cpm",        label:"CPM",       color:"#fb923c",prefix:"$", suffix:"",w:68},
+                {key:"cpm",        label:"CPM",       color:"#f97316",prefix:"$", suffix:"",w:68},
                 {key:"spend",      label:"Spend",     color:"#f472b6",prefix:"$", suffix:"",w:75},
                 ...(isSocial||isSEM||["DSP","SP","TD"].includes(c.platform)?[{key:"clicks",label:"Clicks",color:"#38bdf8",prefix:"",suffix:"",w:72}]:[]),
                 ...(isSocial?[{key:"reach",label:"Reach",color:"#e879f9",prefix:"",suffix:"",w:75}]:[]),
-                ...(isSocial?[{key:"frequency",label:"Freq",color:"#fb923c",prefix:"",suffix:"x",w:58}]:[]),
+                ...(isSocial?[{key:"frequency",label:"Freq",color:"#f97316",prefix:"",suffix:"x",w:58}]:[]),
                 ...(isVideo&&!isCTV?[{key:"videoViews",label:"Views",color:"#a78bfa",prefix:"",suffix:"",w:72}]:[]),
                 ...(isVideo?[{key:"completionRate",label:isCTV?"Comp%":"VCR%",color:"#818cf8",prefix:"",suffix:"%",w:62}]:[]),
                 ...(isCTV||isSEM?[{key:"conversions",label:"Conv",color:"#34d399",prefix:"",suffix:"",w:65}]:[]),
@@ -1051,7 +1051,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                   {[
                     {label:"Target/day", val:dt.dailyTarget.toLocaleString(), color:"#00e5a0"},
                     {label:"Actual/day", val:dt.actualDailyRate?dt.actualDailyRate.toLocaleString():"—", color:dt.color},
-                    {label:"Need/day",   val:hasDelivery?dt.neededPerDay.toLocaleString():"—", color:dt.neededPerDay>dt.dailyTarget*1.2?"#ef4444":dt.neededPerDay>dt.dailyTarget?"#fde047":"#00d48a"},
+                    {label:"Need/day",   val:hasDelivery?dt.neededPerDay.toLocaleString():"—", color:dt.neededPerDay>dt.dailyTarget*1.2?"#ef4444":dt.neededPerDay>dt.dailyTarget?"#f59e0b":"#00d48a"},
                     {label:"Remaining", val:hasDelivery?(dt.remaining>=1000000?(dt.remaining/1000000).toFixed(1)+"M":dt.remaining>=1000?Math.round(dt.remaining/1000)+"K":dt.remaining.toLocaleString()):"—", color:"#7a9bbf"},
                   ].map(({label,val,color})=>(
                     <div key={label} style={{background:"#0c1625",borderRadius:5,padding:"5px 10px",textAlign:"center",minWidth:70}}>
@@ -1085,7 +1085,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                 <div style={{flex:1}}><DatePicker value={c.lastCreativeUpdate||""} onChange={v=>onUpdate({...c,lastCreativeUpdate:v})} placeholder="Pick date…"/></div>
                 {c.lastCreativeUpdate&&(()=>{
                   const days=Math.floor((new Date()-new Date(c.lastCreativeUpdate))/86400000);
-                  return <span style={{fontSize:10,fontWeight:700,color:days>30?"#f59e0b":days>14?"#fde047":"#a855f7",whiteSpace:"nowrap",flexShrink:0}}>{days===0?"Today":days+"d"}</span>;
+                  return <span style={{fontSize:10,fontWeight:700,color:days>30?"#f59e0b":days>14?"#f59e0b":"#a855f7",whiteSpace:"nowrap",flexShrink:0}}>{days===0?"Today":days+"d"}</span>;
                 })()}
               </div>
             </div>
@@ -2612,12 +2612,12 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
               <rect x="2" y="12" width="3" height="4" fill="#d0d0f0"/>
               <rect x="11" y="12" width="3" height="4" fill="#d0d0f0"/>
               <rect x="2" y="12" width="12" height="1" fill="#f59e0b"/>
-              <rect x="12" y="9" width="1" height="1" fill="#fde047"/>
+              <rect x="12" y="9" width="1" height="1" fill="#f59e0b"/>
               <rect x="13" y="10" width="1" height="1" fill="#f59e0b"/>
-              <rect x="12" y="11" width="1" height="1" fill="#fde047"/>
+              <rect x="12" y="11" width="1" height="1" fill="#f59e0b"/>
               <rect x="13" y="12" width="1" height="1" fill="#f59e0b"/>
-              <rect x="14" y="9" width="1" height="1" fill="#fde04740"/>
-              <rect x="14" y="11" width="1" height="1" fill="#fde04740"/>
+              <rect x="14" y="9" width="1" height="1" fill="#f59e0b40"/>
+              <rect x="14" y="11" width="1" height="1" fill="#f59e0b40"/>
             </svg>
             {(loading||chatLoading)&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
               <span style={{fontSize:20,animation:"boltSpin .15s ease-in-out infinite",display:"inline-block"}}>{boltChars[boltFrame]}</span>
@@ -3105,7 +3105,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
           <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>Delivery forecast based on current daily impression rate.</div>
           {predictions.length===0?<div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"32px",textAlign:"center",color:"#3d5a72",fontSize:13}}>No pacing data yet. Add impressions to see forecasts.</div>:(
             predictions.map((p,i)=>{
-              const sc = p.status==="critical"?"#ef4444":p.status==="at-risk"?"#f59e0b":p.status==="ahead"?"#fb923c":"#00d48a";
+              const sc = p.status==="critical"?"#ef4444":p.status==="at-risk"?"#f59e0b":p.status==="ahead"?"#f97316":"#00d48a";
               const sl = p.status==="critical"?"🔥 CRITICAL":p.status==="at-risk"?"⚠️ AT RISK":p.status==="ahead"?"📈 AHEAD":"✅ ON TRACK";
               return (
                 <div key={p.id} style={{background:"#0c1625",border:`1px solid ${sc}30`,borderRadius:10,padding:"14px 18px"}}>
@@ -4479,7 +4479,7 @@ const LOG_ICONS = {
   deleted:    { icon: "🗑", color: "#ef4444", label: "Deleted" },
   duplicated: { icon: "⧉",  color: "#7dd3fc", label: "Duplicated" },
   status:     { icon: "🔄", color: "#f472b6", label: "Status" },
-  metrics:    { icon: "📊", color: "#fb923c", label: "Metrics" },
+  metrics:    { icon: "📊", color: "#f97316", label: "Metrics" },
   checked:    { icon: "✓",  color: "#00e5a0", label: "Checked" },
   edited:     { icon: "✏️", color: "#a855f7", label: "Edited" },
   lock:       { icon: "🔒", color: "#7a9bbf", label: "Month Lock" },
@@ -4726,7 +4726,23 @@ function PacingDateBar({ range, setRange }) {
 }
 
 // ─── Pacing Dashboard ─────────────────────────────────────────────────────
-function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, onEdit=()=>{}, onClearMetrics=()=>{} }) {
+function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{} }) {
+  // Light-mode badge helpers
+  const pBg     = (col) => col + "22";   // badge background
+  const pBorder = (col) => col + "40";   // badge border
+  const sBg     = (col) => col + "18";   // status pill background
+  const sBorder = (col) => col + "40";   // status pill border
+  // Counter-filter: cancels the global invert+hue-rotate so accent colors stay vivid in light mode
+  const lmF = lightMode ? "invert(1) hue-rotate(180deg)" : "none";
+  // Light-mode yellow swap: #fde047 → #fff200 (more vivid against white) only when rendering.
+  // Data/logic always stores #fde047; lmC remaps at render time only.
+  const lmC = (c) => lightMode && c === "#fde047" ? "#fff200" : c;
+  // In light mode: vivid color becomes the BACKGROUND with dark text (high contrast pop).
+  // In dark mode: vivid color stays as TEXT on faint tinted background (current look).
+  // filter:lmF on the element then double-inverts everything back to these exact colors.
+  const vBadge = (c) => { const vc = lmC(c); return lightMode
+    ? {color:"#0d1117", background:vc, border:"1px solid "+vc+"99"}
+    : {color:vc, background:sBg(vc), border:"1px solid "+sBorder(vc)}; };
   // Read benchmarks from localStorage (same key AIAdvisor writes to) — no prop needed
   const [kpiBenchmarks, setKpiBenchmarks] = useState(() => {
     const defaults = {
@@ -4763,6 +4779,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [fPlatforms,     setFPlatforms]     = useState(new Set());
   const [sortKey,        setSortKey]        = useState("pacing"); // pacing | name | partner | platform
   const [clearPendingId, setClearPendingId] = useState(null); // campaign id awaiting clear confirm
+  const [todayOnly,      setTodayOnly]      = useState(false); // show only NOT updated today
+  const todayStr = getToday(); // YYYY-MM-DD — matches c.lastChecked format
   const viewMode = "table"; // table-only — card view removed
 
   // Flight progress helpers
@@ -4781,7 +4799,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   function daysRemainingColor(d) {
     if(d===null) return "#3d5a72";
     if(d<=7)  return "#ef4444";
-    if(d<=14) return "#f59e0b";
+    if(d<=14) return "#fde047";
     return "#4d6e8a";
   }
 
@@ -4802,10 +4820,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   // Apply search + filters
   const q = search.trim().toLowerCase();
+  const notUpdatedCount = allRows.filter(({c})=>c.lastChecked!==todayStr).length;
   const filtered = allRows.filter(({c})=>{
     if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
+    if(todayOnly && c.lastChecked===todayStr) return false; // hide already-updated; show only gaps
     return true;
   });
 
@@ -4837,7 +4857,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
   const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
   const noPace  = withGoal.filter(r=>!r.pacing);
-  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0;
+  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || todayOnly;
 
   // Stalled campaigns: campaigns where MTD delivery has not grown since a check-in
   // from at least 1 calendar day ago. Same-day re-imports of the same CSV will NOT trigger this.
@@ -4888,9 +4908,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const isCTV=c.platform==="CTV"||c.platform==="OTT";
     const rawVcr=(parseFloat(c.completionRate)||0)/100, rawCtr=parseFloat(disp.ctr)||0;
     const val=kpi.primary==="VCR"?rawVcr:rawCtr; if(!val) return null;
-    const color=val>=kpi.good?"#00d48a":val>=kpi.ok?"#f59e0b":"#ef4444";
+    const color=val>=kpi.good?"#00d48a":val>=kpi.ok?"#fde047":"#ef4444";
     return <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:4}}>
-      <span title={kpi.tip} style={{cursor:"help",fontSize:10,fontWeight:700,color,background:color+"18",border:"1px solid "+color+"40",borderRadius:4,padding:"1px 7px"}}>
+      <span title={kpi.tip} style={{cursor:"help",fontSize:10,fontWeight:700,...vBadge(color),borderRadius:4,padding:"1px 7px",filter:lmF}}>
         {kpi.label}: {kpi.primary==="VCR"?(rawVcr*100).toFixed(0)+"%":(rawCtr*100).toFixed(2)+"%"} · {val>=kpi.good?"Good":val>=kpi.ok?"OK":"Low"}
       </span>
       {isCTV&&(parseFloat(c.conversions)||0)>0&&<span style={{fontSize:10,fontWeight:700,color:"#34d399",background:"#34d39918",border:"1px solid #34d39940",borderRadius:4,padding:"1px 7px"}}>{parseInt(c.conversions).toLocaleString()} conv</span>}
@@ -4938,9 +4958,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:2}}>
         <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{c.campaignName.trim()}</span>
-        <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>
-        {pacing&&<span style={{fontSize:10,fontWeight:700,color:col,background:col+"18",border:"1px solid "+col+"40",borderRadius:4,padding:"1px 6px"}}>{pacing.label}</span>}
-        {dr!==null&&<span style={{fontSize:10,fontWeight:700,color:drc,background:drc+"15",border:"1px solid "+drc+"40",borderRadius:4,padding:"1px 6px",marginLeft:2}}>
+        <span style={{...vBadge(pCol),borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700,filter:lmF}}>{c.platform}</span>
+        {pacing&&<span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 6px",filter:lmF}}>{pacing.label}</span>}
+        {dr!==null&&<span style={{fontSize:10,fontWeight:700,...vBadge(drc),borderRadius:4,padding:"1px 6px",marginLeft:2,filter:lmF}}>
           {dr<=0?"Ended":dr===1?"Last day":dr+"d left"}
         </span>}
         <button onClick={()=>onEdit(c)} style={{marginLeft:"auto",background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:11,padding:"3px 8px",cursor:"pointer",fontWeight:600,flexShrink:0}}>Edit</button>
@@ -4953,10 +4973,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           <span>Monthly Pacing ({cardMetricLabel})</span><span>Goal: {fmtGoal(monthlyGoal)}</span>
         </div>
         <div style={{position:"relative",background:"#07101c",borderRadius:3,height:6,marginBottom:2,overflow:"visible"}}>
-          <div title={"Expected: "+(exp?fmtGoal(exp):"")} style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:14,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
-          <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:3}}/>
+          <div title={"Expected: "+(exp?fmtGoal(exp):"")} style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:14,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888",filter:lmF}}/>
+          <div style={{background:lmC(col),height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:3,filter:lmF}}/>
         </div>
-        <span style={{fontSize:10,color:col,fontWeight:700}}>{(pacing.pct*100).toFixed(1)}% of monthly goal</span>
+        <span style={{fontSize:10,color:lmC(col),fontWeight:700,filter:lmF}}>{(pacing.pct*100).toFixed(1)}% of monthly goal</span>
       </div>}
       {!pacing&&monthlyGoal&&<div style={{fontSize:10,color:"#3d5a72",fontStyle:"italic",marginBottom:6}}>No {cardMetricLabel} yet</div>}
 
@@ -4978,7 +4998,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           {label:"Delivered",val:del>0?del.toLocaleString():"—",color:"#00e5a0"},
           {label:"Expected", val:exp?exp.toLocaleString():"—",  color:"#7a9bbf"},
           {label:"Remaining",val:del>0?rem.toLocaleString():"—",color:rem>0?"#f59e0b":"#00d48a"},
-          {label:"Need/Day", val:fmtNpd, color:pacing?.label==="Behind"?"#ef4444":"#fb923c"},
+          {label:"Need/Day", val:fmtNpd, color:pacing?.label==="Behind"?"#ef4444":"#f97316"},
         ].map(({label,val,color})=><div key={label} style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:5,padding:"5px 9px",minWidth:60,textAlign:"center"}}>
           <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
           <div style={{fontSize:11,fontWeight:700,color}}>{val}</div>
@@ -5040,14 +5060,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // ctrPct is display percent e.g. 0.25; benchmarks store warn/bad as percent e.g. warn:0.10
     const bm = bmFor(platform);
     if(!bm || bm.metric !== "CTR" || !ctrPct) return "#3d5a72";
-    return ctrPct >= bm.warn ? "#00d48a" : ctrPct >= bm.bad ? "#f59e0b" : "#ef4444";
+    return ctrPct >= bm.warn ? "#00d48a" : ctrPct >= bm.bad ? "#fde047" : "#ef4444";
   };
 
   const vcrDisplayColor = (platform, vcrPct) => {
     // vcrPct is 0-100; benchmarks store warn/bad as 0-100 e.g. warn:85
     const bm = bmFor(platform);
     if(!bm || bm.metric !== "VCR" || !vcrPct) return "#3d5a72";
-    return vcrPct >= bm.warn ? "#00d48a" : vcrPct >= bm.bad ? "#f59e0b" : "#ef4444";
+    return vcrPct >= bm.warn ? "#00d48a" : vcrPct >= bm.bad ? "#fde047" : "#ef4444";
   };
 
   const cpmColor = (platform, cpm) => {
@@ -5056,7 +5076,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const warnAt = bm?.cpmWarn ?? 15;  // fallback if no platform benchmark
     const badAt  = bm?.cpmBad  ?? 25;
     // CPM: lower is better, so green = below warn, yellow = warn→bad, red = above bad
-    return cpm <= warnAt ? "#00d48a" : cpm <= badAt ? "#f59e0b" : "#ef4444";
+    return cpm <= warnAt ? "#00d48a" : cpm <= badAt ? "#fde047" : "#ef4444";
   };
 
   // grid columns: name | platform | status | pacing bar | impr/views | gap | CTR/VCR | Clicks | CPM | spend | reach | freq | days | edit
@@ -5095,7 +5115,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
     // Frequency — flag high freq (>3 is generally a concern)
     const freq    = parseFloat(disp.frequency||c.frequency)||0;
-    const freqCol = freq <= 0 ? "#3d5a72" : freq <= 2 ? "#00d48a" : freq <= 3.5 ? "#f59e0b" : "#ef4444";
+    const freqCol = freq <= 0 ? "#3d5a72" : freq <= 2 ? "#00d48a" : freq <= 3.5 ? "#fde047" : "#ef4444";
 
     // Primary delivery metric — platform-aware. YT=views, SEM=spend ($), others=impressions
     const metricKind = pacingMetricFor(c.platform);
@@ -5152,22 +5172,28 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const npdFmt = npd === null ? null
       : metricKind === "spend" ? "$"+(npd>=1000?(npd/1000).toFixed(1)+"k":npd.toFixed(0))
       : npd >= 1000 ? (npd/1000).toFixed(0)+"K" : String(npd);
-    const npdCol = paceGap === null ? "#3d5a72" : paceGap < 0 ? "#ef4444" : "#fb923c";
+    const npdCol = paceGap === null ? "#3d5a72" : paceGap < 0 ? "#ef4444" : "#f97316";
 
     return <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 16px",borderBottom:"1px solid #0d1525",alignItems:"center",background:"#0c1625",borderLeft:"3px solid "+col}}>
 
       {/* Campaign + partner */}
       <div style={{minWidth:0}}>
         <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
-        <div style={{fontSize:10,color:"#4d6e8a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
+        <div style={{display:"flex",alignItems:"center",gap:5,overflow:"hidden"}}>
+          <div style={{fontSize:10,color:"#4d6e8a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
+          {c.lastChecked===todayStr
+            ? <span style={{fontSize:9,color:"#00d48a",fontWeight:700,background:"#00200f",border:"1px solid #00d48a40",borderRadius:3,padding:"0px 4px",flexShrink:0}}>✓ today</span>
+            : <span style={{fontSize:9,color:"#4d6e8a",fontWeight:400,flexShrink:0}}>{c.lastChecked??"—"}</span>
+          }
+        </div>
       </div>
 
       {/* Platform */}
-      <div><span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span></div>
+      <div><span style={{...vBadge(pCol),borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700,filter:lmF}}>{c.platform}</span></div>
 
       {/* Pacing status */}
       <div>
-        {pacing?<span style={{fontSize:10,fontWeight:700,color:col}}>{pacing.label}</span>
+        {pacing?<span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 5px",filter:lmF}}>{pacing.label}</span>
         :monthlyGoal?<span style={{fontSize:10,color:"#3d5a72"}}>{metricKind==="views"?"No views":metricKind==="spend"?"No spend":"No impr"}</span>
         :<span style={{fontSize:10,color:"#334155"}}>No goal</span>}
       </div>
@@ -5176,13 +5202,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <div>
         {pacing?<>
           <div style={{position:"relative",background:"#07101c",borderRadius:4,height:10,overflow:"visible",marginBottom:2}}>
-            <div style={{background:col,height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:4}}/>
+            <div style={{background:lmC(col),height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:4,filter:lmF}}/>
             <div title={"Expected: "+(exp?.toLocaleString()??"")}
-              style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:18,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
+              style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:18,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888",filter:lmF}}/>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:4}}>
-            <span style={{fontSize:9,color:col,fontWeight:700}}>{(pacing.pct*100).toFixed(1)}%</span>
-            {exp&&<span style={{fontSize:8,color:"#38bdf8aa"}}>/{(pacing.expectedPct*100).toFixed(0)}%</span>}
+            <span style={{fontSize:9,color:lmC(col),fontWeight:700,filter:lmF}}>{(pacing.pct*100).toFixed(1)}%</span>
+            {exp&&<span style={{fontSize:8,color:"#38bdf8aa",filter:lmF}}>/{(pacing.expectedPct*100).toFixed(0)}%</span>}
           </div>
         </>:<div style={{fontSize:10,color:"#3d5a72"}}>—</div>}
       </div>
@@ -5190,7 +5216,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Monthly Goal */}
       <div>
         {monthlyGoal
-          ? <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}}>
+          ? <span style={{fontSize:11,fontWeight:700,color:"#00e5a0",filter:lmF}}>
               {metricKind==="spend"
                 ? "$"+(monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"k":monthlyGoal.toFixed(0))
                 : monthlyGoal>=1000000?(monthlyGoal/1000000).toFixed(2)+"M":monthlyGoal>=1000?(monthlyGoal/1000).toFixed(0)+"K":String(monthlyGoal)}
@@ -5202,7 +5228,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <div title={metricKind==="views" ? "Views delivered this period (MTD)" : metricKind==="spend" ? "Spend delivered this period (MTD)" : "Impressions delivered this period (MTD)"}>
         {primaryFmt
           ? <div style={{display:"flex",alignItems:"baseline",gap:3}}>
-              <span style={{fontSize:12,fontWeight:800,color:primaryColor,letterSpacing:"-0.01em"}}>{primaryFmt}</span>
+              <span style={{fontSize:12,fontWeight:800,color:primaryColor,letterSpacing:"-0.01em",filter:lmF}}>{primaryFmt}</span>
               <span style={{fontSize:9,color:"#3d5a72"}}>{primaryLabel}</span>
             </div>
           : noActivity
@@ -5215,23 +5241,23 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             ? `Expected $${exp?.toLocaleString()} · Delivered $${primaryRaw.toLocaleString(undefined,{maximumFractionDigits:0})}`
             : `Expected ${exp?.toLocaleString()} · Delivered ${primaryRaw.toLocaleString()}`) : ""}>
         {paceGapFmt
-          ? <span style={{fontSize:11,fontWeight:700,color:paceGapCol}}>{paceGapFmt}</span>
+          ? <span style={{fontSize:11,fontWeight:700,color:lmC(paceGapCol),filter:lmF}}>{paceGapFmt}</span>
           : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
       {/* Need/Day — impr/views/$ required per remaining day to hit goal */}
       <div title={npd !== null ? `${npdFmt} ${metricKind==="spend"?"spend":metricKind==="views"?"views":"impr"}/day needed · ${npdDaysLeft}d left` : ""}>
         {npdFmt
-          ? <span style={{fontSize:11,fontWeight:700,color:npdCol}}>{npdFmt}</span>
+          ? <span style={{fontSize:11,fontWeight:700,color:npdCol,filter:lmF}}>{npdFmt}</span>
           : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
       {/* CTR or VCR — color-coded from benchmarks */}
       <div title={kpi?.tip||""}>
         {isVCR && vcrDisp > 0
-          ? <span style={{fontSize:11,fontWeight:700,color:vcrCol}}>{vcrDisp.toFixed(0)}% VCR</span>
+          ? <span style={{fontSize:11,fontWeight:700,color:lmC(vcrCol),filter:lmF}}>{vcrDisp.toFixed(0)}% VCR</span>
           : ctrDisp > 0
-            ? <span style={{fontSize:11,fontWeight:700,color:ctrCol}}>{ctrFmt} CTR</span>
+            ? <span style={{fontSize:11,fontWeight:700,color:lmC(ctrCol),filter:lmF}}>{ctrFmt} CTR</span>
             : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
@@ -5245,7 +5271,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* CPM — color-coded from per-platform benchmark */}
       <div title={cpmTip}>
         {cpm > 0
-          ? <span style={{fontSize:11,fontWeight:700,color:cpmCol}}>${cpm.toFixed(2)}</span>
+          ? <span style={{fontSize:11,fontWeight:700,color:lmC(cpmCol),filter:lmF}}>${cpm.toFixed(2)}</span>
           : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
@@ -5266,7 +5292,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Frequency — color-coded: ≤2 green, ≤3.5 yellow, >3.5 red */}
       <div title="Frequency: avg times a user saw this ad">
         {freq > 0
-          ? <span style={{fontSize:11,fontWeight:700,color:freqCol}}>{freq.toFixed(2)}x</span>
+          ? <span style={{fontSize:11,fontWeight:700,color:lmC(freqCol),filter:lmF}}>{freq.toFixed(2)}x</span>
           : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
       </div>
 
@@ -5294,7 +5320,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const [open,setOpen]=useState(defaultOpen); if(!items.length) return null;
     return <div style={{marginBottom:viewMode==="table"?2:18}}>
       <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:open?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
-        <span style={{fontSize:11,color,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>{label} ({items.length})</span>
+        <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",filter:lmF,
+          ...(lightMode ? {color:"#0d1117",background:lmC(color),padding:"2px 8px",borderRadius:4} : {color})
+        }}>{label} ({items.length})</span>
         <span style={{color:"#3d5a72",fontSize:10,display:"inline-block",transform:open?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
       </div>
       {open&&viewMode==="table"&&<TableHeader/>}
@@ -5329,6 +5357,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         {partners.map(p=><option key={p} value={p}>{p==="all"?"All Partners":p}</option>)}
       </select>
       <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
+      <button onClick={()=>setTodayOnly(v=>!v)} title="Show only campaigns not updated today"
+        style={{background:todayOnly?"#1a0e00":"#0e1a2e",border:"1px solid "+(todayOnly?"#f97316":"#1e293b"),borderRadius:7,padding:"5px 11px",color:todayOnly?"#f97316":"#4d6e8a",fontSize:11,fontWeight:todayOnly?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>
+        📅 Not Updated{notUpdatedCount>0?` (${notUpdatedCount})`:""}
+      </button>
       <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
         <span style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
         {[["pacing","Pacing"],["gap","Gap"],["impr","Impr"],["days","Days"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
@@ -5341,29 +5373,29 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     </div>
     {anyFilter&&<div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
       <span style={{fontSize:11,color:"#4d6e8a"}}>Showing {filtered.length} of {allActive.length}</span>
-      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());}} style={{background:"none",border:"1px solid #334155",borderRadius:5,padding:"2px 8px",color:"#7a9bbf",fontSize:11,cursor:"pointer"}}>Clear filters</button>
+      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayOnly(false);}} style={{background:"none",border:"1px solid #334155",borderRadius:5,padding:"2px 8px",color:"#7a9bbf",fontSize:11,cursor:"pointer"}}>Clear filters</button>
     </div>}
 
     {/* Benchmark legend — compact, replaces the pill boxes */}
     <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"center",fontSize:10,color:"#3d5a72",flexWrap:"wrap"}}>
       <span style={{fontWeight:700,color:"#4d6e8a"}}>{filtered.length} campaigns</span>
       <span style={{color:"#334155"}}>·</span>
-      <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> On/Ahead</span>
-      <span><span style={{color:"#fde047",fontWeight:700}}>●</span> Behind</span>
-      <span><span style={{color:"#ef4444",fontWeight:700}}>●</span> Low KPI</span>
-      <span><span style={{color:"#f59e0b",fontWeight:700}}>●</span> Warn KPI</span>
-      {noActivityRows.length>0&&<span style={{color:"#f59e0b",fontWeight:700,marginLeft:4}}>⏸ {noActivityRows.length} flat</span>}
+      <span><span style={{color:"#00d48a",fontWeight:700,filter:lmF}}>●</span> On/Ahead</span>
+      <span><span style={{color:lmC("#fde047"),fontWeight:700,filter:lmF}}>●</span> Behind</span>
+      <span><span style={{color:"#ef4444",fontWeight:700,filter:lmF}}>●</span> Low KPI</span>
+      <span><span style={{color:lmC("#fde047"),fontWeight:700,filter:lmF}}>●</span> Warn KPI</span>
+      {noActivityRows.length>0&&<span style={{color:lmC("#fde047"),fontWeight:700,marginLeft:4,filter:lmF}}>⏸ {noActivityRows.length} flat</span>}
     </div>
     <Section label="Behind"         color="#fde047" items={behind}/>
     <Section label="On Track"       color="#00d48a" items={onTrack}/>
-    <Section label="Ahead"          color="#fb923c" items={ahead}/>
+    <Section label="Ahead"          color="#f97316" items={ahead}/>
     {noActivityRows.length>0&&(
       <div style={{marginBottom:viewMode==="table"?4:14}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:"#1a1208",border:"1px solid #f59e0b40",borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
-          <span style={{fontSize:11,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.07em"}}>⏸ Possibly Stalled ({noActivityRows.length})</span>
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:"#1a1208",border:"1px solid #fde04740",borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
+          <span style={{fontSize:11,fontWeight:800,color:lmC("#fde047"),textTransform:"uppercase",letterSpacing:"0.07em",filter:lmF}}>⏸ Possibly Stalled ({noActivityRows.length})</span>
           <span style={{fontSize:10,color:"#7a9bbf",flex:1}}>Delivery hasn't grown since a previous-day check-in. Could be paused, finished, or just a slow day — verify, then dismiss.</span>
           <button onClick={()=>noActivityRows.forEach(r=>dismissStall(r.c.id))}
-            style={{background:"#1a2a1a",border:"1px solid #f59e0b60",borderRadius:4,color:"#f59e0b",fontSize:10,padding:"2px 10px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>
+            style={{background:"#1a2a1a",border:"1px solid #fde04760",borderRadius:4,color:lmC("#fde047"),fontSize:10,padding:"2px 10px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap",filter:lmF}}>
             Dismiss All
           </button>
         </div>
@@ -5378,7 +5410,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             ? <div key={r.c.id} style={{position:"relative"}}>
                 <TableRow {...r}/>
                 <div style={{position:"absolute",right:106,top:"50%",transform:"translateY(-50%)",display:"flex",gap:5,alignItems:"center"}}>
-                  <span style={{fontSize:9,color:"#f59e0b",fontWeight:700,background:"#1a1208",border:"1px solid #f59e0b40",borderRadius:3,padding:"1px 5px",whiteSpace:"nowrap"}}>
+                  <span style={{fontSize:9,color:lmC("#fde047"),fontWeight:700,background:"#1a1208",border:"1px solid #fde04740",borderRadius:3,padding:"1px 5px",whiteSpace:"nowrap",filter:lmF}}>
                     flat @ {stalledAt}
                   </span>
                   <button onClick={(e)=>{e.stopPropagation(); dismissStall(r.c.id);}} title="Dismiss for today"
@@ -5390,7 +5422,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             : <div key={r.c.id} style={{position:"relative"}}>
                 <PacingCard {...r}/>
                 <div style={{position:"absolute",top:10,right:10,display:"flex",gap:5,alignItems:"center"}}>
-                  <span style={{fontSize:10,color:"#f59e0b",fontWeight:700,background:"#1a1208",border:"1px solid #f59e0b40",borderRadius:4,padding:"2px 8px"}}>
+                  <span style={{fontSize:10,color:lmC("#fde047"),fontWeight:700,background:"#1a1208",border:"1px solid #fde04740",borderRadius:4,padding:"2px 8px",filter:lmF}}>
                     flat @ {stalledAt}
                   </span>
                   <button onClick={(e)=>{e.stopPropagation(); dismissStall(r.c.id);}} title="Dismiss for today"
@@ -9944,7 +9976,7 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
           },
           {
             step:4, title:"Upload the workflow files",
-            color:"#fb923c",
+            color:"#f97316",
             lines:[
               "In your repo, create the folder: .github/workflows/ (if it doesn't exist)",
               "Upload fetch-meta.yml, fetch-ttd.yml, fetch-dsp.yml, and fetch-google-ads.yml into that folder",
@@ -10845,7 +10877,7 @@ export default function App() {
                   padding:"9px 18px",color:activeTab===t.key?"#00e5a0":"#4d6e8a",fontSize:13,fontWeight:activeTab===t.key?700:400,
                   cursor:"pointer",transition:"all .15s",marginBottom:-1,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
                 {t.label}
-                {t.badge>0&&<span style={{background:"#fde04722",border:"1px solid #fde04760",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,color:"#fde047",lineHeight:1.4}}>{t.badge}</span>}
+                {t.badge>0&&<span style={{background:"#f59e0b22",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,color:"#f59e0b",lineHeight:1.4}}>{t.badge}</span>}
               </button>
             ))}
           </div>
@@ -10876,7 +10908,7 @@ export default function App() {
         ) : activeTab==="activity" ? (
           <ActivityLog log={activityLog} campaigns={campaigns} onUndo={handleUndo} onClear={async()=>{ if(await confirm({title:"Clear activity log?",message:"This cannot be undone.",confirmLabel:"Clear",danger:true})){ setActivityLog([]); try{localStorage.removeItem(ACTIVITY_KEY);}catch(e){} }}} />
         ) : activeTab==="pacing" ? (
-          <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} onEdit={(camp)=>setEditTarget(camp)}
+          <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} lightMode={lightMode} onEdit={(camp)=>setEditTarget(camp)}
             onClearMetrics={(id)=>{
               setCampaigns(cs=>cs.map(c=>{
                 if(c.id!==id) return c;
@@ -10987,7 +11019,7 @@ export default function App() {
                     <DatePicker value={bulkDraft.startDate||""} onChange={v=>setBulkDraft(p=>({...p,startDate:v}))}/>
                   </div>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#fb923c",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>End Date</label>
+                    <label style={{display:"block",fontSize:10,color:"#f97316",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>End Date</label>
                     <DatePicker value={bulkDraft.endDate||""} onChange={v=>setBulkDraft(p=>({...p,endDate:v}))}/>
                   </div>
                   <div>
@@ -11079,7 +11111,7 @@ export default function App() {
 
         {/* Stats */}
         <div style={{display:"flex",gap:9,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
-          {[{label:"Total",val:stats.total,color:"#7a9bbf"},{label:"Active",val:stats.active,color:"#00d48a"},{label:"Ahead",val:stats.ahead,color:"#fb923c"},{label:"Behind",val:stats.behind,color:"#fde047"},{label:"Close to Goal",val:stats.closeToGoal,color:"#00e5c0"},{label:"Off",val:stats.off,color:"#ef4444"},{label:"≤14d End",val:stats.soon,color:"#f87171"},{label:"★ Monthly",val:stats.monthlyFlights,color:"#00e5c0"}].map(s=>(
+          {[{label:"Total",val:stats.total,color:"#7a9bbf"},{label:"Active",val:stats.active,color:"#00d48a"},{label:"Ahead",val:stats.ahead,color:"#f97316"},{label:"Behind",val:stats.behind,color:"#f59e0b"},{label:"Close to Goal",val:stats.closeToGoal,color:"#00e5c0"},{label:"Off",val:stats.off,color:"#ef4444"},{label:"≤14d End",val:stats.soon,color:"#f87171"},{label:"★ Monthly",val:stats.monthlyFlights,color:"#00e5c0"}].map(s=>(
             <div key={s.label} style={{background:"#0e1a2e",border:`1px solid ${s.color}30`,borderRadius:8,padding:"9px 15px",minWidth:75}}>
               <div style={{fontSize:22,fontWeight:800,color:s.color,lineHeight:1,letterSpacing:"-0.02em"}}>{s.val}</div>
               <div style={{fontSize:11,color:"#4d6e8a",marginTop:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>{s.label}</div>
