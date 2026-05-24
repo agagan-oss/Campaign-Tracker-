@@ -4779,7 +4779,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [fPlatforms,     setFPlatforms]     = useState(new Set());
   const [sortKey,        setSortKey]        = useState("pacing"); // pacing | name | partner | platform
   const [clearPendingId, setClearPendingId] = useState(null); // campaign id awaiting clear confirm
-  const [todayOnly,      setTodayOnly]      = useState(false); // show only NOT updated today
+  const [todayFilter,    setTodayFilter]    = useState("all"); // "all" | "today" | "not-today"
   const todayStr = getToday(); // YYYY-MM-DD — matches c.lastChecked format
   const viewMode = "table"; // table-only — card view removed
 
@@ -4820,12 +4820,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   // Apply search + filters
   const q = search.trim().toLowerCase();
-  const notUpdatedCount = allRows.filter(({c})=>c.lastChecked!==todayStr).length;
+  const updatedTodayCount = allRows.filter(({c})=>c.lastChecked===todayStr).length;
+  const notUpdatedCount   = allRows.filter(({c})=>c.lastChecked!==todayStr).length;
   const filtered = allRows.filter(({c})=>{
     if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
-    if(todayOnly && c.lastChecked===todayStr) return false; // hide already-updated; show only gaps
+    if(todayFilter==="today"     && c.lastChecked!==todayStr) return false; // updated today only
+    if(todayFilter==="not-today" && c.lastChecked===todayStr) return false; // not updated only
     return true;
   });
 
@@ -4857,7 +4859,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
   const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
   const noPace  = withGoal.filter(r=>!r.pacing);
-  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || todayOnly;
+  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || todayFilter!=="all";
 
   // Stalled campaigns: campaigns where MTD delivery has not grown since a check-in
   // from at least 1 calendar day ago. Same-day re-imports of the same CSV will NOT trigger this.
@@ -5183,7 +5185,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           <div style={{fontSize:10,color:"#4d6e8a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
           {c.lastChecked===todayStr
             ? <span style={{fontSize:9,color:"#00d48a",fontWeight:700,background:"#00200f",border:"1px solid #00d48a40",borderRadius:3,padding:"0px 4px",flexShrink:0}}>✓ today</span>
-            : <span style={{fontSize:9,color:"#4d6e8a",fontWeight:400,flexShrink:0}}>{c.lastChecked??"—"}</span>
+            : <span style={{fontSize:9,color:"#4d6e8a",fontWeight:400,flexShrink:0}}>{c.lastChecked?(([y,m,d])=>`${m}/${d}/${y}`)(c.lastChecked.split("-")):"—"}</span>
           }
         </div>
       </div>
@@ -5357,10 +5359,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         {partners.map(p=><option key={p} value={p}>{p==="all"?"All Partners":p}</option>)}
       </select>
       <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
-      <button onClick={()=>setTodayOnly(v=>!v)} title="Show only campaigns not updated today"
-        style={{background:todayOnly?"#1a0e00":"#0e1a2e",border:"1px solid "+(todayOnly?"#f97316":"#1e293b"),borderRadius:7,padding:"5px 11px",color:todayOnly?"#f97316":"#4d6e8a",fontSize:11,fontWeight:todayOnly?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>
-        📅 Not Updated{notUpdatedCount>0?` (${notUpdatedCount})`:""}
-      </button>
+      <div style={{display:"flex",borderRadius:7,overflow:"hidden",border:"1px solid #1e293b",flexShrink:0}}>
+        <button onClick={()=>setTodayFilter(v=>v==="today"?"all":"today")} title="Show only campaigns updated today"
+          style={{background:todayFilter==="today"?"#001a14":"#0e1a2e",borderRight:"1px solid #1e293b",padding:"5px 10px",color:todayFilter==="today"?"#00d48a":"#4d6e8a",fontSize:11,fontWeight:todayFilter==="today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none",borderRight:"1px solid #1e293b"}}>
+          ✓ Updated{updatedTodayCount>0?` (${updatedTodayCount})`:""}
+        </button>
+        <button onClick={()=>setTodayFilter(v=>v==="not-today"?"all":"not-today")} title="Show only campaigns not updated today"
+          style={{background:todayFilter==="not-today"?"#1a0e00":"#0e1a2e",padding:"5px 10px",color:todayFilter==="not-today"?"#f97316":"#4d6e8a",fontSize:11,fontWeight:todayFilter==="not-today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none"}}>
+          ✕ Not Updated{notUpdatedCount>0?` (${notUpdatedCount})`:""}
+        </button>
+      </div>
       <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
         <span style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
         {[["pacing","Pacing"],["gap","Gap"],["impr","Impr"],["days","Days"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
@@ -5373,7 +5381,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     </div>
     {anyFilter&&<div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
       <span style={{fontSize:11,color:"#4d6e8a"}}>Showing {filtered.length} of {allActive.length}</span>
-      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayOnly(false);}} style={{background:"none",border:"1px solid #334155",borderRadius:5,padding:"2px 8px",color:"#7a9bbf",fontSize:11,cursor:"pointer"}}>Clear filters</button>
+      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayFilter("all");}} style={{background:"none",border:"1px solid #334155",borderRadius:5,padding:"2px 8px",color:"#7a9bbf",fontSize:11,cursor:"pointer"}}>Clear filters</button>
     </div>}
 
     {/* Benchmark legend — compact, replaces the pill boxes */}
