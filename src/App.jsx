@@ -45,6 +45,9 @@ const PLT_COLORS_DEFAULT = {
   IG:"#e1306c", default:"#4d6e8a"
 };
 const PLT_COLORS = (()=>{const c=loadCustomPlatforms();return{...PLT_COLORS_DEFAULT,...c.colors};})();
+// Global light-mode flag — set each render by the root component so child components
+// without a lightMode prop (StatusBadge, PlatformTag, RowActions) can read it.
+let _lm = false;
 
 function getToday() { return new Date().toISOString().split("T")[0]; }
 function fmt(d) { return d.toISOString().split("T")[0]; }
@@ -292,15 +295,15 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
     <div style={{width:"100%"}}>
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-        <button onClick={prev} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"6px 16px",color:"#7a9bbf",cursor:"pointer",fontSize:16}}>←</button>
-        <span style={{color:"#edf4ff",fontWeight:700,fontSize:16}}>{monthName}</span>
-        <button onClick={next} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"6px 16px",color:"#7a9bbf",cursor:"pointer",fontSize:16}}>→</button>
+        <button onClick={prev} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"6px 16px",color:_lm?"#475569":"#7a9bbf",cursor:"pointer",fontSize:16}}>←</button>
+        <span style={{color:_lm?"#0f172a":"#edf4ff",fontWeight:700,fontSize:16}}>{monthName}</span>
+        <button onClick={next} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"6px 16px",color:_lm?"#475569":"#7a9bbf",cursor:"pointer",fontSize:16}}>→</button>
       </div>
 
       {/* Day-of-week headers */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:3}}>
         {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>(
-          <div key={d} style={{textAlign:"center",fontSize:11,color:"#3d5a72",fontWeight:700,padding:"6px 0",textTransform:"uppercase",letterSpacing:"0.06em"}}>{d}</div>
+          <div key={d} style={{textAlign:"center",fontSize:11,color:_lm?"#94a3b8":"#3d5a72",fontWeight:700,padding:"6px 0",textTransform:"uppercase",letterSpacing:"0.06em"}}>{d}</div>
         ))}
       </div>
 
@@ -308,7 +311,7 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
       <div style={{position:"relative"}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
         {cells.map((d,i) => {
-          if (!d) return <div key={"e"+i} style={{height:120,background:"#06090f",borderRadius:7,border:"1px solid #0d1525"}}/>;
+          if (!d) return <div key={"e"+i} style={{height:120,background:_lm?"#f8fafc":"#06090f",borderRadius:7,border:`1px solid ${_lm?"#f1f5f9":"#0d1525"}`}}/>;
           const ds = dateStr(d);
           const isToday = ds===today;
           const isPast = ds<today;
@@ -316,15 +319,15 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
           const hasOverdue = isPast && dayRems.length>0;
           return (
             <div key={d} onClick={()=>setSelected(selected===d?null:d)}
-              style={{background:selected===d?"#002e24":isToday?"#0c1e30":"#0a1525",
-                border:`1px solid ${selected===d?"#00c896":isToday?"#00c89650":hasOverdue?"#ef444430":"#1e293b"}`,
+              style={{background:selected===d?(_lm?"#f0fdf9":"#002e24"):isToday?(_lm?"#eff6ff":"#0c1e30"):(_lm?"#ffffff":"#0a1525"),
+                border:`1px solid ${selected===d?"#00c896":isToday?(_lm?"#00c896":"#00c89650"):hasOverdue?(_lm?"#ef4444":"#ef444430"):(_lm?"#e2e8f0":"#1e293b")}`,
                 borderRadius:7,padding:"8px 7px",height:120,
                 display:"flex",flexDirection:"column",gap:3,cursor:"pointer",overflow:"hidden"}}>
               {/* Date number + add button */}
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
                 <span style={{fontSize:13,fontWeight:isToday?700:500,
-                  color:isToday?"#00e5a0":isPast?"#3d5a72":"#a8c4e0",
-                  background:isToday?"#003d28":undefined,
+                  color:isToday?(_lm?"#059669":"#00e5a0"):isPast?(_lm?"#94a3b8":"#3d5a72"):(_lm?"#0f172a":"#a8c4e0"),
+                  background:isToday?(_lm?"#d1fae5":"#003d28"):undefined,
                   borderRadius:isToday?12:undefined,
                   padding:isToday?"1px 7px":undefined,
                   lineHeight:1.6}}>{d}</span>
@@ -340,8 +343,8 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
                   const camp = campaigns.find(c=>c.id===r.campaignId);
                   return (
                     <div key={r.id} title={[rt.label, camp?.campaignName?.trim(), r.note].filter(Boolean).join(' · ')}
-                      style={{background:isPast?"#1a0808":(rt.color+"15"),
-                        border:`1px solid ${isPast?"#ef444430":(rt.color+"40")}`,
+                      style={{background:isPast?(_lm?"#fee2e2":"#1a0808"):(_lm?(rt.color+"22"):(rt.color+"15")),
+                        border:`1px solid ${isPast?(_lm?"#fca5a5":"#ef444430"):(_lm?(rt.color+"60"):(rt.color+"40"))}`,
                         borderRadius:4,padding:"2px 5px",
                         display:"flex",alignItems:"center",gap:3,overflow:"hidden"}}>
                       <div style={{width:5,height:5,borderRadius:"50%",
@@ -351,11 +354,11 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
                         whiteSpace:"nowrap",flexShrink:0}}>
                         {rt.label.replace(/^\S+\s/,"")}
                       </span>
-                      {camp && <span style={{fontSize:9,color:"#00e5a0",
+                      {camp && <span style={{fontSize:9,color:_lm?"#059669":"#00e5a0",
                         whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:1}}>
                         · {camp.campaignName.trim()}
                       </span>}
-                      {!camp && r.note && <span style={{fontSize:9,color:"#4d6e8a",
+                      {!camp && r.note && <span style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",
                         whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flex:1}}>
                         {r.note}
                       </span>}
@@ -363,7 +366,7 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
                   );
                 })}
                 {dayRems.length>3 && (
-                  <div style={{fontSize:9,color:"#4d6e8a",paddingLeft:10}}>
+                  <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",paddingLeft:10}}>
                     +{dayRems.length-3} more
                   </div>
                 )}
@@ -392,61 +395,61 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
             position:"absolute", left:0, right:0, zIndex:50,
             top: showBelow ? topOffset : undefined,
             bottom: !showBelow ? bottomOffset : undefined,
-            background:"#07101c",border:"1px solid #00c89640",borderRadius:10,
-            padding:"14px 18px",boxShadow:"0 8px 40px rgba(0,0,0,0.8)",
+            background:_lm?"#ffffff":"#07101c",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:10,
+            padding:"14px 18px",boxShadow:_lm?"0 8px 40px rgba(0,0,0,0.15)":"0 8px 40px rgba(0,0,0,0.8)",
             maxHeight:"70vh", overflowY:"auto"}}>            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-              <span style={{fontSize:13,color:"#00e5a0",fontWeight:700}}>{selLabel}</span>
+              <span style={{fontSize:13,color:_lm?"#059669":"#00e5a0",fontWeight:700}}>{selLabel}</span>
               <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>onAdd(selDateStr)} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"4px 12px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Add</button>
-                <button onClick={()=>setSelected(null)} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"4px 10px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>×</button>
+                <button onClick={()=>onAdd(selDateStr)} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:6,padding:"4px 12px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Add</button>
+                <button onClick={()=>setSelected(null)} style={{background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:6,padding:"4px 10px",color:_lm?"#475569":"#4d6e8a",fontSize:12,cursor:"pointer"}}>×</button>
               </div>
             </div>
             {selRems.length===0
-              ? <div style={{fontSize:12,color:"#3d5a72",textAlign:"center",padding:"12px 0"}}>No reminders — click + Add to create one</div>
+              ? <div style={{fontSize:12,color:_lm?"#94a3b8":"#3d5a72",textAlign:"center",padding:"12px 0"}}>No reminders — click + Add to create one</div>
               : selRems.map(r => {
                   const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
                   const camp = campaigns.find(c=>c.id===r.campaignId);
                   const isEditing = editingCalReminder === r.id;
-                  const calIS = {background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
+                  const calIS = {background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
                   if (isEditing) return (
-                    <div key={r.id} style={{padding:"10px 0",borderBottom:"1px solid #1a2744"}}>
-                      <div style={{background:"#0a1628",border:"1px solid #00c89640",borderRadius:8,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+                    <div key={r.id} style={{padding:"10px 0",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+                      <div style={{background:_lm?"#f0fdf9":"#0a1628",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:8,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                           <div>
-                            <label style={{display:"block",fontSize:9,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Type</label>
+                            <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Type</label>
                             <select value={editCalDraft.type} onChange={e=>setEditCalDraft(p=>({...p,type:e.target.value}))} style={calIS}>
                               {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
                             </select>
                           </div>
                           <div>
-                            <label style={{display:"block",fontSize:9,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Date</label>
+                            <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Date</label>
                             <DatePicker value={editCalDraft.date} onChange={v=>setEditCalDraft(p=>({...p,date:v}))}/>
                           </div>
                         </div>
                         <div>
-                          <label style={{display:"block",fontSize:9,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note</label>
+                          <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note</label>
                           <textarea value={editCalDraft.note} onChange={e=>setEditCalDraft(p=>({...p,note:e.target.value}))} placeholder="Note (optional)" rows={3} style={{...calIS,resize:"vertical",lineHeight:1.6,minHeight:64}}/>
                         </div>
                         <div style={{display:"flex",gap:6}}>
-                          <button onClick={()=>saveCalEdit(r.id)} disabled={!editCalDraft.date} style={{flex:1,background:editCalDraft.date?"#00c896":"#162236",border:"none",borderRadius:5,padding:"6px 0",color:editCalDraft.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:editCalDraft.date?"pointer":"default"}}>Save</button>
-                          <button onClick={cancelCalEdit} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 0",color:"#7a9bbf",fontSize:12,cursor:"pointer"}}>Cancel</button>
+                          <button onClick={()=>saveCalEdit(r.id)} disabled={!editCalDraft.date} style={{flex:1,background:editCalDraft.date?"#00e19e":(_lm?"#f1f5f9":"#162236"),border:"none",borderRadius:5,padding:"6px 0",color:editCalDraft.date?"#0a1a0a":(_lm?"#94a3b8":"#3d5a72"),fontSize:12,fontWeight:700,cursor:editCalDraft.date?"pointer":"default"}}>Save</button>
+                          <button onClick={cancelCalEdit} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px 0",color:_lm?"#475569":"#7a9bbf",fontSize:12,cursor:"pointer"}}>Cancel</button>
                         </div>
                       </div>
                     </div>
                   );
                   return (
-                    <div key={r.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",borderBottom:"1px solid #1a2744"}}>
+                    <div key={r.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
                       <div style={{width:9,height:9,borderRadius:"50%",background:isPast?"#ef4444":rt.color,flexShrink:0,marginTop:3}}/>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:12,color:isPast?"#ef4444":rt.color,fontWeight:700,marginBottom:2}}>{rt.label}</div>
-                        {camp && <div style={{fontSize:11,color:"#a8c4e0",fontWeight:600,marginBottom:2}}>{camp.campaignName.trim()} <span style={{color:"#3d5a72",fontWeight:400}}>· {camp.platform} · {camp.mediaPartner}</span></div>}
-                        {r.note && <div style={{fontSize:12,color:"#7a9bbf",lineHeight:1.5}}>{r.note}</div>}
-                        {r.repeat!=="none" && <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>↻ Repeats {r.repeat}</div>}
+                        {camp && <div style={{fontSize:11,color:_lm?"#334155":"#a8c4e0",fontWeight:600,marginBottom:2}}>{camp.campaignName.trim()} <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400}}>· {camp.platform} · {camp.mediaPartner}</span></div>}
+                        {r.note && <div style={{fontSize:12,color:_lm?"#475569":"#7a9bbf",lineHeight:1.5}}>{r.note}</div>}
+                        {r.repeat!=="none" && <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>↻ Repeats {r.repeat}</div>}
                       </div>
                       <div style={{display:"flex",gap:5,flexShrink:0}}>
-                        <button onClick={()=>startCalEdit(r)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:4,color:"#00e5a0",fontSize:11,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
-                        <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00d48a",fontSize:11,padding:"3px 8px",cursor:"pointer"}}>✓ Done</button>
-                        <button onClick={()=>setReminders(prev=>prev.filter(x=>x.id!==r.id))} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,color:"#ef4444",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✕</button>
+                        <button onClick={()=>startCalEdit(r)} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89650"}`,borderRadius:4,color:_lm?"#0a1a0a":"#00e5a0",fontSize:11,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>
+                        <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:_lm?"#f0fdf9":"#002018",border:`1px solid ${_lm?"#00c896":"#22c55e40"}`,borderRadius:4,color:_lm?"#059669":"#00d48a",fontSize:11,padding:"3px 8px",cursor:"pointer"}}>✓ Done</button>
+                        <button onClick={()=>setReminders(prev=>prev.filter(x=>x.id!==r.id))} style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444440"}`,borderRadius:4,color:"#ef4444",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✕</button>
                       </div>
                     </div>
                   );
@@ -458,11 +461,11 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
       </div>
 
       {/* Legend */}
-      <div style={{display:"flex",flexWrap:"wrap",gap:12,marginTop:14,padding:"8px 0",borderTop:"1px solid #1e293b"}}>
+      <div style={{display:"flex",flexWrap:"wrap",gap:12,marginTop:14,padding:"8px 0",borderTop:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`}}>
         {REMINDER_TYPES.map(t=>(
           <div key={t.value} style={{display:"flex",alignItems:"center",gap:5}}>
             <div style={{width:8,height:8,borderRadius:"50%",background:t.color,flexShrink:0}}/>
-            <span style={{fontSize:10,color:"#4d6e8a"}}>{t.label.replace(/^\S+\s/,"")}</span>
+            <span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a"}}>{t.label.replace(/^\S+\s/,"")}</span>
           </div>
         ))}
       </div>
@@ -518,7 +521,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
   const upcoming = sorted.filter(r=>!r.dismissed && r.date>=today && matchesSearch(r));
   const done     = sorted.filter(r=>r.dismissed                   && matchesSearch(r));
 
-  const iS = { width:"100%", background:"#162236", border:"1px solid #334155", borderRadius:6, padding:"7px 10px", color:"#d8eaf8", fontSize:13, boxSizing:"border-box", fontFamily:"inherit" };
+  const iS = { width:"100%", background:_lm?"#f8fafc":"#162236", border:`1px solid ${_lm?"#e2e8f0":"#334155"}`, borderRadius:6, padding:"7px 10px", color:_lm?"#0f172a":"#d8eaf8", fontSize:13, boxSizing:"border-box", fontFamily:"inherit" };
 
   const ReminderCard = ({ r, showEdit=true }) => {
     const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
@@ -527,7 +530,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
     const isPast = r.date<today;
     const pCol = camp ? (PLT_COLORS[camp.platform]||PLT_COLORS.default) : "#4d6e8a";
     return (
-      <div style={{background:isPast?"#1a0808":"#0e1a2e",border:`1px solid ${isPast?"#ef444440":rt.color+"30"}`,borderRadius:8,padding:"10px 13px",marginBottom:7,display:"flex",gap:10,alignItems:"flex-start"}}>
+      <div style={{background:isPast?(_lm?"#fee2e2":"#1a0808"):(_lm?"#f8fafc":"#0e1a2e"),border:`1px solid ${isPast?(_lm?"#fca5a5":"#ef444440"):(_lm?(rt.color+"50"):(rt.color+"30"))}`,borderRadius:8,padding:"10px 13px",marginBottom:7,display:"flex",gap:10,alignItems:"flex-start"}}>
         <div style={{flex:1,minWidth:0}}>
           <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:3}}>
             <span style={{fontSize:12,color:rt.color,fontWeight:700}}>{rt.label}</span>
@@ -548,8 +551,8 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
               {isPast?`${Math.abs(dLeft)}d overdue`:dLeft===0?"Today!":`in ${dLeft}d`} · {fmtDate(r.date)}
             </span>
           </div>
-          {r.note && <div style={{fontSize:12,color:"#7a9bbf",lineHeight:1.4}}>{r.note}</div>}
-          {r.repeat!=="none" && <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>↻ Repeats {r.repeat}</div>}
+          {r.note && <div style={{fontSize:12,color:_lm?"#475569":"#7a9bbf",lineHeight:1.4}}>{r.note}</div>}
+          {r.repeat!=="none" && <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>↻ Repeats {r.repeat}</div>}
         </div>
         <div style={{display:"flex",gap:5,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
           {/* Snooze buttons */}
@@ -563,14 +566,14 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
             return (
               <button key={days} onClick={snooze}
                 title={`Push ${days} day${days>1?"s":""}`}
-                style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",fontSize:10,padding:"3px 7px",cursor:"pointer",whiteSpace:"nowrap"}}>
+                style={{background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:4,color:_lm?"#475569":"#7a9bbf",fontSize:10,padding:"3px 7px",cursor:"pointer",whiteSpace:"nowrap"}}>
                 +{days}d
               </button>
             );
           })}
-          {showEdit && <button onClick={()=>edit(r)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:4,color:"#00e5a0",fontSize:11,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>}
-          {!r.dismissed && <button onClick={()=>dismiss(r.id)} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00d48a",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✓ Done</button>}
-          <button onClick={()=>del(r.id)} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:4,color:"#ef4444",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✕</button>
+          {showEdit && <button onClick={()=>edit(r)} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89650"}`,borderRadius:4,color:_lm?"#0a1a0a":"#00e5a0",fontSize:11,padding:"3px 7px",cursor:"pointer",fontWeight:600}}>Edit</button>}
+          {!r.dismissed && <button onClick={()=>dismiss(r.id)} style={{background:_lm?"#f0fdf9":"#002018",border:`1px solid ${_lm?"#00c896":"#22c55e40"}`,borderRadius:4,color:_lm?"#059669":"#00d48a",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✓ Done</button>}
+          <button onClick={()=>del(r.id)} style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444440"}`,borderRadius:4,color:"#ef4444",fontSize:11,padding:"3px 7px",cursor:"pointer"}}>✕</button>
         </div>
       </div>
     );
@@ -579,44 +582,44 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
   const reminderBackdrop = useBackdropClose(onClose);
   return (
     <div {...reminderBackdrop} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:14,padding:24,width:view==="calendar"?"min(1600px,98vw)":"min(920px,96vw)",maxHeight:"96vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:14,padding:24,width:view==="calendar"?"min(1600px,98vw)":"min(920px,96vw)",maxHeight:"96vh",overflowY:"auto",boxShadow:_lm?"0 30px 80px rgba(0,0,0,.15)":"0 30px 80px rgba(0,0,0,.9)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:16,fontWeight:800,color:"#edf4ff"}}>🔔 Reminders</span>
+            <span style={{fontSize:16,fontWeight:800,color:_lm?"#0f172a":"#edf4ff"}}>🔔 Reminders</span>
             {reminders.filter(r=>!r.dismissed).length>0 && (
               <span style={{background:"#ef4444",color:"#fff",borderRadius:10,padding:"1px 7px",fontSize:11,fontWeight:700}}>{reminders.filter(r=>!r.dismissed).length}</span>
             )}
           </div>
           <div style={{display:"flex",gap:7}}>
             {view!=="add" && (
-              <div style={{display:"flex",background:"#0a1525",border:"1px solid #1e293b",borderRadius:7,overflow:"hidden"}}>
+              <div style={{display:"flex",background:_lm?"#f1f5f9":"#0a1525",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:7,overflow:"hidden"}}>
                 {["list","calendar"].map(v=>(
-                  <button key={v} onClick={()=>setView(v)} style={{background:view===v?"#162236":"transparent",border:"none",padding:"5px 12px",color:view===v?"#00e5a0":"#3d5a72",fontSize:12,fontWeight:view===v?700:400,cursor:"pointer"}}>
+                  <button key={v} onClick={()=>setView(v)} style={{background:view===v?(_lm?"#ffffff":"#162236"):"transparent",border:"none",padding:"5px 12px",color:view===v?(_lm?"#059669":"#00e5a0"):(_lm?"#94a3b8":"#3d5a72"),fontSize:12,fontWeight:view===v?700:400,cursor:"pointer"}}>
                     {v==="list"?"📋 List":"📅 Calendar"}
                   </button>
                 ))}
               </div>
             )}
-            <button onClick={()=>{ setForm(blank); setView(view==="add"?"list":"add"); }} style={{background:view==="add"?"#002e24":"#162236",border:`1px solid ${view==="add"?"#00c89640":"#334155"}`,borderRadius:7,padding:"5px 13px",color:view==="add"?"#00e5a0":"#7a9bbf",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+            <button onClick={()=>{ setForm(blank); setView(view==="add"?"list":"add"); }} style={{background:view==="add"?(_lm?"#f0fdf9":"#002e24"):(_lm?"#f1f5f9":"#162236"),border:`1px solid ${view==="add"?(_lm?"#00c896":"#00c89640"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:7,padding:"5px 13px",color:view==="add"?(_lm?"#059669":"#00e5a0"):(_lm?"#475569":"#7a9bbf"),fontSize:12,fontWeight:700,cursor:"pointer"}}>
               {view==="add"?"← Back":"+ Add"}
             </button>
-            <button onClick={onClose} style={{background:"none",border:"none",color:"#4d6e8a",cursor:"pointer",fontSize:22,lineHeight:1,padding:0}}>×</button>
+            <button onClick={onClose} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",cursor:"pointer",fontSize:22,lineHeight:1,padding:0}}>×</button>
           </div>
         </div>
 
         {view==="list" && (
           <div style={{marginBottom:14}}>
             {focusCampaign && (
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#002e24",border:"1px solid #00c89640",borderRadius:7,padding:"7px 12px",marginBottom:8}}>
-                <span style={{fontSize:12,color:"#00e5a0",fontWeight:600}}>🔔 Reminders for <span style={{color:"#edf4ff"}}>{focusCampaign.campaignName.trim()}</span></span>
-                <button onClick={()=>setSearch("")} style={{background:"none",border:"none",color:"#4d6e8a",fontSize:11,cursor:"pointer",padding:0,whiteSpace:"nowrap"}}>Show all ×</button>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:7,padding:"7px 12px",marginBottom:8}}>
+                <span style={{fontSize:12,color:_lm?"#059669":"#00e5a0",fontWeight:600}}>🔔 Reminders for <span style={{color:_lm?"#0f172a":"#edf4ff"}}>{focusCampaign.campaignName.trim()}</span></span>
+                <button onClick={()=>setSearch("")} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",fontSize:11,cursor:"pointer",padding:0,whiteSpace:"nowrap"}}>Show all ×</button>
               </div>
             )}
             <input
               value={search}
               onChange={e=>setSearch(e.target.value)}
               placeholder="Search by campaign, type, note, date…"
-              style={{width:"100%",background:"#0a1525",border:"1px solid #1e293b",borderRadius:7,padding:"7px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",outline:"none"}}
+              style={{width:"100%",background:_lm?"#f8fafc":"#0a1525",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:7,padding:"7px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",outline:"none"}}
             />
           </div>
         )}
@@ -625,29 +628,29 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
             {/* Type + Date side by side at the top */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
               <div>
-                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Reminder Type</label>
+                <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Reminder Type</label>
                 <select value={form.type} onChange={e=>sf("type",e.target.value)} style={iS}>
                   {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
               </div>
               <div>
-                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Due Date *</label>
+                <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Due Date *</label>
                 <DatePicker value={form.date} onChange={v=>sf("date",v)}/>
               </div>
             </div>
             <div style={{marginBottom:12}}>
-              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Campaign (optional)</label>
+              <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Campaign (optional)</label>
               <select value={form.campaignId||""} onChange={e=>sf("campaignId",e.target.value?parseInt(e.target.value):"")} style={iS}>
                 <option value="">— No specific campaign —</option>
                 {campaigns.map(c=><option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}</option>)}
               </select>
             </div>
             <div style={{marginBottom:12}}>
-              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note</label>
+              <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note</label>
               <textarea value={form.note} onChange={e=>sf("note",e.target.value)} placeholder="e.g. Swap March creatives for April" style={{...iS,resize:"vertical",minHeight:90,lineHeight:1.6}}/>
             </div>
             <div style={{marginBottom:18}}>
-              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Repeat</label>
+              <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Repeat</label>
               <select value={form.repeat} onChange={e=>sf("repeat",e.target.value)} style={iS}>
                 <option value="none">No repeat</option>
                 <option value="weekly">Weekly</option>
@@ -655,10 +658,10 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
               </select>
             </div>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={save} disabled={!form.date} style={{flex:1,background:form.date?"#00c896":"#162236",border:"none",borderRadius:7,padding:"10px 0",color:form.date?"#fff":"#3d5a72",fontWeight:700,fontSize:14,cursor:form.date?"pointer":"default"}}>
+              <button onClick={save} disabled={!form.date} style={{flex:1,background:form.date?"#00e19e":(_lm?"#f1f5f9":"#162236"),border:"none",borderRadius:7,padding:"10px 0",color:form.date?"#0a1a0a":(_lm?"#94a3b8":"#3d5a72"),fontWeight:700,fontSize:14,cursor:form.date?"pointer":"default"}}>
                 {form.id?"Update Reminder":"Save Reminder"}
               </button>
-              <button onClick={()=>{ setForm(blank); setView("list"); }} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"10px 0",color:"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>Cancel</button>
+              <button onClick={()=>{ setForm(blank); setView("list"); }} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"10px 0",color:_lm?"#475569":"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>Cancel</button>
             </div>
           </div>
         ) : view==="calendar" ? (
@@ -667,25 +670,25 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
           <div>
             {overdue.length>0 && (
               <div style={{marginBottom:16}}>
-                <div style={{fontSize:11,color:"#ef4444",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:7}}>⚠ Overdue ({overdue.length})</div>
+                <div style={{fontSize:11,color:"#ef4444",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:7,}}>⚠ Overdue ({overdue.length})</div>
                 {overdue.map(r=><ReminderCard key={r.id} r={r}/>)}
               </div>
             )}
             {upcoming.length>0 && (
               <div style={{marginBottom:16}}>
-                <div style={{fontSize:11,color:"#00d48a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:7}}>Upcoming ({upcoming.length})</div>
+                <div style={{fontSize:11,color:_lm?"#059669":"#00d48a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:7}}>Upcoming ({upcoming.length})</div>
                 {upcoming.map(r=><ReminderCard key={r.id} r={r}/>)}
               </div>
             )}
             {overdue.length===0 && upcoming.length===0 && (
-              <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72"}}>
+              <div style={{textAlign:"center",padding:"30px 0",color:_lm?"#94a3b8":"#3d5a72"}}>
                 <div style={{fontSize:28,marginBottom:8}}>✅</div>
                 <div style={{fontSize:13}}>No active reminders. Add one above!</div>
               </div>
             )}
             {done.length>0 && (
               <details style={{marginTop:8}}>
-                <summary style={{fontSize:11,color:"#3d5a72",cursor:"pointer",marginBottom:7,userSelect:"none"}}>Completed ({done.length})</summary>
+                <summary style={{fontSize:11,color:_lm?"#94a3b8":"#3d5a72",cursor:"pointer",marginBottom:7,userSelect:"none"}}>Completed ({done.length})</summary>
                 <div style={{opacity:.55}}>{done.map(r=><ReminderCard key={r.id} r={r} showEdit={false}/>)}</div>
               </details>
             )}
@@ -703,7 +706,7 @@ function ReminderAlertBanner({ reminders, onOpen, onDismissAll }) {
   const overdue  = due.filter(r=>r.date<today);
   const todayDue = due.filter(r=>r.date===today);
   return (
-    <div style={{background:"#130a00",border:"1px solid #f59e0b60",borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+    <div style={{background:_lm?"#fffbeb":"#130a00",border:`1px solid ${_lm?"#f59e0b":"#f59e0b60"}`,borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
       <div style={{display:"flex",alignItems:"center",gap:10}}>
         <span style={{fontSize:20}}>🔔</span>
         <div>
@@ -712,7 +715,7 @@ function ReminderAlertBanner({ reminders, onOpen, onDismissAll }) {
             {overdue.length>0 && todayDue.length>0 && " · "}
             {todayDue.length>0 && `${todayDue.length} due today`}
           </div>
-          <div style={{color:"#92400e",fontSize:11,marginTop:1}}>
+          <div style={{color:_lm?"#92400e":"#92400e",fontSize:11,marginTop:1}}>
             {due.slice(0,2).map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5]; return <span key={r.id} style={{marginRight:10}}>{rt.label}{r.note?` — ${r.note.slice(0,40)}${r.note.length>40?"…":""}`:""}</span>; })}
             {due.length>2 && <span style={{color:"#78350f"}}>+{due.length-2} more…</span>}
           </div>
@@ -720,7 +723,7 @@ function ReminderAlertBanner({ reminders, onOpen, onDismissAll }) {
       </div>
       <div style={{display:"flex",gap:8}}>
         <button onClick={onOpen} style={{background:"#f59e0b",border:"none",borderRadius:7,padding:"7px 16px",color:"#000",fontWeight:700,fontSize:12,cursor:"pointer"}}>View All</button>
-        <button onClick={onDismissAll} style={{background:"none",border:"1px solid #92400e",borderRadius:7,padding:"7px 12px",color:"#92400e",fontWeight:600,fontSize:12,cursor:"pointer"}}>Dismiss All</button>
+        <button onClick={onDismissAll} style={{background:_lm?"none":"none",border:"1px solid #92400e",borderRadius:7,padding:"7px 12px",color:"#92400e",fontWeight:600,fontSize:12,cursor:"pointer"}}>Dismiss All</button>
       </div>
     </div>
   );
@@ -731,13 +734,13 @@ function ConfirmDialog({ dialog, onResolve }) {
   if (!dialog) return null;
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,backdropFilter:"blur(3px)"}}>
-      <div style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:12,padding:"24px 28px",width:"min(420px,90vw)",boxShadow:"0 20px 60px rgba(0,0,0,.9)"}}>
-        <div style={{fontSize:14,color:"#edf4ff",fontWeight:600,marginBottom:8,lineHeight:1.5}}>{dialog.title||"Are you sure?"}</div>
-        {dialog.message && <div style={{fontSize:12,color:"#7a9bbf",marginBottom:20,lineHeight:1.6}}>{dialog.message}</div>}
+      <div style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 20px 60px rgba(0,0,0,.15)":"0 20px 60px rgba(0,0,0,.9)",borderRadius:12,padding:"24px 28px",width:"min(420px,90vw)"}}>
+        <div style={{fontSize:14,color:_lm?"#0f172a":"#edf4ff",fontWeight:600,marginBottom:8,lineHeight:1.5}}>{dialog.title||"Are you sure?"}</div>
+        {dialog.message && <div style={{fontSize:12,color:_lm?"#64748b":"#7a9bbf",marginBottom:20,lineHeight:1.6}}>{dialog.message}</div>}
         {!dialog.message && <div style={{marginBottom:20}}/>}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-          <button onClick={()=>onResolve(false)} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"8px 18px",color:"#7a9bbf",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancel</button>
-          <button onClick={()=>onResolve(true)} style={{background:dialog.danger?"#7f1d1d":"#002e24",border:`1px solid ${dialog.danger?"#ef444460":"#00c89650"}`,borderRadius:7,padding:"8px 18px",color:dialog.danger?"#ef4444":"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer"}}>{dialog.confirmLabel||"OK"}</button>
+          <button onClick={()=>onResolve(false)} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"8px 18px",color:_lm?"#475569":"#7a9bbf",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancel</button>
+          <button onClick={()=>onResolve(true)} style={{background:dialog.danger?(_lm?"#fee2e2":"#7f1d1d"):(_lm?"#00e19e":"#002e24"),border:`1px solid ${dialog.danger?(_lm?"#fca5a5":"#ef444460"):(_lm?"#00c896":"#00c89650")}`,borderRadius:7,padding:"8px 18px",color:dialog.danger?"#ef4444":(_lm?"#0a1a0a":"#00e5a0"),fontSize:13,fontWeight:700,cursor:"pointer"}}>{dialog.confirmLabel||"OK"}</button>
         </div>
       </div>
     </div>
@@ -766,8 +769,8 @@ function DarkCheckbox({ checked, onChange, indeterminate=false }) {
       onClick={e=>{ e.stopPropagation(); onChange({target:{checked:!checked}}); }}
       style={{
         width:14, height:14, borderRadius:3, flexShrink:0, cursor:"pointer",
-        background: checked ? "#00c896" : "#0e1a2e",
-        border: `1.5px solid ${checked ? "#00c896" : indeterminate ? "#00c896" : "#334155"}`,
+        background: checked ? "#00c896" : (_lm?"#f1f5f9":"#0e1a2e"),
+        border: `1.5px solid ${checked ? "#00c896" : indeterminate ? "#00c896" : (_lm?"#cbd5e1":"#334155")}`,
         display:"flex", alignItems:"center", justifyContent:"center",
         transition:"all .12s", boxShadow: checked ? "0 0 6px #00c89640" : "none",
       }}
@@ -780,10 +783,20 @@ function DarkCheckbox({ checked, onChange, indeterminate=false }) {
 
 function StatusBadge({ status }) {
   const c = STATUS_CFG[status||""]||STATUS_CFG[""];
+  if (_lm) {
+    // Light mode: solid vivid fill with dark text — filled, electric, readable
+    return <span style={{background:c.color,color:"#0a1a0a",border:"none",borderRadius:4,padding:"2px 9px",fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{c.label}</span>;
+  }
   return <span style={{background:c.bg,color:c.color,border:`1px solid ${c.color}40`,borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{c.label}</span>;
 }
 function PlatformTag({ p }) {
   const col = PLT_COLORS[p]||PLT_COLORS.default;
+  if (_lm) {
+    // Solid fill — compute luminance to pick dark vs white text
+    const r=parseInt(col.slice(1,3),16)/255,g=parseInt(col.slice(3,5),16)/255,b=parseInt(col.slice(5,7),16)/255;
+    const txt = (0.299*r+0.587*g+0.114*b) > 0.45 ? "#0a1a0a" : "#ffffff";
+    return <span style={{background:col,color:txt,border:"none",borderRadius:3,padding:"1px 7px",fontSize:11,fontWeight:700,letterSpacing:"0.08em"}}>{p}</span>;
+  }
   return <span style={{background:col+"22",color:col,border:`1px solid ${col}55`,borderRadius:3,padding:"1px 7px",fontSize:11,fontWeight:700,letterSpacing:"0.08em"}}>{p}</span>;
 }
 function EndChip({ d }) {
@@ -826,11 +839,11 @@ function RowActions({ c, onEdit, onRenew, onDuplicate, onDelete, onArchive }) {
   return (
     <div ref={ref} style={{display:"flex",gap:5,alignItems:"center",position:"relative"}}>
       <button onClick={onEdit}
-        style={{background:"#1a0e00",border:"1px solid #f9731660",borderRadius:5,color:"#f97316",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>
+        style={{background:_lm?"#f1f5f9":"#1a0e00",border:_lm?"1px solid #cbd5e1":"1px solid #f9731660",borderRadius:5,color:_lm?"#334155":"#f97316",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>
         Edit
       </button>
       <button ref={btnRef} onClick={handleOpen}
-        style={{background:open?"#162236":"#0e1a2e",border:`1px solid ${open?"#334155":"#1e293b"}`,borderRadius:5,color:"#4d6e8a",fontSize:12,padding:"3px 6px",cursor:"pointer",lineHeight:1,fontWeight:700,letterSpacing:"0.05em"}}
+        style={{background:_lm?(open?"#e2e8f0":"#f1f5f9"):(open?"#162236":"#0e1a2e"),border:`1px solid ${_lm?(open?"#94a3b8":"#cbd5e1"):(open?"#334155":"#1e293b")}`,borderRadius:5,color:_lm?"#475569":"#4d6e8a",fontSize:12,padding:"3px 6px",cursor:"pointer",lineHeight:1,fontWeight:700,letterSpacing:"0.05em"}}
         title="More actions">
         ···
       </button>
@@ -841,29 +854,29 @@ function RowActions({ c, onEdit, onRenew, onDuplicate, onDelete, onArchive }) {
             ? {bottom:"calc(100% + 4px)", top:"auto"}
             : {top:"calc(100% + 4px)",   bottom:"auto"}),
           right:0, zIndex:9999,
-          background:"#0c1625",border:"1px solid #1e293b",borderRadius:8,
-          boxShadow:"0 8px 32px rgba(0,0,0,.9)",minWidth:140,overflow:"hidden"}}>
+          background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:8,
+          boxShadow:_lm?"0 8px 24px rgba(0,0,0,0.12)":"0 8px 32px rgba(0,0,0,.9)",minWidth:140,overflow:"hidden"}}>
           <button onClick={()=>{setOpen(false);onRenew();}}
-            style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",borderBottom:"1px solid #0e1828",padding:"8px 13px",color:"#00c896",fontSize:12,cursor:"pointer",textAlign:"left"}}
-            onMouseEnter={e=>e.currentTarget.style.background="#002418"}
+            style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0e1828"}`,padding:"8px 13px",color:_lm?"#059669":"#00c896",fontSize:12,cursor:"pointer",textAlign:"left"}}
+            onMouseEnter={e=>e.currentTarget.style.background=_lm?"#f0fdf4":"#002418"}
             onMouseLeave={e=>e.currentTarget.style.background="none"}>
             <span>🔄</span> Renew
           </button>
           <button onClick={()=>{setOpen(false);onDuplicate();}}
-            style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",borderBottom:"1px solid #0e1828",padding:"8px 13px",color:"#7dd3fc",fontSize:12,cursor:"pointer",textAlign:"left"}}
-            onMouseEnter={e=>e.currentTarget.style.background="#06131f"}
+            style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0e1828"}`,padding:"8px 13px",color:_lm?"#0369a1":"#7dd3fc",fontSize:12,cursor:"pointer",textAlign:"left"}}
+            onMouseEnter={e=>e.currentTarget.style.background=_lm?"#eff6ff":"#06131f"}
             onMouseLeave={e=>e.currentTarget.style.background="none"}>
             <span>⧉</span> Duplicate
           </button>
           <button onClick={()=>{setOpen(false);onArchive();}}
-            style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",borderBottom:"1px solid #0e1828",padding:"8px 13px",color:"#a855f7",fontSize:12,cursor:"pointer",textAlign:"left"}}
-            onMouseEnter={e=>e.currentTarget.style.background="#120820"}
+            style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0e1828"}`,padding:"8px 13px",color:_lm?"#7c3aed":"#a855f7",fontSize:12,cursor:"pointer",textAlign:"left"}}
+            onMouseEnter={e=>e.currentTarget.style.background=_lm?"#faf5ff":"#120820"}
             onMouseLeave={e=>e.currentTarget.style.background="none"}>
             <span>🗄</span> Archive
           </button>
           <button onClick={()=>{setOpen(false);onDelete();}}
             style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",padding:"8px 13px",color:"#ef4444",fontSize:12,cursor:"pointer",textAlign:"left"}}
-            onMouseEnter={e=>e.currentTarget.style.background="#1a0808"}
+            onMouseEnter={e=>e.currentTarget.style.background=_lm?"#fef2f2":"#1a0808"}
             onMouseLeave={e=>e.currentTarget.style.background="none"}>
             <span>✕</span> Delete
           </button>
@@ -899,7 +912,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
   const set = (k,v) => { setLocal(p=>({...p,[k]:v})); setDirty(true); };
   const save = () => { onUpdate({...c,...local}); setDirty(false); };
   
-  const iS = {background:"#08111f",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,width:"100%",fontFamily:"Inter,sans-serif",boxSizing:"border-box"};
+  const iS = {background:_lm?"#f8fafc":"#08111f",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,width:"100%",fontFamily:"Inter,sans-serif",boxSizing:"border-box"};
   const metrics = [
     {key:"impressions",label:"Impressions",color:"#00e5a0",prefix:"",suffix:""},
     {key:"ctr",label:"CTR",color:"#00ffb3",prefix:"",suffix:"%"},
@@ -908,14 +921,14 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
   ];
   return (
     <tr>
-      <td colSpan={colSpan} style={{padding:0,borderBottom:"1px solid #0d1525"}}>
-        <div style={{background:"#07101c",borderTop:"1px solid #1a2744",padding:"10px 14px 12px 52px"}}>
+      <td colSpan={colSpan} style={{padding:0,borderBottom:`1px solid ${_lm?"#e2e8f0":"#0d1525"}`}}>
+        <div style={{background:_lm?"#f8fafc":"#07101c",borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,padding:"10px 14px 12px 52px"}}>
           {/* ── REMINDERS — top of dropdown for fast access ── */}
-          <div style={{marginBottom:12,paddingBottom:12,borderBottom:"1px solid #1a2744"}}>
+          <div style={{marginBottom:12,paddingBottom:12,borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:showAddReminder?8:4}}>
               <span style={{fontSize:10,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>🔔 Reminders</span>
               <button onClick={()=>setShowAddReminder(v=>!v)}
-                style={{background:showAddReminder?"#130a00":"#f59e0b18",border:`1px solid ${showAddReminder?"#f59e0b80":"#f59e0b50"}`,borderRadius:5,padding:"1px 8px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                style={{background:showAddReminder?(_lm?"#fffbeb":"#130a00"):(_lm?"#fef3c7":"#f59e0b18"),border:`1px solid ${showAddReminder?"#f59e0b80":"#f59e0b50"}`,borderRadius:5,padding:"1px 8px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer"}}>
                 {showAddReminder?"✕ Cancel":"+ Add"}
               </button>
               {/* Existing reminders inline */}
@@ -923,11 +936,11 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                 const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
                 const isPast=r.date<=getToday();
                 return (
-                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:5,background:isPast?"#1a0808":"#0a1628",border:`1px solid ${isPast?"#ef444430":rt.color+"30"}`,borderRadius:5,padding:"2px 8px"}}>
+                  <div key={r.id} style={{display:"flex",alignItems:"center",gap:5,background:isPast?(_lm?"#fee2e2":"#1a0808"):(_lm?"#eff6ff":"#0a1628"),border:`1px solid ${isPast?"#ef444430":rt.color+"30"}`,borderRadius:5,padding:"2px 8px"}}>
                     <span style={{fontSize:10,color:isPast?"#ef4444":rt.color,fontWeight:600}}>{rt.label}</span>
-                    <span style={{fontSize:10,color:"#7a9bbf"}}>{fmtDate(r.date)}</span>
-                    {r.note&&<span style={{fontSize:10,color:"#4d6e8a",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.note}</span>}
-                    <button onClick={()=>startEditReminder(r)} style={{background:"none",border:"none",color:"#4d6e8a",cursor:"pointer",fontSize:10,padding:"0 2px"}}>✎</button>
+                    <span style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf"}}>{fmtDate(r.date)}</span>
+                    {r.note&&<span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.note}</span>}
+                    <button onClick={()=>startEditReminder(r)} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",cursor:"pointer",fontSize:10,padding:"0 2px"}}>✎</button>
                     <button onClick={()=>setReminders(prev=>prev.map(x=>x.id===r.id?{...x,dismissed:true}:x))} style={{background:"none",border:"none",color:"#ef444460",cursor:"pointer",fontSize:11,padding:"0 2px",lineHeight:1}}>×</button>
                   </div>
                 );
@@ -938,7 +951,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                   <select value={newReminder.type} onChange={e=>setNewReminder(p=>({...p,type:e.target.value}))}
-                    style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",flexShrink:0}}>
+                    style={{background:_lm?"#ffffff":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",flexShrink:0}}>
                     {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                   <div style={{flexShrink:0,minWidth:130}}>
@@ -950,14 +963,14 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                     Save
                   </button>
                   <button onClick={()=>{ setShowAddReminder(false); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); }}
-                    style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 10px",color:"#7a9bbf",fontSize:11,cursor:"pointer",flexShrink:0}}>
+                    style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px 10px",color:_lm?"#475569":"#7a9bbf",fontSize:11,cursor:"pointer",flexShrink:0}}>
                     Cancel
                   </button>
                 </div>
                 <textarea value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))}
                   placeholder="Note — write as much as you need…"
                   rows={4}
-                  style={{width:"100%",background:"#0a1422",border:`1px solid ${newReminder.note.trim()?"#f59e0b60":"#1e293b"}`,borderRadius:5,padding:"7px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",resize:"vertical",lineHeight:1.6,outline:"none",boxSizing:"border-box",minHeight:80}}/>
+                  style={{width:"100%",background:_lm?"#f8fafc":"#0a1422",border:`1px solid ${newReminder.note.trim()?"#f59e0b60":(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:5,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"inherit",resize:"vertical",lineHeight:1.6,outline:"none",boxSizing:"border-box",minHeight:80}}/>
               </div>
             )}
 
@@ -966,18 +979,18 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
               <div key={r.id} style={{display:"flex",flexDirection:"column",gap:6,marginTop:6}}>
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                   <select value={editReminderDraft.type} onChange={e=>setEditReminderDraft(p=>({...p,type:e.target.value}))}
-                    style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",flexShrink:0}}>
+                    style={{background:_lm?"#ffffff":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",flexShrink:0}}>
                     {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                   <div style={{flexShrink:0,minWidth:130}}>
                     <DatePicker value={editReminderDraft.date} onChange={v=>setEditReminderDraft(p=>({...p,date:v}))}/>
                   </div>
                   <button onClick={()=>saveEditReminder(r.id)} style={{background:"#f59e0b",border:"none",borderRadius:5,padding:"5px 12px",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>Save</button>
-                  <button onClick={cancelEditReminder} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 10px",color:"#7a9bbf",fontSize:11,cursor:"pointer",flexShrink:0}}>Cancel</button>
+                  <button onClick={cancelEditReminder} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px 10px",color:_lm?"#475569":"#7a9bbf",fontSize:11,cursor:"pointer",flexShrink:0}}>Cancel</button>
                 </div>
                 <textarea value={editReminderDraft.note||""} onChange={e=>setEditReminderDraft(p=>({...p,note:e.target.value}))}
                   placeholder="Note" rows={4}
-                  style={{width:"100%",background:"#0a1422",border:`1px solid ${editReminderDraft.note?.trim()?"#f59e0b60":"#1e293b"}`,borderRadius:5,padding:"7px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",resize:"vertical",lineHeight:1.6,outline:"none",boxSizing:"border-box",minHeight:80}}/>
+                  style={{width:"100%",background:_lm?"#f8fafc":"#0a1422",border:`1px solid ${editReminderDraft.note?.trim()?"#f59e0b60":(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:5,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"inherit",resize:"vertical",lineHeight:1.6,outline:"none",boxSizing:"border-box",minHeight:80}}/>
               </div>
             ))}
           </div>
@@ -986,13 +999,13 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
           <div style={{marginBottom:10}}>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
               <span style={{fontSize:10,color:"#00c896",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>📊 Metrics</span>
-              {dateRange.start&&<span style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"1px 7px",fontSize:10,fontFamily:"monospace",color:"#4d6e8a"}}>{dateRange.start===dateRange.end?dateRange.start:`${dateRange.start} → ${dateRange.end}`}</span>}
-              {resolved.source==="meta"&&<span style={{fontSize:10,color:"#60a5fa",background:"#0c1e38",border:"1px solid #3b82f640",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Meta</span>}
-              {resolved.source==="ttd"&&<span style={{fontSize:10,color:"#a78bfa",background:"#1a0e38",border:"1px solid #7c3aed40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ TTD</span>}
-              {resolved.source==="dsp"&&<span style={{fontSize:10,color:"#34d399",background:"#001a10",border:"1px solid #34d39940",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ DSP</span>}
-              {resolved.source==="google"&&<span style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Google</span>}
-              {resolved.source==="snap"&&<span style={{fontSize:10,color:"#f9a8d4",background:"#1a0010",border:"1px solid #f9a8d440",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Snap</span>}
-              {resolved.source==="manual-no-snapshot"&&<span style={{fontSize:10,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⚠ Manual</span>}
+              {dateRange.start&&<span style={{background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:4,padding:"1px 7px",fontSize:10,fontFamily:"monospace",color:_lm?"#64748b":"#4d6e8a"}}>{dateRange.start===dateRange.end?dateRange.start:`${dateRange.start} → ${dateRange.end}`}</span>}
+              {resolved.source==="meta"&&<span style={{fontSize:10,color:"#60a5fa",background:_lm?"#eff6ff":"#0c1e38",border:"1px solid #3b82f640",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Meta</span>}
+              {resolved.source==="ttd"&&<span style={{fontSize:10,color:"#a78bfa",background:_lm?"#f5f3ff":"#1a0e38",border:"1px solid #7c3aed40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ TTD</span>}
+              {resolved.source==="dsp"&&<span style={{fontSize:10,color:"#34d399",background:_lm?"#f0fdf4":"#001a10",border:"1px solid #34d39940",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ DSP</span>}
+              {resolved.source==="google"&&<span style={{fontSize:10,color:"#f59e0b",background:_lm?"#fffbeb":"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Google</span>}
+              {resolved.source==="snap"&&<span style={{fontSize:10,color:"#f9a8d4",background:_lm?"#fdf2f8":"#1a0010",border:"1px solid #f9a8d440",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⬡ Snap</span>}
+              {resolved.source==="manual-no-snapshot"&&<span style={{fontSize:10,color:"#f59e0b",background:_lm?"#fffbeb":"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",fontWeight:600}}>⚠ Manual</span>}
             </div>
             {(()=>{
               const isCTV=[" CTV","OTT"].includes(c.platform)||c.platform==="CTV";
@@ -1030,7 +1043,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                   </div>
                   {(local.impressions||local.ctr||local.cpm||local.spend)&&(
                     <button onClick={()=>{setLocal({impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:""});setDirty(true);}}
-                      style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer",alignSelf:"flex-end",paddingBottom:1,flexShrink:0}}>
+                      style={{background:"none",border:"none",color:_lm?"#94a3b8":"#3d5a72",fontSize:11,cursor:"pointer",alignSelf:"flex-end",paddingBottom:1,flexShrink:0}}>
                       Clear
                     </button>
                   )}
@@ -1045,23 +1058,23 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
             if (!dt) return null;
             const hasDelivery = dt.delivered > 0;
             return (
-              <div style={{marginBottom:12,background:"#060d18",border:"1px solid #1a2744",borderRadius:8,padding:"10px 14px"}}>
-                <div style={{fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".08em",fontWeight:700,marginBottom:8}}>📅 Daily Pacing</div>
+              <div style={{marginBottom:12,background:_lm?"#f1f5f9":"#060d18",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8,padding:"10px 14px"}}>
+                <div style={{fontSize:9,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".08em",fontWeight:700,marginBottom:8}}>📅 Daily Pacing</div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                   {[
-                    {label:"Target/day", val:dt.dailyTarget.toLocaleString(), color:"#00e5a0"},
+                    {label:"Target/day", val:dt.dailyTarget.toLocaleString(), color:"#00c896"},
                     {label:"Actual/day", val:dt.actualDailyRate?dt.actualDailyRate.toLocaleString():"—", color:dt.color},
                     {label:"Need/day",   val:hasDelivery?dt.neededPerDay.toLocaleString():"—", color:dt.neededPerDay>dt.dailyTarget*1.2?"#ef4444":dt.neededPerDay>dt.dailyTarget?"#f59e0b":"#00d48a"},
-                    {label:"Remaining", val:hasDelivery?(dt.remaining>=1000000?(dt.remaining/1000000).toFixed(1)+"M":dt.remaining>=1000?Math.round(dt.remaining/1000)+"K":dt.remaining.toLocaleString()):"—", color:"#7a9bbf"},
+                    {label:"Remaining", val:hasDelivery?(dt.remaining>=1000000?(dt.remaining/1000000).toFixed(1)+"M":dt.remaining>=1000?Math.round(dt.remaining/1000)+"K":dt.remaining.toLocaleString()):"—", color:_lm?"#475569":"#7a9bbf"},
                   ].map(({label,val,color})=>(
-                    <div key={label} style={{background:"#0c1625",borderRadius:5,padding:"5px 10px",textAlign:"center",minWidth:70}}>
-                      <div style={{fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".05em",marginBottom:2}}>{label}</div>
+                    <div key={label} style={{background:_lm?"#ffffff":"#0c1625",border:_lm?"1px solid #e2e8f0":"none",borderRadius:5,padding:"5px 10px",textAlign:"center",minWidth:70}}>
+                      <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:".05em",marginBottom:2}}>{label}</div>
                       <div style={{fontSize:15,fontWeight:800,color,lineHeight:1}}>{val}</div>
                     </div>
                   ))}
                   {hasDelivery&&(
                     <div style={{flex:1,minWidth:120}}>
-                      <div style={{background:"#0e1a2e",borderRadius:3,height:5,overflow:"hidden",marginBottom:3}}>
+                      <div style={{background:_lm?"#e2e8f0":"#0e1a2e",borderRadius:3,height:5,overflow:"hidden",marginBottom:3}}>
                         <div style={{background:dt.color,height:"100%",width:`${Math.min(100,dt.delivered/dt.goal*100)}%`,borderRadius:3}}/>
                       </div>
                       <div style={{fontSize:10,color:dt.color,fontWeight:700}}>{dt.status} · {Math.round(dt.delivered/dt.goal*100)}%</div>
@@ -1077,7 +1090,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
             <div style={{flex:1,minWidth:160}}>
               <label style={{display:"block",fontSize:9,color:"#60a5fa",textTransform:"uppercase",letterSpacing:".07em",fontWeight:700,marginBottom:4}}>🌎 Geo</label>
               <input value={c.geoTarget||""} onChange={e=>onUpdate({...c,geoTarget:e.target.value})} placeholder="e.g. Florida statewide"
-                style={{width:"100%",background:"#060d18",border:`1px solid ${c.geoTarget?"#60a5fa40":"#1a2744"}`,borderRadius:5,padding:"5px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",outline:"none"}}/>
+                style={{width:"100%",background:_lm?"#f8fafc":"#060d18",border:`1px solid ${c.geoTarget?"#60a5fa40":(_lm?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",outline:"none"}}/>
             </div>
             <div style={{flex:1,minWidth:160}}>
               <label style={{display:"block",fontSize:9,color:"#a855f7",textTransform:"uppercase",letterSpacing:".07em",fontWeight:700,marginBottom:4}}>🎨 Last Creative</label>
@@ -1096,12 +1109,12 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
             const [histTab, setHistTab] = React.useState("notes");
             const checkInLines = (c.checkInLog||"").trim().split("\n").filter(Boolean);
             return (
-              <div style={{paddingTop:12,borderTop:"1px solid #1a2744"}}>
+              <div style={{paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
                 {/* Tab switcher */}
-                <div style={{display:"flex",gap:0,marginBottom:8,background:"#060d18",borderRadius:6,border:"1px solid #1a2744",overflow:"hidden",alignSelf:"flex-start",width:"fit-content"}}>
+                <div style={{display:"flex",gap:0,marginBottom:8,background:_lm?"#f1f5f9":"#060d18",borderRadius:6,border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,overflow:"hidden",alignSelf:"flex-start",width:"fit-content"}}>
                   {[["notes","📋 My Notes"],["log","⚡ Check-in Log"]].map(([k,label])=>(
                     <button key={k} onClick={()=>setHistTab(k)}
-                      style={{background:histTab===k?"#0e1a2e":"transparent",border:"none",padding:"5px 12px",color:histTab===k?"#edf4ff":"#4d6e8a",fontSize:10,fontWeight:histTab===k?700:400,cursor:"pointer",whiteSpace:"nowrap",borderRight:k==="notes"?"1px solid #1a2744":"none"}}>
+                      style={{background:histTab===k?(_lm?"#ffffff":"#0e1a2e"):"transparent",border:"none",padding:"5px 12px",color:histTab===k?(_lm?"#0f172a":"#edf4ff"):(_lm?"#64748b":"#4d6e8a"),fontSize:10,fontWeight:histTab===k?700:400,cursor:"pointer",whiteSpace:"nowrap",borderRight:k==="notes"?`1px solid ${_lm?"#e2e8f0":"#1a2744"}`:"none"}}>
                       {label}{k==="log"&&checkInLines.length>0?<span style={{marginLeft:4,background:"#ef444430",color:"#ef4444",borderRadius:3,padding:"0 4px",fontSize:9,fontWeight:700}}>{checkInLines.length}</span>:null}
                     </button>
                   ))}
@@ -1111,25 +1124,25 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                   <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"stretch"}}>
                     <button onClick={()=>{ if(!newEntry.trim()) return; const today=getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${newEntry.trim()}`; const updated=historyDraft.trim()?`${line}\n${historyDraft}`:line; setHistoryDraft(updated); onUpdate({...c,history:updated}); setNewEntry(""); }}
                       disabled={!newEntry.trim()}
-                      style={{background:newEntry.trim()?"#3B8FFF":"#0a1422",border:"none",borderRadius:5,padding:"0 12px",color:newEntry.trim()?"#fff":"#3d5a72",fontSize:11,fontWeight:700,cursor:newEntry.trim()?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
+                      style={{background:newEntry.trim()?"#3B8FFF":(_lm?"#f1f5f9":"#0a1422"),border:"none",borderRadius:5,padding:"0 12px",color:newEntry.trim()?"#fff":(_lm?"#94a3b8":"#3d5a72"),fontSize:11,fontWeight:700,cursor:newEntry.trim()?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
                       + Add
                     </button>
                     <input value={newEntry} onChange={e=>setNewEntry(e.target.value)}
                       onKeyDown={e=>{ if(e.key==="Enter"&&newEntry.trim()){ const today=getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${newEntry.trim()}`; const updated=historyDraft.trim()?`${line}\n${historyDraft}`:line; setHistoryDraft(updated); onUpdate({...c,history:updated}); setNewEntry(""); }}}
                       placeholder="Add a personal note…"
-                      style={{flex:1,background:"#0a1422",border:`1px solid ${newEntry.trim()?"#3B8FFF60":"#1a2744"}`,borderRadius:5,padding:"5px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                      style={{flex:1,background:_lm?"#f8fafc":"#0a1422",border:`1px solid ${newEntry.trim()?"#3B8FFF60":(_lm?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"5px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
                   </div>
                   <textarea value={historyDraft} onChange={e=>{ setHistoryDraft(e.target.value); onUpdate({...c,history:e.target.value}); }}
                     placeholder="Your personal notes appear here…"
-                    style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"7px 10px",color:"#3B8FFF",fontSize:11,fontFamily:"inherit",whiteSpace:"pre-wrap",lineHeight:1.6,resize:"vertical",minHeight:70,boxSizing:"border-box",outline:"none"}}/>
+                    style={{width:"100%",background:_lm?"#f8fafc":"#060d18",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:5,padding:"7px 10px",color:"#3B8FFF",fontSize:11,fontFamily:"inherit",whiteSpace:"pre-wrap",lineHeight:1.6,resize:"vertical",minHeight:70,boxSizing:"border-box",outline:"none"}}/>
                 </>}
 
                 {histTab==="log"&&(
-                  <div style={{background:"#060d18",border:"1px solid #1a2744",borderRadius:5,padding:"7px 10px",maxHeight:160,overflowY:"auto"}}>
+                  <div style={{background:_lm?"#f8fafc":"#060d18",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:5,padding:"7px 10px",maxHeight:160,overflowY:"auto"}}>
                     {checkInLines.length===0
-                      ? <div style={{fontSize:11,color:"#3d5a72",fontStyle:"italic"}}>No check-in data yet — drop a CSV in Quick Check-in to populate this.</div>
+                      ? <div style={{fontSize:11,color:_lm?"#94a3b8":"#3d5a72",fontStyle:"italic"}}>No check-in data yet — drop a CSV in Quick Check-in to populate this.</div>
                       : checkInLines.map((line,i)=>(
-                          <div key={i} style={{fontSize:10,color:"#7a9bbf",fontFamily:"monospace",lineHeight:1.7,borderBottom:i<checkInLines.length-1?"1px solid #0d1525":"none",paddingBottom:i<checkInLines.length-1?2:0}}>{line}</div>
+                          <div key={i} style={{fontSize:10,color:_lm?"#475569":"#7a9bbf",fontFamily:"monospace",lineHeight:1.7,borderBottom:i<checkInLines.length-1?`1px solid ${_lm?"#e2e8f0":"#0d1525"}`:"none",paddingBottom:i<checkInLines.length-1?2:0}}>{line}</div>
                         ))
                     }
                   </div>
@@ -1147,10 +1160,10 @@ function DateBar({ range, setRange }) {
   const presets = getPresets();
   const quickKeys = ["mtd","yesterday","last30"];
   return (
-    <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"11px 16px",marginBottom:14,display:"flex",flexWrap:"wrap",alignItems:"center",gap:8}}>
-      <span style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginRight:4}}>📅 Date Range</span>
+    <div style={{background:_lm?"#f8fafc":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"11px 16px",marginBottom:14,display:"flex",flexWrap:"wrap",alignItems:"center",gap:8}}>
+      <span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginRight:4}}>📅 Date Range</span>
       <div style={{display:"flex",gap:5}}>
-        {quickKeys.map(k=>{ const on=range.preset===k; return <button key={k} onClick={()=>setRange({preset:k,...presets[k]})} style={{background:on?"#002e24":"#0e1a2e",border:`1px solid ${on?"#00c896":"#162236"}`,borderRadius:6,padding:"4px 13px",color:on?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:on?700:500,cursor:"pointer"}}>{presets[k].label}</button>; })}
+        {quickKeys.map(k=>{ const on=range.preset===k; return <button key={k} onClick={()=>setRange({preset:k,...presets[k]})} style={{background:on?(_lm?"#059669":"#002e24"):(_lm?"#ffffff":"#0e1a2e"),border:`1px solid ${on?(_lm?"#059669":"#00c896"):(_lm?"#cbd5e1":"#162236")}`,borderRadius:6,padding:"4px 13px",color:on?(_lm?"#ffffff":"#00e5a0"):(_lm?"#475569":"#4d6e8a"),fontSize:12,fontWeight:on?700:500,cursor:"pointer"}}>{presets[k].label}</button>; })}
       </div>
     </div>
   );
@@ -1210,15 +1223,15 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
         onClick={handleOpen}
         style={{
           display:"flex", alignItems:"center", justifyContent:"space-between",
-          background:"#0e1a2e", border:`1px solid ${open?"#00c896":"#334155"}`,
+          background:_lm?"#ffffff":"#0e1a2e", border:`1px solid ${open?"#00c896":(_lm?"#cbd5e1":"#334155")}`,
           borderRadius:6, padding:"7px 10px", cursor:"pointer",
           transition:"border-color .15s",
         }}
       >
-        <span style={{fontSize:13, color:value?"#edf4ff":"#3d5a72", fontVariantNumeric:"tabular-nums"}}>
+        <span style={{fontSize:13, color:value?(_lm?"#0f172a":"#edf4ff"):(_lm?"#94a3b8":"#3d5a72"), fontVariantNumeric:"tabular-nums"}}>
           {displayValue || placeholder}
         </span>
-        <span style={{fontSize:11, color:open?"#00c896":"#4d6e8a", marginLeft:8}}>📅</span>
+        <span style={{fontSize:11, color:open?"#00c896":(_lm?"#64748b":"#4d6e8a"), marginLeft:8}}>📅</span>
       </div>
 
       {open && (()=>{
@@ -1231,21 +1244,21 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
           top: calTop,
           left: calLeft,
           zIndex:99999,
-          background:"#07101c", border:"1px solid #00c89640", borderRadius:10,
-          padding:"14px", boxShadow:"0 12px 48px rgba(0,0,0,.9)",
+          background:_lm?"#ffffff":"#07101c", border:`1px solid ${_lm?"#e2e8f0":"#00c89640"}`, borderRadius:10,
+          padding:"14px", boxShadow:_lm?"0 8px 32px rgba(0,0,0,.12)":"0 12px 48px rgba(0,0,0,.9)",
           minWidth:260,
         }}>
           {/* Month nav */}
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-            <button onClick={prevMonth} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,width:28,height:28,color:"#7a9bbf",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>‹</button>
-            <span style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>{monthName}</span>
-            <button onClick={nextMonth} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,width:28,height:28,color:"#7a9bbf",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>›</button>
+            <button onClick={prevMonth} style={{background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:6,width:28,height:28,color:_lm?"#475569":"#7a9bbf",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>‹</button>
+            <span style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{monthName}</span>
+            <button onClick={nextMonth} style={{background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:6,width:28,height:28,color:_lm?"#475569":"#7a9bbf",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>›</button>
           </div>
 
           {/* Day headers */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}}>
             {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=>(
-              <div key={d} style={{textAlign:"center",fontSize:10,color:"#3d5a72",fontWeight:700,padding:"3px 0",textTransform:"uppercase",letterSpacing:"0.05em"}}>{d}</div>
+              <div key={d} style={{textAlign:"center",fontSize:10,color:_lm?"#94a3b8":"#3d5a72",fontWeight:700,padding:"3px 0",textTransform:"uppercase",letterSpacing:"0.05em"}}>{d}</div>
             ))}
           </div>
 
@@ -1264,14 +1277,14 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
                     textAlign:"center", borderRadius:5, padding:"5px 2px",
                     fontSize:12, fontWeight: isSelected||isToday ? 700 : 400,
                     cursor:"pointer",
-                    background: isSelected ? "#00c896" : isToday ? "#0c2820" : "transparent",
-                    color: isSelected ? "#000" : isToday ? "#00e5a0" : "#a8c4e0",
+                    background: isSelected ? "#00c896" : isToday ? (_lm?"#f0fdf9":"#0c2820") : "transparent",
+                    color: isSelected ? "#000" : isToday ? (_lm?"#059669":"#00e5a0") : (_lm?"#334155":"#a8c4e0"),
                     border: isSelected ? "1px solid #00c896" : isToday ? "1px solid #00c89640" : "1px solid transparent",
                     boxShadow: isSelected ? "0 0 8px #00c89660" : "none",
                     transition:"all .1s",
                   }}
-                  onMouseEnter={e=>{ if(!isSelected){ e.currentTarget.style.background="#0e2030"; e.currentTarget.style.color="#00e5a0"; } }}
-                  onMouseLeave={e=>{ if(!isSelected){ e.currentTarget.style.background=isToday?"#0c2820":"transparent"; e.currentTarget.style.color=isToday?"#00e5a0":"#a8c4e0"; } }}
+                  onMouseEnter={e=>{ if(!isSelected){ e.currentTarget.style.background=_lm?"#f0fdf9":"#0e2030"; e.currentTarget.style.color=_lm?"#059669":"#00e5a0"; } }}
+                  onMouseLeave={e=>{ if(!isSelected){ e.currentTarget.style.background=isToday?(_lm?"#f0fdf9":"#0c2820"):"transparent"; e.currentTarget.style.color=isToday?(_lm?"#059669":"#00e5a0"):(_lm?"#334155":"#a8c4e0"); } }}
                 >
                   {d}
                 </div>
@@ -1281,9 +1294,9 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
 
           {/* Clear */}
           {value && (
-            <div style={{borderTop:"1px solid #1a2744",marginTop:10,paddingTop:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontSize:11,color:"#4d6e8a"}}>Selected: <span style={{color:"#00e5a0",fontWeight:600}}>{displayValue}</span></span>
-              <button onClick={()=>{ onChange(""); setOpen(false); }} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer",padding:0}}>Clear ×</button>
+            <div style={{borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,marginTop:10,paddingTop:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a"}}>Selected: <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:600}}>{displayValue}</span></span>
+              <button onClick={()=>{ onChange(""); setOpen(false); }} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#3d5a72",fontSize:11,cursor:"pointer",padding:0}}>Clear ×</button>
             </div>
           )}
         </div>
@@ -1341,10 +1354,10 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   }
   function cancelEditReminder() { setEditingReminderId(null); }
   const set = (k,v) => setF(p=>({...p,[k]:v}));
-  const iS = {width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box"};
+  const iS = {width:"100%",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box"};
   const row = (key,label,type="text") => (
     <div style={{marginBottom:12}}>
-      <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>{label}</label>
+      <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>{label}</label>
       {key==="status" ? <select value={f.status||""} onChange={e=>set("status",e.target.value)} style={iS}>{Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
       :key==="platform" ? <select value={f.platform} onChange={e=>set("platform",e.target.value)} style={iS}>{ALL_PLATFORMS.map(p=><option key={p}>{p}</option>)}</select>
       :type==="date" ? <DatePicker value={f[key]||""} onChange={v=>set(key,v)}/>
@@ -1364,12 +1377,12 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   const modalBackdrop = useBackdropClose(onClose);
   return (
     <div {...modalBackdrop} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:12,width:"min(1100px,96vw)",maxHeight:"95vh",display:"flex",flexDirection:"column",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 30px 80px rgba(0,0,0,.15)":"0 30px 80px rgba(0,0,0,.9)",borderRadius:12,width:"min(1100px,96vw)",maxHeight:"95vh",display:"flex",flexDirection:"column"}}>
 
         {/* ── Sticky header ── */}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 28px 14px",borderBottom:"1px solid #1e293b",flexShrink:0}}>
-          <h2 style={{margin:0,color:"#edf4ff",fontSize:15,fontWeight:700}}>{isNew?"Add Campaign":"Edit Campaign"}</h2>
-          <button onClick={onClose} style={{background:"none",border:"none",color:"#4d6e8a",cursor:"pointer",fontSize:22,lineHeight:1,padding:0}}>×</button>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 28px 14px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,flexShrink:0}}>
+          <h2 style={{margin:0,color:_lm?"#0f172a":"#edf4ff",fontSize:15,fontWeight:700}}>{isNew?"Add Campaign":"Edit Campaign"}</h2>
+          <button onClick={onClose} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",cursor:"pointer",fontSize:22,lineHeight:1,padding:0}}>×</button>
         </div>
 
         {/* ── Scrollable body — two column layout ── */}
@@ -1380,7 +1393,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
           <div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 14px"}}>
               <div style={{marginBottom:12}}>
-                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Media Partner</label>
+                <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Media Partner</label>
                 <input list="partner-suggestions" value={f.mediaPartner||""} onChange={e=>set("mediaPartner",e.target.value)} style={iS} placeholder="Start typing…"/>
                 <datalist id="partner-suggestions">
                   {partners.map(p=><option key={p} value={p}/>)}
@@ -1404,9 +1417,9 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               {/* Contract Value */}
               <div style={{marginBottom:12}}>
                 <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 Contract Value</label>
-                <div style={{display:"flex",alignItems:"center",background:"#162236",border:"1px solid #334155",borderRadius:6,overflow:"hidden"}}>
-                  <span style={{padding:"7px 10px",color:"#34d399",fontWeight:700,fontSize:13,background:"#0e1a2e",borderRight:"1px solid #334155"}}>$</span>
-                  <input type="number" value={f.contractValue||""} onChange={e=>set("contractValue",e.target.value)} placeholder="e.g. 5000" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:"#d8eaf8",fontSize:13,outline:"none"}}/>
+                <div style={{display:"flex",alignItems:"center",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,overflow:"hidden"}}>
+                  <span style={{padding:"7px 10px",color:"#34d399",fontWeight:700,fontSize:13,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
+                  <input type="number" value={f.contractValue||""} onChange={e=>set("contractValue",e.target.value)} placeholder="e.g. 5000" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
                 </div>
               </div>
             </div>
@@ -1416,20 +1429,20 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               <div>
                 <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌐 Client Website</label>
                 <input type="url" value={f.clientWebsite||""} onChange={e=>set("clientWebsite",e.target.value)} placeholder="https://fairmontstate.edu"
-                  style={{...iS,borderColor:f.clientWebsite?"#34d39960":"#334155"}}/>
-                <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>Used for logo in reports</div>
+                  style={{...iS,borderColor:f.clientWebsite?"#34d39960":(_lm?"#e2e8f0":"#334155")}}/>
+                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>Used for logo in reports</div>
               </div>
               <div>
-                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📎 Projection Sheet URL</label>
+                <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📎 Projection Sheet URL</label>
                 <div style={{display:"flex",gap:6}}>
                   <input type="url" value={f.projectionUrl||""} onChange={e=>set("projectionUrl",e.target.value)} placeholder="https://docs.google.com/..." style={{...iS,flex:1}}/>
-                  {f.projectionUrl&&f.projectionUrl.trim()&&<a href={f.projectionUrl.trim()} target="_blank" rel="noopener noreferrer" style={{background:"#002e24",border:"1px solid #3b82f640",borderRadius:6,padding:"7px 10px",color:"#00e5a0",fontSize:12,fontWeight:600,textDecoration:"none",whiteSpace:"nowrap",display:"flex",alignItems:"center"}}>↗</a>}
+                  {f.projectionUrl&&f.projectionUrl.trim()&&<a href={f.projectionUrl.trim()} target="_blank" rel="noopener noreferrer" style={{background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#3b82f640"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#059669":"#00e5a0",fontSize:12,fontWeight:600,textDecoration:"none",whiteSpace:"nowrap",display:"flex",alignItems:"center"}}>↗</a>}
                 </div>
               </div>
               <div>
                 <label style={{display:"block",fontSize:10,color:"#60a5fa",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌎 Geo Targeting</label>
                 <input type="text" value={f.geoTarget||""} onChange={e=>set("geoTarget",e.target.value)} placeholder="e.g. Florida statewide"
-                  style={{...iS,borderColor:f.geoTarget?"#60a5fa60":"#334155"}}/>
+                  style={{...iS,borderColor:f.geoTarget?"#60a5fa60":(_lm?"#e2e8f0":"#334155")}}/>
               </div>
               <div>
                 <label style={{display:"block",fontSize:10,color:"#a855f7",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🎨 Last Creative Update</label>
@@ -1437,10 +1450,10 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               </div>
             </div>
             <div style={{marginBottom:12}}>
-              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📁 Client Folder Path</label>
+              <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📁 Client Folder Path</label>
               <div style={{display:"flex",gap:6}}>
                 <input type="text" value={f.folderPath||""} onChange={e=>set("folderPath",e.target.value)} placeholder="\\192.168.3.2\Data\..." style={{...iS,flex:1,fontFamily:"Consolas,monospace",fontSize:12}}/>
-                {f.folderPath&&f.folderPath.trim()&&<button onClick={()=>navigator.clipboard.writeText(f.folderPath.trim())} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"7px 10px",color:"#00e5a0",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Copy 📋</button>}
+                {f.folderPath&&f.folderPath.trim()&&<button onClick={()=>navigator.clipboard.writeText(f.folderPath.trim())} style={{background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#059669":"#00e5a0",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Copy 📋</button>}
               </div>
             </div>
           </div>
@@ -1450,29 +1463,29 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
 
             {/* Monthly Flights */}
             <div>
-              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Flights</label>
-              <button onClick={()=>set("monthlyFlight",!f.monthlyFlight)} style={{display:"flex",alignItems:"center",gap:8,background:f.monthlyFlight?"#00201a":"#162236",border:`1px solid ${f.monthlyFlight?"#2dd4bf60":"#1e3350"}`,borderRadius:7,padding:"8px 12px",cursor:"pointer",width:"100%",boxSizing:"border-box"}}>
-                <span style={{fontSize:15,color:f.monthlyFlight?"#00e5c0":"#3d5a72"}}>★</span>
-                <span style={{fontSize:12,color:f.monthlyFlight?"#00e5c0":"#4d6e8a",fontWeight:f.monthlyFlight?700:400}}>{f.monthlyFlight?"Monthly flights enabled":"No monthly flights"}</span>
-                <span style={{marginLeft:"auto",fontSize:10,color:f.monthlyFlight?"#00e5c0":"#1e3350"}}>{f.monthlyFlight?"ON":"OFF"}</span>
+              <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Flights</label>
+              <button onClick={()=>set("monthlyFlight",!f.monthlyFlight)} style={{display:"flex",alignItems:"center",gap:8,background:f.monthlyFlight?(_lm?"#f0fdf9":"#00201a"):(_lm?"#f1f5f9":"#162236"),border:`1px solid ${f.monthlyFlight?(_lm?"#00c896":"#2dd4bf60"):(_lm?"#e2e8f0":"#1e3350")}`,borderRadius:7,padding:"8px 12px",cursor:"pointer",width:"100%",boxSizing:"border-box"}}>
+                <span style={{fontSize:15,color:f.monthlyFlight?(_lm?"#059669":"#00e5c0"):(_lm?"#94a3b8":"#3d5a72")}}>★</span>
+                <span style={{fontSize:12,color:f.monthlyFlight?(_lm?"#059669":"#00e5c0"):(_lm?"#64748b":"#4d6e8a"),fontWeight:f.monthlyFlight?700:400}}>{f.monthlyFlight?"Monthly flights enabled":"No monthly flights"}</span>
+                <span style={{marginLeft:"auto",fontSize:10,color:f.monthlyFlight?(_lm?"#059669":"#00e5c0"):(_lm?"#cbd5e1":"#1e3350")}}>{f.monthlyFlight?"ON":"OFF"}</span>
               </button>
             </div>
 
             {/* RT Pixel */}
             <div>
-              <label style={{display:"block",fontSize:10,color:f.retargeting?"#FF6B6B":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:f.retargeting?700:400}}>
+              <label style={{display:"block",fontSize:10,color:f.retargeting?"#ef4444":(_lm?"#475569":"#7a9bbf"),marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:f.retargeting?700:400}}>
                 RT Pixel {f.retargeting?"⚠ Not Placed":"✓ Placed"}
               </label>
               <button onClick={()=>set("retargeting",!f.retargeting)}
                 style={{display:"flex",alignItems:"center",gap:8,
-                  background:f.retargeting?"#1a0808":"#001a0e",
-                  border:`1px solid ${f.retargeting?"#FF6B6B60":"#2dd4bf40"}`,
+                  background:f.retargeting?(_lm?"#fee2e2":"#1a0808"):(_lm?"#f0fdf9":"#001a0e"),
+                  border:`1px solid ${f.retargeting?(_lm?"#fca5a5":"#FF6B6B60"):(_lm?"#00c896":"#2dd4bf40")}`,
                   borderRadius:7,padding:"8px 12px",cursor:"pointer",width:"100%",boxSizing:"border-box"}}>
-                <span style={{fontSize:13,fontWeight:900,color:f.retargeting?"#FF6B6B":"#00e5c0"}}>RT</span>
-                <span style={{fontSize:12,fontWeight:f.retargeting?700:400,color:f.retargeting?"#FF6B6B":"#4d6e8a"}}>
+                <span style={{fontSize:13,fontWeight:900,color:f.retargeting?"#ef4444":(_lm?"#059669":"#00e5c0")}}>RT</span>
+                <span style={{fontSize:12,fontWeight:f.retargeting?700:400,color:f.retargeting?"#ef4444":(_lm?"#64748b":"#4d6e8a")}}>
                   {f.retargeting?"Pixel not placed — follow up":"Pixel placed"}
                 </span>
-                <span style={{marginLeft:"auto",fontSize:10,color:f.retargeting?"#FF6B6B":"#00e5c060"}}>
+                <span style={{marginLeft:"auto",fontSize:10,color:f.retargeting?"#ef4444":(_lm?"#059669":"#00e5c060")}}>
                   {f.retargeting?"PENDING":"✓"}
                 </span>
               </button>
@@ -1480,24 +1493,24 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
 
             {/* History */}
             <div>
-              <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History</label>
+              <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#3B8FFF",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History</label>
               <div style={{display:"flex",gap:6,marginBottom:6}}>
                 <button onClick={()=>{ const el=document.getElementById("modal-history-input"); const val=el?.value?.trim(); if(!val) return; const tod=getToday(); const [y,m,d]=tod.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${val}`; const updated=(f.history||"").trim()?`${line}\n${f.history}`:line; set("history",updated); el.value=""; }}
                   style={{background:"#3B8FFF",border:"none",borderRadius:5,padding:"0 10px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>+ Add</button>
                 <input id="modal-history-input" placeholder="Note — Enter to add…"
                   onKeyDown={e=>{ if(e.key==="Enter"&&e.target.value.trim()){ const val=e.target.value.trim(); const tod=getToday(); const [y,m,d]=tod.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${val}`; const updated=(f.history||"").trim()?`${line}\n${f.history}`:line; set("history",updated); e.target.value=""; } }}
-                  style={{flex:1,background:"#0e1a2e",border:"1px solid #3B8FFF40",borderRadius:5,padding:"5px 9px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                  style={{flex:1,background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${_lm?"#93c5fd":"#3B8FFF40"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
               </div>
               <textarea value={f.history||""} onChange={e=>set("history",e.target.value)} placeholder="Entries appear here…"
-                style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:6,padding:"8px 10px",color:"#3B8FFF",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:70,lineHeight:1.6}}/>
+                style={{width:"100%",background:_lm?"#f8fafc":"#060d18",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:6,padding:"8px 10px",color:"#3B8FFF",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:70,lineHeight:1.6}}/>
             </div>
 
             {/* Reminders — only on edit */}
             {true && (
-              <div style={{borderTop:"1px solid #1e293b",paddingTop:10}}>
+              <div style={{borderTop:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,paddingTop:10}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <label style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>🔔 Reminders</label>
-                  <button onClick={()=>setShowAddReminder(v=>!v)} style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:5,padding:"3px 10px",color:"#f59e0b",fontSize:11,fontWeight:600,cursor:"pointer"}}>+ Add</button>
+                  <label style={{fontSize:10,color:_lm?"#475569":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>🔔 Reminders</label>
+                  <button onClick={()=>setShowAddReminder(v=>!v)} style={{background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"3px 10px",color:"#f59e0b",fontSize:11,fontWeight:600,cursor:"pointer"}}>+ Add</button>
                 </div>
                 {campaignReminders.length>0 && (
                   <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
@@ -1507,66 +1520,66 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                       if (isEditing) {
                         // Inline edit form
                         return (
-                          <div key={r.id} style={{background:"#0a1628",border:`1px solid ${rt.color}50`,borderRadius:7,padding:"10px",display:"flex",flexDirection:"column",gap:8}}>
+                          <div key={r.id} style={{background:_lm?"#f8fafc":"#0a1628",border:`1px solid ${rt.color}50`,borderRadius:7,padding:"10px",display:"flex",flexDirection:"column",gap:8}}>
                             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                               <div>
-                                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Type</label>
-                                <select value={editReminderDraft.type} onChange={e=>setEditReminderDraft(p=>({...p,type:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit"}}>
+                                <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Type</label>
+                                <select value={editReminderDraft.type} onChange={e=>setEditReminderDraft(p=>({...p,type:e.target.value}))} style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"inherit"}}>
                                   {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
                                 </select>
                               </div>
                               <div>
-                                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
+                                <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
                                 <DatePicker value={editReminderDraft.date} onChange={v=>setEditReminderDraft(p=>({...p,date:v}))}/>
                               </div>
                             </div>
                             <div>
-                              <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Note (optional)</label>
-                              <textarea value={editReminderDraft.note} onChange={e=>setEditReminderDraft(p=>({...p,note:e.target.value}))} rows={2} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",lineHeight:1.5,outline:"none"}}/>
+                              <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Note (optional)</label>
+                              <textarea value={editReminderDraft.note} onChange={e=>setEditReminderDraft(p=>({...p,note:e.target.value}))} rows={2} style={{width:"100%",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",lineHeight:1.5,outline:"none"}}/>
                             </div>
                             <div style={{display:"flex",gap:6}}>
-                              <button onClick={()=>saveEditReminder(r.id)} disabled={!editReminderDraft.date} style={{flex:1,background:editReminderDraft.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"7px 0",color:editReminderDraft.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:editReminderDraft.date?"pointer":"default"}}>Update</button>
-                              <button onClick={cancelEditReminder} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"7px 12px",color:"#7a9bbf",fontSize:12,cursor:"pointer"}}>Cancel</button>
-                              <button onClick={()=>removeReminder(r.id)} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,padding:"7px 10px",color:"#ef4444",fontSize:12,cursor:"pointer"}}>Delete</button>
+                              <button onClick={()=>saveEditReminder(r.id)} disabled={!editReminderDraft.date} style={{flex:1,background:editReminderDraft.date?"#f59e0b":(_lm?"#f1f5f9":"#162236"),border:"none",borderRadius:5,padding:"7px 0",color:editReminderDraft.date?"#000":(_lm?"#94a3b8":"#3d5a72"),fontSize:12,fontWeight:700,cursor:editReminderDraft.date?"pointer":"default"}}>Update</button>
+                              <button onClick={cancelEditReminder} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"7px 12px",color:_lm?"#475569":"#7a9bbf",fontSize:12,cursor:"pointer"}}>Cancel</button>
+                              <button onClick={()=>removeReminder(r.id)} style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444440"}`,borderRadius:5,padding:"7px 10px",color:"#ef4444",fontSize:12,cursor:"pointer"}}>Delete</button>
                             </div>
                           </div>
                         );
                       }
                       // Collapsed chip — click anywhere (except ×) to edit
                       return (
-                        <div key={r.id} onClick={()=>startEditReminder(r)} style={{display:"flex",alignItems:"center",gap:8,background:"#0a1628",border:`1px solid ${rt.color}30`,borderRadius:5,padding:"5px 10px",cursor:"pointer"}} title="Click to edit">
+                        <div key={r.id} onClick={()=>startEditReminder(r)} style={{display:"flex",alignItems:"center",gap:8,background:_lm?"#f8fafc":"#0a1628",border:`1px solid ${rt.color}30`,borderRadius:5,padding:"5px 10px",cursor:"pointer"}} title="Click to edit">
                           <span style={{fontSize:11,color:rt.color,fontWeight:600}}>{rt.label}</span>
-                          <span style={{fontSize:11,color:"#4d6e8a",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.note||""}</span>
-                          <span style={{fontSize:10,color:"#3d5a72",fontFamily:"monospace",flexShrink:0}}>{fmtDate(r.date)}</span>
-                          <span style={{fontSize:10,color:"#4d6e8a",flexShrink:0,opacity:0.6}}>✎</span>
-                          <button onClick={e=>{e.stopPropagation();removeReminder(r.id);}} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13,lineHeight:1,flexShrink:0}}>×</button>
+                          <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.note||""}</span>
+                          <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",fontFamily:"monospace",flexShrink:0}}>{fmtDate(r.date)}</span>
+                          <span style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",flexShrink:0,opacity:0.6}}>✎</span>
+                          <button onClick={e=>{e.stopPropagation();removeReminder(r.id);}} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#3d5a72",cursor:"pointer",fontSize:13,lineHeight:1,flexShrink:0}}>×</button>
                         </div>
                       );
                     })}
                   </div>
                 )}
-                {campaignReminders.length===0 && !showAddReminder && <div style={{fontSize:11,color:"#2a4060",marginBottom:4}}>No active reminders.</div>}
+                {campaignReminders.length===0 && !showAddReminder && <div style={{fontSize:11,color:_lm?"#94a3b8":"#2a4060",marginBottom:4}}>No active reminders.</div>}
                 {showAddReminder && (
-                  <div style={{background:"#0a1628",border:"1px solid #1e3350",borderRadius:7,padding:"10px",display:"flex",flexDirection:"column",gap:8}}>
+                  <div style={{background:_lm?"#f8fafc":"#0a1628",border:`1px solid ${_lm?"#e2e8f0":"#1e3350"}`,borderRadius:7,padding:"10px",display:"flex",flexDirection:"column",gap:8}}>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                       <div>
-                        <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Type</label>
-                        <select value={newReminder.type} onChange={e=>setNewReminder(p=>({...p,type:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 8px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit"}}>
+                        <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Type</label>
+                        <select value={newReminder.type} onChange={e=>setNewReminder(p=>({...p,type:e.target.value}))} style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"inherit"}}>
                           {REMINDER_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
                         </select>
                       </div>
                       <div>
-                        <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
+                        <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Date</label>
                         <DatePicker value={newReminder.date} onChange={v=>setNewReminder(p=>({...p,date:v}))}/>
                       </div>
                     </div>
                     <div>
-                      <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Note (optional)</label>
-                      <textarea value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))} placeholder="e.g. Follow up on pixel" rows={2} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"6px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",lineHeight:1.5,outline:"none"}}/>
+                      <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>Note (optional)</label>
+                      <textarea value={newReminder.note} onChange={e=>setNewReminder(p=>({...p,note:e.target.value}))} placeholder="e.g. Follow up on pixel" rows={2} style={{width:"100%",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",lineHeight:1.5,outline:"none"}}/>
                     </div>
                     <div style={{display:"flex",gap:6}}>
-                      <button onClick={addReminder} disabled={!newReminder.date} style={{flex:1,background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"7px 0",color:newReminder.date?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:newReminder.date?"pointer":"default"}}>Save</button>
-                      <button onClick={()=>setShowAddReminder(false)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"7px 12px",color:"#7a9bbf",fontSize:12,cursor:"pointer"}}>Cancel</button>
+                      <button onClick={addReminder} disabled={!newReminder.date} style={{flex:1,background:newReminder.date?"#f59e0b":(_lm?"#f1f5f9":"#162236"),border:"none",borderRadius:5,padding:"7px 0",color:newReminder.date?"#000":(_lm?"#94a3b8":"#3d5a72"),fontSize:12,fontWeight:700,cursor:newReminder.date?"pointer":"default"}}>Save</button>
+                      <button onClick={()=>setShowAddReminder(false)} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"7px 12px",color:_lm?"#475569":"#7a9bbf",fontSize:12,cursor:"pointer"}}>Cancel</button>
                     </div>
                   </div>
                 )}
@@ -1578,14 +1591,14 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
         </div>{/* end scrollable body */}
 
         {/* ── Sticky save bar — always visible ── */}
-        <div style={{borderTop:"1px solid #1e293b",padding:"14px 28px",flexShrink:0,background:"#0a1525",borderRadius:"0 0 12px 12px",display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{borderTop:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,padding:"14px 28px",flexShrink:0,background:_lm?"#f8fafc":"#0a1525",borderRadius:"0 0 12px 12px",display:"flex",gap:8,alignItems:"center"}}>
           {f.retargeting && (
-            <div style={{display:"flex",alignItems:"center",gap:6,background:"#1a0808",border:"1px solid #FF6B6B40",borderRadius:6,padding:"6px 12px",marginRight:4}}>
-              <span style={{fontSize:11,color:"#FF6B6B",fontWeight:700}}>⚠ RT Pixel Not Placed</span>
+            <div style={{display:"flex",alignItems:"center",gap:6,background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#FF6B6B40"}`,borderRadius:6,padding:"6px 12px",marginRight:4}}>
+              <span style={{fontSize:11,color:"#ef4444",fontWeight:700}}>⚠ RT Pixel Not Placed</span>
             </div>
           )}
-          <button onClick={submit} style={{flex:1,background:isNew?"#00d48a":"#00c896",border:"none",borderRadius:7,padding:"11px 0",color:isNew?"#000":"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>{isNew?"Add Campaign":"Save Changes"}</button>
-          <button onClick={onClose} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"11px 0",color:"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>Cancel</button>
+          <button onClick={submit} style={{flex:1,background:"#00e19e",border:"none",borderRadius:7,padding:"11px 0",color:"#0a1a0a",fontWeight:700,fontSize:14,cursor:"pointer"}}>{isNew?"Add Campaign":"Save Changes"}</button>
+          <button onClick={onClose} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"11px 0",color:_lm?"#475569":"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>Cancel</button>
         </div>
 
       </div>
@@ -2538,19 +2551,19 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
   const dangerAlerts = kpiAlerts.filter(a=>a.level==="danger");
   const warnAlerts = kpiAlerts.filter(a=>a.level==="warn");
   const boltChars = ["⚡","🌩","⚡","💥","⚡","🌩","⚡","✦"];
-  const iS = {background:"#07101c",border:"1px solid #1a2744",borderRadius:8,padding:"9px 13px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit",width:"100%",boxSizing:"border-box",outline:"none"};
+  const iS = {background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8,padding:"9px 13px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontFamily:"inherit",width:"100%",boxSizing:"border-box",outline:"none"};
 
   function renderMarkdown(text) {
     const display = stripActions(text);
     return display.split("\n").map((line,i) => {
       if (!line.trim()) return <div key={i} style={{height:5}}/>;
-      if (/^#{1,3} /.test(line)) return <div key={i} style={{fontSize:14,fontWeight:800,color:"#edf4ff",marginTop:16,marginBottom:5}}>{line.replace(/^#{1,3} /,"")}</div>;
-      const parts = line.split(/(\*\*[^*]+\*\*)/g).map((p,j)=>p.startsWith("**")?<strong key={j} style={{color:"#edf4ff",fontWeight:700}}>{p.slice(2,-2)}</strong>:p);
+      if (/^#{1,3} /.test(line)) return <div key={i} style={{fontSize:14,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginTop:16,marginBottom:5}}>{line.replace(/^#{1,3} /,"")}</div>;
+      const parts = line.split(/(\*\*[^*]+\*\*)/g).map((p,j)=>p.startsWith("**")?<strong key={j} style={{color:_lm?"#0f172a":"#edf4ff",fontWeight:700}}>{p.slice(2,-2)}</strong>:p);
       if (/^[-•*] /.test(line)) return <div key={i} style={{display:"flex",gap:8,marginBottom:4,paddingLeft:4}}>
         <span style={{color:"#f59e0b",flexShrink:0,marginTop:2,fontSize:10}}>▸</span>
-        <span style={{fontSize:12,color:"#a8c4e0",lineHeight:1.65}}>{parts.map((p,j)=>typeof p==="string"?p.replace(/^[-•*] /,""):p)}</span>
+        <span style={{fontSize:12,color:_lm?"#334155":"#a8c4e0",lineHeight:1.65}}>{parts.map((p,j)=>typeof p==="string"?p.replace(/^[-•*] /,""):p)}</span>
       </div>;
-      return <div key={i} style={{fontSize:12,color:"#a8c4e0",lineHeight:1.7,marginBottom:2}}>{parts}</div>;
+      return <div key={i} style={{fontSize:12,color:_lm?"#334155":"#a8c4e0",lineHeight:1.7,marginBottom:2}}>{parts}</div>;
     });
   }
 
@@ -2570,7 +2583,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div style={{color:"#d8eaf8",maxWidth:1200}}>
+    <div style={{color:_lm?"#0f172a":"#d8eaf8",maxWidth:1200}}>
       <style>{`
         @keyframes zeusGlow{0%,100%{box-shadow:0 0 20px #f59e0b30,0 0 40px #f59e0b10}50%{box-shadow:0 0 35px #f59e0b70,0 0 70px #f59e0b30}}
         @keyframes boltSpin{0%{transform:scale(1) rotate(0deg)}25%{transform:scale(1.4) rotate(-10deg)}50%{transform:scale(1.2) rotate(5deg)}75%{transform:scale(1.5) rotate(-5deg)}100%{transform:scale(1) rotate(0deg)}}
@@ -2626,17 +2639,17 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
           <div>
             <div style={{fontSize:20,fontWeight:900,color:"#f59e0b",letterSpacing:"-0.03em",lineHeight:1,display:"flex",alignItems:"center",gap:8}}>
               Zeus
-              <span style={{fontSize:10,color:"#4d6e8a",fontWeight:500,letterSpacing:0,background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:"2px 8px"}}>⚡ Greek God of Thunder</span>
+              <span style={{fontSize:10,color:_lm?"#475569":"#4d6e8a",fontWeight:500,letterSpacing:0,background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:"2px 8px"}}>⚡ Greek God of Thunder</span>
             </div>
-            <div style={{fontSize:11,color:"#4d6e8a",marginTop:3}}>Super Agent · {campaigns.filter(c=>c.status==="active").length} active campaigns · Full write access</div>
+            <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",marginTop:3}}>Super Agent · {campaigns.filter(c=>c.status==="active").length} active campaigns · Full write access</div>
             {dangerAlerts.length>0&&<div style={{fontSize:10,color:"#ef4444",fontWeight:700,marginTop:2,animation:"pulse 2s ease-in-out infinite"}}>🚨 {dangerAlerts.length} critical alert{dangerAlerts.length>1?"s":""} active</div>}
             {pendingActions.length>0&&<div style={{fontSize:10,color:"#f59e0b",fontWeight:700,marginTop:1}}>🎯 {pendingActions.length} action{pendingActions.length>1?"s":""} awaiting approval</div>}
           </div>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
           <button onClick={runBriefing} disabled={briefingLoading||loading}
-            style={{background:"#0a1828",border:"1px solid #60a5fa40",borderRadius:10,padding:"11px 20px",
-              color:briefingLoading?"#3d5a72":"#60a5fa",fontSize:13,fontWeight:700,
+            style={{background:_lm?"#f0f9ff":"#0a1828",border:`1px solid ${_lm?"#bae6fd":"#60a5fa40"}`,borderRadius:10,padding:"11px 20px",
+              color:briefingLoading?(_lm?"#94a3b8":"#3d5a72"):(_lm?"#0369a1":"#60a5fa"),fontSize:13,fontWeight:700,
               cursor:briefingLoading||loading?"default":"pointer",
               display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",transition:"all .2s"}}>
             {briefingLoading
@@ -2657,27 +2670,27 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
       </div>
 
       {/* ── Panel tabs ── */}
-      <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a2744",marginBottom:16,overflowX:"auto"}}>
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,marginBottom:16,overflowX:"auto"}}>
         {PANELS.map(p=>(
           <button key={p.key} onClick={()=>setActivePanel(p.key)} className="zeus-panel-btn"
             style={{background:"none",border:"none",borderBottom:activePanel===p.key?"2px solid #f59e0b":"2px solid transparent",
-              padding:"8px 14px",color:activePanel===p.key?"#f59e0b":"#4d6e8a",fontSize:12,fontWeight:activePanel===p.key?700:400,
+              padding:"8px 14px",color:activePanel===p.key?"#f59e0b":(_lm?"#475569":"#4d6e8a"),fontSize:12,fontWeight:activePanel===p.key?700:400,
               cursor:"pointer",transition:"all .15s",marginBottom:-1,display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}>
             {p.label}
-            {p.badge>0&&<span style={{background:p.key==="watchlist"?"#7f1d1d":p.key==="actions"?"#1a0e00":"#1a1000",border:`1px solid ${p.key==="watchlist"?"#ef444460":p.key==="actions"?"#f59e0b80":"#f59e0b60"}`,borderRadius:10,padding:"0 6px",fontSize:10,fontWeight:800,color:p.key==="watchlist"?"#ef4444":"#f59e0b"}}>{p.badge}</span>}
+            {p.badge>0&&<span style={{background:p.key==="watchlist"?(_lm?"#fee2e2":"#7f1d1d"):p.key==="actions"?(_lm?"#fffbeb":"#1a0e00"):(_lm?"#fffbeb":"#1a1000"),border:`1px solid ${p.key==="watchlist"?"#ef444460":p.key==="actions"?"#f59e0b80":"#f59e0b60"}`,borderRadius:10,padding:"0 6px",fontSize:10,fontWeight:800,color:p.key==="watchlist"?"#ef4444":"#f59e0b"}}>{p.badge}</span>}
           </button>
         ))}
       </div>
 
       {/* ── Action feedback toast ── */}
       {actionFeedback&&(
-        <div style={{background:actionFeedback.type==="success"?"#001810":actionFeedback.type==="error"?"#1a0808":"#0e1a2e",border:`1px solid ${actionFeedback.type==="success"?"#00c89650":actionFeedback.type==="error"?"#ef444450":"#334155"}`,borderRadius:8,padding:"10px 16px",marginBottom:12,fontSize:13,fontWeight:600,color:actionFeedback.type==="success"?"#00e5a0":actionFeedback.type==="error"?"#ef4444":"#7a9bbf",animation:"fadeInUp .2s ease-out"}}>
+        <div style={{background:actionFeedback.type==="success"?(_lm?"#f0fdf9":"#001810"):actionFeedback.type==="error"?(_lm?"#fee2e2":"#1a0808"):(_lm?"#f8fafc":"#0e1a2e"),border:`1px solid ${actionFeedback.type==="success"?(_lm?"#00c896":"#00c89650"):actionFeedback.type==="error"?(_lm?"#fca5a5":"#ef444450"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:8,padding:"10px 16px",marginBottom:12,fontSize:13,fontWeight:600,color:actionFeedback.type==="success"?(_lm?"#059669":"#00e5a0"):actionFeedback.type==="error"?"#ef4444":(_lm?"#475569":"#7a9bbf"),animation:"fadeInUp .2s ease-out"}}>
           {actionFeedback.msg}
         </div>
       )}
 
       {/* ── Error ── */}
-      {error&&<div style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:10,padding:"12px 16px",color:"#ef4444",fontSize:13,marginBottom:14}}>⚠ {error}</div>}
+      {error&&<div style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444440"}`,borderRadius:10,padding:"12px 16px",color:"#ef4444",fontSize:13,marginBottom:14}}>⚠ {error}</div>}
 
       {/* ── Loading ── */}
       {loading&&activePanel==="chat"&&(
@@ -2712,23 +2725,23 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
           )}
 
           {!briefing&&!briefingLoading&&(
-            <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:14,padding:"48px 32px",textAlign:"center"}}>
+            <div style={{background:_lm?"#ffffff":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:14,padding:"48px 32px",textAlign:"center",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
               <div style={{fontSize:36,marginBottom:12}}>☀️</div>
-              <div style={{fontSize:15,fontWeight:700,color:"#edf4ff",marginBottom:8}}>Morning Briefing</div>
-              <div style={{fontSize:12,color:"#4d6e8a",maxWidth:400,margin:"0 auto 20px",lineHeight:1.7}}>
-                Hit <strong style={{color:"#60a5fa"}}>☀️ Morning Brief</strong> and Zeus will generate your full daily summary — pacing status, what needs attention, campaigns ending this week, and exactly 3 things to do today.
+              <div style={{fontSize:15,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:8}}>Morning Briefing</div>
+              <div style={{fontSize:12,color:_lm?"#475569":"#4d6e8a",maxWidth:400,margin:"0 auto 20px",lineHeight:1.7}}>
+                Hit <strong style={{color:_lm?"#f59e0b":"#60a5fa"}}>☀️ Morning Brief</strong> and Zeus will generate your full daily summary — pacing status, what needs attention, campaigns ending this week, and exactly 3 things to do today.
               </div>
-              <div style={{fontSize:11,color:"#3d5a72"}}>Takes about 10–15 seconds with a local model.</div>
+              <div style={{fontSize:11,color:_lm?"#94a3b8":"#3d5a72"}}>Takes about 10–15 seconds with a local model.</div>
             </div>
           )}
 
           {briefing&&!briefingLoading&&(
             <>
-              <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:14,overflow:"hidden"}}>
+              <div style={{background:_lm?"#ffffff":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:14,overflow:"hidden",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
                 {/* Briefing toolbar */}
-                <div style={{background:"#060d18",borderBottom:"1px solid #1a2744",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-                  <div style={{fontSize:11,color:"#4d6e8a",display:"flex",alignItems:"center",gap:6}}>
-                    <span style={{color:"#60a5fa",fontWeight:700}}>☀️ Morning Briefing</span>
+                <div style={{background:_lm?"#f8fafc":"#060d18",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+                  <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{color:"#f59e0b",fontWeight:700}}>☀️ Morning Briefing</span>
                     <span>·</span>
                     <span>{new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}</span>
                   </div>
@@ -2737,28 +2750,28 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                       navigator.clipboard.writeText(briefing);
                       setBriefingCopied(true);
                       setTimeout(()=>setBriefingCopied(false), 2000);
-                    }} style={{background:briefingCopied?"#002e24":"#0e1a2e",border:`1px solid ${briefingCopied?"#00c89650":"#334155"}`,borderRadius:6,padding:"4px 12px",color:briefingCopied?"#00e5a0":"#7a9bbf",fontSize:11,fontWeight:700,cursor:"pointer",transition:"all .15s"}}>
+                    }} style={{background:briefingCopied?(_lm?"#f0fdf9":"#002e24"):(_lm?"#f1f5f9":"#0e1a2e"),border:`1px solid ${briefingCopied?(_lm?"#00c896":"#00c89650"):(_lm?"#cbd5e1":"#334155")}`,borderRadius:6,padding:"4px 12px",color:briefingCopied?(_lm?"#059669":"#00e5a0"):(_lm?"#475569":"#7a9bbf"),fontSize:11,fontWeight:700,cursor:"pointer",transition:"all .15s"}}>
                       {briefingCopied?"✓ Copied!":"📋 Copy"}
                     </button>
                     <button onClick={runBriefing} disabled={briefingLoading}
-                      style={{background:"#0a1828",border:"1px solid #60a5fa40",borderRadius:6,padding:"4px 12px",color:"#60a5fa",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                      style={{background:_lm?"#f0f9ff":"#0a1828",border:`1px solid ${_lm?"#bae6fd":"#60a5fa40"}`,borderRadius:6,padding:"4px 12px",color:_lm?"#0369a1":"#60a5fa",fontSize:11,fontWeight:700,cursor:"pointer"}}>
                       ↺ Refresh
                     </button>
                   </div>
                 </div>
                 {/* Briefing content */}
-                <div style={{padding:"20px 24px",whiteSpace:"pre-wrap",fontSize:13,color:"#a8c4e0",lineHeight:1.8,fontFamily:"inherit"}}>
+                <div style={{padding:"20px 24px",whiteSpace:"pre-wrap",fontSize:13,color:_lm?"#334155":"#a8c4e0",lineHeight:1.8,fontFamily:"inherit"}}>
                   {briefing.split("\n").map((line,i)=>{
                     if (!line.trim()) return <div key={i} style={{height:6}}/>;
                     // Section headers
                     if (/^(🚨|📊|⏰|💡|GOOD MORNING|---)/i.test(line.trim())) {
-                      if (line.trim().startsWith("---")) return <div key={i} style={{borderTop:"1px solid #1a2744",margin:"12px 0"}}/>;
-                      if (line.trim().startsWith("GOOD MORNING")) return <div key={i} style={{fontSize:16,fontWeight:800,color:"#edf4ff",marginBottom:2}}>{line}</div>;
-                      return <div key={i} style={{fontSize:13,fontWeight:800,color:"#edf4ff",marginTop:16,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>{line}</div>;
+                      if (line.trim().startsWith("---")) return <div key={i} style={{borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,margin:"12px 0"}}/>;
+                      if (line.trim().startsWith("GOOD MORNING")) return <div key={i} style={{fontSize:16,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginBottom:2}}>{line}</div>;
+                      return <div key={i} style={{fontSize:13,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginTop:16,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>{line}</div>;
                     }
                     // Italic date line under header
                     if (/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/i.test(line.trim())) {
-                      return <div key={i} style={{fontSize:12,color:"#4d6e8a",marginBottom:12}}>{line}</div>;
+                      return <div key={i} style={{fontSize:12,color:_lm?"#475569":"#4d6e8a",marginBottom:12}}>{line}</div>;
                     }
                     // Bullet items
                     if (/^[-•·]/.test(line.trim())||/^\d+\./.test(line.trim())) {
@@ -2766,20 +2779,20 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                       const num = line.match(/^(\d+)\./)?.[1];
                       return (
                         <div key={i} style={{display:"flex",gap:10,marginBottom:5,paddingLeft:4,alignItems:"flex-start"}}>
-                          <span style={{color:"#60a5fa",flexShrink:0,fontWeight:700,minWidth:16,marginTop:1}}>{num?`${num}.`:"›"}</span>
-                          <span style={{fontSize:13,color:"#a8c4e0",lineHeight:1.6}}>{text}</span>
+                          <span style={{color:_lm?"#f59e0b":"#60a5fa",flexShrink:0,fontWeight:700,minWidth:16,marginTop:1}}>{num?`${num}.`:"›"}</span>
+                          <span style={{fontSize:13,color:_lm?"#334155":"#a8c4e0",lineHeight:1.6}}>{text}</span>
                         </div>
                       );
                     }
                     // Sub-items / indented
                     if (line.startsWith("  ")) {
-                      return <div key={i} style={{fontSize:12,color:"#7a9bbf",paddingLeft:22,marginBottom:3,lineHeight:1.5}}>{line.trim()}</div>;
+                      return <div key={i} style={{fontSize:12,color:_lm?"#64748b":"#7a9bbf",paddingLeft:22,marginBottom:3,lineHeight:1.5}}>{line.trim()}</div>;
                     }
                     // "Briefing by Zeus" footer
                     if (line.includes("Briefing by Zeus")) {
-                      return <div key={i} style={{fontSize:11,color:"#3d5a72",marginTop:4,fontStyle:"italic"}}>{line}</div>;
+                      return <div key={i} style={{fontSize:11,color:_lm?"#94a3b8":"#3d5a72",marginTop:4,fontStyle:"italic"}}>{line}</div>;
                     }
-                    return <div key={i} style={{fontSize:13,color:"#a8c4e0",marginBottom:3,lineHeight:1.6}}>{line}</div>;
+                    return <div key={i} style={{fontSize:13,color:_lm?"#334155":"#a8c4e0",marginBottom:3,lineHeight:1.6}}>{line}</div>;
                   })}
                 </div>
               </div>
@@ -2788,7 +2801,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
               <div style={{display:"flex",gap:8}}>
                 <input
                   placeholder="Ask Zeus about anything in the briefing…"
-                  style={{flex:1,background:"#07101c",border:"1px solid #1a2744",borderRadius:8,padding:"9px 14px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit",outline:"none"}}
+                  style={{flex:1,background:_lm?"#ffffff":"#07101c",border:`1px solid ${_lm?"#cbd5e1":"#1a2744"}`,borderRadius:8,padding:"9px 14px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontFamily:"inherit",outline:"none"}}
                   onKeyDown={e=>{
                     if (e.key==="Enter"&&e.target.value.trim()) {
                       setQuestion(e.target.value.trim());
@@ -2797,7 +2810,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                     }
                   }}
                 />
-                <button onClick={()=>setActivePanel("chat")} style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:8,padding:"9px 16px",color:"#f59e0b",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                <button onClick={()=>setActivePanel("chat")} style={{background:_lm?"#fffbeb":"#1a1000",border:"1px solid #f59e0b40",borderRadius:8,padding:"9px 16px",color:"#f59e0b",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
                   Open Zeus ⚡
                 </button>
               </div>
@@ -2810,33 +2823,33 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
       {activePanel==="patterns"&&(
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-            <div style={{fontSize:11,color:"#4d6e8a",lineHeight:1.6}}>
+            <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",lineHeight:1.6}}>
               Zeus analyzes your campaigns for cross-campaign patterns, partner trends, platform habits, and anomalies — things that only show up when you look across the whole portfolio.
-              {patterns?.ts&&<span style={{marginLeft:8,color:"#3d5a72"}}>Last run: {patterns.ts}</span>}
+              {patterns?.ts&&<span style={{marginLeft:8,color:_lm?"#94a3b8":"#3d5a72"}}>Last run: {patterns.ts}</span>}
             </div>
             <button onClick={runPatternAnalysis} disabled={patternsLoading}
-              style={{background:patternsLoading?"#1a1000":"linear-gradient(135deg,#1a1000,#2d1a00)",border:`1px solid ${patternsLoading?"#f59e0b80":"#f59e0b60"}`,borderRadius:9,padding:"9px 20px",color:patternsLoading?"#f59e0b80":"#f59e0b",fontSize:12,fontWeight:800,cursor:patternsLoading?"default":"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",transition:"all .2s"}}>
+              style={{background:patternsLoading?(_lm?"#fffbeb":"#1a1000"):(_lm?"linear-gradient(135deg,#fffbeb,#fef9c3)":"linear-gradient(135deg,#1a1000,#2d1a00)"),border:`1px solid ${patternsLoading?"#f59e0b80":"#f59e0b60"}`,borderRadius:9,padding:"9px 20px",color:patternsLoading?"#f59e0b80":"#f59e0b",fontSize:12,fontWeight:800,cursor:patternsLoading?"default":"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",transition:"all .2s"}}>
               {patternsLoading?<><span style={{animation:"boltSpin .2s ease-in-out infinite",display:"inline-block"}}>⚡</span>Analyzing…</>:<>🔍 {patterns?"Re-run Analysis":"Run Pattern Analysis"}</>}
             </button>
           </div>
 
           {patternsLoading&&(
-            <div style={{background:"linear-gradient(135deg,#0c1218,#100d00)",border:"1px solid #f59e0b30",borderRadius:14,padding:"24px",animation:"zeusGlow 1.5s ease-in-out infinite"}}>
+            <div style={{background:_lm?"linear-gradient(135deg,#fffbeb,#fef9c3)":"linear-gradient(135deg,#0c1218,#100d00)",border:"1px solid #f59e0b30",borderRadius:14,padding:"24px",animation:"zeusGlow 1.5s ease-in-out infinite"}}>
               <div style={{fontSize:12,color:"#f59e0b",fontWeight:700,marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
                 <span style={{animation:"boltSpin .2s linear infinite",display:"inline-block"}}>⚡</span>
                 Zeus scanning {campaigns.length} campaigns for patterns…
               </div>
               {[75,55,85,45,65].map((w,i)=>(
-                <div key={i} style={{height:9,marginBottom:8,borderRadius:5,width:`${w}%`,background:"linear-gradient(90deg,#1a1000 0%,#f59e0b20 50%,#1a1000 100%)",backgroundSize:"200% 100%",animation:"shimmer 1.5s ease-in-out infinite",animationDelay:`${i*0.1}s`}}/>
+                <div key={i} style={{height:9,marginBottom:8,borderRadius:5,width:`${w}%`,background:_lm?"linear-gradient(90deg,#fef3c7 0%,#fbbf2440 50%,#fef3c7 100%)":"linear-gradient(90deg,#1a1000 0%,#f59e0b20 50%,#1a1000 100%)",backgroundSize:"200% 100%",animation:"shimmer 1.5s ease-in-out infinite",animationDelay:`${i*0.1}s`}}/>
               ))}
             </div>
           )}
 
           {!patterns&&!patternsLoading&&(
-            <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:14,padding:"48px 32px",textAlign:"center"}}>
+            <div style={{background:_lm?"#ffffff":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:14,padding:"48px 32px",textAlign:"center",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
               <div style={{fontSize:36,marginBottom:12}}>🔍</div>
-              <div style={{fontSize:15,fontWeight:700,color:"#edf4ff",marginBottom:8}}>Pattern Recognition</div>
-              <div style={{fontSize:12,color:"#4d6e8a",maxWidth:440,margin:"0 auto",lineHeight:1.7}}>
+              <div style={{fontSize:15,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:8}}>Pattern Recognition</div>
+              <div style={{fontSize:12,color:_lm?"#475569":"#4d6e8a",maxWidth:440,margin:"0 auto",lineHeight:1.7}}>
                 Zeus looks across your entire portfolio to find things you'd never catch checking campaigns one by one — partner-wide delivery problems, platform underperformance, creative fatigue clusters, suspicious timing patterns.
               </div>
             </div>
@@ -2846,53 +2859,53 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
             {/* Local patterns — instant, no LLM */}
             {patterns.local.length > 0 && (
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                <div style={{fontSize:10,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>⚡ Detected Patterns</div>
+                <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>⚡ Detected Patterns</div>
                 {patterns.local.map((p,i)=>{
                   const sevColor = p.severity==="warn"?"#f59e0b":"#60a5fa";
-                  const sevBg = p.severity==="warn"?"#120e00":"#060d18";
+                  const sevBg = p.severity==="warn"?(_lm?"#fffbeb":"#120e00"):(_lm?"#eff6ff":"#060d18");
                   const sevBorder = p.severity==="warn"?"#f59e0b30":"#60a5fa25";
                   return (
                     <div key={i} style={{background:sevBg,border:`1px solid ${sevBorder}`,borderRadius:10,padding:"12px 16px"}}>
                       <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:6}}>
                         <span style={{fontSize:16,flexShrink:0}}>{p.severity==="warn"?"⚠️":"💡"}</span>
                         <div style={{flex:1}}>
-                          <div style={{fontSize:13,fontWeight:700,color:"#edf4ff",marginBottom:2}}>{p.title}</div>
-                          <div style={{fontSize:11,color:"#7a9bbf",lineHeight:1.5,marginBottom:6}}>{p.detail}</div>
+                          <div style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:2}}>{p.title}</div>
+                          <div style={{fontSize:11,color:_lm?"#475569":"#7a9bbf",lineHeight:1.5,marginBottom:6}}>{p.detail}</div>
                           {p.campaigns&&p.campaigns.length>0&&(
                             <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:6}}>
                               {p.campaigns.slice(0,5).map((name,j)=>(
-                                <span key={j} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:4,padding:"1px 7px",fontSize:10,color:"#4d6e8a"}}>{name}</span>
+                                <span key={j} style={{background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:4,padding:"1px 7px",fontSize:10,color:_lm?"#475569":"#4d6e8a"}}>{name}</span>
                               ))}
-                              {p.campaigns.length>5&&<span style={{fontSize:10,color:"#3d5a72",alignSelf:"center"}}>+{p.campaigns.length-5} more</span>}
+                              {p.campaigns.length>5&&<span style={{fontSize:10,color:_lm?"#64748b":"#3d5a72",alignSelf:"center"}}>+{p.campaigns.length-5} more</span>}
                             </div>
                           )}
                           <div style={{fontSize:11,color:sevColor,fontWeight:600}}>→ {p.action}</div>
                         </div>
                         <button onClick={()=>{ setQuestion(`Tell me more about this pattern: ${p.title}. ${p.detail}`); setActivePanel("chat"); }}
-                          style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:6,padding:"4px 10px",color:"#f59e0b",fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                          style={{background:_lm?"#fffbeb":"#1a1000",border:"1px solid #f59e0b40",borderRadius:6,padding:"4px 10px",color:"#f59e0b",fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
                           Ask Zeus ⚡
                         </button>
                       </div>
                     </div>
                   );
                 })}
-                {patterns.local.length===0&&<div style={{fontSize:12,color:"#3d5a72",padding:"12px 0"}}>No structural patterns detected in current data.</div>}
+                {patterns.local.length===0&&<div style={{fontSize:12,color:_lm?"#94a3b8":"#3d5a72",padding:"12px 0"}}>No structural patterns detected in current data.</div>}
               </div>
             )}
 
             {/* AI deep analysis */}
             {patterns.ai&&(
-              <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:12,overflow:"hidden"}}>
-                <div style={{background:"#060d18",borderBottom:"1px solid #1a2744",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{background:_lm?"#ffffff":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:12,overflow:"hidden"}}>
+                <div style={{background:_lm?"#f8fafc":"#060d18",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                   <div style={{fontSize:11,fontWeight:700,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.07em"}}>⚡ Zeus · Deep Pattern Analysis</div>
                   <button onClick={()=>{ navigator.clipboard.writeText(patterns.ai); setActionFeedback({type:"success",msg:"✓ Copied"}); }}
-                    style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:5,padding:"3px 9px",color:"#4d6e8a",fontSize:10,fontWeight:600,cursor:"pointer"}}>Copy 📋</button>
+                    style={{background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"3px 9px",color:_lm?"#475569":"#4d6e8a",fontSize:10,fontWeight:600,cursor:"pointer"}}>Copy 📋</button>
                 </div>
                 <div style={{padding:"16px 20px"}}>{renderMarkdown(patterns.ai)}</div>
               </div>
             )}
             {patterns.error&&(
-              <div style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:10,padding:"12px 16px",fontSize:12,color:"#ef4444"}}>
+              <div style={{background:_lm?"#fee2e2":"#1a0808",border:"1px solid #ef444440",borderRadius:10,padding:"12px 16px",fontSize:12,color:"#ef4444"}}>
                 AI analysis failed: {patterns.error} — local patterns above are still valid.
               </div>
             )}
@@ -2903,33 +2916,33 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
       {/* ══ CHAT PANEL ══ */}
       {activePanel==="chat"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:14,overflow:"hidden"}}>
+          <div style={{background:_lm?"#ffffff":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:14,overflow:"hidden",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
             <div style={{maxHeight:520,overflowY:"auto",padding:"20px 22px",display:"flex",flexDirection:"column",gap:14}}>
               {chatHistory.map((msg,i)=>(
                 <div key={i} className="zeus-msg" style={{display:"flex",gap:10,alignItems:"flex-start",flexDirection:msg.role==="user"?"row-reverse":"row"}}>
                   <div style={{width:30,height:30,borderRadius:9,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,
-                    background:msg.role==="user"?"#002e24":"#1a1000",
+                    background:msg.role==="user"?(_lm?"#f0fdf9":"#002e24"):(_lm?"#fffbeb":"#1a1000"),
                     border:`1px solid ${msg.role==="user"?"#00c89640":"#f59e0b40"}`}}>
                     {msg.role==="user"?"👤":"⚡"}
                   </div>
                   <div style={{flex:1,minWidth:0,maxWidth:"88%"}}>
                     {msg.isAnalysis&&<div style={{fontSize:10,color:"#f59e0b",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:800}}>⚡ Zeus · Full Analysis</div>}
-                    {msg.isGreeting&&<div style={{fontSize:10,color:"#4d6e8a",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>⚡ Zeus · Online</div>}
-                    <div style={{background:msg.role==="user"?"#002e24":msg.isError?"#1a0808":"#0c1625",border:`1px solid ${msg.role==="user"?"#00c89630":msg.isError?"#ef444440":"#1e293b"}`,borderRadius:10,padding:"12px 16px"}}>
+                    {msg.isGreeting&&<div style={{fontSize:10,color:_lm?"#475569":"#4d6e8a",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700}}>⚡ Zeus · Online</div>}
+                    <div style={{background:msg.role==="user"?(_lm?"#f0fdf9":"#002e24"):msg.isError?(_lm?"#fee2e2":"#1a0808"):(_lm?"#f8fafc":"#0c1625"),border:`1px solid ${msg.role==="user"?(_lm?"#00c896":"#00c89630"):msg.isError?(_lm?"#fca5a5":"#ef444440"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:10,padding:"12px 16px"}}>
                       {msg.role==="user"
-                        ? <span style={{fontSize:13,color:"#d8eaf8"}}>{msg.content}</span>
+                        ? <span style={{fontSize:13,color:_lm?"#0f172a":"#d8eaf8"}}>{msg.content}</span>
                         : <div>{renderMarkdown(msg.content)}</div>}
                     </div>
                     {/* Inline action cards */}
                     {msg.actions&&msg.actions.length>0&&msg.actions.map(a=>(
-                      <div key={a.id} className="zeus-action" style={{marginTop:8,background:"#0e1a00",border:"1px solid #f59e0b40",borderRadius:9,padding:"10px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                      <div key={a.id} className="zeus-action" style={{marginTop:8,background:_lm?"#fffbeb":"#0e1a00",border:"1px solid #f59e0b40",borderRadius:9,padding:"10px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                         <span style={{fontSize:11,fontWeight:700,color:"#f59e0b"}}>🎯 Action</span>
-                        <span style={{fontSize:12,color:"#d8eaf8",flex:1}}>{a.description}</span>
+                        <span style={{fontSize:12,color:_lm?"#0f172a":"#d8eaf8",flex:1}}>{a.description}</span>
                         <button onClick={()=>executeAction(a)} disabled={executingAction===a.id}
-                          style={{background:executingAction===a.id?"#0e1a2e":"#002e24",border:`1px solid ${executingAction===a.id?"#1e293b":"#00c89650"}`,borderRadius:6,padding:"5px 12px",color:executingAction===a.id?"#3d5a72":"#00e5a0",fontSize:11,fontWeight:700,cursor:executingAction===a.id?"default":"pointer",whiteSpace:"nowrap"}}>
+                          style={{background:executingAction===a.id?(_lm?"#f1f5f9":"#0e1a2e"):(_lm?"#f0fdf9":"#002e24"),border:`1px solid ${executingAction===a.id?(_lm?"#e2e8f0":"#1e293b"):(_lm?"#00c896":"#00c89650")}`,borderRadius:6,padding:"5px 12px",color:executingAction===a.id?(_lm?"#94a3b8":"#3d5a72"):(_lm?"#059669":"#00e5a0"),fontSize:11,fontWeight:700,cursor:executingAction===a.id?"default":"pointer",whiteSpace:"nowrap"}}>
                           {executingAction===a.id?"Running…":"✓ Execute"}
                         </button>
-                        <button onClick={()=>rejectAction(a.id)} style={{background:"none",border:"1px solid #334155",borderRadius:6,padding:"5px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>✕</button>
+                        <button onClick={()=>rejectAction(a.id)} style={{background:"none",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"5px 10px",color:_lm?"#475569":"#4d6e8a",fontSize:11,cursor:"pointer"}}>✕</button>
                       </div>
                     ))}
                   </div>
@@ -2937,30 +2950,30 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
               ))}
               {chatLoading&&(
                 <div className="zeus-msg" style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-                  <div style={{width:30,height:30,borderRadius:9,background:"#1a1000",border:"1px solid #f59e0b40",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>⚡</div>
-                  <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"12px 16px",display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{width:30,height:30,borderRadius:9,background:_lm?"#fffbeb":"#1a1000",border:"1px solid #f59e0b40",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>⚡</div>
+                  <div style={{background:_lm?"#f8fafc":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"12px 16px",display:"flex",alignItems:"center",gap:8}}>
                     <span style={{color:"#f59e0b",fontSize:16,animation:"boltSpin .3s ease-in-out infinite",display:"inline-block"}}>⚡</span>
-                    <span style={{color:"#4d6e8a",fontSize:12}}>Zeus is on it…</span>
+                    <span style={{color:_lm?"#475569":"#4d6e8a",fontSize:12}}>Zeus is on it…</span>
                   </div>
                 </div>
               )}
               <div ref={chatEndRef}/>
             </div>
-            <div style={{borderTop:"1px solid #1a2744",padding:"12px 14px",display:"flex",gap:8,background:"#060d18"}}>
+            <div style={{borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,padding:"12px 14px",display:"flex",gap:8,background:_lm?"#f8fafc":"#060d18"}}>
               <input value={question} onChange={e=>setQuestion(e.target.value)}
                 onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendQuestion()}
                 placeholder="Tell Zeus what to do — 'Add a Pinterest campaign for Alpha Portland', 'Update end dates for all Fairmont campaigns to June 30', 'Archive the Holo HIIT campaigns'…"
                 style={{...iS,flex:1,padding:"9px 14px"}}/>
               <button onClick={sendQuestion} disabled={!question.trim()||chatLoading}
-                style={{background:question.trim()&&!chatLoading?"#1a1000":"#07101c",border:`1px solid ${question.trim()&&!chatLoading?"#f59e0b60":"#1a2744"}`,
-                  borderRadius:8,padding:"9px 18px",color:question.trim()&&!chatLoading?"#f59e0b":"#3d5a72",
+                style={{background:question.trim()&&!chatLoading?(_lm?"#f59e0b":"#1a1000"):(_lm?"#f1f5f9":"#07101c"),border:`1px solid ${question.trim()&&!chatLoading?"#f59e0b60":(_lm?"#e2e8f0":"#1a2744")}`,
+                  borderRadius:8,padding:"9px 18px",color:question.trim()&&!chatLoading?(_lm?"#0a1a0a":"#f59e0b"):(_lm?"#94a3b8":"#3d5a72"),
                   fontSize:13,fontWeight:700,cursor:question.trim()&&!chatLoading?"pointer":"default",whiteSpace:"nowrap",transition:"all .15s"}}>
                 ⚡ Send
               </button>
             </div>
           </div>
           <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
-            <span style={{fontSize:11,color:"#3d5a72",marginRight:2,flexShrink:0}}>Quick:</span>
+            <span style={{fontSize:11,color:_lm?"#94a3b8":"#3d5a72",marginRight:2,flexShrink:0}}>Quick:</span>
             {[
               {label:"🚨 What needs attention?",   q:"What needs my attention right now? Be specific — names, numbers, actions."},
               {label:"📊 Pacing summary",           q:"Give me a pacing summary for all active campaigns. Which ones are at risk of missing their monthly goal?"},
@@ -2970,9 +2983,9 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
               {label:"🎯 Bottom performers",       q:"Which campaigns are performing worst right now? CTR below benchmark, pacing behind, stale check-ins — rank them."},
             ].map(({label,q})=>(
               <button key={q} onClick={()=>setQuestion(q)}
-                style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:20,padding:"4px 11px",color:"#4d6e8a",fontSize:11,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}
+                style={{background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:20,padding:"4px 11px",color:_lm?"#475569":"#4d6e8a",fontSize:11,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}
                 onMouseEnter={e=>{e.currentTarget.style.borderColor="#f59e0b40";e.currentTarget.style.color="#f59e0b";}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor="#1e293b";e.currentTarget.style.color="#4d6e8a";}}>
+                onMouseLeave={e=>{e.currentTarget.style.borderColor=_lm?"#e2e8f0":"#1e293b";e.currentTarget.style.color=_lm?"#475569":"#4d6e8a";}}>
                 {label}
               </button>
             ))}
@@ -2983,34 +2996,34 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
       {/* ══ ACTIONS PANEL ══ */}
       {activePanel==="actions"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>
+          <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",marginBottom:4}}>
             Actions Zeus wants to execute. Review each one and approve or reject. All changes are logged to campaign history.
           </div>
           {pendingActions.length===0?(
-            <div style={{background:"#061810",border:"1px solid #22c55e30",borderRadius:12,padding:"32px",textAlign:"center"}}>
+            <div style={{background:_lm?"#f0fdf9":"#061810",border:`1px solid ${_lm?"#00c89640":"#22c55e30"}`,borderRadius:12,padding:"32px",textAlign:"center"}}>
               <div style={{fontSize:28,marginBottom:8}}>✅</div>
               <div style={{fontSize:13,color:"#00d48a",fontWeight:600}}>No pending actions</div>
-              <div style={{fontSize:11,color:"#3d5a72",marginTop:4}}>Ask Zeus to do something and actions will appear here for your approval.</div>
+              <div style={{fontSize:11,color:_lm?"#94a3b8":"#3d5a72",marginTop:4}}>Ask Zeus to do something and actions will appear here for your approval.</div>
             </div>
           ):(
             pendingActions.map(a=>(
-              <div key={a.id} className="zeus-action" style={{background:"#0a1218",border:"1px solid #f59e0b40",borderRadius:12,padding:"16px 18px"}}>
+              <div key={a.id} className="zeus-action" style={{background:_lm?"#fffbeb":"#0a1218",border:"1px solid #f59e0b40",borderRadius:12,padding:"16px 18px"}}>
                 <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10}}>
                   <span style={{fontSize:20,flexShrink:0}}>🎯</span>
                   <div style={{flex:1}}>
                     <div style={{fontSize:12,fontWeight:700,color:"#f59e0b",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:3}}>{a.type.replace(/_/g," ")}</div>
-                    <div style={{fontSize:13,color:"#edf4ff",fontWeight:500}}>{a.description}</div>
-                    {a.data&&<div style={{marginTop:8,background:"#060d18",borderRadius:6,padding:"8px 10px",fontSize:11,color:"#4d6e8a",fontFamily:"monospace",lineHeight:1.6}}>
-                      {Object.entries(a.data).filter(([,v])=>v).map(([k,v])=><div key={k}><span style={{color:"#7a9bbf"}}>{k}:</span> <span style={{color:"#d8eaf8"}}>{String(v)}</span></div>)}
+                    <div style={{fontSize:13,color:_lm?"#0f172a":"#edf4ff",fontWeight:500}}>{a.description}</div>
+                    {a.data&&<div style={{marginTop:8,background:_lm?"#f8fafc":"#060d18",borderRadius:6,padding:"8px 10px",fontSize:11,color:_lm?"#475569":"#4d6e8a",fontFamily:"monospace",lineHeight:1.6,border:_lm?"1px solid #e2e8f0":"none"}}>
+                      {Object.entries(a.data).filter(([,v])=>v).map(([k,v])=><div key={k}><span style={{color:_lm?"#64748b":"#7a9bbf"}}>{k}:</span> <span style={{color:_lm?"#0f172a":"#d8eaf8"}}>{String(v)}</span></div>)}
                     </div>}
                   </div>
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={()=>executeAction(a)} disabled={executingAction===a.id}
-                    style={{background:executingAction===a.id?"#0e1a2e":"#002e24",border:`1px solid ${executingAction===a.id?"#1e293b":"#00c89650"}`,borderRadius:7,padding:"7px 20px",color:executingAction===a.id?"#3d5a72":"#00e5a0",fontSize:12,fontWeight:700,cursor:executingAction===a.id?"default":"pointer"}}>
+                    style={{background:executingAction===a.id?(_lm?"#f1f5f9":"#0e1a2e"):(_lm?"#f0fdf9":"#002e24"),border:`1px solid ${executingAction===a.id?(_lm?"#e2e8f0":"#1e293b"):(_lm?"#00c896":"#00c89650")}`,borderRadius:7,padding:"7px 20px",color:executingAction===a.id?(_lm?"#94a3b8":"#3d5a72"):(_lm?"#059669":"#00e5a0"),fontSize:12,fontWeight:700,cursor:executingAction===a.id?"default":"pointer"}}>
                     {executingAction===a.id?"Executing…":"✓ Execute"}
                   </button>
-                  <button onClick={()=>rejectAction(a.id)} style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:7,padding:"7px 16px",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ Reject</button>
+                  <button onClick={()=>rejectAction(a.id)} style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444440"}`,borderRadius:7,padding:"7px 16px",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ Reject</button>
                 </div>
               </div>
             ))
@@ -3021,29 +3034,29 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
       {/* ══ WATCHLIST PANEL ══ */}
       {activePanel==="watchlist"&&(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>Live KPI monitoring across all active campaigns.</div>
+          <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",marginBottom:4}}>Live KPI monitoring across all active campaigns.</div>
           {kpiAlerts.length===0?(
-            <div style={{background:"#061810",border:"1px solid #22c55e30",borderRadius:12,padding:"32px",textAlign:"center"}}>
+            <div style={{background:_lm?"#f0fdf9":"#061810",border:`1px solid ${_lm?"#00c89640":"#22c55e30"}`,borderRadius:12,padding:"32px",textAlign:"center"}}>
               <div style={{fontSize:28,marginBottom:8}}>✅</div>
               <div style={{fontSize:13,color:"#00d48a",fontWeight:600}}>All clear</div>
             </div>
           ):(
             [...dangerAlerts,...warnAlerts].map((a,i)=>(
-              <div key={i} style={{background:a.level==="danger"?"#150808":"#120e00",border:`1px solid ${a.level==="danger"?"#ef444450":"#f59e0b40"}`,borderRadius:10,padding:"12px 16px",display:"flex",gap:12,alignItems:"flex-start"}}>
+              <div key={i} style={{background:_lm?(a.level==="danger"?"#fee2e2":"#fffbeb"):(a.level==="danger"?"#150808":"#120e00"),border:`1px solid ${a.level==="danger"?"#ef444450":"#f59e0b40"}`,borderRadius:10,padding:"12px 16px",display:"flex",gap:12,alignItems:"flex-start"}}>
                 <div style={{fontSize:20,flexShrink:0}}>{a.level==="danger"?"🚨":"⚠️"}</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:3}}>
                     <span style={{fontSize:11,fontWeight:800,color:a.level==="danger"?"#ef4444":"#f59e0b",textTransform:"uppercase",letterSpacing:"0.05em"}}>{a.level==="danger"?"CRITICAL":"WARNING"}</span>
-                    <span style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>{a.campaign}</span>
-                    <span style={{fontSize:11,color:"#4d6e8a"}}>· {a.platform} · {a.partner}</span>
+                    <span style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{a.campaign}</span>
+                    <span style={{fontSize:11,color:_lm?"#475569":"#4d6e8a"}}>· {a.platform} · {a.partner}</span>
                   </div>
-                  <div style={{fontSize:12,color:"#7a9bbf"}}>
+                  <div style={{fontSize:12,color:_lm?"#475569":"#7a9bbf"}}>
                     <span style={{fontWeight:600,color:a.level==="danger"?"#ef4444":"#f59e0b"}}>{a.label}: {a.value}</span>
-                    <span style={{color:"#3d5a72",marginLeft:6}}>(threshold: {a.threshold} — {a.msg})</span>
+                    <span style={{color:_lm?"#94a3b8":"#3d5a72",marginLeft:6}}>(threshold: {a.threshold} — {a.msg})</span>
                   </div>
                 </div>
                 <button onClick={()=>{ setQuestion(`Tell me what to do about the ${a.label} issue on ${a.campaign} (${a.platform})`); setActivePanel("chat"); }}
-                  style={{background:"#1a1000",border:"1px solid #f59e0b50",borderRadius:7,padding:"5px 12px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>Ask Zeus ⚡</button>
+                  style={{background:_lm?"#fffbeb":"#1a1000",border:"1px solid #f59e0b50",borderRadius:7,padding:"5px 12px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>Ask Zeus ⚡</button>
               </div>
             ))
           )}
@@ -3054,20 +3067,20 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
             return (<div style={{marginTop:8}}>
               <div style={{fontSize:10,color:"#a855f7",textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:6}}>📉 Month-over-Month Decline</div>
               {mom.map((t,i)=>(
-                <div key={i} style={{background:"#120a1a",border:"1px solid #a855f740",borderRadius:8,padding:"8px 14px",marginBottom:6,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <div key={i} style={{background:_lm?"#faf5ff":"#120a1a",border:"1px solid #a855f740",borderRadius:8,padding:"8px 14px",marginBottom:6,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                   <span style={{fontSize:11,fontWeight:800,color:t.level==="danger"?"#ef4444":"#a855f7",textTransform:"uppercase"}}>📉 {t.level==="danger"?"DROPPING":"DECLINING"}</span>
-                  <span style={{fontSize:12,color:"#edf4ff",fontWeight:600}}>{t.campaign}</span>
-                  <span style={{fontSize:11,color:"#4d6e8a"}}>· {t.platform}</span>
-                  <span style={{fontSize:11,color:"#4d6e8a",marginLeft:"auto"}}>{t.label}: <span style={{color:"#a855f7",fontWeight:700}}>{t.prevVal} → {t.mtdVal}</span> <span style={{color:"#ef4444",fontWeight:800}}>{t.changePct}%</span></span>
+                  <span style={{fontSize:12,color:_lm?"#0f172a":"#edf4ff",fontWeight:600}}>{t.campaign}</span>
+                  <span style={{fontSize:11,color:_lm?"#475569":"#4d6e8a"}}>· {t.platform}</span>
+                  <span style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",marginLeft:"auto"}}>{t.label}: <span style={{color:"#a855f7",fontWeight:700}}>{t.prevVal} → {t.mtdVal}</span> <span style={{color:"#ef4444",fontWeight:800}}>{t.changePct}%</span></span>
                   <button onClick={()=>{ setQuestion(`${t.campaign} ${t.label} dropped ${t.changePct}% MoM. What should I do?`); setActivePanel("chat"); }}
-                    style={{background:"#1a0828",border:"1px solid #a855f750",borderRadius:7,padding:"4px 11px",color:"#a855f7",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Ask Zeus ⚡</button>
+                    style={{background:_lm?"#faf5ff":"#1a0828",border:"1px solid #a855f750",borderRadius:7,padding:"4px 11px",color:"#a855f7",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Ask Zeus ⚡</button>
                 </div>
               ))}
             </div>);
           })()}
           {/* Thresholds */}
-          <div style={{marginTop:8,background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px"}}>
-            <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:14}}>⚙️ Alert Thresholds <span style={{color:"#3d5a72",fontWeight:400,fontSize:10,textTransform:"none"}}>— changes save automatically</span></div>
+          <div style={{marginTop:8,background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"16px 20px",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+            <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:14}}>⚙️ Alert Thresholds <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,fontSize:10,textTransform:"none"}}>— changes save automatically</span></div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
               {[
                 {key:"creativeAgeDays", label:"🎨 Creative Staleness",      unit:"days",            min:7,  max:90,  step:1,  desc:"Flag creatives not updated in this many days"},
@@ -3075,24 +3088,24 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                 {key:"daysToEndWarn",   label:"⏰ Ending Soon Alert",        unit:"days before end", min:3,  max:60,  step:1,  desc:"Flag campaigns ending within this many days"},
                 {key:"pacingBehindPct", label:"📉 Pacing Behind Threshold",  unit:"% of goal",       min:50, max:95,  step:5,  desc:"Flag campaigns below this % of their monthly goal"},
               ].map(t=>(
-                <div key={t.key} style={{background:"#07101c",borderRadius:8,padding:"12px 14px"}}>
+                <div key={t.key} style={{background:_lm?"#f8fafc":"#07101c",borderRadius:8,padding:"12px 14px",border:_lm?"1px solid #e2e8f0":"none"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
-                    <span style={{fontSize:11,fontWeight:700,color:"#edf4ff"}}>{t.label}</span>
-                    <span style={{fontSize:14,fontWeight:800,color:"#f59e0b",minWidth:60,textAlign:"right"}}>{watchThresholds[t.key]} <span style={{fontSize:10,color:"#4d6e8a",fontWeight:400}}>{t.unit}</span></span>
+                    <span style={{fontSize:11,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{t.label}</span>
+                    <span style={{fontSize:14,fontWeight:800,color:"#f59e0b",minWidth:60,textAlign:"right"}}>{watchThresholds[t.key]} <span style={{fontSize:10,color:_lm?"#475569":"#4d6e8a",fontWeight:400}}>{t.unit}</span></span>
                   </div>
                   <input type="range" min={t.min} max={t.max} step={t.step} value={watchThresholds[t.key]}
                     onChange={e=>setWatchThresholds(p=>({...p,[t.key]:parseInt(e.target.value)}))}
                     style={{width:"100%",accentColor:"#f59e0b",margin:"4px 0"}}/>
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                    <span style={{fontSize:9,color:"#3d5a72"}}>{t.min}{t.unit.includes("days")?"d":"%"}</span>
-                    <span style={{fontSize:9,color:"#3d5a72"}}>{t.max}{t.unit.includes("days")?"d":"%"}</span>
+                    <span style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72"}}>{t.min}{t.unit.includes("days")?"d":"%"}</span>
+                    <span style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72"}}>{t.max}{t.unit.includes("days")?"d":"%"}</span>
                   </div>
-                  <div style={{fontSize:10,color:"#3d5a72",lineHeight:1.4}}>{t.desc}</div>
+                  <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",lineHeight:1.4}}>{t.desc}</div>
                 </div>
               ))}
             </div>
             <button onClick={()=>setWatchThresholds({ctrWarnPct:80,pacingBehindPct:80,creativeAgeDays:30,spendBudgetPct:80,daysToEndWarn:7})}
-              style={{marginTop:12,background:"none",border:"1px solid #334155",borderRadius:6,padding:"5px 14px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
+              style={{marginTop:12,background:"none",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"5px 14px",color:_lm?"#475569":"#4d6e8a",fontSize:11,cursor:"pointer"}}>
               ↺ Reset to defaults
             </button>
           </div>
@@ -3102,28 +3115,28 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
       {/* ══ PREDICTIONS PANEL ══ */}
       {activePanel==="predict"&&(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>Delivery forecast based on current daily impression rate.</div>
-          {predictions.length===0?<div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"32px",textAlign:"center",color:"#3d5a72",fontSize:13}}>No pacing data yet. Add impressions to see forecasts.</div>:(
+          <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",marginBottom:4}}>Delivery forecast based on current daily impression rate.</div>
+          {predictions.length===0?<div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:12,padding:"32px",textAlign:"center",color:_lm?"#64748b":"#3d5a72",fontSize:13}}>No pacing data yet. Add impressions to see forecasts.</div>:(
             predictions.map((p,i)=>{
               const sc = p.status==="critical"?"#ef4444":p.status==="at-risk"?"#f59e0b":p.status==="ahead"?"#f97316":"#00d48a";
               const sl = p.status==="critical"?"🔥 CRITICAL":p.status==="at-risk"?"⚠️ AT RISK":p.status==="ahead"?"📈 AHEAD":"✅ ON TRACK";
               return (
-                <div key={p.id} style={{background:"#0c1625",border:`1px solid ${sc}30`,borderRadius:10,padding:"14px 18px"}}>
+                <div key={p.id} style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${sc}30`,borderRadius:10,padding:"14px 18px",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-                    <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{p.campaign}</span>
-                    <span style={{fontSize:10,color:"#4d6e8a"}}>· {p.platform} · {p.partner}</span>
+                    <span style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{p.campaign}</span>
+                    <span style={{fontSize:10,color:_lm?"#475569":"#4d6e8a"}}>· {p.platform} · {p.partner}</span>
                     <span style={{marginLeft:"auto",fontSize:11,fontWeight:800,color:sc}}>{sl}</span>
                   </div>
-                  <div style={{position:"relative",background:"#07101c",borderRadius:4,height:8,marginBottom:8,overflow:"hidden"}}>
-                    <div style={{position:"absolute",top:0,left:"95%",width:2,height:"100%",background:"#334155",zIndex:2}}/>
+                  <div style={{position:"relative",background:_lm?"#e2e8f0":"#07101c",borderRadius:4,height:8,marginBottom:8,overflow:"hidden"}}>
+                    <div style={{position:"absolute",top:0,left:"95%",width:2,height:"100%",background:_lm?"#94a3b8":"#334155",zIndex:2}}/>
                     <div style={{background:sc,height:"100%",width:`${Math.min(100,p.projectedPct)}%`,borderRadius:4,transition:"width .4s"}}/>
                   </div>
                   <div style={{display:"flex",gap:16,flexWrap:"wrap",fontSize:11}}>
-                    <span style={{color:"#4d6e8a"}}>Delivered: <span style={{color:"#edf4ff",fontWeight:600}}>{p.delivered.toLocaleString()}</span></span>
-                    <span style={{color:"#4d6e8a"}}>Goal: <span style={{color:"#edf4ff",fontWeight:600}}>{p.goal.toLocaleString()}</span></span>
-                    <span style={{color:"#4d6e8a"}}>Rate: <span style={{color:"#edf4ff",fontWeight:600}}>{p.dailyRate.toLocaleString()}/day</span></span>
-                    <span style={{color:"#4d6e8a"}}>Projected: <span style={{color:sc,fontWeight:700}}>{p.projectedTotal.toLocaleString()} ({p.projectedPct}%)</span></span>
-                    {p.status!=="on-track"&&p.status!=="ahead"&&<span style={{color:"#4d6e8a"}}>Need: <span style={{color:"#f59e0b",fontWeight:700}}>{p.neededPerDay.toLocaleString()}/day</span></span>}
+                    <span style={{color:_lm?"#475569":"#4d6e8a"}}>Delivered: <span style={{color:_lm?"#0f172a":"#edf4ff",fontWeight:600}}>{p.delivered.toLocaleString()}</span></span>
+                    <span style={{color:_lm?"#475569":"#4d6e8a"}}>Goal: <span style={{color:_lm?"#0f172a":"#edf4ff",fontWeight:600}}>{p.goal.toLocaleString()}</span></span>
+                    <span style={{color:_lm?"#475569":"#4d6e8a"}}>Rate: <span style={{color:_lm?"#0f172a":"#edf4ff",fontWeight:600}}>{p.dailyRate.toLocaleString()}/day</span></span>
+                    <span style={{color:_lm?"#475569":"#4d6e8a"}}>Projected: <span style={{color:sc,fontWeight:700}}>{p.projectedTotal.toLocaleString()} ({p.projectedPct}%)</span></span>
+                    {p.status!=="on-track"&&p.status!=="ahead"&&<span style={{color:_lm?"#475569":"#4d6e8a"}}>Need: <span style={{color:"#f59e0b",fontWeight:700}}>{p.neededPerDay.toLocaleString()}/day</span></span>}
                   </div>
                 </div>
               );
@@ -3135,55 +3148,57 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
       {/* ══ BENCHMARKS PANEL ══ */}
       {activePanel==="benchmarks"&&(
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{fontSize:11,color:"#4d6e8a"}}>Set your KPI thresholds per platform. Zeus uses these for live Watchlist alerts and analysis. Saves automatically.</div>
+          <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a"}}>Set your KPI thresholds per platform. Zeus uses these for live Watchlist alerts and analysis. Saves automatically.</div>
           {Object.entries(kpiBenchmarks).map(([plat,b])=>{
             const pc = PLT_COLORS[plat]||"#7a9bbf";
+            const pr2=parseInt(pc.slice(1,3),16)/255,pg2=parseInt(pc.slice(3,5),16)/255,pb2=parseInt(pc.slice(5,7),16)/255;
+            const ptxt2=(0.299*pr2+0.587*pg2+0.114*pb2)>0.45?"#0a1a0a":"#ffffff";
             return (
-              <div key={plat} style={{background:"#0c1625",border:`1px solid ${pc}25`,borderRadius:10,padding:"14px 18px"}}>
+              <div key={plat} style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${pc}25`,borderRadius:10,padding:"14px 18px",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-                  <span style={{fontWeight:800,color:pc,background:pc+"22",border:`1px solid ${pc}50`,borderRadius:5,padding:"2px 10px",fontSize:12,fontFamily:"monospace",minWidth:52,textAlign:"center"}}>{plat}</span>
-                  <span style={{fontSize:12,color:"#7a9bbf"}}>{b.desc}</span>
-                  <span style={{fontSize:11,color:"#4d6e8a",marginLeft:"auto"}}>KPI: <span style={{color:"#edf4ff",fontWeight:600}}>{b.label}</span></span>
+                  {_lm?<span style={{fontWeight:800,color:ptxt2,background:pc,borderRadius:5,padding:"2px 10px",fontSize:12,fontFamily:"monospace",minWidth:52,textAlign:"center"}}>{plat}</span>:<span style={{fontWeight:800,color:pc,background:pc+"22",border:`1px solid ${pc}50`,borderRadius:5,padding:"2px 10px",fontSize:12,fontFamily:"monospace",minWidth:52,textAlign:"center"}}>{plat}</span>}
+                  <span style={{fontSize:12,color:_lm?"#475569":"#7a9bbf"}}>{b.desc}</span>
+                  <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginLeft:"auto"}}>KPI: <span style={{color:_lm?"#0f172a":"#edf4ff",fontWeight:600}}>{b.label}</span></span>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
                   <div>
                     <label style={{display:"block",fontSize:9,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>⚠️ {b.label} Warn</label>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
-                      <input type="number" step="0.01" min="0" value={b.warn} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],warn:parseFloat(e.target.value)||0}}))} style={{flex:1,background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"6px 8px",color:"#f59e0b",fontSize:12,fontFamily:"inherit",outline:"none",minWidth:0}}/>
-                      <span style={{fontSize:11,color:"#4d6e8a",flexShrink:0}}>{b.unit}</span>
+                      <input type="number" step="0.01" min="0" value={b.warn} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],warn:parseFloat(e.target.value)||0}}))} style={{flex:1,background:_lm?"#fffbeb":"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"6px 8px",color:"#f59e0b",fontSize:12,fontFamily:"inherit",outline:"none",minWidth:0}}/>
+                      <span style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",flexShrink:0}}>{b.unit}</span>
                     </div>
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:9,color:"#ef4444",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>🚨 {b.label} Critical</label>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
-                      <input type="number" step="0.01" min="0" value={b.bad} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],bad:parseFloat(e.target.value)||0}}))} style={{flex:1,background:"#07101c",border:"1px solid #ef444440",borderRadius:6,padding:"6px 8px",color:"#ef4444",fontSize:12,fontFamily:"inherit",outline:"none",minWidth:0}}/>
-                      <span style={{fontSize:11,color:"#4d6e8a",flexShrink:0}}>{b.unit}</span>
+                      <input type="number" step="0.01" min="0" value={b.bad} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],bad:parseFloat(e.target.value)||0}}))} style={{flex:1,background:_lm?"#fee2e2":"#07101c",border:"1px solid #ef444440",borderRadius:6,padding:"6px 8px",color:"#ef4444",fontSize:12,fontFamily:"inherit",outline:"none",minWidth:0}}/>
+                      <span style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",flexShrink:0}}>{b.unit}</span>
                     </div>
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:9,color:"#00d48a",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>💰 CPM OK Below</label>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
-                      <input type="number" step="0.50" min="0" value={b.cpmWarn??15} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],cpmWarn:parseFloat(e.target.value)||0}}))} style={{flex:1,background:"#07101c",border:"1px solid #00d48a40",borderRadius:6,padding:"6px 8px",color:"#00d48a",fontSize:12,fontFamily:"inherit",outline:"none",minWidth:0}}/>
-                      <span style={{fontSize:11,color:"#4d6e8a",flexShrink:0}}>$</span>
+                      <input type="number" step="0.50" min="0" value={b.cpmWarn??15} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],cpmWarn:parseFloat(e.target.value)||0}}))} style={{flex:1,background:_lm?"#f0fdf9":"#07101c",border:"1px solid #00d48a40",borderRadius:6,padding:"6px 8px",color:"#00d48a",fontSize:12,fontFamily:"inherit",outline:"none",minWidth:0}}/>
+                      <span style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",flexShrink:0}}>$</span>
                     </div>
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:9,color:"#ef4444",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>🔺 CPM Too High</label>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
-                      <input type="number" step="0.50" min="0" value={b.cpmBad??25} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],cpmBad:parseFloat(e.target.value)||0}}))} style={{flex:1,background:"#07101c",border:"1px solid #ef444440",borderRadius:6,padding:"6px 8px",color:"#ef4444",fontSize:12,fontFamily:"inherit",outline:"none",minWidth:0}}/>
-                      <span style={{fontSize:11,color:"#4d6e8a",flexShrink:0}}>$</span>
+                      <input type="number" step="0.50" min="0" value={b.cpmBad??25} onChange={e=>setKpiBenchmarks(prev=>({...prev,[plat]:{...prev[plat],cpmBad:parseFloat(e.target.value)||0}}))} style={{flex:1,background:_lm?"#fee2e2":"#07101c",border:"1px solid #ef444440",borderRadius:6,padding:"6px 8px",color:"#ef4444",fontSize:12,fontFamily:"inherit",outline:"none",minWidth:0}}/>
+                      <span style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",flexShrink:0}}>$</span>
                     </div>
                   </div>
                 </div>
               </div>
             );
           })}
-          <button onClick={()=>setKpiBenchmarks(defaultBenchmarks)} style={{background:"none",border:"1px solid #334155",borderRadius:8,padding:"8px 18px",color:"#4d6e8a",fontSize:12,cursor:"pointer",alignSelf:"flex-start",fontWeight:600}}>↺ Reset to Defaults</button>
+          <button onClick={()=>setKpiBenchmarks(defaultBenchmarks)} style={{background:"none",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:8,padding:"8px 18px",color:_lm?"#475569":"#4d6e8a",fontSize:12,cursor:"pointer",alignSelf:"flex-start",fontWeight:600}}>↺ Reset to Defaults</button>
 
           {/* ── Watchlist Alert Thresholds — saved to localStorage ── */}
-          <div style={{marginTop:8,background:"#0c1625",border:"1px solid #f59e0b30",borderRadius:12,padding:"18px 20px"}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:4}}>⚙️ Watchlist Alert Thresholds</div>
-            <div style={{fontSize:11,color:"#4d6e8a",marginBottom:14}}>These control when Zeus flags campaigns in the Watchlist. Saves automatically.</div>
+          <div style={{marginTop:8,background:_lm?"#ffffff":"#0c1625",border:"1px solid #f59e0b30",borderRadius:12,padding:"18px 20px",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+            <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:4}}>⚙️ Watchlist Alert Thresholds</div>
+            <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",marginBottom:14}}>These control when Zeus flags campaigns in the Watchlist. Saves automatically.</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
               {[
                 {key:"creativeAgeDays", label:"🎨 Creative Staleness",     unit:"days",            min:7,  max:90, step:1,  desc:"Flag creatives older than this"},
@@ -3191,26 +3206,26 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                 {key:"daysToEndWarn",   label:"⏰ Ending Soon Alert",       unit:"days before end", min:3,  max:60, step:1,  desc:"Flag campaigns ending within X days"},
                 {key:"pacingBehindPct", label:"📉 Pacing Behind Threshold", unit:"% of goal",       min:50, max:95, step:5,  desc:"Flag below this % of monthly goal"},
               ].map(t=>(
-                <div key={t.key} style={{background:"#07101c",borderRadius:8,padding:"12px 14px"}}>
+                <div key={t.key} style={{background:_lm?"#f8fafc":"#07101c",borderRadius:8,padding:"12px 14px",border:_lm?"1px solid #e2e8f0":"none"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
-                    <span style={{fontSize:11,fontWeight:700,color:"#edf4ff"}}>{t.label}</span>
+                    <span style={{fontSize:11,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{t.label}</span>
                     <span style={{fontSize:15,fontWeight:800,color:"#f59e0b"}}>
-                      {watchThresholds[t.key]}<span style={{fontSize:10,color:"#4d6e8a",fontWeight:400,marginLeft:2}}>{t.unit.includes("days")?"d":"%"}</span>
+                      {watchThresholds[t.key]}<span style={{fontSize:10,color:_lm?"#475569":"#4d6e8a",fontWeight:400,marginLeft:2}}>{t.unit.includes("days")?"d":"%"}</span>
                     </span>
                   </div>
                   <input type="range" min={t.min} max={t.max} step={t.step} value={watchThresholds[t.key]}
                     onChange={e=>setWatchThresholds(p=>({...p,[t.key]:parseInt(e.target.value)}))}
                     style={{width:"100%",accentColor:"#f59e0b",margin:"4px 0"}}/>
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                    <span style={{fontSize:9,color:"#3d5a72"}}>{t.min}</span>
-                    <span style={{fontSize:9,color:"#3d5a72"}}>{t.max}</span>
+                    <span style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72"}}>{t.min}</span>
+                    <span style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72"}}>{t.max}</span>
                   </div>
-                  <div style={{fontSize:10,color:"#3d5a72"}}>{t.desc}</div>
+                  <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72"}}>{t.desc}</div>
                 </div>
               ))}
             </div>
             <button onClick={()=>setWatchThresholds({ctrWarnPct:80,pacingBehindPct:80,creativeAgeDays:30,spendBudgetPct:80,daysToEndWarn:7})}
-              style={{marginTop:12,background:"none",border:"1px solid #334155",borderRadius:6,padding:"5px 14px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
+              style={{marginTop:12,background:"none",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"5px 14px",color:_lm?"#475569":"#4d6e8a",fontSize:11,cursor:"pointer"}}>
               ↺ Reset thresholds
             </button>
           </div>
@@ -3220,23 +3235,23 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
       {/* ══ PLAYBOOKS PANEL ══ */}
       {activePanel==="playbook"&&(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:4}}>Rules Zeus monitors. Toggle active/inactive.</div>
+          <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginBottom:4}}>Rules Zeus monitors. Toggle active/inactive.</div>
           {playbooks.map(pb=>{
             const isFuture = pb.description.startsWith("[Coming Soon]")||pb.description.startsWith("[Autonomous]");
             return (
-              <div key={pb.id} style={{background:isFuture?"#0a0e1a":"#0c1625",border:`1px solid ${pb.active&&!isFuture?"#00c89630":isFuture?"#f59e0b20":"#1e293b"}`,borderRadius:10,padding:"14px 18px",display:"flex",gap:14,alignItems:"flex-start",opacity:isFuture?0.75:1}}>
+              <div key={pb.id} style={{background:_lm?(isFuture?"#f8fafc":"#ffffff"):(isFuture?"#0a0e1a":"#0c1625"),border:`1px solid ${pb.active&&!isFuture?(_lm?"#00c896":"#00c89630"):isFuture?(_lm?"#fcd34d":"#f59e0b20"):(_lm?"#e2e8f0":"#1e293b")}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:10,padding:"14px 18px",display:"flex",gap:14,alignItems:"flex-start",opacity:isFuture?0.75:1}}>
                 <div onClick={()=>!isFuture&&setPlaybooks(ps=>ps.map(p=>p.id===pb.id?{...p,active:!p.active}:p))}
-                  style={{width:20,height:20,borderRadius:5,flexShrink:0,marginTop:2,cursor:isFuture?"default":"pointer",background:pb.active&&!isFuture?"#00c896":"#162236",border:`1.5px solid ${pb.active&&!isFuture?"#00c896":isFuture?"#f59e0b40":"#334155"}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  style={{width:20,height:20,borderRadius:5,flexShrink:0,marginTop:2,cursor:isFuture?"default":"pointer",background:pb.active&&!isFuture?"#00c896":(_lm?(isFuture?"#fef3c7":"#e2e8f0"):"#162236"),border:`1.5px solid ${pb.active&&!isFuture?"#00c896":isFuture?(_lm?"#fcd34d":"#f59e0b40"):(_lm?"#cbd5e1":"#334155")}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
                   {pb.active&&!isFuture&&<span style={{color:"#000",fontSize:12,fontWeight:900}}>✓</span>}
                   {isFuture&&<span style={{color:"#f59e0b",fontSize:10}}>⚡</span>}
                 </div>
                 <div style={{flex:1}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
-                    <span style={{fontSize:13,fontWeight:700,color:isFuture?"#f59e0b80":"#edf4ff"}}>{pb.name}</span>
-                    {isFuture&&<span style={{fontSize:10,background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 7px",color:"#f59e0b",fontWeight:700}}>⚡ Requires Superintelligence</span>}
-                    {!isFuture&&pb.active&&<span style={{fontSize:10,background:"#001810",border:"1px solid #00c89630",borderRadius:4,padding:"1px 7px",color:"#00d48a",fontWeight:700}}>ACTIVE</span>}
+                    <span style={{fontSize:13,fontWeight:700,color:isFuture?(_lm?"#d97706":"#f59e0b80"):(_lm?"#0f172a":"#edf4ff")}}>{pb.name}</span>
+                    {isFuture&&<span style={{fontSize:10,background:_lm?"#fffbeb":"#1a1000",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:4,padding:"1px 7px",color:"#f59e0b",fontWeight:700}}>⚡ Requires Superintelligence</span>}
+                    {!isFuture&&pb.active&&<span style={{fontSize:10,background:_lm?"#f0fdf9":"#001810",border:`1px solid ${_lm?"#00c896":"#00c89630"}`,borderRadius:4,padding:"1px 7px",color:_lm?"#059669":"#00d48a",fontWeight:700}}>ACTIVE</span>}
                   </div>
-                  <div style={{fontSize:12,color:"#4d6e8a",lineHeight:1.5}}>{pb.description.replace(/^\[(Coming Soon|Autonomous)\] /,"")}</div>
+                  <div style={{fontSize:12,color:_lm?"#64748b":"#4d6e8a",lineHeight:1.5}}>{pb.description.replace(/^\[(Coming Soon|Autonomous)\] /,"")}</div>
                 </div>
               </div>
             );
@@ -3259,42 +3274,42 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
       {/* ══ AUTONOMOUS PANEL ══ */}
       {activePanel==="autonomous"&&(
         <div style={{display:"flex",flexDirection:"column",gap:16}}>
-          <div style={{background:"linear-gradient(135deg,#0a0e00,#0e1200)",border:"1px solid #f59e0b30",borderRadius:14,padding:"28px 32px",textAlign:"center"}}>
+          <div style={{background:_lm?"linear-gradient(135deg,#fffbeb,#fef9ec)":"linear-gradient(135deg,#0a0e00,#0e1200)",border:`1px solid ${_lm?"#fcd34d":"#f59e0b30"}`,borderRadius:14,padding:"28px 32px",textAlign:"center"}}>
             <div style={{fontSize:40,marginBottom:12,filter:"drop-shadow(0 0 20px #f59e0b60)"}}>🤖</div>
             <div style={{fontSize:16,fontWeight:800,color:"#f59e0b",marginBottom:8}}>Autonomous Mode</div>
-            <div style={{fontSize:12,color:"#7a9bbf",maxWidth:480,margin:"0 auto 20px",lineHeight:1.7}}>
+            <div style={{fontSize:12,color:_lm?"#64748b":"#7a9bbf",maxWidth:480,margin:"0 auto 20px",lineHeight:1.7}}>
               Zeus already has full write access to your tracker. When superintelligence arrives, he'll extend that to direct platform execution — Meta, TTD, DSP — with no human in the loop required.
             </div>
             <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
-              <div style={{background:"#0c1218",border:"1px solid #00c89630",borderRadius:10,padding:"16px 20px",minWidth:180,textAlign:"left"}}>
-                <div style={{fontSize:11,color:"#00d48a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>✓ Ready Now</div>
+              <div style={{background:_lm?"#ffffff":"#0c1218",border:`1px solid ${_lm?"#00c896":"#00c89630"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:10,padding:"16px 20px",minWidth:180,textAlign:"left"}}>
+                <div style={{fontSize:11,color:_lm?"#059669":"#00d48a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>✓ Ready Now</div>
                 {["Add campaigns","Edit any campaign field","Bulk update by partner","Archive & restore","Set reminders","Full KPI monitoring","Draft any communication","Run analysis on demand"].map((cap,i)=>(
                   <div key={i} style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
-                    <span style={{color:"#00d48a",fontSize:10}}>✓</span>
-                    <span style={{fontSize:11,color:"#7a9bbf"}}>{cap}</span>
+                    <span style={{color:_lm?"#059669":"#00d48a",fontSize:10}}>✓</span>
+                    <span style={{fontSize:11,color:_lm?"#475569":"#7a9bbf"}}>{cap}</span>
                   </div>
                 ))}
               </div>
-              <div style={{background:"#0c1218",border:"1px solid #f59e0b20",borderRadius:10,padding:"16px 20px",minWidth:180,textAlign:"left"}}>
+              <div style={{background:_lm?"#ffffff":"#0c1218",border:`1px solid ${_lm?"#fcd34d":"#f59e0b20"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:10,padding:"16px 20px",minWidth:180,textAlign:"left"}}>
                 <div style={{fontSize:11,color:"#f59e0b",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>⚡ With Superintelligence</div>
                 {["Direct Meta execution","Direct TTD / DSP execution","Continuous 24/7 monitoring","Autonomous partner outreach","Creative swap scheduling","Predictive bid optimization","Auto renewal flagging","Self-healing campaigns"].map((cap,i)=>(
                   <div key={i} style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
                     <span style={{color:"#f59e0b",fontSize:10}}>⚡</span>
-                    <span style={{fontSize:11,color:"#7a9bbf"}}>{cap}</span>
+                    <span style={{fontSize:11,color:_lm?"#475569":"#7a9bbf"}}>{cap}</span>
                   </div>
                 ))}
               </div>
             </div>
           </div>
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px"}}>
-            <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Autonomous Mode Toggle</div>
+          <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:10,padding:"16px 20px"}}>
+            <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Autonomous Mode Toggle</div>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
-              <div style={{fontSize:12,color:"#7a9bbf",lineHeight:1.5,flex:1}}>
+              <div style={{fontSize:12,color:_lm?"#64748b":"#7a9bbf",lineHeight:1.5,flex:1}}>
                 When enabled, Zeus queues actions for one-click approval instead of waiting for you to ask. <span style={{color:"#f59e0b"}}>Platform execution requires superintelligence API.</span>
               </div>
               <button onClick={()=>setAutonomousMode(v=>!v)} style={{
-                background:autonomousMode?"#1a1000":"#0e1a2e",border:`2px solid ${autonomousMode?"#f59e0b":"#334155"}`,
-                borderRadius:30,padding:"8px 20px",color:autonomousMode?"#f59e0b":"#4d6e8a",
+                background:autonomousMode?(_lm?"#fffbeb":"#1a1000"):(_lm?"#f1f5f9":"#0e1a2e"),border:`2px solid ${autonomousMode?"#f59e0b":(_lm?"#cbd5e1":"#334155")}`,
+                borderRadius:30,padding:"8px 20px",color:autonomousMode?"#f59e0b":(_lm?"#475569":"#4d6e8a"),
                 fontSize:13,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",transition:"all .2s",minWidth:100,
                 ...(autonomousMode?{boxShadow:"0 0 14px #f59e0b30"}:{})
               }}>{autonomousMode?"⚡ ON":"OFF"}</button>
@@ -3315,12 +3330,12 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
               {key:"superagent", label:"🌩 Superagent",   desc:"Future superintelligence slot", color:"#f59e0b"},
             ].map(m=>(
               <button key={m.key} onClick={()=>setLlmSettings(p=>({...p,mode:m.key}))}
-                style={{background:llmSettings.mode===m.key?"#07101c":"#0c1625",
-                  border:`2px solid ${llmSettings.mode===m.key?m.color+"80":"#1e293b"}`,
-                  borderRadius:10,padding:"11px 14px",cursor:"pointer",textAlign:"left",transition:"all .15s",
-                  boxShadow:llmSettings.mode===m.key?`0 0 12px ${m.color}15`:"none"}}>
-                <div style={{fontSize:13,fontWeight:700,color:llmSettings.mode===m.key?m.color:"#7a9bbf"}}>{m.label}</div>
-                <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>{m.desc}</div>
+                style={{background:llmSettings.mode===m.key?(_lm?"#f8fafc":"#07101c"):(_lm?"#ffffff":"#0c1625"),
+                  border:`2px solid ${llmSettings.mode===m.key?m.color+"80":(_lm?"#e2e8f0":"#1e293b")}`,
+                  boxShadow:llmSettings.mode===m.key?`0 0 12px ${m.color}15`:(_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"),
+                  borderRadius:10,padding:"11px 14px",cursor:"pointer",textAlign:"left",transition:"all .15s"}}>
+                <div style={{fontSize:13,fontWeight:700,color:llmSettings.mode===m.key?m.color:(_lm?"#475569":"#7a9bbf")}}>{m.label}</div>
+                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>{m.desc}</div>
                 {llmSettings.mode===m.key&&<div style={{fontSize:9,color:m.color,marginTop:4,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>● ACTIVE</div>}
               </button>
             ))}
@@ -3329,9 +3344,9 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
           {/* ── GROQ ── */}
           {llmSettings.mode==="groq"&&(
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              <div style={{background:"#0c1625",border:"1px solid #f97316",borderRadius:12,padding:"20px 22px"}}>
-                <div style={{fontSize:13,fontWeight:700,color:"#edf4ff",marginBottom:4}}>Groq API Key</div>
-                <div style={{fontSize:11,color:"#4d6e8a",marginBottom:14,lineHeight:1.6}}>
+              <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#f97316":"#f97316"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"20px 22px"}}>
+                <div style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:4}}>Groq API Key</div>
+                <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginBottom:14,lineHeight:1.6}}>
                   Stored in your browser only — never in your code or GitHub. Free account at <strong style={{color:"#f97316"}}>console.groq.com</strong>.
                 </div>
                 <div style={{position:"relative"}}>
@@ -3340,14 +3355,14 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                     value={llmSettings.groqApiKey||""}
                     onChange={e=>setLlmSettings(p=>({...p,groqApiKey:e.target.value}))}
                     placeholder="gsk_..."
-                    style={{width:"100%",background:"#07101c",border:`1px solid ${llmSettings.groqApiKey?"#f97316":"#334155"}`,borderRadius:7,padding:"10px 14px",color:"#d8eaf8",fontSize:13,fontFamily:"monospace",boxSizing:"border-box",outline:"none",transition:"border-color .15s"}}
+                    style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${llmSettings.groqApiKey?"#f97316":(_lm?"#cbd5e1":"#334155")}`,borderRadius:7,padding:"10px 14px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontFamily:"monospace",boxSizing:"border-box",outline:"none",transition:"border-color .15s"}}
                   />
-                  {llmSettings.groqApiKey&&<span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:11,color:"#00d48a",fontWeight:700}}>✓</span>}
+                  {llmSettings.groqApiKey&&<span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:11,color:_lm?"#059669":"#00d48a",fontWeight:700}}>✓</span>}
                 </div>
               </div>
 
-              <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"18px 20px"}}>
-                <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Model</div>
+              <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
+                <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Model</div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                   {[
                     {model:"llama-3.3-70b-versatile", label:"Llama 3.3 70B",  desc:"Best for Zeus — recommended"},
@@ -3356,20 +3371,20 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                     {model:"mixtral-8x7b-32768",       label:"Mixtral 8x7B",  desc:"Long context"},
                   ].map(m=>(
                     <button key={m.model} onClick={()=>setLlmSettings(p=>({...p,groqModel:m.model}))}
-                      style={{background:(llmSettings.groqModel||"llama-3.3-70b-versatile")===m.model?"#1a0e00":"#0e1a2e",
-                        border:`1px solid ${(llmSettings.groqModel||"llama-3.3-70b-versatile")===m.model?"#f9731650":"#1e293b"}`,
+                      style={{background:(llmSettings.groqModel||"llama-3.3-70b-versatile")===m.model?(_lm?"#fff7ed":"#1a0e00"):(_lm?"#f1f5f9":"#0e1a2e"),
+                        border:`1px solid ${(llmSettings.groqModel||"llama-3.3-70b-versatile")===m.model?"#f9731650":(_lm?"#cbd5e1":"#1e293b")}`,
                         borderRadius:8,padding:"8px 13px",cursor:"pointer",transition:"all .15s",textAlign:"left"}}>
-                      <div style={{fontSize:12,fontWeight:700,color:(llmSettings.groqModel||"llama-3.3-70b-versatile")===m.model?"#f97316":"#d8eaf8"}}>{m.label}</div>
-                      <div style={{fontSize:10,color:"#4d6e8a",marginTop:1}}>{m.desc}</div>
+                      <div style={{fontSize:12,fontWeight:700,color:(llmSettings.groqModel||"llama-3.3-70b-versatile")===m.model?"#f97316":(_lm?"#0f172a":"#d8eaf8")}}>{m.label}</div>
+                      <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:1}}>{m.desc}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div style={{background:"#061810",border:"1px solid #22c55e20",borderRadius:10,padding:"14px 16px",fontSize:11,color:"#4d6e8a",lineHeight:1.7}}>
-                <strong style={{color:"#00d48a"}}>Free tier includes:</strong> 100 requests/day on 70B model, 6,000 tokens/minute.
+              <div style={{background:_lm?"#f0fdf9":"#061810",border:`1px solid ${_lm?"#00c896":"#22c55e20"}`,borderRadius:10,padding:"14px 16px",fontSize:11,color:_lm?"#475569":"#4d6e8a",lineHeight:1.7}}>
+                <strong style={{color:_lm?"#059669":"#00d48a"}}>Free tier includes:</strong> 100 requests/day on 70B model, 6,000 tokens/minute.
                 More than enough for daily tracker use. No credit card required.
-                <br/><strong style={{color:"#00d48a",marginTop:4,display:"block"}}>Speed:</strong> Groq runs on custom AI chips — responses are typically 2–5 seconds, much faster than local models.
+                <br/><strong style={{color:_lm?"#059669":"#00d48a",marginTop:4,display:"block"}}>Speed:</strong> Groq runs on custom AI chips — responses are typically 2–5 seconds, much faster than local models.
               </div>
             </div>
           )}
@@ -3377,35 +3392,33 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
           {/* ── OLLAMA ── */}
           {llmSettings.mode==="ollama"&&(
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"18px 20px"}}>
+              <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Endpoint</label>
-                    <input value={llmSettings.endpoint} onChange={e=>setLlmSettings(p=>({...p,endpoint:e.target.value}))} placeholder="http://localhost:11434"
-                      style={{width:"100%",background:"#07101c",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                    <label style={labelS}>Endpoint</label>
+                    <input value={llmSettings.endpoint} onChange={e=>setLlmSettings(p=>({...p,endpoint:e.target.value}))} placeholder="http://localhost:11434" style={iS}/>
                   </div>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model</label>
-                    <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="gemma4:e4b"
-                      style={{width:"100%",background:"#07101c",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                    <label style={labelS}>Model</label>
+                    <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="gemma4:e4b" style={iS}/>
                   </div>
                 </div>
               </div>
-              <div style={{background:"#0a1218",border:"1px solid #1e293b",borderRadius:10,padding:"14px 18px"}}>
-                <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,marginBottom:8}}>Windows startup commands</div>
+              <div style={{background:_lm?"#f8fafc":"#0a1218",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"14px 18px"}}>
+                <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,marginBottom:8}}>Windows startup commands</div>
                 {[
                   {cmd:"set OLLAMA_ORIGINS=* && ollama serve", label:"Terminal 1 — start Ollama with CORS"},
                   {cmd:"python -m http.server 8080",           label:"Terminal 2 — serve tracker locally"},
                 ].map((s,i)=>(
                   <div key={i} style={{display:"flex",gap:10,marginBottom:8,alignItems:"flex-start"}}>
-                    <span style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:5,width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#f59e0b",flexShrink:0,marginTop:1}}>{i+1}</span>
+                    <span style={{background:_lm?"#fffbeb":"#1a1000",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:5,width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#f59e0b",flexShrink:0,marginTop:1}}>{i+1}</span>
                     <div>
-                      <code style={{fontSize:11,color:"#00e5a0",background:"#07101c",borderRadius:4,padding:"2px 7px"}}>{s.cmd}</code>
-                      <div style={{fontSize:10,color:"#4d6e8a",marginTop:2}}>{s.label}</div>
+                      <code style={{fontSize:11,color:_lm?"#059669":"#00e5a0",background:_lm?"#f0fdf9":"#07101c",borderRadius:4,padding:"2px 7px"}}>{s.cmd}</code>
+                      <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:2}}>{s.label}</div>
                     </div>
                   </div>
                 ))}
-                <div style={{fontSize:10,color:"#3d5a72",marginTop:4}}>Then open <code style={{color:"#00e5a0"}}>http://localhost:8080</code> instead of GitHub Pages</div>
+                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:4}}>Then open <code style={{color:_lm?"#059669":"#00e5a0"}}>http://localhost:8080</code> instead of GitHub Pages</div>
               </div>
             </div>
           )}
@@ -3413,28 +3426,28 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
           {/* ── SUPERAGENT ── */}
           {llmSettings.mode==="superagent"&&(
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              <div style={{background:"linear-gradient(135deg,#0a0e00,#100d00)",border:"1px solid #f59e0b40",borderRadius:12,padding:"16px 20px"}}>
+              <div style={{background:_lm?"#fffbeb":"linear-gradient(135deg,#0a0e00,#100d00)",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:12,padding:"16px 20px"}}>
                 <div style={{fontSize:13,fontWeight:800,color:"#f59e0b",marginBottom:4}}>⚡ Superagent Slot</div>
-                <div style={{fontSize:11,color:"#4d6e8a",lineHeight:1.6}}>Reserved for when local superintelligence drops. Same OpenAI-compatible API — just point it here and flip the capability switches.</div>
+                <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",lineHeight:1.6}}>Reserved for when local superintelligence drops. Same OpenAI-compatible API — just point it here and flip the capability switches.</div>
               </div>
-              <div style={{background:"#0c1625",border:"1px solid #f59e0b30",borderRadius:12,padding:"18px 20px"}}>
+              <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#fcd34d":"#f59e0b30"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Endpoint</label>
                     <input value={llmSettings.superagentEndpoint} onChange={e=>setLlmSettings(p=>({...p,superagentEndpoint:e.target.value}))} placeholder="http://localhost:11434"
-                      style={{width:"100%",background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                      style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:6,padding:"8px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model</label>
                     <input value={llmSettings.superagentModel} onChange={e=>setLlmSettings(p=>({...p,superagentModel:e.target.value}))} placeholder="e.g. superintelligence-v1"
-                      style={{width:"100%",background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                      style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:6,padding:"8px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
                   </div>
                 </div>
-                <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>API Key <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(stored locally only)</span></label>
+                <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>API Key <span style={{color:_lm?"#94a3b8":"#3d5a72",textTransform:"none",fontWeight:400}}>(stored locally only)</span></label>
                 <input type="password" value={llmSettings.superagentApiKey} onChange={e=>setLlmSettings(p=>({...p,superagentApiKey:e.target.value}))} placeholder="sk-... or leave blank"
-                  style={{width:"100%",background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                  style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:6,padding:"8px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
               </div>
-              <div style={{background:"#0c1625",border:"1px solid #f59e0b30",borderRadius:12,padding:"16px 20px"}}>
+              <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#fcd34d":"#f59e0b30"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"16px 20px"}}>
                 <div style={{fontSize:11,color:"#f59e0b",fontWeight:700,marginBottom:10}}>⚡ Capability Unlocks</div>
                 {[
                   {key:"executeActions",    label:"Auto-Execute Actions",  warn:true,  desc:"Zeus acts without approval"},
@@ -3445,17 +3458,17 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                 ].map(cap=>{
                   const active = llmSettings.capabilities?.[cap.key];
                   return (
-                    <div key={cap.key} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"8px 10px",background:active?"#0a1500":"#07101c",border:`1px solid ${active?"#f59e0b30":"#1a2744"}`,borderRadius:7,transition:"all .2s"}}>
+                    <div key={cap.key} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"8px 10px",background:active?(_lm?"#fffbeb":"#0a1500"):(_lm?"#f8fafc":"#07101c"),border:`1px solid ${active?(_lm?"#fcd34d":"#f59e0b30"):(_lm?"#e2e8f0":"#1a2744")}`,borderRadius:7,transition:"all .2s"}}>
                       <button onClick={()=>setLlmSettings(p=>({...p,capabilities:{...p.capabilities,[cap.key]:!active}}))}
-                        style={{width:20,height:20,borderRadius:5,flexShrink:0,cursor:"pointer",background:active?"#f59e0b":"#162236",border:`1.5px solid ${active?"#f59e0b":"#334155"}`,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>
+                        style={{width:20,height:20,borderRadius:5,flexShrink:0,cursor:"pointer",background:active?"#f59e0b":(_lm?"#e2e8f0":"#162236"),border:`1.5px solid ${active?"#f59e0b":(_lm?"#cbd5e1":"#334155")}`,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>
                         {active&&<span style={{color:"#000",fontSize:11,fontWeight:900}}>✓</span>}
                       </button>
                       <div style={{flex:1}}>
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
-                          <span style={{fontSize:11,fontWeight:700,color:active?"#f59e0b":"#7a9bbf"}}>{cap.label}</span>
-                          {cap.warn&&<span style={{fontSize:9,color:"#ef4444",background:"#1a0808",border:"1px solid #ef444330",borderRadius:3,padding:"0 4px",fontWeight:700}}>HIGH TRUST</span>}
+                          <span style={{fontSize:11,fontWeight:700,color:active?"#f59e0b":(_lm?"#475569":"#7a9bbf")}}>{cap.label}</span>
+                          {cap.warn&&<span style={{fontSize:9,color:"#ef4444",background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444330"}`,borderRadius:3,padding:"0 4px",fontWeight:700}}>HIGH TRUST</span>}
                         </div>
-                        <div style={{fontSize:10,color:"#3d5a72"}}>{cap.desc}</div>
+                        <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72"}}>{cap.desc}</div>
                       </div>
                     </div>
                   );
@@ -3465,8 +3478,8 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
           )}
 
           {/* Connection test */}
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"12px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-            <div style={{flex:1,fontSize:11,color:"#4d6e8a",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:10,padding:"12px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <div style={{flex:1,fontSize:11,color:_lm?"#64748b":"#4d6e8a",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
               Active: <span style={{color:"#f97316",fontFamily:"monospace",fontWeight:700}}>{activeModelLabel}</span>
               {llmSettings.mode==="groq"&&!llmSettings.groqApiKey&&<span style={{color:"#ef4444",marginLeft:8}}>⚠ No API key set</span>}
             </div>
@@ -3476,7 +3489,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                 const text = await callLLM([{role:"user",content:"Reply with exactly three words: Zeus is online."}], 30);
                 setActionFeedback({type:"success", msg:`✓ Connected — "${text.trim().slice(0,60)}"`});
               } catch(e) { setError(`Connection failed: ${e.message}`); }
-            }} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:7,padding:"8px 18px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+            }} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89650"}`,borderRadius:7,padding:"8px 18px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
               ⚡ Test Connection
             </button>
           </div>
@@ -3493,9 +3506,9 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
               {key:"superagent",label:"⚡ Superagent",         desc:"Local superintelligence",      color:"#f59e0b"},
             ].map(m=>(
               <button key={m.key} onClick={()=>setLlmSettings(p=>({...p,mode:m.key}))}
-                style={{background:llmSettings.mode===m.key?"#07101c":"#0c1625",border:`2px solid ${llmSettings.mode===m.key?m.color+"80":"#1e293b"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer",textAlign:"left",transition:"all .15s",boxShadow:llmSettings.mode===m.key?`0 0 12px ${m.color}20`:"none"}}>
-                <div style={{fontSize:13,fontWeight:700,color:llmSettings.mode===m.key?m.color:"#7a9bbf"}}>{m.label}</div>
-                <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>{m.desc}</div>
+                style={{background:llmSettings.mode===m.key?(_lm?"#f8fafc":"#07101c"):(_lm?"#ffffff":"#0c1625"),border:`2px solid ${llmSettings.mode===m.key?m.color+"80":(_lm?"#e2e8f0":"#1e293b")}`,boxShadow:llmSettings.mode===m.key?`0 0 12px ${m.color}20`:(_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"),borderRadius:10,padding:"12px 14px",cursor:"pointer",textAlign:"left",transition:"all .15s"}}>
+                <div style={{fontSize:13,fontWeight:700,color:llmSettings.mode===m.key?m.color:(_lm?"#475569":"#7a9bbf")}}>{m.label}</div>
+                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>{m.desc}</div>
                 {llmSettings.mode===m.key&&<div style={{fontSize:9,color:m.color,marginTop:4,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>● ACTIVE</div>}
               </button>
             ))}
@@ -3503,42 +3516,40 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
 
           {/* ── OLLAMA ── */}
           {llmSettings.mode==="ollama"&&(<>
-            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"18px 20px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12}}>Ollama Configuration</div>
+            <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:12}}>Ollama Configuration</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
                 <div>
-                  <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Endpoint</label>
-                  <input value={llmSettings.endpoint} onChange={e=>setLlmSettings(p=>({...p,endpoint:e.target.value}))} placeholder="http://localhost:11434"
-                    style={{width:"100%",background:"#07101c",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
-                  <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>Default: http://localhost:11434</div>
+                  <label style={labelS}>Endpoint</label>
+                  <input value={llmSettings.endpoint} onChange={e=>setLlmSettings(p=>({...p,endpoint:e.target.value}))} placeholder="http://localhost:11434" style={iS}/>
+                  <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>Default: http://localhost:11434</div>
                 </div>
                 <div>
-                  <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model</label>
-                  <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="gemma4:e4b"
-                    style={{width:"100%",background:"#07101c",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
-                  <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>Run <code style={{fontSize:10,color:"#00e5a0"}}>ollama list</code> to see installed models</div>
+                  <label style={labelS}>Model</label>
+                  <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="gemma4:e4b" style={iS}/>
+                  <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>Run <code style={{fontSize:10,color:_lm?"#059669":"#00e5a0"}}>ollama list</code> to see installed models</div>
                 </div>
               </div>
             </div>
-            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"16px 20px"}}>
-              <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Quick Select</div>
+            <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"16px 20px"}}>
+              <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Quick Select</div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 {[{label:"Gemma 4 27B",model:"gemma3:27b",desc:"Recommended"},{label:"Gemma 4 12B",model:"gemma3:12b",desc:"Faster"},{label:"Llama 3.3 70B",model:"llama3.3:70b",desc:"Best accuracy"},{label:"Qwen 2.5 32B",model:"qwen2.5:32b",desc:"Strong JSON"},{label:"Mistral 24B",model:"mistral-small:24b",desc:"Fast"},{label:"Phi-4 14B",model:"phi4:14b",desc:"Lightweight"}].map(m=>(
                   <button key={m.model} onClick={()=>setLlmSettings(p=>({...p,model:m.model}))}
-                    style={{background:llmSettings.model===m.model?"#002e24":"#0e1a2e",border:`1px solid ${llmSettings.model===m.model?"#00c89650":"#1e293b"}`,borderRadius:8,padding:"7px 12px",cursor:"pointer",transition:"all .15s"}}>
-                    <div style={{fontSize:12,fontWeight:700,color:llmSettings.model===m.model?"#00e5a0":"#d8eaf8"}}>{m.label}</div>
-                    <div style={{fontSize:10,color:"#4d6e8a",marginTop:1}}>{m.desc}</div>
+                    style={{background:llmSettings.model===m.model?(_lm?"#f0fdf9":"#002e24"):(_lm?"#f1f5f9":"#0e1a2e"),border:`1px solid ${llmSettings.model===m.model?(_lm?"#00c896":"#00c89650"):(_lm?"#cbd5e1":"#1e293b")}`,borderRadius:8,padding:"7px 12px",cursor:"pointer",transition:"all .15s"}}>
+                    <div style={{fontSize:12,fontWeight:700,color:llmSettings.model===m.model?(_lm?"#059669":"#00e5a0"):(_lm?"#0f172a":"#d8eaf8")}}>{m.label}</div>
+                    <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:1}}>{m.desc}</div>
                   </button>
                 ))}
               </div>
             </div>
-            <div style={{background:"#0a1218",border:"1px solid #1e293b",borderRadius:10,padding:"14px 18px"}}>
-              <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Local Setup</div>
+            <div style={{background:_lm?"#f8fafc":"#0a1218",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"14px 18px"}}>
+              <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Local Setup</div>
               {[{step:1,cmd:"ollama pull gemma4:e4b",detail:"Your current model"},{step:2,cmd:"OLLAMA_ORIGINS=* ollama serve",detail:"Allow browser requests"},{step:3,cmd:"python -m http.server 8080",detail:"Serve tracker, open localhost:8080"}].map(s=>(
                 <div key={s.step} style={{display:"flex",gap:10,marginBottom:8,alignItems:"flex-start"}}>
-                  <span style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:5,width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#f59e0b",flexShrink:0}}>{s.step}</span>
-                  <div><code style={{fontSize:11,color:"#00e5a0",background:"#07101c",borderRadius:4,padding:"1px 6px"}}>{s.cmd}</code>
-                  <div style={{fontSize:10,color:"#4d6e8a",marginTop:1}}>{s.detail}</div></div>
+                  <span style={{background:_lm?"#fffbeb":"#1a1000",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:5,width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#f59e0b",flexShrink:0}}>{s.step}</span>
+                  <div><code style={{fontSize:11,color:_lm?"#059669":"#00e5a0",background:_lm?"#f0fdf9":"#07101c",borderRadius:4,padding:"1px 6px"}}>{s.cmd}</code>
+                  <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:1}}>{s.detail}</div></div>
                 </div>
               ))}
             </div>
@@ -3546,26 +3557,25 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
 
           {/* ── CLOUDFLARE WORKER ── */}
           {llmSettings.mode==="worker"&&(<>
-            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"18px 20px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:10}}>Worker URL</div>
+            <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:10}}>Worker URL</div>
               <input value={llmSettings.workerUrl||""} onChange={e=>setLlmSettings(p=>({...p,workerUrl:e.target.value}))}
                 placeholder="https://zeus-proxy.YOUR-SUBDOMAIN.workers.dev"
-                style={{width:"100%",background:"#07101c",border:`1px solid ${llmSettings.workerUrl?"#60a5fa50":"#334155"}`,borderRadius:6,padding:"9px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${llmSettings.workerUrl?(_lm?"#60a5fa":"#60a5fa50"):(_lm?"#cbd5e1":"#334155")}`,borderRadius:6,padding:"9px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
               <div style={{marginTop:10}}>
-                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model</label>
-                <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="llama-3.3-70b-versatile"
-                  style={{width:"100%",background:"#07101c",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
-                <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>Groq: <code style={{color:"#60a5fa"}}>llama-3.3-70b-versatile</code> · CF Workers AI: <code style={{color:"#60a5fa"}}>@cf/google/gemma-3-12b-it</code></div>
+                <label style={labelS}>Model</label>
+                <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="llama-3.3-70b-versatile" style={iS}/>
+                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>Groq: <code style={{color:"#60a5fa"}}>llama-3.3-70b-versatile</code> · CF Workers AI: <code style={{color:"#60a5fa"}}>@cf/google/gemma-3-12b-it</code></div>
               </div>
             </div>
-            <div style={{background:"#0a1218",border:"1px solid #1e293b",borderRadius:12,padding:"16px 20px"}}>
+            <div style={{background:_lm?"#f8fafc":"#0a1218",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:12,padding:"16px 20px"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>Worker Code</div>
+                <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>Worker Code</div>
                 <button onClick={()=>{navigator.clipboard.writeText(WORKER_CODE);setActionFeedback({type:"success",msg:"✓ Copied to clipboard"});}}
-                  style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"3px 10px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>Copy 📋</button>
+                  style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:6,padding:"3px 10px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>Copy 📋</button>
               </div>
-              <pre style={{background:"#060d18",borderRadius:6,padding:"10px",fontSize:10,color:"#7a9bbf",lineHeight:1.5,overflowX:"auto",margin:0,maxHeight:160}}>{WORKER_CODE.slice(0,600)}…</pre>
-              <div style={{marginTop:10,fontSize:11,color:"#4d6e8a",lineHeight:1.6}}>
+              <pre style={{background:_lm?"#f1f5f9":"#060d18",borderRadius:6,padding:"10px",fontSize:10,color:_lm?"#475569":"#7a9bbf",lineHeight:1.5,overflowX:"auto",margin:0,maxHeight:160}}>{WORKER_CODE.slice(0,600)}…</pre>
+              <div style={{marginTop:10,fontSize:11,color:_lm?"#64748b":"#4d6e8a",lineHeight:1.6}}>
                 Deploy at <strong style={{color:"#60a5fa"}}>workers.cloudflare.com</strong> → Create Worker → paste code → add <code style={{color:"#f59e0b"}}>GROQ_API_KEY</code> secret → copy URL above.
               </div>
             </div>
@@ -3573,40 +3583,40 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
 
           {/* ── SUPERAGENT ── */}
           {llmSettings.mode==="superagent"&&(<>
-            <div style={{background:"linear-gradient(135deg,#0a0e00,#100d00)",border:"1px solid #f59e0b40",borderRadius:12,padding:"18px 20px"}}>
+            <div style={{background:_lm?"#fffbeb":"linear-gradient(135deg,#0a0e00,#100d00)",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:12,padding:"18px 20px"}}>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
                 <span style={{fontSize:20}}>⚡</span>
                 <div>
                   <div style={{fontSize:13,fontWeight:800,color:"#f59e0b"}}>Superagent Mode</div>
-                  <div style={{fontSize:11,color:"#4d6e8a",marginTop:1}}>For local superintelligent models. Same OpenAI-compatible API — just point it at your endpoint and go.</div>
+                  <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:1}}>For local superintelligent models. Same OpenAI-compatible API — just point it at your endpoint and go.</div>
                 </div>
               </div>
             </div>
-            <div style={{background:"#0c1625",border:"1px solid #f59e0b30",borderRadius:12,padding:"18px 20px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12}}>Model Configuration</div>
+            <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#fcd34d":"#f59e0b30"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
+              <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:12}}>Model Configuration</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
                 <div>
                   <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Endpoint</label>
                   <input value={llmSettings.superagentEndpoint} onChange={e=>setLlmSettings(p=>({...p,superagentEndpoint:e.target.value}))} placeholder="http://localhost:11434"
-                    style={{width:"100%",background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                    style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:6,padding:"8px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
                 </div>
                 <div>
                   <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model Name</label>
                   <input value={llmSettings.superagentModel} onChange={e=>setLlmSettings(p=>({...p,superagentModel:e.target.value}))} placeholder="e.g. superintelligence-v1"
-                    style={{width:"100%",background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                    style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:6,padding:"8px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
                 </div>
               </div>
               <div>
-                <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>API Key <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>(optional — stored locally only, never in code)</span></label>
+                <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>API Key <span style={{color:_lm?"#94a3b8":"#3d5a72",textTransform:"none",fontWeight:400}}>(optional — stored locally only, never in code)</span></label>
                 <input type="password" value={llmSettings.superagentApiKey} onChange={e=>setLlmSettings(p=>({...p,superagentApiKey:e.target.value}))} placeholder="sk-... or leave blank"
-                  style={{width:"100%",background:"#07101c",border:"1px solid #f59e0b40",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                  style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:6,padding:"8px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
               </div>
             </div>
 
             {/* Capability toggles */}
-            <div style={{background:"#0c1625",border:"1px solid #f59e0b30",borderRadius:12,padding:"18px 20px"}}>
+            <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#fcd34d":"#f59e0b30"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
               <div style={{fontSize:12,fontWeight:700,color:"#f59e0b",marginBottom:4}}>⚡ Capability Unlocks</div>
-              <div style={{fontSize:11,color:"#4d6e8a",marginBottom:14,lineHeight:1.6}}>Toggle on when your model is capable enough to handle each capability. These gate Zeus's behavior — start conservative and unlock as you gain confidence.</div>
+              <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginBottom:14,lineHeight:1.6}}>Toggle on when your model is capable enough to handle each capability. These gate Zeus's behavior — start conservative and unlock as you gain confidence.</div>
               {[
                 {key:"executeActions",   label:"Auto-Execute Actions",     desc:"Zeus executes campaign changes without waiting for your approval",         warn:true},
                 {key:"platformAccess",   label:"Platform API Access",       desc:"Direct calls to Meta, TTD, DSP APIs on your behalf",                       warn:true},
@@ -3616,18 +3626,18 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
               ].map(cap=>{
                 const active = llmSettings.capabilities?.[cap.key];
                 return (
-                  <div key={cap.key} style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:12,padding:"10px 12px",background:active?"#0a1500":"#07101c",border:`1px solid ${active?"#f59e0b30":"#1a2744"}`,borderRadius:8,transition:"all .2s"}}>
+                  <div key={cap.key} style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:12,padding:"10px 12px",background:active?(_lm?"#fffbeb":"#0a1500"):(_lm?"#f8fafc":"#07101c"),border:`1px solid ${active?(_lm?"#fcd34d":"#f59e0b30"):(_lm?"#e2e8f0":"#1a2744")}`,borderRadius:8,transition:"all .2s"}}>
                     <button onClick={()=>setLlmSettings(p=>({...p,capabilities:{...p.capabilities,[cap.key]:!active}}))}
-                      style={{width:22,height:22,borderRadius:6,flexShrink:0,marginTop:1,cursor:"pointer",background:active?"#f59e0b":"#162236",border:`1.5px solid ${active?"#f59e0b":"#334155"}`,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>
+                      style={{width:22,height:22,borderRadius:6,flexShrink:0,marginTop:1,cursor:"pointer",background:active?"#f59e0b":(_lm?"#e2e8f0":"#162236"),border:`1.5px solid ${active?"#f59e0b":(_lm?"#cbd5e1":"#334155")}`,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>
                       {active&&<span style={{color:"#000",fontSize:12,fontWeight:900}}>✓</span>}
                     </button>
                     <div style={{flex:1}}>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{fontSize:12,fontWeight:700,color:active?"#f59e0b":"#7a9bbf"}}>{cap.label}</span>
-                        {cap.warn&&<span style={{fontSize:9,color:"#ef4444",background:"#1a0808",border:"1px solid #ef444430",borderRadius:4,padding:"1px 5px",fontWeight:700}}>HIGH TRUST</span>}
-                        {active&&<span style={{fontSize:9,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 5px",fontWeight:700}}>ENABLED</span>}
+                        <span style={{fontSize:12,fontWeight:700,color:active?"#f59e0b":(_lm?"#475569":"#7a9bbf")}}>{cap.label}</span>
+                        {cap.warn&&<span style={{fontSize:9,color:"#ef4444",background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444430"}`,borderRadius:4,padding:"1px 5px",fontWeight:700}}>HIGH TRUST</span>}
+                        {active&&<span style={{fontSize:9,color:"#f59e0b",background:_lm?"#fffbeb":"#1a1000",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:4,padding:"1px 5px",fontWeight:700}}>ENABLED</span>}
                       </div>
-                      <div style={{fontSize:11,color:"#4d6e8a",marginTop:2}}>{cap.desc}</div>
+                      <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:2}}>{cap.desc}</div>
                     </div>
                   </div>
                 );
@@ -3636,8 +3646,8 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
           </>)}
 
           {/* Connection test — all modes */}
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
-            <div style={{fontSize:11,color:"#4d6e8a",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:10,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+            <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
               Active: <span style={{color:"#f59e0b",fontFamily:"monospace",fontWeight:700}}>{activeModelLabel}</span>
             </div>
             <button onClick={async()=>{
@@ -3648,7 +3658,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
               } catch(e) {
                 setError(`Connection failed: ${e.message}`);
               }
-            }} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:7,padding:"8px 18px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+            }} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89650"}`,borderRadius:7,padding:"8px 18px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
               ⚡ Test Connection
             </button>
           </div>
@@ -4070,14 +4080,14 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
       {/* Tab bar */}
-      <div style={{display:"flex",gap:0,borderBottom:"1px solid #1a2744"}}>
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
         {tabs.map(t=>(
           <button key={t.key} onClick={()=>setTab(t.key)}
-            style={{background:"none",border:"none",borderBottom:tab===t.key?"2px solid #f59e0b":"2px solid transparent",padding:"7px 16px",color:tab===t.key?"#f59e0b":"#4d6e8a",fontSize:12,fontWeight:tab===t.key?700:400,cursor:"pointer",marginBottom:-1}}>
+            style={{background:"none",border:"none",borderBottom:tab===t.key?"2px solid #f59e0b":"2px solid transparent",padding:"7px 16px",color:tab===t.key?"#f59e0b":(_lm?"#64748b":"#4d6e8a"),fontSize:12,fontWeight:tab===t.key?700:400,cursor:"pointer",marginBottom:-1}}>
             {t.label}
           </button>
         ))}
-        {saved&&<span style={{marginLeft:"auto",fontSize:11,color:"#00e5a0",alignSelf:"center",marginRight:4}}>✓ Saved</span>}
+        {saved&&<span style={{marginLeft:"auto",fontSize:11,color:_lm?"#059669":"#00e5a0",alignSelf:"center",marginRight:4}}>✓ Saved</span>}
       </div>
 
       {/* ── MEMORY TAB ── */}
@@ -4087,16 +4097,16 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
           {/* ── Header + actions ── */}
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
             <div>
-              <div style={{fontSize:12,color:"#edf4ff",fontWeight:700,marginBottom:2}}>🧠 Zeus Memory</div>
-              <div style={{fontSize:11,color:"#4d6e8a"}}>{totalFacts} facts · ~{tokenEst} tokens · saves automatically</div>
+              <div style={{fontSize:12,color:_lm?"#0f172a":"#edf4ff",fontWeight:700,marginBottom:2}}>🧠 Zeus Memory</div>
+              <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a"}}>{totalFacts} facts · ~{tokenEst} tokens · saves automatically</div>
             </div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               <button onClick={autoMemory} disabled={buildingMemory}
-                style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:6,padding:"5px 12px",color:buildingMemory?"#f59e0b80":"#f59e0b",fontSize:11,fontWeight:700,cursor:buildingMemory?"default":"pointer",whiteSpace:"nowrap"}}>
+                style={{background:_lm?"#fffbeb":"#1a1000",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:6,padding:"5px 12px",color:buildingMemory?"#f59e0b80":"#f59e0b",fontSize:11,fontWeight:700,cursor:buildingMemory?"default":"pointer",whiteSpace:"nowrap"}}>
                 {buildingMemory?"⚡ Building…":"⚡ Build from tracker data"}
               </button>
               <button onClick={proposeFromChat} disabled={proposing}
-                style={{background:"#001a2e",border:"1px solid #3B8FFF40",borderRadius:6,padding:"5px 12px",color:proposing?"#3B8FFF80":"#3B8FFF",fontSize:11,fontWeight:700,cursor:proposing?"default":"pointer",whiteSpace:"nowrap"}}>
+                style={{background:_lm?"#eff6ff":"#001a2e",border:`1px solid ${_lm?"#93c5fd":"#3B8FFF40"}`,borderRadius:6,padding:"5px 12px",color:proposing?"#3B8FFF80":"#3B8FFF",fontSize:11,fontWeight:700,cursor:proposing?"default":"pointer",whiteSpace:"nowrap"}}>
                 {proposing?"⚡ Analyzing…":"💬 Learn from last chat"}
               </button>
             </div>
@@ -4104,24 +4114,24 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
 
           {/* ── Pending updates — one-click approve ── */}
           {pendingUpdates.length>0&&(
-            <div style={{background:"#0a1628",border:"1px solid #3B8FFF40",borderRadius:10,padding:"12px 14px"}}>
+            <div style={{background:_lm?"#eff6ff":"#0a1628",border:"1px solid #3B8FFF40",borderRadius:10,padding:"12px 14px"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
                 <span style={{fontSize:11,fontWeight:700,color:"#3B8FFF"}}>⚡ {pendingUpdates.length} proposed memory update{pendingUpdates.length>1?"s":""}</span>
                 <div style={{display:"flex",gap:6}}>
                   <button onClick={applyAll} style={{background:"#3B8FFF",border:"none",borderRadius:5,padding:"4px 12px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Accept All</button>
-                  <button onClick={()=>setPendingUpdates([])} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>✕ Dismiss All</button>
+                  <button onClick={()=>setPendingUpdates([])} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:5,padding:"4px 10px",color:_lm?"#475569":"#4d6e8a",fontSize:11,cursor:"pointer"}}>✕ Dismiss All</button>
                 </div>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {pendingUpdates.map((u,i)=>{
                   const cat = MEMORY_CATEGORIES.find(c=>c.key===u.category)||MEMORY_CATEGORIES[0];
                   return (
-                    <div key={i} style={{display:"flex",alignItems:"center",gap:8,background:"#07101c",borderRadius:6,padding:"7px 10px"}}>
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:8,background:_lm?"#ffffff":"#07101c",boxShadow:_lm?"0 1px 2px rgba(0,0,0,0.04)":"none",borderRadius:6,padding:"7px 10px"}}>
                       <span style={{fontSize:10,color:"#3B8FFF",background:"#3B8FFF18",border:"1px solid #3B8FFF30",borderRadius:4,padding:"1px 6px",flexShrink:0,whiteSpace:"nowrap"}}>{cat.label.replace(/^\S+\s/,"")}</span>
-                      <span style={{fontSize:12,color:"#d8eaf8",flex:1}}>{u.fact}</span>
-                      <span style={{fontSize:9,color:"#3d5a72",flexShrink:0}}>{u.source==="chat"?"from chat":"from data"}</span>
-                      <button onClick={()=>applyUpdate(u)} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:4,padding:"3px 9px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>✓</button>
-                      <button onClick={()=>setPendingUpdates(prev=>prev.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:"#3d5a72",fontSize:13,cursor:"pointer",flexShrink:0,lineHeight:1}}>×</button>
+                      <span style={{fontSize:12,color:_lm?"#0f172a":"#d8eaf8",flex:1}}>{u.fact}</span>
+                      <span style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",flexShrink:0}}>{u.source==="chat"?"from chat":"from data"}</span>
+                      <button onClick={()=>applyUpdate(u)} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:4,padding:"3px 9px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>✓</button>
+                      <button onClick={()=>setPendingUpdates(prev=>prev.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#3d5a72",fontSize:13,cursor:"pointer",flexShrink:0,lineHeight:1}}>×</button>
                     </div>
                   );
                 })}
@@ -4134,13 +4144,13 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
             {MEMORY_CATEGORIES.map(cat=>{
               const facts = Array.isArray(memObj[cat.key]) ? memObj[cat.key] : memObj[cat.key] ? [memObj[cat.key]] : [];
               return (
-                <div key={cat.key} style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:9,padding:"11px 14px"}}>
+                <div key={cat.key} style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:9,padding:"11px 14px"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:facts.length>0?8:0}}>
                     <div>
-                      <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{cat.label}</span>
-                      <span style={{fontSize:10,color:"#3d5a72",marginLeft:8}}>{cat.desc}</span>
+                      <span style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{cat.label}</span>
+                      <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginLeft:8}}>{cat.desc}</span>
                     </div>
-                    <span style={{fontSize:10,color:"#3d5a72"}}>{facts.length} fact{facts.length!==1?"s":""}</span>
+                    <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72"}}>{facts.length} fact{facts.length!==1?"s":""}</span>
                   </div>
                   {facts.map((fact,idx)=>(
                     <div key={idx} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
@@ -4148,15 +4158,15 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
                         <>
                           <input autoFocus value={editDraft} onChange={e=>setEditDraft(e.target.value)}
                             onKeyDown={e=>{if(e.key==="Enter")updateFact(cat.key,idx,editDraft);if(e.key==="Escape")setEditingFact(null);}}
-                            style={{flex:1,background:"#0e1a2e",border:"1px solid #3B8FFF60",borderRadius:5,padding:"4px 8px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                            style={{flex:1,background:_lm?"#f8fafc":"#0e1a2e",border:"1px solid #3B8FFF60",borderRadius:5,padding:"4px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
                           <button onClick={()=>updateFact(cat.key,idx,editDraft)} style={{background:"#3B8FFF",border:"none",borderRadius:4,padding:"3px 9px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓</button>
-                          <button onClick={()=>setEditingFact(null)} style={{background:"none",border:"none",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>×</button>
+                          <button onClick={()=>setEditingFact(null)} style={{background:"none",border:"none",color:_lm?"#64748b":"#4d6e8a",fontSize:12,cursor:"pointer"}}>×</button>
                         </>
                       ) : (
                         <>
-                          <span style={{fontSize:10,color:"#3d5a72",flexShrink:0}}>▸</span>
-                          <span style={{fontSize:12,color:"#a8c4e0",flex:1,lineHeight:1.4}}>{fact}</span>
-                          <button onClick={()=>{setEditingFact({cat:cat.key,idx});setEditDraft(fact);}} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer",padding:"0 3px",opacity:0.6}} title="Edit">✎</button>
+                          <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",flexShrink:0}}>▸</span>
+                          <span style={{fontSize:12,color:_lm?"#334155":"#a8c4e0",flex:1,lineHeight:1.4}}>{fact}</span>
+                          <button onClick={()=>{setEditingFact({cat:cat.key,idx});setEditDraft(fact);}} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#3d5a72",fontSize:11,cursor:"pointer",padding:"0 3px",opacity:0.6}} title="Edit">✎</button>
                           <button onClick={()=>removeFact(cat.key,idx)} style={{background:"none",border:"none",color:"#ef4444",fontSize:12,cursor:"pointer",padding:"0 3px",opacity:0.5,lineHeight:1}} title="Remove">×</button>
                         </>
                       )}
@@ -4166,9 +4176,9 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
                   <div style={{display:"flex",gap:5,marginTop:facts.length>0?6:2}}>
                     <input placeholder={`Add ${cat.label.replace(/^\S+\s/,"").toLowerCase()} fact…`}
                       onKeyDown={e=>{if(e.key==="Enter"&&e.target.value.trim()){addFact(cat.key,e.target.value);e.target.value="";}}}
-                      style={{flex:1,background:"#07101c",border:"1px solid #1a2744",borderRadius:5,padding:"4px 9px",color:"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                      style={{flex:1,background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:5,padding:"4px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
                     <button onClick={e=>{const inp=e.currentTarget.previousSibling;if(inp.value.trim()){addFact(cat.key,inp.value);inp.value="";}}}
-                      style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"4px 9px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>+ Add</button>
+                      style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"4px 9px",color:_lm?"#475569":"#4d6e8a",fontSize:11,cursor:"pointer"}}>+ Add</button>
                   </div>
                 </div>
               );
@@ -4177,19 +4187,19 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
 
           {/* ── Legacy plain text migration ── */}
           {memObj._legacy&&(
-            <div style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:8,padding:"10px 14px"}}>
+            <div style={{background:_lm?"#fffbeb":"#1a1000",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:8,padding:"10px 14px"}}>
               <div style={{fontSize:11,color:"#f59e0b",fontWeight:700,marginBottom:4}}>⚠ Legacy memory detected</div>
-              <div style={{fontSize:11,color:"#7a9bbf",marginBottom:8,lineHeight:1.5}}>{memObj._legacy.slice(0,200)}{memObj._legacy.length>200?"…":""}</div>
+              <div style={{fontSize:11,color:_lm?"#64748b":"#7a9bbf",marginBottom:8,lineHeight:1.5}}>{memObj._legacy.slice(0,200)}{memObj._legacy.length>200?"…":""}</div>
               <div style={{display:"flex",gap:6}}>
                 <button onClick={autoMemory} style={{background:"#f59e0b",border:"none",borderRadius:5,padding:"5px 12px",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer"}}>⚡ Convert to structured</button>
-                <button onClick={()=>saveMemObj({})} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>Clear</button>
+                <button onClick={()=>saveMemObj({})} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px 10px",color:_lm?"#475569":"#4d6e8a",fontSize:11,cursor:"pointer"}}>Clear</button>
               </div>
             </div>
           )}
 
           {/* ── Context stats ── */}
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:9,padding:"12px 14px"}}>
-            <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>📊 What Zeus sees every conversation</div>
+          <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:9,padding:"12px 14px"}}>
+            <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>📊 What Zeus sees every conversation</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,fontSize:11,marginBottom:8}}>
               {[
                 {label:"Active campaigns", val:campaigns.filter(c=>c.status==="active").length},
@@ -4199,13 +4209,13 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
                 {label:"Saved reports",    val:(()=>{ try{ return JSON.parse(localStorage.getItem(VAULT_KEY)||"[]").length; }catch{ return 0; }})()},
                 {label:"Reminders",        val:reminders.filter(r=>!r.dismissed).length},
               ].map(({label,val})=>(
-                <div key={label} style={{background:"#07101c",borderRadius:5,padding:"6px 10px",display:"flex",justifyContent:"space-between"}}>
-                  <span style={{color:"#4d6e8a"}}>{label}</span>
-                  <span style={{color:"#edf4ff",fontWeight:700}}>{val}</span>
+                <div key={label} style={{background:_lm?"#f8fafc":"#07101c",borderRadius:5,padding:"6px 10px",display:"flex",justifyContent:"space-between"}}>
+                  <span style={{color:_lm?"#64748b":"#4d6e8a"}}>{label}</span>
+                  <span style={{color:_lm?"#0f172a":"#edf4ff",fontWeight:700}}>{val}</span>
                 </div>
               ))}
             </div>
-            <div style={{fontSize:10,color:"#3d5a72"}}>Memory token budget: <span style={{color:tokenEst>400?"#f59e0b":"#00e5a0",fontWeight:700}}>{tokenEst}/500 tokens</span> {tokenEst>400?"— getting long, consider trimming":""}</div>
+            <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72"}}>Memory token budget: <span style={{color:tokenEst>400?"#f59e0b":(_lm?"#059669":"#00e5a0"),fontWeight:700}}>{tokenEst}/500 tokens</span> {tokenEst>400?"— getting long, consider trimming":""}</div>
           </div>
         </div>
       )}
@@ -4213,14 +4223,14 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
       {/* ── SOUL TAB ── */}
       {tab==="soul"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div style={{fontSize:11,color:"#4d6e8a",lineHeight:1.7}}>
+          <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",lineHeight:1.7}}>
             Zeus's soul defines who he is — his personality, how he communicates, what he prioritizes. This is prepended to every system prompt. Edit it to change how Zeus thinks and talks.
           </div>
           <textarea value={soul} onChange={e=>setSoul(e.target.value)}
-            style={{width:"100%",background:"#07101c",border:"1px solid #1a2744",borderRadius:8,padding:"12px 14px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",resize:"vertical",minHeight:380,boxSizing:"border-box",outline:"none",lineHeight:1.65}}/>
+            style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8,padding:"12px 14px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",resize:"vertical",minHeight:380,boxSizing:"border-box",outline:"none",lineHeight:1.65}}/>
           <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center"}}>
-            <button onClick={()=>setSoul(DEFAULT_SOUL)} style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 12px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>↺ Reset to default</button>
-            <button onClick={()=>saveSoul(soul)} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"6px 18px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer"}}>Save Soul</button>
+            <button onClick={()=>setSoul(DEFAULT_SOUL)} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"5px 12px",color:_lm?"#475569":"#4d6e8a",fontSize:11,cursor:"pointer"}}>↺ Reset to default</button>
+            <button onClick={()=>saveSoul(soul)} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:6,padding:"6px 18px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer"}}>Save Soul</button>
           </div>
         </div>
       )}
@@ -4228,34 +4238,34 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
       {/* ── SKILLS TAB ── */}
       {tab==="skills"&&(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          <div style={{fontSize:11,color:"#4d6e8a",lineHeight:1.7}}>
+          <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",lineHeight:1.7}}>
             Skills are modular instructions injected into Zeus's prompt. Enable the ones you need. Skills marked ⚡ require superintelligence to activate.
           </div>
           {skills.map(s=>(
-            <div key={s.id} style={{background:s.enabled&&!s.future?"#0a1218":s.future?"#0a0e00":"#0c1625",border:`1px solid ${s.enabled&&!s.future?"#00c89630":s.future?"#f59e0b20":"#1e293b"}`,borderRadius:10,padding:"12px 14px",opacity:s.future?0.8:1}}>
+            <div key={s.id} style={{background:_lm?(s.enabled&&!s.future?"#f0fdf9":s.future?"#fffbeb":"#ffffff"):(s.enabled&&!s.future?"#0a1218":s.future?"#0a0e00":"#0c1625"),border:`1px solid ${s.enabled&&!s.future?(_lm?"#00c896":"#00c89630"):s.future?(_lm?"#fcd34d":"#f59e0b20"):(_lm?"#e2e8f0":"#1e293b")}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:10,padding:"12px 14px",opacity:s.future?0.8:1}}>
               <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
                 <button onClick={()=>!s.future&&toggleSkill(s.id)}
-                  style={{width:20,height:20,borderRadius:5,flexShrink:0,marginTop:2,cursor:s.future?"default":"pointer",background:s.enabled&&!s.future?"#00c896":s.future?"#1a1000":"#162236",border:`1.5px solid ${s.enabled&&!s.future?"#00c896":s.future?"#f59e0b50":"#334155"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  style={{width:20,height:20,borderRadius:5,flexShrink:0,marginTop:2,cursor:s.future?"default":"pointer",background:s.enabled&&!s.future?"#00c896":s.future?(_lm?"#fef3c7":"#1a1000"):(_lm?"#e2e8f0":"#162236"),border:`1.5px solid ${s.enabled&&!s.future?"#00c896":s.future?(_lm?"#fcd34d":"#f59e0b50"):(_lm?"#cbd5e1":"#334155")}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                   {s.enabled&&!s.future&&<span style={{color:"#000",fontSize:11,fontWeight:900}}>✓</span>}
                   {s.future&&<span style={{color:"#f59e0b",fontSize:10}}>⚡</span>}
                 </button>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
                     <span style={{fontSize:14}}>{s.icon}</span>
-                    <span style={{fontSize:12,fontWeight:700,color:s.enabled&&!s.future?"#edf4ff":s.future?"#f59e0b80":"#7a9bbf"}}>{s.name}</span>
-                    {s.future&&<span style={{fontSize:9,color:"#f59e0b",background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:4,padding:"1px 6px",fontWeight:700}}>⚡ REQUIRES SUPERINTELLIGENCE</span>}
-                    {s.enabled&&!s.future&&<span style={{fontSize:9,color:"#00d48a",background:"#001810",border:"1px solid #00c89630",borderRadius:4,padding:"1px 6px",fontWeight:700}}>ACTIVE</span>}
+                    <span style={{fontSize:12,fontWeight:700,color:s.enabled&&!s.future?(_lm?"#0f172a":"#edf4ff"):s.future?(_lm?"#d97706":"#f59e0b80"):(_lm?"#475569":"#7a9bbf")}}>{s.name}</span>
+                    {s.future&&<span style={{fontSize:9,color:"#f59e0b",background:_lm?"#fffbeb":"#1a1000",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:4,padding:"1px 6px",fontWeight:700}}>⚡ REQUIRES SUPERINTELLIGENCE</span>}
+                    {s.enabled&&!s.future&&<span style={{fontSize:9,color:_lm?"#059669":"#00d48a",background:_lm?"#f0fdf9":"#001810",border:`1px solid ${_lm?"#00c896":"#00c89630"}`,borderRadius:4,padding:"1px 6px",fontWeight:700}}>ACTIVE</span>}
                   </div>
-                  <div style={{fontSize:11,color:"#4d6e8a",marginBottom:editingSkill===s.id?8:0,lineHeight:1.5}}>{s.description}</div>
+                  <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginBottom:editingSkill===s.id?8:0,lineHeight:1.5}}>{s.description}</div>
                   {editingSkill===s.id&&(
                     <div>
                       <textarea value={s.instructions} onChange={e=>updateSkillInstructions(s.id,e.target.value)}
-                        style={{width:"100%",background:"#060d18",border:"1px solid #1a2744",borderRadius:6,padding:"8px 10px",color:"#d8eaf8",fontSize:11,fontFamily:"monospace",resize:"vertical",minHeight:120,boxSizing:"border-box",outline:"none",lineHeight:1.5,marginTop:4}}/>
+                        style={{width:"100%",background:_lm?"#f8fafc":"#060d18",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:6,padding:"8px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"monospace",resize:"vertical",minHeight:120,boxSizing:"border-box",outline:"none",lineHeight:1.5,marginTop:4}}/>
                     </div>
                   )}
                 </div>
                 <button onClick={()=>setEditingSkill(editingSkill===s.id?null:s.id)}
-                  style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"3px 8px",color:"#4d6e8a",fontSize:10,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>
+                  style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"3px 8px",color:_lm?"#475569":"#4d6e8a",fontSize:10,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>
                   {editingSkill===s.id?"Done":"Edit"}
                 </button>
               </div>
@@ -4267,21 +4277,21 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
       {/* ── FULL PROMPT TAB ── */}
       {tab==="prompt"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div style={{fontSize:11,color:"#4d6e8a",lineHeight:1.7}}>
+          <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",lineHeight:1.7}}>
             This is the complete system prompt Zeus receives — soul + memory + all active skills. This is what gets sent on every conversation. Copy it to use elsewhere or verify what Zeus knows.
           </div>
           <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
             <button onClick={()=>{navigator.clipboard.writeText(buildFullPrompt());setSaved("prompt");setTimeout(()=>setSaved(""),2000);}}
-              style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 12px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
+              style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"5px 12px",color:_lm?"#475569":"#4d6e8a",fontSize:11,cursor:"pointer"}}>
               📋 Copy full prompt
             </button>
           </div>
-          <pre style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:8,padding:"14px",fontSize:11,color:"#7a9bbf",lineHeight:1.6,overflowX:"auto",whiteSpace:"pre-wrap",maxHeight:480,overflowY:"auto",fontFamily:"monospace",margin:0}}>
+          <pre style={{background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8,padding:"14px",fontSize:11,color:_lm?"#334155":"#7a9bbf",lineHeight:1.6,overflowX:"auto",whiteSpace:"pre-wrap",maxHeight:480,overflowY:"auto",fontFamily:"monospace",margin:0}}>
             {buildFullPrompt()}
           </pre>
-          <div style={{fontSize:10,color:"#3d5a72"}}>
-            Enabled skills: {skills.filter(s=>s.enabled&&!s.future).length} of {skills.filter(s=>!s.future).length} · 
-            Future slots: {skills.filter(s=>s.future).length} · 
+          <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72"}}>
+            Enabled skills: {skills.filter(s=>s.enabled&&!s.future).length} of {skills.filter(s=>!s.future).length} ·
+            Future slots: {skills.filter(s=>s.future).length} ·
             Total prompt: ~{Math.round(buildFullPrompt().length/4)} tokens
           </div>
         </div>
@@ -4333,52 +4343,52 @@ function CampaignArchive({ archive, onRestore, onClear }) {
   return (
     <div style={{padding:"0 0 40px"}}>
       {archive.length === 0 ? (
-        <div style={{textAlign:"center",padding:"60px 0",color:"#3d5a72"}}>
+        <div style={{textAlign:"center",padding:"60px 0",color:_lm?"#94a3b8":"#3d5a72"}}>
           <div style={{fontSize:32,marginBottom:10}}>🗄️</div>
           <div style={{fontSize:13}}>No archived campaigns yet. Campaigns that ended 5+ days ago will move here automatically.</div>
         </div>
       ) : (<>
-        <div style={{display:"flex",alignItems:"center",gap:0,marginBottom:16,borderBottom:"1px solid #1e293b",flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:0,marginBottom:16,borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,flexWrap:"wrap"}}>
           <div style={{display:"flex",gap:0,flexWrap:"wrap",flex:1}}>
             {monthKeys.map(mk => {
               const count = archive.filter(c=>(c.endDate||"").slice(0,7)===mk).length;
               const active = mk===effectiveMonth;
               return (
                 <button key={mk} onClick={()=>setActiveMonth(mk)}
-                  style={{background:"none",border:"none",borderBottom:active?"2px solid #00e5a0":"2px solid transparent",
-                    padding:"9px 18px",color:active?"#00e5a0":"#4d6e8a",fontSize:13,fontWeight:active?700:400,
+                  style={{background:"none",border:"none",borderBottom:active?`2px solid ${_lm?"#00e19e":"#00e5a0"}`:"2px solid transparent",
+                    padding:"9px 18px",color:active?(_lm?"#059669":"#00e5a0"):(_lm?"#64748b":"#4d6e8a"),fontSize:13,fontWeight:active?700:400,
                     cursor:"pointer",marginBottom:-1,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
                   {monthLabel(mk)}
-                  <span style={{background:active?"#00e5a020":"#0e1a2e",border:`1px solid ${active?"#00e5a040":"#1e293b"}`,
-                    borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700,color:active?"#00e5a0":"#3d5a72"}}>{count}</span>
+                  <span style={{background:active?(_lm?"#f0fdf9":"#00e5a020"):(_lm?"#f1f5f9":"#0e1a2e"),border:`1px solid ${active?(_lm?"#00c896":"#00e5a040"):(_lm?"#e2e8f0":"#1e293b")}`,
+                    borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:700,color:active?(_lm?"#059669":"#00e5a0"):(_lm?"#64748b":"#3d5a72")}}>{count}</span>
                 </button>
               );
             })}
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center",padding:"0 0 8px 8px"}}>
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…"
-              style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"6px 12px",color:"#d8eaf8",fontSize:12,width:180}}/>
-            {search && <button onClick={()=>setSearch("")} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13}}>×</button>}
+              style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"6px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,width:180}}/>
+            {search && <button onClick={()=>setSearch("")} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#3d5a72",cursor:"pointer",fontSize:13}}>×</button>}
             <button onClick={async()=>{ if(await confirm({title:"Clear entire archive?",message:"This cannot be undone.",confirmLabel:"Clear",danger:true})) onClear(); }}
-              style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:6,padding:"5px 11px",color:"#ef4444",fontSize:11,cursor:"pointer"}}>
+              style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#ef4444":"#ef444440"}`,borderRadius:6,padding:"5px 11px",color:"#ef4444",fontSize:11,cursor:"pointer"}}>
               Clear Archive
             </button>
           </div>
         </div>
 
         {filtered.length === 0 ? (
-          <div style={{textAlign:"center",padding:"40px 0",color:"#3d5a72",fontSize:13}}>No campaigns match your search.</div>
+          <div style={{textAlign:"center",padding:"40px 0",color:_lm?"#94a3b8":"#3d5a72",fontSize:13}}>No campaigns match your search.</div>
         ) : (
           <div>
             {Object.entries(groups).map(([partner, camps]) => (
             <div key={partner} style={{marginBottom:20}}>
-              <div style={{fontSize:11,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",
+              <div style={{fontSize:11,color:_lm?"#64748b":"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",
                 marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
-                <span style={{color:"#4d6e8a"}}>{partner}</span>
-                <div style={{flex:1,height:1,background:"#0d1525"}}/>
+                <span style={{color:_lm?"#475569":"#4d6e8a"}}>{partner}</span>
+                <div style={{flex:1,height:1,background:_lm?"#e2e8f0":"#0d1525"}}/>
                 <span style={{fontWeight:400}}>{camps.length} campaign{camps.length!==1?"s":""}</span>
               </div>
-              <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,overflow:"hidden"}}>
+              <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,overflow:"hidden",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed"}}>
                   <colgroup>
                     <col style={{width:"28%"}}/>
@@ -4390,46 +4400,44 @@ function CampaignArchive({ archive, onRestore, onClear }) {
                     <col style={{width:"12%"}}/>
                   </colgroup>
                   <thead>
-                    <tr style={{background:"#070d16"}}>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Campaign</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Platform</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Goal</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>End Date</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Archived</th>
-                      <th style={{padding:"9px 13px",textAlign:"left",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Metrics</th>
-                      <th style={{padding:"9px 13px",textAlign:"right",fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:"1px solid #1e293b"}}>Actions</th>
+                    <tr style={{background:_lm?"#f8fafc":"#070d16"}}>
+                      {["Campaign","Platform","Goal","End Date","Archived","Metrics","Actions"].map((lbl,i)=>(
+                        <th key={lbl} style={{padding:"9px 13px",textAlign:i===6?"right":"left",fontSize:11,fontWeight:700,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`}}>{lbl}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
                     {camps.map((c,i) => {
                       const pCol = PLT_COLORS[c.platform]||PLT_COLORS.default;
                       const isOpen = expanded.has(c.id);
-                      const rowBg = i%2===0?"#0c1625":"#090f1c";
+                      const rowBg = _lm?(i%2===0?"#ffffff":"#f8fafc"):(i%2===0?"#0c1625":"#090f1c");
+                      const cellBorder = `1px solid ${_lm?"#f1f5f9":"#060c18"}`;
                       return (
                         <Fragment key={c.id}>
                           <tr style={{background:rowBg}}>
-                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",overflow:"hidden"}}>
-                              <div style={{fontSize:12,fontWeight:600,color:"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
-                              {c.note1&&<div style={{fontSize:10,color:"#00ffb3",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.note1.trim()}</div>}
+                            <td style={{padding:"9px 13px",borderBottom:cellBorder,overflow:"hidden"}}>
+                              <div style={{fontSize:12,fontWeight:600,color:_lm?"#0f172a":"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
+                              {c.note1&&<div style={{fontSize:10,color:_lm?"#059669":"#00ffb3",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.note1.trim()}</div>}
                             </td>
-                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18"}}>
-                              <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 6px",fontSize:10,fontWeight:700}}>{c.platform}</span>
+                            <td style={{padding:"9px 13px",borderBottom:cellBorder}}>
+                              {_lm ? (()=>{ const r=parseInt(pCol.slice(1,3),16)/255,g=parseInt(pCol.slice(3,5),16)/255,b=parseInt(pCol.slice(5,7),16)/255; const txt=(0.299*r+0.587*g+0.114*b)>0.45?"#0a1a0a":"#fff"; return <span style={{background:pCol,color:txt,border:"none",borderRadius:3,padding:"1px 6px",fontSize:10,fontWeight:700}}>{c.platform}</span>; })()
+                              : <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 6px",fontSize:10,fontWeight:700}}>{c.platform}</span>}
                             </td>
-                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",fontSize:11,color:"#4d6e8a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.goal||"—"}</td>
-                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",fontSize:11,color:"#7a9bbf",whiteSpace:"nowrap"}}>{c.endDate||"—"}</td>
-                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",fontSize:11,color:"#3d5a72",whiteSpace:"nowrap"}}>{c.archivedDate||"—"}</td>
-                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18"}}>
-                              <button onClick={()=>toggleExpand(c.id)} style={{background:"none",border:"none",cursor:"pointer",color:c.impressions?"#00c896":"#1e3048",fontSize:11,padding:0}}>
+                            <td style={{padding:"9px 13px",borderBottom:cellBorder,fontSize:11,color:_lm?"#475569":"#4d6e8a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.goal||"—"}</td>
+                            <td style={{padding:"9px 13px",borderBottom:cellBorder,fontSize:11,color:_lm?"#475569":"#7a9bbf",whiteSpace:"nowrap"}}>{c.endDate||"—"}</td>
+                            <td style={{padding:"9px 13px",borderBottom:cellBorder,fontSize:11,color:_lm?"#94a3b8":"#3d5a72",whiteSpace:"nowrap"}}>{c.archivedDate||"—"}</td>
+                            <td style={{padding:"9px 13px",borderBottom:cellBorder}}>
+                              <button onClick={()=>toggleExpand(c.id)} style={{background:"none",border:"none",cursor:"pointer",color:c.impressions?(_lm?"#059669":"#00c896"):(_lm?"#cbd5e1":"#1e3048"),fontSize:11,padding:0}}>
                                 {isOpen?"▼ Hide":"▶ Show"}
                               </button>
                             </td>
-                            <td style={{padding:"9px 13px",borderBottom:"1px solid #060c18",textAlign:"right"}}>
-                              <button onClick={()=>onRestore(c)} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:5,color:"#00e5a0",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:600}}>Restore</button>
+                            <td style={{padding:"9px 13px",borderBottom:cellBorder,textAlign:"right"}}>
+                              <button onClick={()=>onRestore(c)} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:5,color:_lm?"#0a1a0a":"#00e5a0",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:700}}>Restore</button>
                             </td>
                           </tr>
                           {isOpen && (
-                            <tr style={{background:"#06101a"}}>
-                              <td colSpan={7} style={{padding:"10px 16px",borderBottom:"1px solid #060c18"}}>
+                            <tr style={{background:_lm?"#f8fafc":"#06101a"}}>
+                              <td colSpan={7} style={{padding:"10px 16px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#060c18"}`}}>
                                 <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:11}}>
                                   {[
                                     {label:"Impressions",val:c.impressions},
@@ -4441,17 +4449,17 @@ function CampaignArchive({ archive, onRestore, onClear }) {
                                     {label:"Freq",val:c.frequency},
                                     {label:"VCR",val:c.completionRate?c.completionRate+"%":null},
                                   ].filter(x=>x.val).map(({label,val})=>(
-                                    <div key={label} style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:"4px 10px",textAlign:"center"}}>
-                                      <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
-                                      <div style={{fontWeight:700,color:"#d8eaf8"}}>{val}</div>
+                                    <div key={label} style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:5,padding:"4px 10px",textAlign:"center"}}>
+                                      <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
+                                      <div style={{fontWeight:700,color:_lm?"#0f172a":"#d8eaf8"}}>{val}</div>
                                     </div>
                                   ))}
-                                  {!c.impressions&&!c.spend&&<span style={{color:"#3d5a72",fontStyle:"italic"}}>No metrics recorded</span>}
+                                  {!c.impressions&&!c.spend&&<span style={{color:_lm?"#94a3b8":"#3d5a72",fontStyle:"italic"}}>No metrics recorded</span>}
                                 </div>
                                 {c.history&&c.history.trim()&&(
-                                  <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid #1a2744"}}>
-                                    <div style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:6}}>📋 Change History</div>
-                                    <div style={{background:"#060d18",borderRadius:5,padding:"8px 10px",whiteSpace:"pre-wrap",fontSize:11,color:"#4d6e8a",lineHeight:1.6,maxHeight:180,overflowY:"auto"}}>
+                                  <div style={{marginTop:12,paddingTop:10,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+                                    <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:6}}>📋 Change History</div>
+                                    <div style={{background:_lm?"#f8fafc":"#060d18",borderRadius:5,padding:"8px 10px",whiteSpace:"pre-wrap",fontSize:11,color:_lm?"#475569":"#4d6e8a",lineHeight:1.6,maxHeight:180,overflowY:"auto"}}>
                                       {c.history.trim()}
                                     </div>
                                   </div>
@@ -4519,27 +4527,27 @@ function ActivityLog({ log, campaigns, onClear, onUndo }) {
       {/* Toolbar */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search activity…"
-          style={{ background: "#0e1a2e", border: "1px solid #1e293b", borderRadius: 7, padding: "7px 13px", color: "#d8eaf8", fontSize: 13, width: 220 }} />
+          style={{ background: _lm?"#ffffff":"#0e1a2e", border: `1px solid ${_lm?"#cbd5e1":"#1e293b"}`, borderRadius: 7, padding: "7px 13px", color: _lm?"#0f172a":"#d8eaf8", fontSize: 13, width: 220 }} />
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {types.map(t => (
             <button key={t} onClick={() => setFilter(t)}
-              style={{ background: filter === t ? ((LOG_ICONS[t]?.color ?? "#00e5a0") + "22") : "#0e1a2e",
-                border: `1px solid ${filter === t ? (LOG_ICONS[t]?.color ?? "#00e5a0") : "#1e293b"}`,
-                borderRadius: 6, padding: "4px 11px", color: filter === t ? (LOG_ICONS[t]?.color ?? "#00e5a0") : "#4d6e8a",
+              style={{ background: filter === t ? (_lm?"#f0fdf9":((LOG_ICONS[t]?.color ?? "#00e5a0") + "22")) : (_lm?"#f1f5f9":"#0e1a2e"),
+                border: `1px solid ${filter === t ? (_lm?"#00c896":(LOG_ICONS[t]?.color ?? "#00e5a0")) : (_lm?"#e2e8f0":"#1e293b")}`,
+                borderRadius: 6, padding: "4px 11px", color: filter === t ? (_lm?"#059669":(LOG_ICONS[t]?.color ?? "#00e5a0")) : (_lm?"#475569":"#4d6e8a"),
                 fontSize: 11, fontWeight: filter === t ? 700 : 400, cursor: "pointer", textTransform: "capitalize" }}>
               {t === "all" ? "All" : (LOG_ICONS[t]?.icon + " " + LOG_ICONS[t]?.label)}
             </button>
           ))}
         </div>
-        <span style={{ marginLeft: "auto", fontSize: 11, color: "#3d5a72" }}>{filtered.length} event{filtered.length !== 1 ? "s" : ""}</span>
+        <span style={{ marginLeft: "auto", fontSize: 11, color: _lm?"#94a3b8":"#3d5a72" }}>{filtered.length} event{filtered.length !== 1 ? "s" : ""}</span>
         {log.length > 0 && <button onClick={onClear}
-          style={{ background: "#1a0808", border: "1px solid #ef444440", borderRadius: 6, padding: "4px 11px", color: "#ef4444", fontSize: 11, cursor: "pointer" }}>
+          style={{ background: _lm?"#fee2e2":"#1a0808", border: `1px solid ${_lm?"#ef4444":"#ef444440"}`, borderRadius: 6, padding: "4px 11px", color: "#ef4444", fontSize: 11, cursor: "pointer" }}>
           Clear Log
         </button>}
       </div>
 
       {filtered.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "60px 0", color: "#3d5a72" }}>
+        <div style={{ textAlign: "center", padding: "60px 0", color: _lm?"#94a3b8":"#3d5a72" }}>
           <div style={{ fontSize: 32, marginBottom: 10 }}>📋</div>
           <div style={{ fontSize: 13 }}>{log.length === 0 ? "No activity yet. Changes you make will appear here." : "No events match your filters."}</div>
         </div>
@@ -4547,10 +4555,10 @@ function ActivityLog({ log, campaigns, onClear, onUndo }) {
         <div>
           {groups.map(g => (
             <div key={g.date} style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 11, color: "#3d5a72", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em",
+              <div style={{ fontSize: 11, color: _lm?"#64748b":"#3d5a72", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em",
                 marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
                 <span>{g.date}</span>
-                <div style={{ flex: 1, height: 1, background: "#0d1525" }} />
+                <div style={{ flex: 1, height: 1, background: _lm?"#e2e8f0":"#0d1525" }} />
                 <span style={{ fontWeight: 400 }}>{g.entries.length} event{g.entries.length !== 1 ? "s" : ""}</span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -4558,35 +4566,33 @@ function ActivityLog({ log, campaigns, onClear, onUndo }) {
                   const cfg = LOG_ICONS[e.type] || LOG_ICONS.edited;
                   const { time } = formatLogTime(e.ts);
                   return (
-                    <div key={e.id} style={{ background: "#0c1625", border: `1px solid ${e.undone ? "#334155" : cfg.color+"18"}`,
-                      borderLeft: `3px solid ${e.undone ? "#334155" : cfg.color+"60"}`, borderRadius: 7, padding: "9px 14px",
-                      display: "flex", alignItems: "flex-start", gap: 12, opacity: e.undone ? 0.45 : 1 }}>
+                    <div key={e.id} style={{ background: _lm?"#ffffff":"#0c1625", border: `1px solid ${e.undone ? (_lm?"#e2e8f0":"#334155") : (_lm?cfg.color+"50":cfg.color+"18")}`,
+                      borderLeft: `3px solid ${e.undone ? (_lm?"#e2e8f0":"#334155") : cfg.color}`, borderRadius: 7, padding: "9px 14px",
+                      display: "flex", alignItems: "flex-start", gap: 12, opacity: e.undone ? 0.45 : 1, boxShadow: _lm?"0 1px 3px rgba(0,0,0,0.05)":"none" }}>
                       <span style={{ fontSize: 14, lineHeight: 1, marginTop: 1, flexShrink: 0 }}>{e.undone ? "↩" : cfg.icon}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 11, color: e.undone ? "#334155" : cfg.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{e.undone ? "Undone" : cfg.label}</span>
-                          {e.partner && <span style={{ fontSize: 12, color: "#a8c4e0", fontWeight: 500 }}>{e.partner}</span>}
-                          {e.partner && e.campaignName && <span style={{ color: "#1e3048", fontSize: 11 }}>›</span>}
-                          {e.campaignName && <span style={{ fontSize: 12, color: e.undone ? "#3d5a72" : "#edf4ff", fontWeight: 600, textDecoration: e.undone ? "line-through" : "none" }}>{e.campaignName}</span>}
-                          {e.platform && !e.undone && <span style={{ fontSize: 10, color: PLT_COLORS[e.platform] || PLT_COLORS.default,
-                            background: (PLT_COLORS[e.platform] || PLT_COLORS.default) + "18", border: `1px solid ${(PLT_COLORS[e.platform] || PLT_COLORS.default)}40`,
-                            borderRadius: 3, padding: "1px 5px", fontWeight: 700 }}>{e.platform}</span>}
+                          <span style={{ fontSize: 11, color: e.undone ? (_lm?"#94a3b8":"#334155") : cfg.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{e.undone ? "Undone" : cfg.label}</span>
+                          {e.partner && <span style={{ fontSize: 12, color: _lm?"#475569":"#a8c4e0", fontWeight: 500 }}>{e.partner}</span>}
+                          {e.partner && e.campaignName && <span style={{ color: _lm?"#cbd5e1":"#1e3048", fontSize: 11 }}>›</span>}
+                          {e.campaignName && <span style={{ fontSize: 12, color: e.undone ? (_lm?"#94a3b8":"#3d5a72") : (_lm?"#0f172a":"#edf4ff"), fontWeight: 600, textDecoration: e.undone ? "line-through" : "none" }}>{e.campaignName}</span>}
+                          {e.platform && !e.undone && (()=>{ const pc=PLT_COLORS[e.platform]||PLT_COLORS.default; if(_lm){ const r=parseInt(pc.slice(1,3),16)/255,g=parseInt(pc.slice(3,5),16)/255,b=parseInt(pc.slice(5,7),16)/255; const txt=(0.299*r+0.587*g+0.114*b)>0.45?"#0a1a0a":"#fff"; return <span style={{fontSize:10,color:txt,background:pc,border:"none",borderRadius:3,padding:"1px 5px",fontWeight:700}}>{e.platform}</span>; } return <span style={{ fontSize: 10, color: pc, background: pc+"18", border: `1px solid ${pc}40`, borderRadius: 3, padding: "1px 5px", fontWeight: 700 }}>{e.platform}</span>; })()}
                         </div>
-                        {e.detail && <div style={{ fontSize: 11, color: e.undone ? "#2a4060" : "#4d6e8a", marginTop: 3 }}>{e.undone ? `Undone — ${e.detail}` : e.detail}</div>}
+                        {e.detail && <div style={{ fontSize: 11, color: _lm?(e.undone?"#94a3b8":"#64748b"):(e.undone?"#2a4060":"#4d6e8a"), marginTop: 3 }}>{e.undone ? `Undone — ${e.detail}` : e.detail}</div>}
                         {e.type === "lock" && e.lockData?.campaigns?.length > 0 && (
                           <div style={{ marginTop: 6 }}>
                             <button onClick={() => setExpandedLocks(s => { const n = new Set(s); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n; })}
-                              style={{ background: "none", border: "none", color: "#4d6e8a", fontSize: 10, cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+                              style={{ background: "none", border: "none", color: _lm?"#059669":"#4d6e8a", fontSize: 10, cursor: "pointer", padding: 0, textDecoration: "underline" }}>
                               {expandedLocks.has(e.id) ? "Hide campaigns" : `Show ${e.lockData.campaigns.length} campaigns`}
                             </button>
                             {expandedLocks.has(e.id) && (
-                              <div style={{ marginTop: 6, background: "#07101c", borderRadius: 5, padding: "6px 10px", maxHeight: 200, overflowY: "auto" }}>
+                              <div style={{ marginTop: 6, background: _lm?"#f8fafc":"#07101c", border:`1px solid ${_lm?"#e2e8f0":"transparent"}`, borderRadius: 5, padding: "6px 10px", maxHeight: 200, overflowY: "auto" }}>
                                 {e.lockData.campaigns.map(r => {
                                   const ctrPct = r.ctr > 0 ? (r.ctr < 1 ? (r.ctr*100).toFixed(2) : r.ctr.toFixed(2)) : null;
                                   return (
-                                    <div key={r.id} style={{ fontSize: 10, color: "#7a9bbf", fontFamily: "monospace", lineHeight: 1.9, borderBottom: "1px solid #0d1525", paddingBottom: 2, marginBottom: 2 }}>
-                                      <span style={{ color: "#a8c4e0", fontWeight: 600 }}>{r.name}</span>
-                                      <span style={{ color: "#3d5a72", marginLeft: 6 }}>
+                                    <div key={r.id} style={{ fontSize: 10, color: _lm?"#475569":"#7a9bbf", fontFamily: "monospace", lineHeight: 1.9, borderBottom: `1px solid ${_lm?"#e2e8f0":"#0d1525"}`, paddingBottom: 2, marginBottom: 2 }}>
+                                      <span style={{ color: _lm?"#0f172a":"#a8c4e0", fontWeight: 600 }}>{r.name}</span>
+                                      <span style={{ color: _lm?"#64748b":"#3d5a72", marginLeft: 6 }}>
                                         {r.impressions > 0 ? ` · ${r.impressions.toLocaleString()} impr` : ""}
                                         {r.clicks > 0 ? ` · ${r.clicks} clicks` : ""}
                                         {ctrPct ? ` · ${ctrPct}% CTR` : ""}
@@ -4602,12 +4608,12 @@ function ActivityLog({ log, campaigns, onClear, onUndo }) {
                         )}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                        <span style={{ fontSize: 11, color: "#2a4060", whiteSpace: "nowrap" }}>{time}</span>
+                        <span style={{ fontSize: 11, color: _lm?"#94a3b8":"#2a4060", whiteSpace: "nowrap" }}>{time}</span>
                         {!e.undone && (e.type === "deleted" || e.type === "created" || e.type === "duplicated" || e.prevSnapshot) && (
                           <button onClick={() => onUndo(e)}
                             title="Undo this action"
-                            style={{ background: "#0e1a2e", border: "1px solid #334155", borderRadius: 5,
-                              padding: "2px 9px", color: "#7a9bbf", fontSize: 11, cursor: "pointer", fontWeight: 600,
+                            style={{ background: _lm?"#f1f5f9":"#0e1a2e", border: `1px solid ${_lm?"#e2e8f0":"#334155"}`, borderRadius: 5,
+                              padding: "2px 9px", color: _lm?"#475569":"#7a9bbf", fontSize: 11, cursor: "pointer", fontWeight: 600,
                               whiteSpace: "nowrap" }}>
                             ↩ Undo
                           </button>
@@ -4626,7 +4632,7 @@ function ActivityLog({ log, campaigns, onClear, onUndo }) {
 }
 
 
-function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms }) {
+function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms, lightMode=false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -4639,27 +4645,27 @@ function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms }) {
   const active = fPlatforms.size > 0;
   return (
     <div ref={ref} style={{position:"relative",userSelect:"none",display:"flex",alignItems:"center"}}>
-      <button onClick={()=>setOpen(v=>!v)} style={{background:active?"#0e2818":"#0e1a2e",border:`1px solid ${active?"#00c896":"#1e293b"}`,borderRadius:7,padding:"7px 13px",color:active?"#00e5a0":"#7a9bbf",fontSize:13,fontWeight:active?600:400,cursor:"pointer",display:"flex",alignItems:"center",gap:7,minWidth:145,justifyContent:"space-between"}}>
+      <button onClick={()=>setOpen(v=>!v)} style={{background:active?(lightMode?"#dcfce7":"#0e2818"):(lightMode?"#f8fafc":"#0e1a2e"),border:`1px solid ${active?"#00c896":(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:7,padding:"7px 13px",color:active?"#00e5a0":(lightMode?"#64748b":"#7a9bbf"),fontSize:13,fontWeight:active?600:400,cursor:"pointer",display:"flex",alignItems:"center",gap:7,minWidth:145,justifyContent:"space-between"}}>
         <span>{label}</span>
         <span style={{fontSize:9,opacity:0.5}}>{open?"▲":"▼"}</span>
       </button>
-      {active && <span onClick={()=>{ setFPlatforms(new Set()); setOpen(false); }} style={{fontSize:11,color:"#4d6e8a",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
+      {active && <span onClick={()=>{ setFPlatforms(new Set()); setOpen(false); }} style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
       {open && (
-        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:8,zIndex:100,minWidth:160,boxShadow:"0 8px 32px rgba(0,0,0,.6)",overflow:"hidden"}}>
-          <div style={{padding:"7px 10px",borderBottom:"1px solid #162236"}}>
-            <span style={{fontSize:10,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Filter Platforms</span>
+        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:8,zIndex:100,minWidth:160,boxShadow:lightMode?"0 8px 32px rgba(0,0,0,.12)":"0 8px 32px rgba(0,0,0,.6)",overflow:"hidden"}}>
+          <div style={{padding:"7px 10px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#162236"}`}}>
+            <span style={{fontSize:10,color:lightMode?"#94a3b8":"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Filter Platforms</span>
           </div>
           {platforms.map(p => {
             const on = fPlatforms.has(p);
             const col = PLT_COLORS[p] || PLT_COLORS.default;
             return (
-              <div key={p} onClick={()=>toggle(p)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",cursor:"pointer",background:on?col+"12":"transparent",transition:"background .1s"}}
-                onMouseEnter={e=>{ if(!on) e.currentTarget.style.background="#162236"; }}
+              <div key={p} onClick={()=>toggle(p)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",cursor:"pointer",background:on?(lightMode?col+"25":col+"12"):"transparent",transition:"background .1s"}}
+                onMouseEnter={e=>{ if(!on) e.currentTarget.style.background=lightMode?"#f1f5f9":"#162236"; }}
                 onMouseLeave={e=>{ if(!on) e.currentTarget.style.background="transparent"; }}>
-                <div style={{width:13,height:13,borderRadius:3,border:`2px solid ${on?col:"#334155"}`,background:on?col:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .1s"}}>
+                <div style={{width:13,height:13,borderRadius:3,border:`2px solid ${on?col:(lightMode?"#cbd5e1":"#334155")}`,background:on?col:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .1s"}}>
                   {on && <span style={{color:"#000",fontSize:9,fontWeight:900,lineHeight:1}}>✓</span>}
                 </div>
-                <span style={{fontSize:12,color:on?col:"#a8c4e0",fontWeight:on?700:400}}>{p}</span>
+                <span style={{fontSize:12,color:on?col:(lightMode?"#475569":"#a8c4e0"),fontWeight:on?700:400}}>{p}</span>
               </div>
             );
           })}
@@ -4689,7 +4695,7 @@ const PLT_KPI = {
 };
 
 // ─── Pacing date bar ──────────────────────────────────────────────────────
-function PacingDateBar({ range, setRange }) {
+function PacingDateBar({ range, setRange, lightMode=false }) {
   const presets = getPresets();
   const [cs, setCs] = useState(range.start||"");
   const [ce, setCe] = useState(range.end||"");
@@ -4701,24 +4707,24 @@ function PacingDateBar({ range, setRange }) {
       {quickKeys.map(k=>{
         const on=range.preset===k;
         return <button key={k} onClick={()=>{setShowCustom(false);setRange({preset:k,...presets[k]});}}
-          style={{background:on?"#001a38":"#0e1a2e",border:"1px solid "+(on?"#00c896":"#162236"),borderRadius:6,padding:"4px 12px",color:on?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:on?700:500,cursor:"pointer"}}>
+          style={{background:on?(lightMode?"#dbeafe":"#001a38"):(lightMode?"#f8fafc":"#0e1a2e"),border:"1px solid "+(on?"#00c896":(lightMode?"#cbd5e1":"#162236")),borderRadius:6,padding:"4px 12px",color:on?"#00e5a0":(lightMode?"#64748b":"#4d6e8a"),fontSize:12,fontWeight:on?700:500,cursor:"pointer"}}>
           {presets[k].label}
         </button>;
       })}
-      <div style={{width:1,height:18,background:"#162236"}}/>
+      <div style={{width:1,height:18,background:lightMode?"#e2e8f0":"#162236"}}/>
       <button onClick={()=>setShowCustom(v=>!v)}
-        style={{background:isCustom||showCustom?"#002e24":"#0e1a2e",border:"1px solid "+(isCustom||showCustom?"#00c896":"#162236"),borderRadius:6,padding:"4px 12px",color:isCustom||showCustom?"#00e5a0":"#4d6e8a",fontSize:12,fontWeight:isCustom||showCustom?700:500,cursor:"pointer"}}>
+        style={{background:isCustom||showCustom?(lightMode?"#dcfce7":"#002e24"):(lightMode?"#f8fafc":"#0e1a2e"),border:"1px solid "+(isCustom||showCustom?"#00c896":(lightMode?"#cbd5e1":"#162236")),borderRadius:6,padding:"4px 12px",color:isCustom||showCustom?"#00e5a0":(lightMode?"#64748b":"#4d6e8a"),fontSize:12,fontWeight:isCustom||showCustom?700:500,cursor:"pointer"}}>
         {isCustom?range.label:"Custom…"}
       </button>
       {(showCustom||isCustom)&&(
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <DatePicker value={cs} onChange={v=>setCs(v)}/>
-          <span style={{color:"#3d5a72",fontSize:11}}>to</span>
+          <span style={{color:lightMode?"#94a3b8":"#3d5a72",fontSize:11}}>to</span>
           <DatePicker value={ce} onChange={v=>setCe(v)}/>
           <button onClick={()=>{if(cs&&ce){setRange({preset:"custom",start:cs,end:ce,label:cs===ce?cs:cs+" → "+ce});setShowCustom(false);}}} disabled={!cs||!ce}
             style={{background:cs&&ce?"#00c896":"#162236",border:"none",borderRadius:6,padding:"4px 12px",color:cs&&ce?"#000":"#3d5a72",fontSize:12,fontWeight:700,cursor:cs&&ce?"pointer":"default"}}>Apply</button>
           {isCustom&&<button onClick={()=>{setShowCustom(false);setRange({preset:"mtd",...getPresets().mtd});}}
-            style={{background:"none",border:"1px solid #334155",borderRadius:6,padding:"4px 10px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>Clear</button>}
+            style={{background:"none",border:"1px solid "+(lightMode?"#cbd5e1":"#334155"),borderRadius:6,padding:"4px 10px",color:lightMode?"#64748b":"#4d6e8a",fontSize:11,cursor:"pointer"}}>Clear</button>}
         </div>
       )}
     </div>
@@ -4732,17 +4738,34 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const pBorder = (col) => col + "40";   // badge border
   const sBg     = (col) => col + "18";   // status pill background
   const sBorder = (col) => col + "40";   // status pill border
-  // Counter-filter: cancels the global invert+hue-rotate so accent colors stay vivid in light mode
-  const lmF = lightMode ? "invert(1) hue-rotate(180deg)" : "none";
   // Light-mode yellow swap: #fde047 → #fff200 (more vivid against white) only when rendering.
   // Data/logic always stores #fde047; lmC remaps at render time only.
   const lmC = (c) => lightMode && c === "#fde047" ? "#fff200" : c;
   // In light mode: vivid color becomes the BACKGROUND with dark text (high contrast pop).
   // In dark mode: vivid color stays as TEXT on faint tinted background (current look).
-  // filter:lmF on the element then double-inverts everything back to these exact colors.
-  const vBadge = (c) => { const vc = lmC(c); return lightMode
-    ? {color:"#0d1117", background:vc, border:"1px solid "+vc+"99"}
-    : {color:vc, background:sBg(vc), border:"1px solid "+sBorder(vc)}; };
+  // vBadge light-mode: solid vivid fill with luminance-based text — same electric look as dark mode,
+  // but inverted: vivid COLOR as the background chip with dark/white text for maximum contrast.
+  const vBadge = (c) => {
+    const vc = lmC(c);
+    if (lightMode) {
+      const r=parseInt(vc.slice(1,3),16)/255, g=parseInt(vc.slice(3,5),16)/255, b=parseInt(vc.slice(5,7),16)/255;
+      const txt = (0.299*r+0.587*g+0.114*b) > 0.45 ? "#0a1a0a" : "#ffffff";
+      return {color:txt, background:vc, border:"none"};
+    }
+    return {color:vc, background:sBg(vc), border:"1px solid "+sBorder(vc)};
+  };
+  // Explicit structural colors for clean light mode (container counter-filter cancels global invert,
+  // so all CSS colors render as-is — we supply the right value for each mode explicitly).
+  const lmBg    = lightMode ? "#ffffff"  : "#0c1625";   // card / row backgrounds
+  const lmBgInp = lightMode ? "#f8fafc"  : "#0e1a2e";   // inputs / selects / toolbar buttons
+  const lmBgTrk = lightMode ? "#f1f5f9"  : "#07101c";   // inset metric boxes (subtle)
+  const lmBarTrk= lightMode ? "#e2e8f0"  : "#07101c";   // pacing bar tracks — light grey in light mode, near-black in dark
+  const lmBrd   = lightMode ? "#cbd5e1"  : "#1e293b";   // main panel borders
+  const lmBrdR  = lightMode ? "#e2e8f0"  : "#0d1525";   // row separators
+  const lmTxt   = lightMode ? "#0f172a"  : "#edf4ff";   // primary text (campaign names)
+  const lmTxtS  = lightMode ? "#64748b"  : "#4d6e8a";   // secondary text (partners, labels)
+  const lmTxtD  = lightMode ? "#94a3b8"  : "#3d5a72";   // dim / placeholder text
+  const lmTxtM  = lightMode ? "#475569"  : "#7a9bbf";   // medium-tone text (edit buttons, spend)
   // Read benchmarks from localStorage (same key AIAdvisor writes to) — no prop needed
   const [kpiBenchmarks, setKpiBenchmarks] = useState(() => {
     const defaults = {
@@ -4912,7 +4935,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const val=kpi.primary==="VCR"?rawVcr:rawCtr; if(!val) return null;
     const color=val>=kpi.good?"#00d48a":val>=kpi.ok?"#fde047":"#ef4444";
     return <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:4}}>
-      <span title={kpi.tip} style={{cursor:"help",fontSize:10,fontWeight:700,...vBadge(color),borderRadius:4,padding:"1px 7px",filter:lmF}}>
+      <span title={kpi.tip} style={{cursor:"help",fontSize:10,fontWeight:700,...vBadge(color),borderRadius:4,padding:"1px 7px"}}>
         {kpi.label}: {kpi.primary==="VCR"?(rawVcr*100).toFixed(0)+"%":(rawCtr*100).toFixed(2)+"%"} · {val>=kpi.good?"Good":val>=kpi.ok?"OK":"Low"}
       </span>
       {isCTV&&(parseFloat(c.conversions)||0)>0&&<span style={{fontSize:10,fontWeight:700,color:"#34d399",background:"#34d39918",border:"1px solid #34d39940",borderRadius:4,padding:"1px 7px"}}>{parseInt(c.conversions).toLocaleString()} conv</span>}
@@ -4956,42 +4979,42 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(c.videoViews)     perfBoxes.push({label:"Views",  val:parseInt(c.videoViews).toLocaleString(),                            color:"#a78bfa"});
     if(c.conversions)    perfBoxes.push({label:"Conv",   val:parseInt(c.conversions).toLocaleString(),                           color:"#34d399"});
 
-    return <div style={{background:"#0c1625",border:"1px solid "+(pacing?col+"40":"#1e293b"),borderRadius:9,padding:"13px 16px",marginBottom:7}}>
+    return <div style={{background:lmBg,border:"1px solid "+(pacing?col+"40":lmBrd),borderRadius:9,padding:"13px 16px",marginBottom:7}}>
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:2}}>
-        <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{c.campaignName.trim()}</span>
-        <span style={{...vBadge(pCol),borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700,filter:lmF}}>{c.platform}</span>
-        {pacing&&<span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 6px",filter:lmF}}>{pacing.label}</span>}
-        {dr!==null&&<span style={{fontSize:10,fontWeight:700,...vBadge(drc),borderRadius:4,padding:"1px 6px",marginLeft:2,filter:lmF}}>
+        <span style={{fontSize:12,fontWeight:700,color:lmTxt}}>{c.campaignName.trim()}</span>
+        <span style={{...vBadge(pCol),borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>
+        {pacing&&<span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 6px"}}>{pacing.label}</span>}
+        {dr!==null&&<span style={{fontSize:10,fontWeight:700,...vBadge(drc),borderRadius:4,padding:"1px 6px",marginLeft:2}}>
           {dr<=0?"Ended":dr===1?"Last day":dr+"d left"}
         </span>}
-        <button onClick={()=>onEdit(c)} style={{marginLeft:"auto",background:"#162236",border:"1px solid #334155",borderRadius:5,color:"#7a9bbf",fontSize:11,padding:"3px 8px",cursor:"pointer",fontWeight:600,flexShrink:0}}>Edit</button>
+        <button onClick={()=>onEdit(c)} style={{marginLeft:"auto",background:lightMode?"#e2e8f0":"#162236",border:"1px solid "+(lightMode?"#94a3b8":"#334155"),borderRadius:5,color:lightMode?"#334155":lmTxtM,fontSize:11,padding:"3px 8px",cursor:"pointer",fontWeight:600,flexShrink:0}}>Edit</button>
       </div>
-      <div style={{fontSize:11,color:"#4d6e8a",marginBottom:6}}>{c.mediaPartner}</div>
+      <div style={{fontSize:11,color:lmTxtS,marginBottom:6}}>{c.mediaPartner}</div>
 
       {/* Monthly pacing bar */}
       {pacing&&<div style={{marginBottom:6}}>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#3d5a72",marginBottom:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:lmTxtD,marginBottom:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>
           <span>Monthly Pacing ({cardMetricLabel})</span><span>Goal: {fmtGoal(monthlyGoal)}</span>
         </div>
-        <div style={{position:"relative",background:"#07101c",borderRadius:3,height:6,marginBottom:2,overflow:"visible"}}>
-          <div title={"Expected: "+(exp?fmtGoal(exp):"")} style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:14,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888",filter:lmF}}/>
-          <div style={{background:lmC(col),height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:3,filter:lmF}}/>
+        <div style={{position:"relative",background:lmBarTrk,borderRadius:3,height:6,marginBottom:2,overflow:"visible"}}>
+          <div title={"Expected: "+(exp?fmtGoal(exp):"")} style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:14,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
+          <div style={{background:lmC(col),height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:3}}/>
         </div>
-        <span style={{fontSize:10,color:lmC(col),fontWeight:700,filter:lmF}}>{(pacing.pct*100).toFixed(1)}% of monthly goal</span>
+        <span style={{fontSize:10,color:lmC(col),fontWeight:700}}>{(pacing.pct*100).toFixed(1)}% of monthly goal</span>
       </div>}
-      {!pacing&&monthlyGoal&&<div style={{fontSize:10,color:"#3d5a72",fontStyle:"italic",marginBottom:6}}>No {cardMetricLabel} yet</div>}
+      {!pacing&&monthlyGoal&&<div style={{fontSize:10,color:lmTxtD,fontStyle:"italic",marginBottom:6}}>No {cardMetricLabel} yet</div>}
 
       {/* Flight progress bar */}
       {fp!==null&&<div style={{marginBottom:8}}>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#3d5a72",marginBottom:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:lmTxtD,marginBottom:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>
           <span>Flight Progress</span>
           <span>{c.startDate} → {c.endDate}</span>
         </div>
-        <div style={{background:"#07101c",borderRadius:3,height:4}}>
-          <div style={{background:"#334155",height:"100%",width:Math.min(100,fp*100)+"%",borderRadius:3}}/>
+        <div style={{background:lmBarTrk,borderRadius:3,height:4}}>
+          <div style={{background:lightMode?"#cbd5e1":"#334155",height:"100%",width:Math.min(100,fp*100)+"%",borderRadius:3}}/>
         </div>
-        <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>{(fp*100).toFixed(0)}% through flight</div>
+        <div style={{fontSize:10,color:lmTxtD,marginTop:2}}>{(fp*100).toFixed(0)}% through flight</div>
       </div>}
 
       {/* All metric boxes */}
@@ -5001,18 +5024,18 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           {label:"Expected", val:exp?exp.toLocaleString():"—",  color:"#7a9bbf"},
           {label:"Remaining",val:del>0?rem.toLocaleString():"—",color:rem>0?"#f59e0b":"#00d48a"},
           {label:"Need/Day", val:fmtNpd, color:pacing?.label==="Behind"?"#ef4444":"#f97316"},
-        ].map(({label,val,color})=><div key={label} style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:5,padding:"5px 9px",minWidth:60,textAlign:"center"}}>
-          <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
+        ].map(({label,val,color})=><div key={label} style={{background:lmBgTrk,border:"1px solid "+(lightMode?"#e2e8f0":"#1a2744"),borderRadius:5,padding:"5px 9px",minWidth:60,textAlign:"center"}}>
+          <div style={{fontSize:9,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
           <div style={{fontSize:11,fontWeight:700,color}}>{val}</div>
         </div>)}
-        {monthlyGoal&&perfBoxes.length>0&&<div style={{width:1,background:"#1a2744",alignSelf:"stretch",margin:"0 3px"}}/>}
+        {monthlyGoal&&perfBoxes.length>0&&<div style={{width:1,background:lightMode?"#e2e8f0":"#1a2744",alignSelf:"stretch",margin:"0 3px"}}/>}
         {perfBoxes.map(({label,val,color})=>(
-          <div key={label} style={{background:"#07101c",border:"1px solid "+color+"28",borderRadius:5,padding:"5px 9px",minWidth:54,textAlign:"center"}}>
-            <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
+          <div key={label} style={{background:lmBgTrk,border:"1px solid "+color+"28",borderRadius:5,padding:"5px 9px",minWidth:54,textAlign:"center"}}>
+            <div style={{fontSize:9,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
             <div style={{fontSize:11,fontWeight:700,color}}>{val}</div>
           </div>
         ))}
-        {!monthlyGoal&&!perfBoxes.length&&<div style={{fontSize:11,color:"#3d5a72",fontStyle:"italic"}}>No goal or metrics yet</div>}
+        {!monthlyGoal&&!perfBoxes.length&&<div style={{fontSize:11,color:lmTxtD,fontStyle:"italic"}}>No goal or metrics yet</div>}
       </div>
 
       {/* Per-campaign breakdown — shown when sync has breakdown data */}
@@ -5030,21 +5053,21 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         const breakdown = snap?.breakdown;
         if (!breakdown || breakdown.length < 2) return null;
         return (
-          <div style={{marginTop:8,borderTop:"1px solid #1a2744",paddingTop:8}}>
-            <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5}}>
+          <div style={{marginTop:8,borderTop:`1px solid ${lightMode?"#e2e8f0":"#1a2744"}`,paddingTop:8}}>
+            <div style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5}}>
               Campaign Breakdown ({breakdown.length})
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:3}}>
               {breakdown.map(b=>(
-                <div key={b.id} style={{display:"flex",alignItems:"center",gap:6,background:"#07101c",borderRadius:5,padding:"5px 8px"}}>
+                <div key={b.id} style={{display:"flex",alignItems:"center",gap:6,background:lightMode?"#f8fafc":"#07101c",border:lightMode?"1px solid #e2e8f0":"none",borderRadius:5,padding:"5px 8px"}}>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:10,color:"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}
+                    <div style={{fontSize:10,color:lightMode?"#334155":"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}
                       title={b.name}>{b.name}</div>
                   </div>
                   <div style={{display:"flex",gap:8,flexShrink:0}}>
-                    <span style={{fontSize:10,color:"#d8eaf8",fontWeight:600,fontVariantNumeric:"tabular-nums"}}>{parseInt(b.impressions).toLocaleString()}<span style={{color:"#3d5a72",fontWeight:400}}> impr</span></span>
+                    <span style={{fontSize:10,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:600,fontVariantNumeric:"tabular-nums"}}>{parseInt(b.impressions).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}> impr</span></span>
                     {b.spend>0&&<span style={{fontSize:10,color:"#f472b6",fontWeight:600}}>${Math.round(b.spend).toLocaleString()}</span>}
-                    {b.ctr>0&&<span style={{fontSize:10,color:"#00ffb3",fontWeight:600}}>{b.ctr.toFixed(2)}<span style={{color:"#3d5a72",fontWeight:400}}>%</span></span>}
+                    {b.ctr>0&&<span style={{fontSize:10,color:"#00ffb3",fontWeight:600}}>{b.ctr.toFixed(2)}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}>%</span></span>}
                   </div>
                 </div>
               ))}
@@ -5176,66 +5199,66 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       : npd >= 1000 ? (npd/1000).toFixed(0)+"K" : String(npd);
     const npdCol = paceGap === null ? "#3d5a72" : paceGap < 0 ? "#ef4444" : "#f97316";
 
-    return <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 16px",borderBottom:"1px solid #0d1525",alignItems:"center",background:"#0c1625",borderLeft:"3px solid "+col}}>
+    return <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 16px",borderBottom:"1px solid "+lmBrdR,alignItems:"center",background:lmBg,borderLeft:"3px solid "+col}}>
 
       {/* Campaign + partner */}
       <div style={{minWidth:0}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
+        <div style={{fontSize:12,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
         <div style={{display:"flex",alignItems:"center",gap:5,overflow:"hidden"}}>
-          <div style={{fontSize:10,color:"#4d6e8a",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
+          <div style={{fontSize:10,color:lmTxtS,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
           {c.lastChecked===todayStr
-            ? <span style={{fontSize:9,color:"#00d48a",fontWeight:700,background:"#00200f",border:"1px solid #00d48a40",borderRadius:3,padding:"0px 4px",flexShrink:0}}>✓ today</span>
-            : <span style={{fontSize:9,color:"#4d6e8a",fontWeight:400,flexShrink:0}}>{c.lastChecked?(([y,m,d])=>`${m}/${d}/${y}`)(c.lastChecked.split("-")):"—"}</span>
+            ? <span style={{fontSize:9,color:"#00d48a",fontWeight:700,background:lightMode?"#dcfce7":"#00200f",border:"1px solid #00d48a40",borderRadius:3,padding:"0px 4px",flexShrink:0}}>✓ today</span>
+            : <span style={{fontSize:9,color:lmTxtS,fontWeight:400,flexShrink:0}}>{c.lastChecked?(([y,m,d])=>`${m}/${d}/${y}`)(c.lastChecked.split("-")):"—"}</span>
           }
         </div>
       </div>
 
       {/* Platform */}
-      <div><span style={{...vBadge(pCol),borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700,filter:lmF}}>{c.platform}</span></div>
+      <div><span style={{...vBadge(pCol),borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span></div>
 
       {/* Pacing status */}
       <div>
-        {pacing?<span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 5px",filter:lmF}}>{pacing.label}</span>
-        :monthlyGoal?<span style={{fontSize:10,color:"#3d5a72"}}>{metricKind==="views"?"No views":metricKind==="spend"?"No spend":"No impr"}</span>
-        :<span style={{fontSize:10,color:"#334155"}}>No goal</span>}
+        {pacing?<span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 5px"}}>{pacing.label}</span>
+        :monthlyGoal?<span style={{fontSize:10,color:lmTxtD}}>{metricKind==="views"?"No views":metricKind==="spend"?"No spend":"No impr"}</span>
+        :<span style={{fontSize:10,color:lmTxtD}}>No goal</span>}
       </div>
 
       {/* Monthly pacing bar — green/yellow/red fill, electric blue expected tick, exp% below */}
       <div>
         {pacing?<>
-          <div style={{position:"relative",background:"#07101c",borderRadius:4,height:10,overflow:"visible",marginBottom:2}}>
-            <div style={{background:lmC(col),height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:4,filter:lmF}}/>
+          <div style={{position:"relative",background:lmBarTrk,borderRadius:4,height:10,overflow:"visible",marginBottom:2}}>
+            <div style={{background:lmC(col),height:"100%",width:Math.min(100,pacing.pct*100)+"%",borderRadius:4}}/>
             <div title={"Expected: "+(exp?.toLocaleString()??"")}
-              style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:18,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888",filter:lmF}}/>
+              style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:18,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:4}}>
-            <span style={{fontSize:9,color:lmC(col),fontWeight:700,filter:lmF}}>{(pacing.pct*100).toFixed(1)}%</span>
-            {exp&&<span style={{fontSize:8,color:"#38bdf8aa",filter:lmF}}>/{(pacing.expectedPct*100).toFixed(0)}%</span>}
+            <span style={{fontSize:9,color:lmC(col),fontWeight:700}}>{(pacing.pct*100).toFixed(1)}%</span>
+            {exp&&<span style={{fontSize:8,color:"#38bdf8aa"}}>/{(pacing.expectedPct*100).toFixed(0)}%</span>}
           </div>
-        </>:<div style={{fontSize:10,color:"#3d5a72"}}>—</div>}
+        </>:<div style={{fontSize:10,color:lmTxtD}}>—</div>}
       </div>
 
       {/* Monthly Goal */}
       <div>
         {monthlyGoal
-          ? <span style={{fontSize:11,fontWeight:700,color:"#00e5a0",filter:lmF}}>
+          ? <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}}>
               {metricKind==="spend"
                 ? "$"+(monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"k":monthlyGoal.toFixed(0))
                 : monthlyGoal>=1000000?(monthlyGoal/1000000).toFixed(2)+"M":monthlyGoal>=1000?(monthlyGoal/1000).toFixed(0)+"K":String(monthlyGoal)}
             </span>
-          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
+          : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
       {/* Primary delivery metric — Views (YT), Spend (SEM), or Impressions */}
       <div title={metricKind==="views" ? "Views delivered this period (MTD)" : metricKind==="spend" ? "Spend delivered this period (MTD)" : "Impressions delivered this period (MTD)"}>
         {primaryFmt
           ? <div style={{display:"flex",alignItems:"baseline",gap:3}}>
-              <span style={{fontSize:12,fontWeight:800,color:primaryColor,letterSpacing:"-0.01em",filter:lmF}}>{primaryFmt}</span>
-              <span style={{fontSize:9,color:"#3d5a72"}}>{primaryLabel}</span>
+              <span style={{fontSize:12,fontWeight:800,color:primaryColor,letterSpacing:"-0.01em"}}>{primaryFmt}</span>
+              <span style={{fontSize:9,color:lmTxtD}}>{primaryLabel}</span>
             </div>
           : noActivity
             ? <span style={{fontSize:11,fontWeight:700,color:"#ef4444"}}>—</span>
-            : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
+            : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
       {/* Pace gap — delivered vs expected right now */}
@@ -5243,77 +5266,77 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             ? `Expected $${exp?.toLocaleString()} · Delivered $${primaryRaw.toLocaleString(undefined,{maximumFractionDigits:0})}`
             : `Expected ${exp?.toLocaleString()} · Delivered ${primaryRaw.toLocaleString()}`) : ""}>
         {paceGapFmt
-          ? <span style={{fontSize:11,fontWeight:700,color:lmC(paceGapCol),filter:lmF}}>{paceGapFmt}</span>
-          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
+          ? <span style={{fontSize:11,fontWeight:700,color:lmC(paceGapCol)}}>{paceGapFmt}</span>
+          : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
       {/* Need/Day — impr/views/$ required per remaining day to hit goal */}
       <div title={npd !== null ? `${npdFmt} ${metricKind==="spend"?"spend":metricKind==="views"?"views":"impr"}/day needed · ${npdDaysLeft}d left` : ""}>
         {npdFmt
-          ? <span style={{fontSize:11,fontWeight:700,color:npdCol,filter:lmF}}>{npdFmt}</span>
-          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
+          ? <span style={{fontSize:11,fontWeight:700,color:npdCol}}>{npdFmt}</span>
+          : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
       {/* CTR or VCR — color-coded from benchmarks */}
       <div title={kpi?.tip||""}>
         {isVCR && vcrDisp > 0
-          ? <span style={{fontSize:11,fontWeight:700,color:lmC(vcrCol),filter:lmF}}>{vcrDisp.toFixed(0)}% VCR</span>
+          ? <span style={{fontSize:11,fontWeight:700,color:lmC(vcrCol)}}>{vcrDisp.toFixed(0)}% VCR</span>
           : ctrDisp > 0
-            ? <span style={{fontSize:11,fontWeight:700,color:lmC(ctrCol),filter:lmF}}>{ctrFmt} CTR</span>
-            : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
+            ? <span style={{fontSize:11,fontWeight:700,color:lmC(ctrCol)}}>{ctrFmt} CTR</span>
+            : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
       {/* Clicks — actual count */}
       <div title="Total clicks this period (link clicks for Meta)">
         {clicksFmt
           ? <span style={{fontSize:11,fontWeight:700,color:"#a3bffa"}}>{clicksFmt}</span>
-          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
+          : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
       {/* CPM — color-coded from per-platform benchmark */}
       <div title={cpmTip}>
         {cpm > 0
-          ? <span style={{fontSize:11,fontWeight:700,color:lmC(cpmCol),filter:lmF}}>${cpm.toFixed(2)}</span>
-          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
+          ? <span style={{fontSize:11,fontWeight:700,color:lmC(cpmCol)}}>${cpm.toFixed(2)}</span>
+          : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
       {/* Spend */}
       <div>
         {spend > 0
-          ? <span style={{fontSize:11,color:"#7a9bbf"}}>${spend >= 1000 ? (spend/1000).toFixed(1)+"k" : spend.toFixed(0)}</span>
-          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
+          ? <span style={{fontSize:11,color:lmTxtM}}>${spend >= 1000 ? (spend/1000).toFixed(1)+"k" : spend.toFixed(0)}</span>
+          : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
       {/* Reach */}
       <div>
         {reach > 0
-          ? <span style={{fontSize:11,color:"#7a9bbf"}}>{reach >= 1000000 ? (reach/1000000).toFixed(1)+"M" : reach >= 1000 ? (reach/1000).toFixed(0)+"k" : reach}</span>
-          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
+          ? <span style={{fontSize:11,color:lmTxtM}}>{reach >= 1000000 ? (reach/1000000).toFixed(1)+"M" : reach >= 1000 ? (reach/1000).toFixed(0)+"k" : reach}</span>
+          : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
       {/* Frequency — color-coded: ≤2 green, ≤3.5 yellow, >3.5 red */}
       <div title="Frequency: avg times a user saw this ad">
         {freq > 0
-          ? <span style={{fontSize:11,fontWeight:700,color:lmC(freqCol),filter:lmF}}>{freq.toFixed(2)}x</span>
-          : <span style={{fontSize:11,color:"#3d5a72"}}>—</span>}
+          ? <span style={{fontSize:11,fontWeight:700,color:lmC(freqCol)}}>{freq.toFixed(2)}x</span>
+          : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
       {/* Edit + Clear */}
       <div style={{display:"flex",flexDirection:"row",gap:6,alignItems:"center"}}>
-        <button onClick={()=>onEdit(c)} title="Edit campaign" style={{background:"none",border:"none",color:"#7a9bbf",fontSize:14,padding:"2px 3px",cursor:"pointer",lineHeight:1}}>✎</button>
+        <button onClick={()=>onEdit(c)} title="Edit campaign" style={{background:lightMode?"#e2e8f0":"none",border:lightMode?"1px solid #94a3b8":"none",borderRadius:4,color:lightMode?"#334155":"#7a9bbf",fontSize:12,padding:"2px 5px",cursor:"pointer",lineHeight:1}}>✎</button>
         {clearPendingId===c.id
           ? <button onClick={()=>{ onClearMetrics(c.id); setClearPendingId(null); }} title="Confirm clear"
-              style={{background:"none",border:"none",color:"#ef4444",fontSize:15,padding:"2px 3px",cursor:"pointer",fontWeight:700,lineHeight:1}}>✕</button>
+              style={{background:lightMode?"#fee2e2":"none",border:lightMode?"1px solid #fca5a5":"none",borderRadius:4,color:"#ef4444",fontSize:13,padding:"2px 5px",cursor:"pointer",fontWeight:700,lineHeight:1}}>✕</button>
           : <button onClick={()=>setClearPendingId(c.id)} title="Clear metrics"
-              style={{background:"none",border:"none",color:"#3d5a72",fontSize:15,padding:"2px 3px",cursor:"pointer",lineHeight:1}}>✕</button>}
+              style={{background:lightMode?"#f1f5f9":"none",border:lightMode?"1px solid #cbd5e1":"none",borderRadius:4,color:lightMode?"#94a3b8":"#3d5a72",fontSize:13,padding:"2px 5px",cursor:"pointer",lineHeight:1}}>✕</button>}
       </div>
     </div>;
   }
 
   function TableHeader(){
-    return <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"6px 16px",borderBottom:"1px solid #1a2744",marginBottom:2}}>
+    return <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"6px 16px",borderBottom:"1px solid "+(lightMode?"#e2e8f0":"#1a2744"),marginBottom:2}}>
       {["Campaign","Platform","Status","Mo. Pacing","Goal","Impr / Views","Gap","Need/Day","CTR / VCR","Clicks","CPM","Spend","Reach","Freq",""].map((h,i)=>(
-        <div key={i} style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
+        <div key={i} style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
       ))}
     </div>;
   }
@@ -5322,10 +5345,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const [open,setOpen]=useState(defaultOpen); if(!items.length) return null;
     return <div style={{marginBottom:viewMode==="table"?2:18}}>
       <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:open?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
-        <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",filter:lmF,
-          ...(lightMode ? {color:"#0d1117",background:lmC(color),padding:"2px 8px",borderRadius:4} : {color})
+        <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",
+          ...(lightMode ? (()=>{const vc=lmC(color),r=parseInt(vc.slice(1,3),16),g=parseInt(vc.slice(3,5),16),b=parseInt(vc.slice(5,7),16),h2=n=>Math.round(n).toString(16).padStart(2,"0"),darkBg="#"+h2(r*0.12)+h2(g*0.12)+h2(b*0.12);return{color:vc,background:darkBg,padding:"2px 8px",borderRadius:4};})() : {color})
         }}>{label} ({items.length})</span>
-        <span style={{color:"#3d5a72",fontSize:10,display:"inline-block",transform:open?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
+        <span style={{color:lmTxtD,fontSize:10,display:"inline-block",transform:open?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
       </div>
       {open&&viewMode==="table"&&<TableHeader/>}
       {open&&items.map(r=>viewMode==="table"
@@ -5335,16 +5358,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     </div>;
   }
 
-  return <div style={{color:"#d8eaf8",maxWidth:1700,margin:"0 auto"}}>
+  return <div style={{color:lmTxt,maxWidth:1700,margin:"0 auto",background:lightMode?"#ffffff":"transparent",minHeight:lightMode?"100vh":"auto",padding:lightMode?"0 0 24px 0":"0"}}>
     {/* Header */}
     <div style={{marginBottom:14}}>
-      <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:2}}>📈 Pacing Dashboard</div>
-      <div style={{fontSize:11,color:"#4d6e8a"}}>{allActive.length} active · {withGoal.length} with goals{anyFilter?" · filtered":""}</div>
+      <div style={{fontSize:15,fontWeight:800,color:lmTxt,marginBottom:2}}>📈 Pacing Dashboard</div>
+      <div style={{fontSize:11,color:lmTxtS}}>{allActive.length} active · {withGoal.length} with goals{anyFilter?" · filtered":""}</div>
     </div>
 
     {/* Date bar */}
-    <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:9,padding:"10px 14px",marginBottom:10}}>
-      <PacingDateBar range={dateRange} setRange={setDateRange}/>
+    <div style={{background:lmBg,border:"1px solid "+lmBrd,borderRadius:9,padding:"10px 14px",marginBottom:10}}>
+      <PacingDateBar range={dateRange} setRange={setDateRange} lightMode={lightMode}/>
     </div>
 
     {/* Search + filters + sort */}
@@ -5352,58 +5375,58 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <input
         value={search} onChange={e=>setSearch(e.target.value)}
         placeholder="Search campaigns, partners…"
-        style={{background:"#0e1a2e",border:"1px solid "+(search?"#00c896":"#1e293b"),borderRadius:7,padding:"7px 12px",color:"#d8eaf8",fontSize:12,width:220,outline:"none"}}
+        style={{background:lmBgInp,border:"1px solid "+(search?"#00c896":lmBrd),borderRadius:7,padding:"7px 12px",color:lmTxt,fontSize:12,width:220,outline:"none"}}
       />
       <select value={fPartner} onChange={e=>setFPartner(e.target.value)}
-        style={{background:"#0e1a2e",border:"1px solid "+(fPartner!=="all"?"#00c896":"#1e293b"),borderRadius:7,padding:"7px 10px",color:fPartner!=="all"?"#00e5a0":"#7a9bbf",fontSize:12,cursor:"pointer"}}>
+        style={{background:lmBgInp,border:"1px solid "+(fPartner!=="all"?"#00c896":lmBrd),borderRadius:7,padding:"7px 10px",color:fPartner!=="all"?"#00e5a0":lmTxtM,fontSize:12,cursor:"pointer"}}>
         {partners.map(p=><option key={p} value={p}>{p==="all"?"All Partners":p}</option>)}
       </select>
-      <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
-      <div style={{display:"flex",borderRadius:7,overflow:"hidden",border:"1px solid #1e293b",flexShrink:0}}>
+      <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode}/>
+      <div style={{display:"flex",borderRadius:7,overflow:"hidden",border:"1px solid "+lmBrd,flexShrink:0}}>
         <button onClick={()=>setTodayFilter(v=>v==="today"?"all":"today")} title="Show only campaigns updated today"
-          style={{background:todayFilter==="today"?"#001a14":"#0e1a2e",borderRight:"1px solid #1e293b",padding:"5px 10px",color:todayFilter==="today"?"#00d48a":"#4d6e8a",fontSize:11,fontWeight:todayFilter==="today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none",borderRight:"1px solid #1e293b"}}>
+          style={{background:todayFilter==="today"?(lightMode?"#dcfce7":"#001a14"):lmBgInp,padding:"5px 10px",color:todayFilter==="today"?"#00d48a":lmTxtS,fontSize:11,fontWeight:todayFilter==="today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none",borderRight:"1px solid "+lmBrd}}>
           ✓ Updated{updatedTodayCount>0?` (${updatedTodayCount})`:""}
         </button>
         <button onClick={()=>setTodayFilter(v=>v==="not-today"?"all":"not-today")} title="Show only campaigns not updated today"
-          style={{background:todayFilter==="not-today"?"#1a0e00":"#0e1a2e",padding:"5px 10px",color:todayFilter==="not-today"?"#f97316":"#4d6e8a",fontSize:11,fontWeight:todayFilter==="not-today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none"}}>
+          style={{background:todayFilter==="not-today"?(lightMode?"#fff7ed":"#1a0e00"):lmBgInp,padding:"5px 10px",color:todayFilter==="not-today"?"#f97316":lmTxtS,fontSize:11,fontWeight:todayFilter==="not-today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none"}}>
           ✕ Not Updated{notUpdatedCount>0?` (${notUpdatedCount})`:""}
         </button>
       </div>
       <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
-        <span style={{fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
+        <span style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
         {[["pacing","Pacing"],["gap","Gap"],["impr","Impr"],["days","Days"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
           <button key={k} onClick={()=>setSortKey(k)}
-            style={{background:sortKey===k?"#002e24":"#0e1a2e",border:"1px solid "+(sortKey===k?"#00c896":"#1e293b"),borderRadius:6,padding:"4px 10px",color:sortKey===k?"#00e5a0":"#4d6e8a",fontSize:11,fontWeight:sortKey===k?700:400,cursor:"pointer"}}>
+            style={{background:sortKey===k?(lightMode?"#dcfce7":"#002e24"):lmBgInp,border:"1px solid "+(sortKey===k?"#00c896":lmBrd),borderRadius:6,padding:"4px 10px",color:sortKey===k?"#00e5a0":lmTxtS,fontSize:11,fontWeight:sortKey===k?700:400,cursor:"pointer"}}>
             {l}
           </button>
         ))}
       </div>
     </div>
     {anyFilter&&<div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
-      <span style={{fontSize:11,color:"#4d6e8a"}}>Showing {filtered.length} of {allActive.length}</span>
-      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayFilter("all");}} style={{background:"none",border:"1px solid #334155",borderRadius:5,padding:"2px 8px",color:"#7a9bbf",fontSize:11,cursor:"pointer"}}>Clear filters</button>
+      <span style={{fontSize:11,color:lmTxtS}}>Showing {filtered.length} of {allActive.length}</span>
+      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayFilter("all");}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
     </div>}
 
     {/* Benchmark legend — compact, replaces the pill boxes */}
-    <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"center",fontSize:10,color:"#3d5a72",flexWrap:"wrap"}}>
-      <span style={{fontWeight:700,color:"#4d6e8a"}}>{filtered.length} campaigns</span>
-      <span style={{color:"#334155"}}>·</span>
-      <span><span style={{color:"#00d48a",fontWeight:700,filter:lmF}}>●</span> On/Ahead</span>
-      <span><span style={{color:lmC("#fde047"),fontWeight:700,filter:lmF}}>●</span> Behind</span>
-      <span><span style={{color:"#ef4444",fontWeight:700,filter:lmF}}>●</span> Low KPI</span>
-      <span><span style={{color:lmC("#fde047"),fontWeight:700,filter:lmF}}>●</span> Warn KPI</span>
-      {noActivityRows.length>0&&<span style={{color:lmC("#fde047"),fontWeight:700,marginLeft:4,filter:lmF}}>⏸ {noActivityRows.length} flat</span>}
+    <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"center",fontSize:10,color:lmTxtD,flexWrap:"wrap"}}>
+      <span style={{fontWeight:700,color:lmTxtS}}>{filtered.length} campaigns</span>
+      <span style={{color:lmBrd}}>·</span>
+      <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> On/Ahead</span>
+      <span><span style={{color:lmC("#fde047"),fontWeight:700}}>●</span> Behind</span>
+      <span><span style={{color:"#ef4444",fontWeight:700}}>●</span> Low KPI</span>
+      <span><span style={{color:lmC("#fde047"),fontWeight:700}}>●</span> Warn KPI</span>
+      {noActivityRows.length>0&&<span style={{color:lmC("#fde047"),fontWeight:700,marginLeft:4}}>⏸ {noActivityRows.length} flat</span>}
     </div>
     <Section label="Behind"         color="#fde047" items={behind}/>
     <Section label="On Track"       color="#00d48a" items={onTrack}/>
     <Section label="Ahead"          color="#f97316" items={ahead}/>
     {noActivityRows.length>0&&(
       <div style={{marginBottom:viewMode==="table"?4:14}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:"#1a1208",border:"1px solid #fde04740",borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
-          <span style={{fontSize:11,fontWeight:800,color:lmC("#fde047"),textTransform:"uppercase",letterSpacing:"0.07em",filter:lmF}}>⏸ Possibly Stalled ({noActivityRows.length})</span>
-          <span style={{fontSize:10,color:"#7a9bbf",flex:1}}>Delivery hasn't grown since a previous-day check-in. Could be paused, finished, or just a slow day — verify, then dismiss.</span>
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:lightMode?"#fffbeb":"#1a1208",border:"1px solid #fde04740",borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
+          <span style={{fontSize:11,fontWeight:800,color:lmC("#fde047"),textTransform:"uppercase",letterSpacing:"0.07em"}}>⏸ Possibly Stalled ({noActivityRows.length})</span>
+          <span style={{fontSize:10,color:lmTxtM,flex:1}}>Delivery hasn't grown since a previous-day check-in. Could be paused, finished, or just a slow day — verify, then dismiss.</span>
           <button onClick={()=>noActivityRows.forEach(r=>dismissStall(r.c.id))}
-            style={{background:"#1a2a1a",border:"1px solid #fde04760",borderRadius:4,color:lmC("#fde047"),fontSize:10,padding:"2px 10px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap",filter:lmF}}>
+            style={{background:lightMode?"#fef9c3":"#1a2a1a",border:"1px solid #fde04760",borderRadius:4,color:lmC("#fde047"),fontSize:10,padding:"2px 10px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>
             Dismiss All
           </button>
         </div>
@@ -5418,11 +5441,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             ? <div key={r.c.id} style={{position:"relative"}}>
                 <TableRow {...r}/>
                 <div style={{position:"absolute",right:106,top:"50%",transform:"translateY(-50%)",display:"flex",gap:5,alignItems:"center"}}>
-                  <span style={{fontSize:9,color:lmC("#fde047"),fontWeight:700,background:"#1a1208",border:"1px solid #fde04740",borderRadius:3,padding:"1px 5px",whiteSpace:"nowrap",filter:lmF}}>
+                  <span style={{fontSize:9,color:lmC("#fde047"),fontWeight:700,background:lightMode?"#fef9c3":"#1a1208",border:"1px solid #fde04740",borderRadius:3,padding:"1px 5px",whiteSpace:"nowrap"}}>
                     flat @ {stalledAt}
                   </span>
                   <button onClick={(e)=>{e.stopPropagation(); dismissStall(r.c.id);}} title="Dismiss for today"
-                    style={{background:"#162236",border:"1px solid #334155",borderRadius:3,color:"#7a9bbf",fontSize:9,padding:"1px 6px",cursor:"pointer",fontWeight:600}}>
+                    style={{background:lightMode?"#f8fafc":"#162236",border:"1px solid "+(lightMode?"#cbd5e1":"#334155"),borderRadius:3,color:lmTxtM,fontSize:9,padding:"1px 6px",cursor:"pointer",fontWeight:600}}>
                     Dismiss
                   </button>
                 </div>
@@ -5430,11 +5453,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             : <div key={r.c.id} style={{position:"relative"}}>
                 <PacingCard {...r}/>
                 <div style={{position:"absolute",top:10,right:10,display:"flex",gap:5,alignItems:"center"}}>
-                  <span style={{fontSize:10,color:lmC("#fde047"),fontWeight:700,background:"#1a1208",border:"1px solid #fde04740",borderRadius:4,padding:"2px 8px",filter:lmF}}>
+                  <span style={{fontSize:10,color:lmC("#fde047"),fontWeight:700,background:lightMode?"#fef9c3":"#1a1208",border:"1px solid #fde04740",borderRadius:4,padding:"2px 8px"}}>
                     flat @ {stalledAt}
                   </span>
                   <button onClick={(e)=>{e.stopPropagation(); dismissStall(r.c.id);}} title="Dismiss for today"
-                    style={{background:"#162236",border:"1px solid #334155",borderRadius:4,color:"#7a9bbf",fontSize:10,padding:"2px 8px",cursor:"pointer",fontWeight:600}}>
+                    style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:4,color:lightMode?"#475569":"#7a9bbf",fontSize:10,padding:"2px 8px",cursor:"pointer",fontWeight:600}}>
                     Dismiss
                   </button>
                 </div>
@@ -5445,8 +5468,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     <Section label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>
     {noGoalRows.length>0&&<div style={{marginTop:4}}>
       <div onClick={()=>setShowNoGoal(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:showNoGoal?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
-        <span style={{fontSize:11,color:"#334155",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>No Goal Set ({noGoalRows.length})</span>
-        <span style={{color:"#3d5a72",fontSize:10,display:"inline-block",transform:showNoGoal?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
+        <span style={{fontSize:11,color:lmTxtD,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>No Goal Set ({noGoalRows.length})</span>
+        <span style={{color:lmTxtD,fontSize:10,display:"inline-block",transform:showNoGoal?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
       </div>
       {showNoGoal&&viewMode==="table"&&<TableHeader/>}
       {showNoGoal&&noGoalRows.map(r=>viewMode==="table"
@@ -5781,32 +5804,32 @@ function ReportDataPanel({ selectedCamps, iS, accent, onApplyData, embedded=fals
   const csvPreview = csvParsed ? csvToPreview(csvParsed, activeType) : null;
 
   if(!open && !embedded) return (
-    <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"12px 14px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+    <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:12,padding:"12px 14px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
       <div>
-        <div style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>⑥ Audience & Creative Data</div>
-        <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>Add age, gender, device, geo, creative breakdown to the report</div>
+        <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>⑥ Audience & Creative Data</div>
+        <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>Add age, gender, device, geo, creative breakdown to the report</div>
       </div>
       <button onClick={()=>setOpen(true)}
-        style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"6px 14px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+        style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:6,padding:"6px 14px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
         + Add Data
       </button>
     </div>
   );
 
   return (
-    <div style={embedded?{}:{background:"#0c1625",border:`1px solid ${accent}40`,borderRadius:12,padding:"14px",marginBottom:12}}>
+    <div style={embedded?{}:{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?(accent+"80"):(accent+"40")}`,borderRadius:12,padding:"14px",marginBottom:12}}>
       {/* Header — hidden when embedded */}
       {!embedded&&(
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>⑥ Audience & Creative Data</div>
+          <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>⑥ Audience & Creative Data</div>
           <button onClick={()=>{setOpen(false);setCsvParsed(null);setCsvError("");}}
-            style={{background:"none",border:"none",color:"#4d6e8a",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>×</button>
+            style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>×</button>
         </div>
       )}
 
       {/* Campaign selector */}
       <div style={{marginBottom:10}}>
-        <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Apply to Campaign</label>
+        <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Apply to Campaign</label>
         <select value={targetCampId} onChange={e=>setTargetCampId(e.target.value)} style={{...iS,width:"100%",fontSize:11}}>
           {selectedCamps.map(c=>(<option key={c.id} value={c.id}>{c.campaignName.trim()} ({c.platform})</option>))}
         </select>
@@ -5816,7 +5839,7 @@ function ReportDataPanel({ selectedCamps, iS, accent, onApplyData, embedded=fals
       <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
         {DATA_TYPES.map(dt=>(
           <button key={dt.key} onClick={()=>setActiveType(dt.key)}
-            style={{background:activeType===dt.key?"#07101c":"#0e1a2e",border:`1px solid ${activeType===dt.key?accent+"60":"#1e293b"}`,borderRadius:6,padding:"5px 10px",color:activeType===dt.key?"#edf4ff":"#4d6e8a",fontSize:11,fontWeight:activeType===dt.key?700:400,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+            style={{background:activeType===dt.key?(_lm?"#ffffff":"#07101c"):(_lm?"#f8fafc":"#0e1a2e"),border:`1px solid ${activeType===dt.key?(_lm?(accent+"80"):(accent+"60")):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:6,padding:"5px 10px",color:activeType===dt.key?(_lm?"#0f172a":"#edf4ff"):(_lm?"#64748b":"#4d6e8a"),fontSize:11,fontWeight:activeType===dt.key?700:400,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
             <span>{dt.icon}</span><span>{dt.label}</span>
           </button>
         ))}
@@ -5826,7 +5849,7 @@ function ReportDataPanel({ selectedCamps, iS, accent, onApplyData, embedded=fals
       <div style={{display:"flex",gap:4,marginBottom:12}}>
         {[{k:"manual",l:"✏️ Manual Entry"},{k:"csv",l:"📊 CSV Import"}].map(m=>(
           <button key={m.k} onClick={()=>{setMode(m.k);setCsvParsed(null);setCsvError("");}}
-            style={{flex:1,background:mode===m.k?"#07101c":"#0e1a2e",border:`1px solid ${mode===m.k?"#334155":"#1e293b"}`,borderRadius:6,padding:"6px",color:mode===m.k?"#edf4ff":"#4d6e8a",fontSize:11,fontWeight:mode===m.k?600:400,cursor:"pointer"}}>
+            style={{flex:1,background:mode===m.k?(_lm?"#ffffff":"#07101c"):(_lm?"#f8fafc":"#0e1a2e"),border:`1px solid ${mode===m.k?(_lm?"#e2e8f0":"#334155"):(_lm?"#f1f5f9":"#1e293b")}`,borderRadius:6,padding:"6px",color:mode===m.k?(_lm?"#0f172a":"#edf4ff"):(_lm?"#64748b":"#4d6e8a"),fontSize:11,fontWeight:mode===m.k?600:400,cursor:"pointer"}}>
             {m.l}
           </button>
         ))}
@@ -5839,7 +5862,7 @@ function ReportDataPanel({ selectedCamps, iS, accent, onApplyData, embedded=fals
             <div>
               <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 24px",gap:4,marginBottom:4}}>
                 {["Ad Name","Impressions","Clicks","CTR %",""].map((h,i)=>(
-                  <div key={i} style={{fontSize:9,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",padding:"0 2px"}}>{h}</div>
+                  <div key={i} style={{fontSize:9,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",padding:"0 2px"}}>{h}</div>
                 ))}
               </div>
               {cRows.map((row,i)=>(
@@ -5857,13 +5880,13 @@ function ReportDataPanel({ selectedCamps, iS, accent, onApplyData, embedded=fals
                 </div>
               ))}
               <button onClick={()=>setCRows(rs=>[...rs,emptyCreativeRow()])}
-                style={{background:"#0e1a2e",border:"1px dashed #334155",borderRadius:5,padding:"5px 12px",color:"#4d6e8a",fontSize:10,cursor:"pointer",width:"100%",marginTop:2}}>+ Add Row</button>
+                style={{background:_lm?"#f8fafc":"#0e1a2e",border:`1px dashed ${_lm?"#cbd5e1":"#334155"}`,borderRadius:5,padding:"5px 12px",color:_lm?"#64748b":"#4d6e8a",fontSize:10,cursor:"pointer",width:"100%",marginTop:2}}>+ Add Row</button>
             </div>
           ) : (
             <div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 80px 24px",gap:4,marginBottom:4}}>
                 {[`${DATA_TYPES.find(d=>d.key===activeType)?.hint||"Label"}`,"%",""].map((h,i)=>(
-                  <div key={i} style={{fontSize:9,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",padding:"0 2px"}}>{h}</div>
+                  <div key={i} style={{fontSize:9,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",padding:"0 2px"}}>{h}</div>
                 ))}
               </div>
               {bRows.map((row,i)=>(
@@ -5877,7 +5900,7 @@ function ReportDataPanel({ selectedCamps, iS, accent, onApplyData, embedded=fals
                 </div>
               ))}
               <button onClick={()=>setBRows(rs=>[...rs,emptyBreakdownRow()])}
-                style={{background:"#0e1a2e",border:"1px dashed #334155",borderRadius:5,padding:"5px 12px",color:"#4d6e8a",fontSize:10,cursor:"pointer",width:"100%",marginTop:2}}>+ Add Row</button>
+                style={{background:_lm?"#f8fafc":"#0e1a2e",border:`1px dashed ${_lm?"#cbd5e1":"#334155"}`,borderRadius:5,padding:"5px 12px",color:_lm?"#64748b":"#4d6e8a",fontSize:10,cursor:"pointer",width:"100%",marginTop:2}}>+ Add Row</button>
               {bRows.some(r=>r.pct)&&(
                 <div style={{fontSize:9,color:parseInt(bRows.reduce((s,r)=>s+(parseInt(r.pct)||0),0))===100?"#00e5a0":"#f59e0b",marginTop:4,textAlign:"right"}}>
                   Total: {bRows.reduce((s,r)=>s+(parseInt(r.pct)||0),0)}% {bRows.reduce((s,r)=>s+(parseInt(r.pct)||0),0)===100?"✓":"(should add to 100%)"}
@@ -5893,13 +5916,13 @@ function ReportDataPanel({ selectedCamps, iS, accent, onApplyData, embedded=fals
         <div>
           {!csvParsed ? (
             <label
-              onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor="#00e5a0";}}
-              onDragLeave={e=>{e.currentTarget.style.borderColor="#334155";}}
-              onDrop={e=>{e.preventDefault();e.currentTarget.style.borderColor="#334155";handleCSVFile(e.dataTransfer.files[0]);}}
-              style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,background:"#07101c",border:"1.5px dashed #334155",borderRadius:8,padding:"16px",cursor:"pointer",textAlign:"center",transition:"border-color .15s"}}>
+              onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor=_lm?"#00c896":"#00e5a0";}}
+              onDragLeave={e=>{e.currentTarget.style.borderColor=_lm?"#cbd5e1":"#334155";}}
+              onDrop={e=>{e.preventDefault();e.currentTarget.style.borderColor=_lm?"#cbd5e1":"#334155";handleCSVFile(e.dataTransfer.files[0]);}}
+              style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,background:_lm?"#f8fafc":"#07101c",border:`1.5px dashed ${_lm?"#cbd5e1":"#334155"}`,borderRadius:8,padding:"16px",cursor:"pointer",textAlign:"center",transition:"border-color .15s"}}>
               <span style={{fontSize:22}}>📊</span>
-              <span style={{fontSize:11,color:"#4d6e8a",fontWeight:600}}>Drop CSV or click to browse</span>
-              <span style={{fontSize:10,color:"#3d5a72",lineHeight:1.5}}>
+              <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",fontWeight:600}}>Drop CSV or click to browse</span>
+              <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",lineHeight:1.5}}>
                 {activeType==="age"&&"FB: Ads Manager → Reports → Age/Gender Breakdown → Export"}
                 {activeType==="gender"&&"FB: Ads Manager → Reports → Age/Gender Breakdown → Export"}
                 {activeType==="device"&&"FB/TTD: Device or Placement breakdown export"}
@@ -5910,41 +5933,41 @@ function ReportDataPanel({ selectedCamps, iS, accent, onApplyData, embedded=fals
             </label>
           ) : (
             <div>
-              <div style={{fontSize:10,color:"#00e5a0",fontWeight:600,marginBottom:6}}>
-                ✓ {csvParsed.length} rows · Auto-detected: <strong style={{color:"#edf4ff"}}>{csvDetected}</strong>
+              <div style={{fontSize:10,color:_lm?"#059669":"#00e5a0",fontWeight:600,marginBottom:6}}>
+                ✓ {csvParsed.length} rows · Auto-detected: <strong style={{color:_lm?"#0f172a":"#edf4ff"}}>{csvDetected}</strong>
                 {csvDetected!==activeType&&<span style={{color:"#f59e0b",marginLeft:6}}>⚠ Selected type is {activeType}</span>}
               </div>
               {csvPreview?.length ? (
-                <div style={{background:"#07101c",borderRadius:6,padding:"8px 10px",marginBottom:8,maxHeight:160,overflowY:"auto"}}>
+                <div style={{background:_lm?"#f8fafc":"#07101c",borderRadius:6,padding:"8px 10px",marginBottom:8,maxHeight:160,overflowY:"auto"}}>
                   {isCreatives ? csvPreview.map((r,i)=>(
                     <div key={i} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr",gap:4,marginBottom:3,fontSize:10}}>
-                      <span style={{color:"#a8c4e0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</span>
-                      <span style={{color:"#edf4ff",textAlign:"right"}}>{fmtN(r.impressions)}</span>
-                      <span style={{color:"#edf4ff",textAlign:"right"}}>{fmtN(r.clicks)}</span>
-                      <span style={{color:"#edf4ff",textAlign:"right"}}>{r.ctr?.toFixed?.(2)||r.ctr}%</span>
+                      <span style={{color:_lm?"#334155":"#a8c4e0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</span>
+                      <span style={{color:_lm?"#0f172a":"#edf4ff",textAlign:"right"}}>{fmtN(r.impressions)}</span>
+                      <span style={{color:_lm?"#0f172a":"#edf4ff",textAlign:"right"}}>{fmtN(r.clicks)}</span>
+                      <span style={{color:_lm?"#0f172a":"#edf4ff",textAlign:"right"}}>{r.ctr?.toFixed?.(2)||r.ctr}%</span>
                     </div>
                   )) : csvPreview.map((d,i)=>(
                     <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                      <span style={{fontSize:10,color:"#7a9bbf",minWidth:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.label}</span>
-                      <div style={{flex:1,background:"#0e1a2e",borderRadius:3,height:10,overflow:"hidden"}}>
+                      <span style={{fontSize:10,color:_lm?"#475569":"#7a9bbf",minWidth:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.label}</span>
+                      <div style={{flex:1,background:_lm?"#e2e8f0":"#0e1a2e",borderRadius:3,height:10,overflow:"hidden"}}>
                         <div style={{background:accent,height:"100%",width:`${d.pct}%`,borderRadius:3}}/>
                       </div>
-                      <span style={{fontSize:10,color:"#edf4ff",fontWeight:600,minWidth:28,textAlign:"right"}}>{d.pct}%</span>
+                      <span style={{fontSize:10,color:_lm?"#0f172a":"#edf4ff",fontWeight:600,minWidth:28,textAlign:"right"}}>{d.pct}%</span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div style={{fontSize:10,color:"#f59e0b",marginBottom:8,padding:"6px 8px",background:"#1a1000",borderRadius:5}}>
+                <div style={{fontSize:10,color:"#f59e0b",marginBottom:8,padding:"6px 8px",background:_lm?"#fffbeb":"#1a1000",borderRadius:5}}>
                   Couldn't map columns — try switching Data Type tab above
                 </div>
               )}
               <button onClick={()=>{setCsvParsed(null);setCsvError("");}}
-                style={{background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"5px 10px",color:"#4d6e8a",fontSize:10,cursor:"pointer",marginBottom:8}}>
+                style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"5px 10px",color:_lm?"#475569":"#4d6e8a",fontSize:10,cursor:"pointer",marginBottom:8}}>
                 ↺ Upload different file
               </button>
             </div>
           )}
-          {csvError&&<div style={{fontSize:10,color:"#ef4444",marginTop:4,padding:"5px 8px",background:"#1a0808",borderRadius:5}}>{csvError}</div>}
+          {csvError&&<div style={{fontSize:10,color:"#ef4444",marginTop:4,padding:"5px 8px",background:_lm?"#fee2e2":"#1a0808",borderRadius:5}}>{csvError}</div>}
         </div>
       )}
 
@@ -6163,7 +6186,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
 
   // ── Style constants & helpers ────────────────────────────────────────────────
-  const iS = {background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"};
+  const iS = {background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"};
 
   // ── Brand color palette — header IS the exact chosen color ──────────────────
   const accent      = brandColor;                   // exact brand color — header bg, KPI numbers
@@ -6360,7 +6383,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{color:"#d8eaf8"}}>
+    <div style={{color:_lm?"#0f172a":"#d8eaf8"}}>
       {/* Hidden img for color extraction from uploaded logo only */}
       {logoDataUrl&&(
         <img ref={logoRef} src={logoDataUrl} onLoad={handleLogoImgLoad}
@@ -6384,10 +6407,10 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
               {key:"data",      label:"📊 Data"},
             ];
             return (
-              <div style={{display:"flex",background:"#07101c",borderRadius:"12px 12px 0 0",border:"1px solid #1e293b",borderBottom:"none",overflow:"hidden"}}>
+              <div style={{display:"flex",background:_lm?"#f1f5f9":"#07101c",borderRadius:"12px 12px 0 0",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderBottom:"none",overflow:"hidden"}}>
                 {tabs.map(t=>(
                   <button key={t.key} onClick={()=>setLeftTab(t.key)}
-                    style={{flex:1,background:leftTab===t.key?"#0c1625":"transparent",border:"none",borderBottom:leftTab===t.key?"2px solid "+accent:"2px solid transparent",padding:"9px 4px",color:leftTab===t.key?"#edf4ff":"#4d6e8a",fontSize:10,fontWeight:leftTab===t.key?700:400,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap"}}>
+                    style={{flex:1,background:leftTab===t.key?(_lm?"#ffffff":"#0c1625"):"transparent",border:"none",borderBottom:leftTab===t.key?"2px solid "+accent:"2px solid transparent",padding:"9px 4px",color:leftTab===t.key?(_lm?"#0f172a":"#edf4ff"):(_lm?"#64748b":"#4d6e8a"),fontSize:10,fontWeight:leftTab===t.key?700:400,cursor:"pointer",transition:"all .15s",whiteSpace:"nowrap"}}>
                     {t.label}
                   </button>
                 ))}
@@ -6395,7 +6418,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
             );
           })()}
 
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderTop:"none",borderRadius:"0 0 12px 12px",padding:"14px",display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderTop:"none",borderRadius:"0 0 12px 12px",padding:"14px",display:"flex",flexDirection:"column",gap:10}}>
 
             {/* ════ CAMPAIGNS TAB ════ */}
             {leftTab==="campaigns"&&(<>
@@ -6406,11 +6429,11 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                   <option value="all">All Partners</option>
                   {partners.map(p=><option key={p} value={p}>{p}</option>)}
                 </select>
-                <button onClick={()=>setGroupBy(v=>!v)} style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 9px",color:"#4d6e8a",fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}}>{groupBy?"Grouped":"Flat"}</button>
+                <button onClick={()=>setGroupBy(v=>!v)} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#475569":"#4d6e8a",fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}}>{groupBy?"Grouped":"Flat"}</button>
               </div>
               <div style={{display:"flex",gap:5}}>
-                <button onClick={()=>setSelectedIds(new Set(filteredCamps.map(c=>c.id)))} style={{flex:1,background:"#002e24",border:"1px solid #00c89640",borderRadius:5,padding:"5px",color:"#00e5a0",fontSize:10,fontWeight:600,cursor:"pointer"}}>+ All</button>
-                <button onClick={()=>setSelectedIds(new Set())} style={{flex:1,background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px",color:"#4d6e8a",fontSize:10,cursor:"pointer"}}>Clear</button>
+                <button onClick={()=>setSelectedIds(new Set(filteredCamps.map(c=>c.id)))} style={{flex:1,background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:5,padding:"5px",color:_lm?"#059669":"#00e5a0",fontSize:10,fontWeight:600,cursor:"pointer"}}>+ All</button>
+                <button onClick={()=>setSelectedIds(new Set())} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px",color:_lm?"#475569":"#4d6e8a",fontSize:10,cursor:"pointer"}}>Clear</button>
               </div>
 
               {/* Campaign list */}
@@ -6418,25 +6441,25 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                 {Object.entries(grouped).map(([partner,camps])=>(
                   <div key={partner}>
                     {groupBy&&(
-                      <div onClick={()=>selectAllPartner(partner)} style={{background:"#060d18",padding:"4px 10px",display:"flex",alignItems:"center",gap:7,borderBottom:"1px solid #1a2744",cursor:"pointer",margin:"0 -14px"}}>
-                        <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${camps.every(c=>selectedIds.has(c.id))?"#00c896":"#334155"}`,background:camps.every(c=>selectedIds.has(c.id))?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      <div onClick={()=>selectAllPartner(partner)} style={{background:_lm?"#f8fafc":"#060d18",padding:"4px 10px",display:"flex",alignItems:"center",gap:7,borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,cursor:"pointer",margin:"0 -14px"}}>
+                        <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${camps.every(c=>selectedIds.has(c.id))?"#00c896":(_lm?"#cbd5e1":"#334155")}`,background:camps.every(c=>selectedIds.has(c.id))?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                           {camps.every(c=>selectedIds.has(c.id))&&<span style={{color:"#000",fontSize:8,fontWeight:900}}>✓</span>}
                         </div>
-                        <span style={{fontSize:10,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".04em",flex:1}}>{partner}</span>
-                        <span style={{fontSize:9,color:"#3d5a72"}}>{camps.length}</span>
+                        <span style={{fontSize:10,fontWeight:700,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:".04em",flex:1}}>{partner}</span>
+                        <span style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72"}}>{camps.length}</span>
                       </div>
                     )}
                     {camps.map(c=>{
                       const sel=selectedIds.has(c.id); const pc=platCol(c.platform);
                       return (
                         <div key={c.id} onClick={()=>toggleCamp(c.id)}
-                          style={{padding:`6px 10px 6px ${groupBy?"22px":"10px"}`,borderBottom:"1px solid #0a1018",cursor:"pointer",background:sel?"#001810":"transparent",display:"flex",alignItems:"center",gap:7,margin:"0 -14px"}}>
-                          <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${sel?"#00c896":"#334155"}`,background:sel?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                          style={{padding:`6px 10px 6px ${groupBy?"22px":"10px"}`,borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`,cursor:"pointer",background:sel?(_lm?"#f0fdf9":"#001810"):"transparent",display:"flex",alignItems:"center",gap:7,margin:"0 -14px"}}>
+                          <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${sel?"#00c896":(_lm?"#cbd5e1":"#334155")}`,background:sel?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                             {sel&&<span style={{color:"#000",fontSize:8,fontWeight:900}}>✓</span>}
                           </div>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:11,color:sel?"#edf4ff":"#7a9bbf",fontWeight:sel?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
-                            {!groupBy&&<div style={{fontSize:9,color:"#3d5a72"}}>{c.mediaPartner}</div>}
+                            <div style={{fontSize:11,color:sel?(_lm?"#0f172a":"#edf4ff"):(_lm?"#475569":"#7a9bbf"),fontWeight:sel?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
+                            {!groupBy&&<div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72"}}>{c.mediaPartner}</div>}
                           </div>
                           <span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"50",borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
                         </div>
@@ -6445,7 +6468,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                   </div>
                 ))}
               </div>
-              <div style={{fontSize:10,color:selectedIds.size>0?"#00e5a0":"#3d5a72",fontWeight:selectedIds.size>0?700:400,textAlign:"center",padding:"4px 0",borderTop:"1px solid #1a2744",marginTop:2}}>
+              <div style={{fontSize:10,color:selectedIds.size>0?(_lm?"#059669":"#00e5a0"):(_lm?"#94a3b8":"#3d5a72"),fontWeight:selectedIds.size>0?700:400,textAlign:"center",padding:"4px 0",borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,marginTop:2}}>
                 {selectedIds.size>0?`✓ ${selectedIds.size} tactic${selectedIds.size!==1?"s":""} selected`:"Nothing selected"}
               </div>
             </>)}
@@ -6453,27 +6476,27 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
             {/* ════ CONFIG TAB ════ */}
             {leftTab==="config"&&(<>
               <div>
-                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Client Name</label>
+                <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Client Name</label>
                 <input value={clientName} onChange={e=>setClientName(e.target.value)} placeholder={autoClientName}
                   style={{...iS,width:"100%"}}/>
-                <div style={{fontSize:9,color:"#3d5a72",marginTop:2}}>What the client sees — not the partner code</div>
+                <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>What the client sees — not the partner code</div>
               </div>
               <div>
-                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Report Title</label>
+                <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Report Title</label>
                 <input value={reportTitle} onChange={e=>setReportTitle(e.target.value)} placeholder={displayClient+" — Performance Report"}
                   style={{...iS,width:"100%"}}/>
               </div>
               <div>
-                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Prepared By</label>
+                <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Prepared By</label>
                 <input value={preparedBy} onChange={e=>setPreparedBy(e.target.value)} placeholder="Recrue Media"
                   style={{...iS,width:"100%"}}/>
               </div>
               <div>
-                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:4}}>Date Range</label>
+                <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:4}}>Date Range</label>
                 <div style={{display:"flex",gap:4,marginBottom:6}}>
                   {[{key:"monthly",label:"Monthly"},{key:"custom",label:"Custom"},{key:"lifetime",label:"Lifetime"}].map(rt=>(
                     <button key={rt.key} onClick={()=>setReportType(rt.key)}
-                      style={{flex:1,background:reportType===rt.key?"#002e24":"#162236",border:`1px solid ${reportType===rt.key?"#00c89650":"#1e293b"}`,borderRadius:5,padding:"5px 0",color:reportType===rt.key?"#00e5a0":"#4d6e8a",fontSize:10,fontWeight:reportType===rt.key?700:400,cursor:"pointer"}}>
+                      style={{flex:1,background:reportType===rt.key?(_lm?"#f0fdf9":"#002e24"):(_lm?"#f1f5f9":"#162236"),border:`1px solid ${reportType===rt.key?(_lm?"#00c896":"#00c89650"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:5,padding:"5px 0",color:reportType===rt.key?(_lm?"#059669":"#00e5a0"):(_lm?"#475569":"#4d6e8a"),fontSize:10,fontWeight:reportType===rt.key?700:400,cursor:"pointer"}}>
                       {rt.label}
                     </button>
                   ))}
@@ -6482,11 +6505,11 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                 {reportType==="custom"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}><DatePicker value={customStart} onChange={setCustomStart}/><DatePicker value={customEnd} onChange={setCustomEnd}/></div>}
               </div>
               <div>
-                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:5}}>Sections</label>
+                <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:5}}>Sections</label>
                 <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                   {[{k:"kpis",l:"KPIs"},{k:"impChart",l:"Impr."},{k:"ctrChart",l:"CTR"},{k:"table",l:"Table"},{k:"budget",l:"Budget"},{k:"creatives",l:"Creatives"},{k:"demographics",l:"Demo"},{k:"devices",l:"Devices"},{k:"geo",l:"Geo"}].map(({k,l})=>(
                     <button key={k} onClick={()=>setSections(p=>({...p,[k]:!p[k]}))}
-                      style={{background:sections[k]?"#002e24":"#0e1a2e",border:`1px solid ${sections[k]?"#00c89650":"#1e293b"}`,borderRadius:4,padding:"3px 8px",color:sections[k]?"#00e5a0":"#3d5a72",fontSize:10,fontWeight:sections[k]?700:400,cursor:"pointer"}}>
+                      style={{background:sections[k]?(_lm?"#f0fdf9":"#002e24"):(_lm?"#f8fafc":"#0e1a2e"),border:`1px solid ${sections[k]?(_lm?"#00c896":"#00c89650"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:4,padding:"3px 8px",color:sections[k]?(_lm?"#059669":"#00e5a0"):(_lm?"#94a3b8":"#3d5a72"),fontSize:10,fontWeight:sections[k]?700:400,cursor:"pointer"}}>
                       {l}
                     </button>
                   ))}
@@ -6498,19 +6521,19 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
             {leftTab==="branding"&&(<>
               {/* Logo upload */}
               <div>
-                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:5}}>Client Logo</label>
+                <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:5}}>Client Logo</label>
                 <label
                   onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor=accent;}}
-                  onDragLeave={e=>{e.currentTarget.style.borderColor="#334155";}}
+                  onDragLeave={e=>{e.currentTarget.style.borderColor=_lm?"#cbd5e1":"#334155";}}
                   onDrop={e=>{
-                    e.preventDefault(); e.currentTarget.style.borderColor="#334155";
+                    e.preventDefault(); e.currentTarget.style.borderColor=_lm?"#cbd5e1":"#334155";
                     const file=e.dataTransfer.files[0]; if(!file||!file.type.startsWith("image/")) return;
                     const r=new FileReader(); r.onload=ev=>{setLogoDataUrl(ev.target.result);setColorOverride(false);setLogoKey(k=>k+1);}; r.readAsDataURL(file);
                   }}
-                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:logoDataUrl?"#001810":"#0e1a2e",border:`2px dashed ${logoDataUrl?"#00c896":"#334155"}`,borderRadius:8,padding:"10px",cursor:"pointer",transition:"border-color .15s",minHeight:56}}>
+                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:logoDataUrl?(_lm?"#f0fdf9":"#001810"):(_lm?"#f8fafc":"#0e1a2e"),border:`2px dashed ${logoDataUrl?"#00c896":(_lm?"#cbd5e1":"#334155")}`,borderRadius:8,padding:"10px",cursor:"pointer",transition:"border-color .15s",minHeight:56}}>
                   {logoDataUrl
-                    ? <><img src={logoDataUrl} alt="logo" style={{height:36,maxWidth:120,objectFit:"contain",background:"white",padding:4,borderRadius:4}}/><span style={{fontSize:9,color:"#00e5a0"}}>✓ Click/drag to replace</span></>
-                    : <><span style={{fontSize:18}}>📎</span><span style={{fontSize:11,color:"#4d6e8a"}}>Drag logo or click to browse</span></>
+                    ? <><img src={logoDataUrl} alt="logo" style={{height:36,maxWidth:120,objectFit:"contain",background:"white",padding:4,borderRadius:4}}/><span style={{fontSize:9,color:_lm?"#059669":"#00e5a0"}}>✓ Click/drag to replace</span></>
+                    : <><span style={{fontSize:18}}>📎</span><span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a"}}>Drag logo or click to browse</span></>
                   }
                   <input type="file" accept="image/*" onChange={handleManualLogoUpload} style={{display:"none"}}/>
                 </label>
@@ -6519,7 +6542,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
               {/* Website */}
               <div>
-                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Client Website</label>
+                <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Client Website</label>
                 <input value={websiteInput} onChange={e=>{setWebsiteInput(e.target.value);setLogoError("");setLogoLoaded(false);setColorOverride(false);setColorFetched(false);setLogoKey(k=>k+1);}}
                   placeholder="https://fairmontstate.edu"
                   style={{...iS,width:"100%",fontFamily:"monospace",fontSize:11}}/>
@@ -6527,9 +6550,9 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                   try {
                     const domain=new URL(websiteInput.startsWith("http")?websiteInput:"https://"+websiteInput).hostname.replace(/^www\./,"");
                     const favUrl=`https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
-                    return <div style={{display:"flex",alignItems:"center",gap:8,marginTop:5,padding:"5px 8px",background:"#07101c",borderRadius:6,border:"1px solid #1a2744"}}>
+                    return <div style={{display:"flex",alignItems:"center",gap:8,marginTop:5,padding:"5px 8px",background:_lm?"#f0fdf9":"#07101c",borderRadius:6,border:`1px solid ${_lm?"#00c896":"#1a2744"}`}}>
                       <img src={favUrl} alt="" onLoad={()=>setLogoLoaded(true)} style={{width:20,height:20,background:"white",padding:2,borderRadius:3,objectFit:"contain"}}/>
-                      <span style={{fontSize:10,color:"#00e5a0",flex:1}}>✓ {domain}</span>
+                      <span style={{fontSize:10,color:_lm?"#059669":"#00e5a0",flex:1}}>✓ {domain}</span>
                       {fetchingColor?<span style={{fontSize:9,color:"#60a5fa"}}>fetching color…</span>
                         :colorFetched?<span style={{fontSize:9,color:"#00e5a0"}}>color ✓</span>
                         :<span style={{fontSize:9,color:"#f59e0b"}}>no theme-color found</span>}
@@ -6540,17 +6563,17 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
               {/* Brand color */}
               <div>
-                <label style={{display:"block",fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:6}}>Brand Color</label>
+                <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:6}}>Brand Color</label>
                 <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
                   <input type="color" value={brandColor} onChange={e=>{setBrandColor(e.target.value);setColorOverride(true);}}
-                    style={{width:38,height:34,borderRadius:5,border:"1px solid #334155",cursor:"pointer",padding:0,flexShrink:0}}/>
+                    style={{width:38,height:34,borderRadius:5,border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,cursor:"pointer",padding:0,flexShrink:0}}/>
                   <input value={brandColor} onChange={e=>{if(/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)){setBrandColor(e.target.value);setColorOverride(true);}}}
                     style={{...iS,width:84,fontFamily:"monospace",fontSize:12,padding:"5px 8px"}}/>
                   {typeof EyeDropper!=="undefined"&&(
                     <button onClick={async()=>{try{const ed=new EyeDropper();const r=await ed.open();setBrandColor(r.sRGBHex);setColorOverride(true);}catch(e){}}}
-                      title="Pick from screen" style={{flex:1,background:"#0e1a2e",border:"1px solid #334155",borderRadius:5,padding:"6px",color:"#60a5fa",fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}}>🖱️ Pick</button>
+                      title="Pick from screen" style={{flex:1,background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px",color:"#60a5fa",fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}}>🖱️ Pick</button>
                   )}
-                  <label title="Drop image to extract color" style={{flex:1,background:"#0e1a2e",border:"1px dashed #334155",borderRadius:5,padding:"6px",color:"#a855f7",fontSize:10,cursor:"pointer",textAlign:"center",whiteSpace:"nowrap"}}>
+                  <label title="Drop image to extract color" style={{flex:1,background:_lm?"#f1f5f9":"#0e1a2e",border:`1px dashed ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px",color:"#a855f7",fontSize:10,cursor:"pointer",textAlign:"center",whiteSpace:"nowrap"}}>
                     🎨 Drop
                     <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
                       const f=e.target.files[0]; if(!f) return;
@@ -6597,7 +6620,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                   embedded={true}
                 />
               ) : (
-                <div style={{textAlign:"center",padding:"20px 0",color:"#3d5a72",fontSize:11}}>
+                <div style={{textAlign:"center",padding:"20px 0",color:_lm?"#94a3b8":"#3d5a72",fontSize:11}}>
                   Select campaigns first to add data
                 </div>
               )
@@ -6608,17 +6631,17 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
           {/* Export + Vault buttons */}
           <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:6}}>
             <button onClick={exportPDF} disabled={selectedIds.size===0}
-              style={{background:selectedIds.size>0?`linear-gradient(135deg,${darken(accent,.5)},${darken(accent,.25)})`:"#0c1625",
-                border:`1px solid ${selectedIds.size>0?accent+"60":"#1e293b"}`,borderRadius:10,padding:"12px",
-                color:selectedIds.size>0?"white":"#3d5a72",fontSize:13,fontWeight:800,
+              style={{background:selectedIds.size>0?`linear-gradient(135deg,${darken(accent,.5)},${darken(accent,.25)})`:(_lm?"#f1f5f9":"#0c1625"),
+                border:`1px solid ${selectedIds.size>0?accent+"60":(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:10,padding:"12px",
+                color:selectedIds.size>0?"white":(_lm?"#94a3b8":"#3d5a72"),fontSize:13,fontWeight:800,
                 cursor:selectedIds.size>0?"pointer":"default",transition:"all .2s",
                 boxShadow:selectedIds.size>0?`0 0 16px ${accent}30`:"none"}}>
               {selectedIds.size===0?"← Select campaigns first":"⬇ Export as PDF"}
             </button>
             <button onClick={saveToVault} disabled={selectedIds.size===0}
-              style={{background:selectedIds.size>0?"#0d1f35":"#0c1625",
-                border:`1px solid ${selectedIds.size>0?"#1e4d7a":"#1e293b"}`,borderRadius:10,padding:"10px",
-                color:selectedIds.size>0?"#60a5fa":"#3d5a72",fontSize:12,fontWeight:600,
+              style={{background:selectedIds.size>0?(_lm?"#eff6ff":"#0d1f35"):(_lm?"#f1f5f9":"#0c1625"),
+                border:`1px solid ${selectedIds.size>0?(_lm?"#93c5fd":"#1e4d7a"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:10,padding:"10px",
+                color:selectedIds.size>0?"#60a5fa":(_lm?"#94a3b8":"#3d5a72"),fontSize:12,fontWeight:600,
                 cursor:selectedIds.size>0?"pointer":"default",transition:"all .2s"}}>
               {selectedIds.size===0?"":"🗃 Save to Report Vault"}
             </button>
@@ -6632,10 +6655,10 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
             RIGHT PANEL — LIVE PREVIEW
             ════════════════════════════════════════ */}
         {selectedIds.size===0 ? (
-          <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:14,padding:"60px 40px",textAlign:"center"}}>
+          <div style={{background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:14,padding:"60px 40px",textAlign:"center"}}>
             <div style={{fontSize:36,marginBottom:12}}>📄</div>
-            <div style={{fontSize:15,fontWeight:700,color:"#edf4ff",marginBottom:8}}>Live Report Preview</div>
-            <div style={{fontSize:12,color:"#3d5a72",lineHeight:1.7,maxWidth:400,margin:"0 auto"}}>
+            <div style={{fontSize:15,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:8}}>Live Report Preview</div>
+            <div style={{fontSize:12,color:_lm?"#94a3b8":"#3d5a72",lineHeight:1.7,maxWidth:400,margin:"0 auto"}}>
               Select campaigns on the left to see a live preview. Everything is editable — title, colors, sections, notes — before you export.
             </div>
           </div>
@@ -6937,9 +6960,9 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 function InitialsPrompt({ current, onSave, onClose }){
   const [val, setVal] = React.useState(current||"");
   return (
-    <div style={{padding:"10px 14px",background:"#0c1a2e",borderBottom:"1px solid #f59e0b40",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+    <div style={{padding:"10px 14px",background:_lm?"#fffbeb":"#0c1a2e",borderBottom:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
       <span style={{fontSize:12,color:"#f59e0b",fontWeight:700}}>Your rep initials</span>
-      <span style={{fontSize:11,color:"#4d6e8a"}}>Used to filter company-wide DSP exports to just your campaigns (e.g. <code style={{color:"#7a9bbf"}}>_AG</code>)</span>
+      <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a"}}>Used to filter company-wide DSP exports to just your campaigns (e.g. <code style={{color:_lm?"#475569":"#7a9bbf"}}>_AG</code>)</span>
       <input
         autoFocus
         value={val}
@@ -6947,19 +6970,19 @@ function InitialsPrompt({ current, onSave, onClose }){
         onKeyDown={e=>{ if(e.key==="Enter"&&val.length>=2) onSave(val); if(e.key==="Escape") onClose(); }}
         maxLength={3}
         placeholder="AG"
-        style={{background:"#0e1a2e",border:"1px solid #f59e0b60",borderRadius:5,padding:"4px 10px",color:"#f59e0b",fontSize:13,fontWeight:700,fontFamily:"monospace",width:60,outline:"none",textAlign:"center",letterSpacing:2}}
+        style={{background:_lm?"#fff7ed":"#0e1a2e",border:"1px solid #f59e0b60",borderRadius:5,padding:"4px 10px",color:"#f59e0b",fontSize:13,fontWeight:700,fontFamily:"monospace",width:60,outline:"none",textAlign:"center",letterSpacing:2}}
       />
       <button onClick={()=>{ if(val.length>=2) onSave(val); }}
         disabled={val.length<2}
-        style={{background:val.length>=2?"#001a0e":"#0a1020",border:"1px solid #00c89640",borderRadius:5,padding:"4px 12px",color:val.length>=2?"#00e5a0":"#334155",fontSize:11,fontWeight:700,cursor:val.length>=2?"pointer":"default"}}>
+        style={{background:val.length>=2?(_lm?"#f0fdf9":"#001a0e"):(_lm?"#f1f5f9":"#0a1020"),border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:5,padding:"4px 12px",color:val.length>=2?(_lm?"#059669":"#00e5a0"):(_lm?"#94a3b8":"#334155"),fontSize:11,fontWeight:700,cursor:val.length>=2?"pointer":"default"}}>
         Save
       </button>
       <button onClick={onClose}
-        style={{background:"none",border:"none",color:"#4d6e8a",fontSize:11,cursor:"pointer",textDecoration:"underline"}}>
+        style={{background:"none",border:"none",color:_lm?"#64748b":"#4d6e8a",fontSize:11,cursor:"pointer",textDecoration:"underline"}}>
         Cancel
       </button>
       {current&&(
-        <span style={{fontSize:10,color:"#334155",marginLeft:"auto"}}>Currently: <b style={{color:"#7a9bbf"}}>_{current}</b></span>
+        <span style={{fontSize:10,color:_lm?"#94a3b8":"#334155",marginLeft:"auto"}}>Currently: <b style={{color:_lm?"#475569":"#7a9bbf"}}>_{current}</b></span>
       )}
     </div>
   );
@@ -7196,7 +7219,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     if (source==="DSP-Internal") return row["campaign"]||"";
     // TradeDesk: use Campaign column for display; matching uses advertiser name (see matchTTDClientToTracker)
     if (source==="TradeDesk") return row["Campaign"]||row["campaign"]||"";
-    if (source==="Google") return row["Campaign"]||row["Campaign name"]||row["campaign_name"]||"";
+    if (source==="Google") return row["Campaign Name"]||row["Campaign"]||row["Campaign name"]||row["campaign_name"]||"";
     // Generic — try common campaign name columns
     return findCol(row, ["campaign name","campaign","name","ad campaign","campaign title"])||"";
   }
@@ -7277,16 +7300,66 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     return "";
   }
 
+  // ── Google Ads account-name helpers ──────────────────────────────────────────
+  // Returns the raw Account Name from a Google Ads row
+  function getGoogleAccountName(row){ return (row["Account Name"]||"").trim(); }
+
+  // Strips prefix codes (COM-, FMF-, AMB-) and _XX suffix (rep initials)
+  // e.g. "COM-Envista Credit Union_LR"          => "Envista Credit Union"
+  //      "FMF-RUSCO WINDOWS 2024_MM"            => "RUSCO WINDOWS 2024"
+  //      "AMB-Old Dominion University (ODU)_AB" => "Old Dominion University (ODU)"
+  function getGoogleClientName(accountName){
+    let s = accountName.trim();
+    s = s.replace(/_[A-Z]{2,3}\s*$/, "");     // strip _LR, _MM, _AB suffix
+    s = s.replace(/^([A-Z]{2,5}\d*-)+/, "");  // strip COM-, FMF-, AMB- prefix
+    return s.trim();
+  }
+
+  // Stable memory key for Google rows — uses Account Name, not campaign name
+  function makeGoogleNameKey(accountName){ return `Google||acc:${accountName.trim().toLowerCase()}`; }
+
+  // Exact-first matching: Google client name → SEM/YT campaign
+  // Parallel to matchTTDClientToTracker but restricted to SEM/YT platforms
+  function matchGoogleToTracker(clientName, camps){
+    if (!clientName) return "";
+    const cn = clientName.toLowerCase().trim();
+    const googCamps = camps.filter(c => c.platform === "SEM" || c.platform === "YT");
+    // 1. Exact match on campaignName
+    const exact = googCamps.find(c => c.campaignName.trim().toLowerCase() === cn);
+    if (exact) return String(exact.id);
+    // 2. Tracker campaignName contains the full client name
+    const sub = googCamps.find(c => c.campaignName.trim().toLowerCase().includes(cn));
+    if (sub) return String(sub.id);
+    // 3. Client name contains the full tracker campaignName
+    const rev = googCamps.find(c => cn.includes(c.campaignName.trim().toLowerCase()));
+    if (rev) return String(rev.id);
+    // 4. Strict word overlap — require >60% of meaningful client words in campaign name
+    const clientWords = cn.split(/\s+/).filter(w => w.length > 3);
+    if (clientWords.length > 0) {
+      let best = null, bestCount = 0;
+      googCamps.forEach(c => {
+        const campLower = c.campaignName.trim().toLowerCase();
+        const matches = clientWords.filter(w => campLower.includes(w)).length;
+        const ratio = matches / clientWords.length;
+        if (ratio > 0.6 && matches > bestCount) { best = c; bestCount = matches; }
+      });
+      if (best) return String(best.id);
+    }
+    return "";
+  }
+
   // Memory key per individual CSV row name (not the whole file fingerprint)
   // Format: "source||csvRowName"  →  { campId, campName }
   // Memory key: source + the stable row identifier.
   // For TradeDesk: use the Advertiser Name (stable) not the campaign name (can change between exports).
+  // For Google: use the Account Name (stable) not the campaign name (changes between ad sets).
   // For all other sources: use the campaign name as before.
   function makeNameKey(source, csvName){ return `${source}||${csvName.trim().toLowerCase()}`; }
   function makeTTDNameKey(advertiserName){ return `TradeDesk||adv:${advertiserName.trim().toLowerCase()}`; }
 
   // lookupMemory: for TradeDesk, the csvName passed here is the TTD campaign name,
   // but the stable key we save is the advertiser name. So we try both.
+  // For Google: primary key is Account Name (stable across exports; campaign names change per ad set).
   function lookupMemory(source, csvName, row){
     // For TradeDesk: primary key is advertiser name (stable across exports)
     if(source==="TradeDesk" && row){
@@ -7295,7 +7368,16 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       // Compare as strings to handle both number and string campId
       if(advEntry && campaigns.find(c=>String(c.id)===String(advEntry.campId))) return advEntry.campId;
     }
-    // Fallback: legacy key by campaign name (covers old saves + non-TTD sources)
+    // For Google: primary key is Account Name (stable — campaign names vary across ad sets)
+    if(source==="Google" && row){
+      const accName = getGoogleAccountName(row);
+      if(accName){
+        const accKey = makeGoogleNameKey(accName);
+        const accEntry = savedMappings[accKey];
+        if(accEntry && campaigns.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
+      }
+    }
+    // Fallback: legacy key by campaign name (covers old saves + non-TTD/Google sources)
     const key=makeNameKey(source,csvName);
     const entry=savedMappings[key];
     if(entry && campaigns.find(c=>String(c.id)===String(entry.campId))) return entry.campId;
@@ -7303,16 +7385,21 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
   }
 
   function persistNameMappings(source, mappingEntries){
-    // mappingEntries: [{csvName, campId, campName, advertiserName?}]
+    // mappingEntries: [{csvName, campId, campName, advertiserName?, accountName?}]
     // For TradeDesk: save under the stable advertiser name key (not the campaign name).
+    // For Google: save under the stable account name key (not the campaign name).
     // Also save under the campaign name key as a legacy fallback.
     const next={...savedMappings};
-    mappingEntries.forEach(({csvName,campId,campName,advertiserName})=>{
+    mappingEntries.forEach(({csvName,campId,campName,advertiserName,accountName})=>{
       if(!csvName||!campId) return;
       const payload={campId,campName,source,learnedAt:getToday()};
       if(source==="TradeDesk" && advertiserName){
         // Primary stable key: advertiser name (same across all future exports)
         next[makeTTDNameKey(advertiserName)]={...payload,advertiserName};
+      }
+      if(source==="Google" && accountName){
+        // Primary stable key: account name (same across all future exports)
+        next[makeGoogleNameKey(accountName)]={...payload,accountName};
       }
       // Always also save by campaign name as legacy fallback
       next[makeNameKey(source,csvName)]=payload;
@@ -7468,6 +7555,25 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         const matchedId = matchTTDClientToTracker(clientName, matchCandidates);
         // TTD matching is deterministic (exact/substring/word-overlap) — assign 0.8 base confidence
         if(matchedId){ initMap[i]=matchedId; initConf[i]=0.8; autoCount++; }
+      } else if(source==="Google"){
+        // Google: match by Account Name (e.g. "COM-Envista Credit Union_LR" → "Envista Credit Union")
+        // Account names are stable across exports; campaign names change per ad set/keyword group
+        const accName = getGoogleAccountName(row);
+        const clientName = getGoogleClientName(accName);
+        const matchedId = matchGoogleToTracker(clientName, matchCandidates);
+        if(matchedId){ initMap[i]=matchedId; initConf[i]=0.8; autoCount++; }
+        else {
+          // Fallback: fuzzy match on campaign name in case Account Name is missing
+          const csvName = getCampName(row, source);
+          if(csvName){
+            let bestId="",bestScore=0;
+            matchCandidates.forEach(c=>{
+              const score=fuzzyScore(csvName,c.campaignName);
+              if(score>bestScore&&score>=0.45){ bestScore=score; bestId=String(c.id); }
+            });
+            if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; }
+          }
+        }
       } else {
         // All other sources: fuzzy match by campaign name — raised threshold to 0.45 to avoid false matches
         const csvName=getCampName(row,source);
@@ -7498,12 +7604,12 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       if(!campId) return;
       const row=fileRows[parseInt(idxStr)]; if(!row) return;
       const m=extractMetrics(row,fileSource);
-      if(!updates[campId]) updates[campId]={impressions:0,clicks:0,cpm:0,spend:0,reach:0,videoViews:0,completionRate:0,frequency:0,freqCount:0};
+      if(!updates[campId]) updates[campId]={impressions:0,clicks:0,spend:0,reach:0,videoViews:0,completionRate:0,frequency:0,freqCount:0};
       updates[campId].impressions+=m.impressions;
       updates[campId].clicks+=m.clicks;
       updates[campId].spend+=m.spend;
       updates[campId].reach+=m.reach;
-      if(m.cpm>0) updates[campId].cpm=m.cpm;
+      // CPM is NOT stored per-row — computed below from aggregated spend/impressions
       if(m.videoViews>0) updates[campId].videoViews+=m.videoViews;
       if(m.completionRate>0) updates[campId].completionRate=m.completionRate;
       if(parseFloat(m.frequency)>0){ updates[campId].frequency+=parseFloat(m.frequency); updates[campId].freqCount++; }
@@ -7512,6 +7618,8 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       const u=updates[c.id]||updates[String(c.id)]; if(!u) return c;
       // Recompute CTR from aggregated clicks/impressions; stored as raw ratio (0.003531 = 0.353%)
       const computedCtr = u.impressions > 0 && u.clicks > 0 ? (u.clicks / u.impressions) : 0;
+      // Compute CPM from aggregated spend + impressions (avoids picking one row's CPM arbitrarily)
+      const computedCpm = u.impressions > 0 && u.spend > 0 ? (u.spend / u.impressions * 1000) : 0;
       const sourceLabel = fileSource==="TradeDesk" ? "TradeDesk" : fileSource;
       const ctrDisplay = (computedCtr * 100).toFixed(3);
       // Check-in log line — stored in checkInLog (separate from personal history notes)
@@ -7525,7 +7633,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
             clicks:      u.clicks||null,
             ctr:         computedCtr||null,
             spend:       u.spend||null,
-            cpm:         u.cpm||null,
+            cpm:         computedCpm||null,
             vcr:         u.completionRate||null,
             updatedAt:   stamp,
           }
@@ -7540,7 +7648,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
             clicks:      u.clicks||null,
             ctr:         computedCtr||null,
             spend:       u.spend||null,
-            cpm:         u.cpm||null,
+            cpm:         computedCpm||null,
             vcr:         u.completionRate||null,
             updatedAt:   stamp,
           }
@@ -7555,7 +7663,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         clicks:     u.clicks>0?String(u.clicks):c.clicks,
         ctr:        computedCtr>0?String(parseFloat(computedCtr.toFixed(4))):c.ctr,
         spend:      u.spend>0?String(parseFloat(u.spend.toFixed(2))):c.spend,
-        cpm:        u.cpm>0?String(parseFloat(u.cpm.toFixed(4))):c.cpm,
+        cpm:        computedCpm>0?String(parseFloat(computedCpm.toFixed(4))):c.cpm,
         reach:      u.reach>0?String(u.reach):c.reach,
         videoViews: u.videoViews>0?String(u.videoViews):c.videoViews,
         completionRate: u.completionRate>0?String(parseFloat(u.completionRate.toFixed(2))):c.completionRate,
@@ -7585,7 +7693,8 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         const csvName=getCampName(row,fileSource);
         const campName=campaigns.find(c=>String(c.id)===String(campId))?.campaignName||"";
         const advertiserName = fileSource==="TradeDesk" ? getTTDAdvertiserName(row) : undefined;
-        return {csvName,campId:String(campId),campName,advertiserName};
+        const accountName = fileSource==="Google" ? getGoogleAccountName(row) : undefined;
+        return {csvName,campId:String(campId),campName,advertiserName,accountName};
       })
       .filter(e=>e.csvName&&e.campId);
     if(entries.length){ persistNameMappings(fileSource,entries); }
@@ -7607,24 +7716,24 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
   function flashGreen(el){ if(!el) return; el.style.background="#001810"; el.style.color="#00e5a0"; setTimeout(()=>{ el.style.background=""; el.style.color=""; },700); }
   function advance(cls,el){ const all=[...document.querySelectorAll("."+cls)]; const nx=all[all.indexOf(el)+1]; if(nx) nx.focus(); }
 
-  const btn=(label,onClick,color="#4d6e8a",bg="#162236",border="#334155")=>(
-    <button onClick={onClick} style={{background:bg,border:`1px solid ${border}`,borderRadius:5,padding:"5px 12px",color,fontSize:11,fontWeight:color==="#00e5a0"?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>{label}</button>
+  const btn=(label,onClick,color=_lm?"#475569":"#4d6e8a",bg=_lm?"#f1f5f9":"#162236",border=_lm?"#e2e8f0":"#334155")=>(
+    <button onClick={onClick} style={{background:bg,border:`1px solid ${border}`,borderRadius:5,padding:"5px 12px",color,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{label}</button>
   );
-  const iRow={background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:"4px 7px",color:"#d8eaf8",fontSize:12,fontFamily:"monospace",textAlign:"right",outline:"none",transition:"background .2s,color .2s"};
+  const iRow={background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:5,padding:"4px 7px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",textAlign:"right",outline:"none",transition:"background .2s,color .2s"};
 
   const manualCamps = selectedCamps.length>0?selectedCamps:activeCamps;
 
   return (
-    <div style={{background:"#07101c",border:"1px solid #00c89640",borderRadius:10,marginBottom:14,overflow:"hidden"}}>
+    <div style={{background:_lm?"#ffffff":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#00c89640"}`,borderRadius:10,marginBottom:14,overflow:"hidden"}}>
 
       {/* ── Header bar ── */}
-      <div style={{background:"#001a2e",padding:"9px 14px",display:"flex",alignItems:"center",gap:12,borderBottom:"1px solid #1a2744",flexWrap:"wrap"}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#00e5a0",flexShrink:0}}>⚡ Quick Check-in</span>
+      <div style={{background:_lm?"#f8fafc":"#001a2e",padding:"9px 14px",display:"flex",alignItems:"center",gap:12,borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,flexWrap:"wrap"}}>
+        <span style={{fontSize:13,fontWeight:700,color:_lm?"#059669":"#00e5a0",flexShrink:0}}>⚡ Quick Check-in</span>
 
         {/* Search */}
         <input value={qciSearch} onChange={e=>setQciSearch(e.target.value)}
           placeholder="Search campaigns…"
-          style={{background:"#0a1628",border:"1px solid #1e293b",borderRadius:6,padding:"4px 10px",color:"#d8eaf8",fontSize:12,outline:"none",width:180,flexShrink:0}}/>
+          style={{background:_lm?"#ffffff":"#0a1628",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:6,padding:"4px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none",width:180,flexShrink:0}}/>
 
         {/* Platform filter — multi-select pill toggles */}
         <div style={{display:"flex",gap:3,flexWrap:"wrap",alignItems:"center",flexShrink:0}}>
@@ -7636,14 +7745,14 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                 next.has(p)?next.delete(p):next.add(p);
                 return next;
               })}
-              style={{background:active?"#1a3a5c":"#0a1628",border:`1px solid ${active?"#3B8FFF":"#1e293b"}`,borderRadius:4,padding:"2px 8px",color:active?"#7ec8ff":"#4d6e8a",fontSize:11,fontWeight:active?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>
+              style={{background:active?(_lm?"#eff6ff":"#1a3a5c"):(_lm?"#f1f5f9":"#0a1628"),border:`1px solid ${active?(_lm?"#93c5fd":"#3B8FFF"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:4,padding:"2px 8px",color:active?(_lm?"#3B8FFF":"#7ec8ff"):(_lm?"#64748b":"#4d6e8a"),fontSize:11,fontWeight:active?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>
                 {p}
               </button>
             );
           })}
           {qciPlatforms.size>0&&(
             <button onClick={()=>setQciPlatforms(new Set())}
-              style={{background:"none",border:"none",color:"#3d5a72",fontSize:10,cursor:"pointer",padding:"0 2px",textDecoration:"underline"}}>
+              style={{background:"none",border:"none",color:_lm?"#94a3b8":"#3d5a72",fontSize:10,cursor:"pointer",padding:"0 2px",textDecoration:"underline"}}>
               clear
             </button>
           )}
@@ -7655,14 +7764,14 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
           {selected.size>0&&btn("Clear",()=>setSelected(new Set()))}
         </div>
 
-        <span style={{fontSize:11,color:"#4d6e8a",flexShrink:0}}>{selected.size>0?`${selected.size} selected`:"Select campaigns below"}</span>
+        <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",flexShrink:0}}>{selected.size>0?`${selected.size} selected`:"Select campaigns below"}</span>
 
         {/* File drop — always visible */}
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-          <label style={{display:"flex",alignItems:"center",gap:7,background:"#001a0e",border:"1px solid #00c89640",borderRadius:7,padding:"5px 13px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}
-            onDragOver={e=>{e.preventDefault();e.currentTarget.style.background="#002e24";}}
-            onDragLeave={e=>{e.currentTarget.style.background="#001a0e";}}
-            onDrop={e=>{e.preventDefault();e.currentTarget.style.background="#001a0e";handleFileDrop(e.dataTransfer.files[0]);}}>
+          <label style={{display:"flex",alignItems:"center",gap:7,background:_lm?"#f0fdf9":"#001a0e",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:7,padding:"5px 13px",color:_lm?"#059669":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}
+            onDragOver={e=>{e.preventDefault();e.currentTarget.style.background=_lm?"#d1fae5":"#002e24";}}
+            onDragLeave={e=>{e.currentTarget.style.background=_lm?"#f0fdf9":"#001a0e";}}
+            onDrop={e=>{e.preventDefault();e.currentTarget.style.background=_lm?"#f0fdf9":"#001a0e";handleFileDrop(e.dataTransfer.files[0]);}}>
             📊 Drop CSV or XLSX
             <input type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={e=>handleFileDrop(e.target.files[0])}/>
           </label>
@@ -7670,12 +7779,12 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
           <button
             onClick={()=>setShowInitialsPrompt(p=>!p)}
             title={userInitials?"Your rep initials (click to change)":"Set your rep initials to filter company-wide files"}
-            style={{background:userInitials?"#001a2e":"#1a0e00",border:`1px solid ${userInitials?"#00c89640":"#f59e0b60"}`,borderRadius:6,padding:"4px 9px",color:userInitials?"#00c896":"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+            style={{background:userInitials?(_lm?"#f0fdf9":"#001a2e"):(_lm?"#fffbeb":"#1a0e00"),border:`1px solid ${userInitials?(_lm?"#00c896":"#00c89640"):(_lm?"#fcd34d":"#f59e0b60")}`,borderRadius:6,padding:"4px 9px",color:userInitials?(_lm?"#059669":"#00c896"):(_lm?"#d97706":"#f59e0b"),fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
             {userInitials?`_${userInitials}`:"Set initials"}
           </button>
         </div>
 
-        <button onClick={onClose} style={{background:"none",border:"none",color:"#4d6e8a",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>
+        <button onClick={onClose} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>
       </div>
 
       {/* ── Initials prompt ── */}
@@ -7685,7 +7794,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
 
       {/* ── Status / messages ── */}
       {(fileError||savedMsg)&&(
-        <div style={{padding:"5px 14px",background:fileError?"#1a0808":"#001a0e",fontSize:10,color:fileError?"#ef4444":"#00e5a0",borderBottom:"1px solid #1a2744",display:"flex",alignItems:"center",gap:8}}>
+        <div style={{padding:"5px 14px",background:fileError?(_lm?"#fee2e2":"#1a0808"):(_lm?"#f0fdf9":"#001a0e"),fontSize:10,color:fileError?"#ef4444":(_lm?"#059669":"#00e5a0"),borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",alignItems:"center",gap:8}}>
           <span style={{flex:1}}>{fileError||savedMsg}</span>
           {fileError&&fileError.includes("initials")&&(
             <button onClick={()=>setShowInitialsPrompt(true)}
@@ -7699,9 +7808,9 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       <div style={{display:"grid",gridTemplateColumns:fileRows?"1fr 1fr":"1fr",minHeight:200}}>
 
         {/* ── Left: Campaign checklist ── */}
-        <div style={{borderRight:fileRows?"1px solid #1a2744":"none",display:"flex",flexDirection:"column"}}>
+        <div style={{borderRight:fileRows?`1px solid ${_lm?"#e2e8f0":"#1a2744"}`:"none",display:"flex",flexDirection:"column"}}>
           <div style={{maxHeight:320,overflowY:"auto",flex:1}}>
-            {visibleCamps.length===0&&<div style={{padding:"18px",textAlign:"center",color:"#3d5a72",fontSize:12}}>No active campaigns match filter</div>}
+            {visibleCamps.length===0&&<div style={{padding:"18px",textAlign:"center",color:_lm?"#94a3b8":"#3d5a72",fontSize:12}}>No active campaigns match filter</div>}
             {visibleCamps.map(c=>{
               const sel=selected.has(c.id);
               const daysAgo=c.lastChecked?-Math.min(0,getDaysLeft(c.lastChecked)||0):null;
@@ -7721,17 +7830,17 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                         setSelected(s=>{const n=new Set(s);sel?n.delete(c.id):n.add(c.id);return n;});
                       }
                     }}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"6px 12px",borderBottom:"1px solid #0a1018",cursor:"pointer",
-                      background:isPickTarget?"#1a1000":isMapped?"#001a0e":sel?"#001020":"transparent"}}>
-                    <div style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${isMapped?"#00c896":isPickTarget?"#f59e0b":sel?"#00c896":"#334155"}`,background:isMapped?"#00c896":sel?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"6px 12px",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`,cursor:"pointer",
+                      background:isPickTarget?(_lm?"#fffbeb":"#1a1000"):isMapped?(_lm?"#f0fdf9":"#001a0e"):sel?(_lm?"#eff6ff":"#001020"):"transparent"}}>
+                    <div style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${isMapped?"#00c896":isPickTarget?"#f59e0b":sel?"#00c896":(_lm?"#cbd5e1":"#334155")}`,background:isMapped?"#00c896":sel?"#00c896":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                       {(isMapped||sel)&&<span style={{color:"#000",fontSize:8,fontWeight:900}}>✓</span>}
                       {isPickTarget&&!isMapped&&!sel&&<span style={{color:"#f59e0b",fontSize:8,fontWeight:900}}>→</span>}
                     </div>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:11,color:isMapped?"#00e5a0":isPickTarget?"#f59e0b":sel?"#edf4ff":"#7a9bbf",fontWeight:(sel||isPickTarget)?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      <div style={{fontSize:11,color:isMapped?(_lm?"#059669":"#00e5a0"):isPickTarget?"#f59e0b":sel?(_lm?"#0f172a":"#edf4ff"):(_lm?"#475569":"#7a9bbf"),fontWeight:(sel||isPickTarget)?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                         {isMapped&&"✓ "}{isPickTarget&&!isMapped&&"→ "}{c.campaignName.trim()}
                       </div>
-                      <div style={{fontSize:9,color:isPickTarget&&!isMapped?"#a07000":"#3d5a72"}}>
+                      <div style={{fontSize:9,color:isPickTarget&&!isMapped?(_lm?"#d97706":"#a07000"):(_lm?"#94a3b8":"#3d5a72")}}>
                         {isPickTarget&&!isMapped ? "click a row on the right to assign →" : c.mediaPartner}
                       </div>
                     </div>
@@ -7746,9 +7855,9 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                         if(!row) return null;
                         const lbl = fileSource==="TradeDesk" ? getTTDClientName(getTTDAdvertiserName(row)) : getCampName(row,fileSource);
                         return (
-                          <span key={idx} style={{fontSize:9,background:"#002018",border:"1px solid #00c89630",borderRadius:3,padding:"1px 6px",color:"#00c896",display:"flex",alignItems:"center",gap:4}}>
+                          <span key={idx} style={{fontSize:9,background:_lm?"#f0fdf9":"#002018",border:`1px solid ${_lm?"#00c896":"#00c89630"}`,borderRadius:3,padding:"1px 6px",color:_lm?"#059669":"#00c896",display:"flex",alignItems:"center",gap:4}}>
                             {lbl||"row "+(idx+1)}
-                            <button onClick={e=>{e.stopPropagation();setMapping(m=>({...m,[idx]:""}));setMatchConf(mc=>{const n={...mc};delete n[idx];return n;});}} style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:11,lineHeight:1,padding:0}} title="Remove this row mapping">×</button>
+                            <button onClick={e=>{e.stopPropagation();setMapping(m=>({...m,[idx]:""}));setMatchConf(mc=>{const n={...mc};delete n[idx];return n;});}} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#3d5a72",cursor:"pointer",fontSize:11,lineHeight:1,padding:0}} title="Remove this row mapping">×</button>
                           </span>
                         );
                       })}
@@ -7766,18 +7875,18 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
             {(()=>{
               const totals = fileRows.reduce((acc,row)=>{ const m=extractMetrics(row,fileSource); acc.spend+=m.spend; acc.impressions+=m.impressions; acc.clicks+=m.clicks; return acc; },{spend:0,impressions:0,clicks:0});
               return totals.spend > 0 || totals.impressions > 0 ? (
-                <div style={{padding:"5px 12px",background:"#03080f",borderBottom:"1px solid #0d1525",display:"flex",gap:16,flexWrap:"wrap"}}>
-                  <span style={{fontSize:10,color:"#3d5a72"}}>File totals:</span>
-                  {totals.impressions > 0 && <span style={{fontSize:10,color:"#7a9bbf",fontWeight:600}}>{totals.impressions.toLocaleString()} impr</span>}
-                  {totals.clicks > 0 && <span style={{fontSize:10,color:"#7a9bbf",fontWeight:600}}>{totals.clicks.toLocaleString()} clicks</span>}
-                  {totals.spend > 0 && <span style={{fontSize:10,color:"#00e5a0",fontWeight:700}}>${totals.spend.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} spend</span>}
-                  <span style={{fontSize:10,color:"#2a4060"}}>— verify against platform report before applying</span>
+                <div style={{padding:"5px 12px",background:_lm?"#f8fafc":"#03080f",borderBottom:`1px solid ${_lm?"#e2e8f0":"#0d1525"}`,display:"flex",gap:16,flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72"}}>File totals:</span>
+                  {totals.impressions > 0 && <span style={{fontSize:10,color:_lm?"#475569":"#7a9bbf",fontWeight:600}}>{totals.impressions.toLocaleString()} impr</span>}
+                  {totals.clicks > 0 && <span style={{fontSize:10,color:_lm?"#475569":"#7a9bbf",fontWeight:600}}>{totals.clicks.toLocaleString()} clicks</span>}
+                  {totals.spend > 0 && <span style={{fontSize:10,color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${totals.spend.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} spend</span>}
+                  <span style={{fontSize:10,color:_lm?"#94a3b8":"#2a4060"}}>— verify against platform report before applying</span>
                 </div>
               ) : null;
             })()}
-            <div style={{padding:"6px 12px",background:"#060d18",borderBottom:"1px solid #1a2744",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span style={{fontSize:11,fontWeight:700,color:"#edf4ff"}}>{fileSource==="Generic"?"📊 Generic CSV":fileSource==="TradeDesk"?"📡 TradeDesk (_AG only)":fileSource} — {fileRows.length} rows</span>
-              <span style={{fontSize:10,color:mappedCount<fileRows.length?"#f59e0b":"#00e5a0",fontWeight:600}}>{mappedCount}/{fileRows.length} matched</span>
+            <div style={{padding:"6px 12px",background:_lm?"#f8fafc":"#060d18",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span style={{fontSize:11,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{fileSource==="Generic"?"📊 Generic CSV":fileSource==="TradeDesk"?"📡 TradeDesk (_AG only)":fileSource} — {fileRows.length} rows</span>
+              <span style={{fontSize:10,color:mappedCount<fileRows.length?"#f59e0b":(_lm?"#059669":"#00e5a0"),fontWeight:600}}>{mappedCount}/{fileRows.length} matched</span>
               {mappedCount<fileRows.length&&<span style={{fontSize:10,color:"#f59e0b"}}>⚠ assign unmatched rows below</span>}
               <div style={{display:"flex",gap:5}}>
                 {btn("Clear",()=>{setFileRows(null);setMapping({});setMatchConf({});setConfirmApplyPending(false);setFileSource("");setSavedMsg("");})}
@@ -7796,7 +7905,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                     applyMapping();
                   }
                 }} disabled={!mappedCount}
-                  style={{background:mappedCount?"#002e24":"#162236",border:`1px solid ${mappedCount?"#00c89640":"#334155"}`,borderRadius:5,padding:"5px 12px",color:mappedCount?"#00e5a0":"#3d5a72",fontSize:11,fontWeight:700,cursor:mappedCount?"pointer":"default",whiteSpace:"nowrap"}}>
+                  style={{background:mappedCount?(_lm?"#00e19e":"#002e24"):(_lm?"#f1f5f9":"#162236"),border:`1px solid ${mappedCount?(_lm?"#00c896":"#00c89640"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:5,padding:"5px 12px",color:mappedCount?(_lm?"#0a1a0a":"#00e5a0"):(_lm?"#94a3b8":"#3d5a72"),fontSize:11,fontWeight:700,cursor:mappedCount?"pointer":"default",whiteSpace:"nowrap"}}>
                   {confirmApplyPending?"⚠ Review below":"✓ Apply"} {mappedCount}
                 </button>
               </div>
@@ -7805,12 +7914,12 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
             {leftPickCampId && (()=>{
               const c = activeCamps.find(x=>x.id===leftPickCampId);
               return c ? (
-                <div style={{padding:"5px 10px",background:"#1a1000",borderBottom:"1px solid #f59e0b40",display:"flex",alignItems:"center",gap:8}}>
+                <div style={{padding:"5px 10px",background:_lm?"#fffbeb":"#1a1000",borderBottom:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontSize:11,color:"#f59e0b",fontWeight:700,flex:1}}>
-                    → Click any row below to assign it to <span style={{color:"#edf4ff"}}>{c.campaignName.trim()}</span> ({c.platform})
+                    → Click any row below to assign it to <span style={{color:_lm?"#0f172a":"#edf4ff"}}>{c.campaignName.trim()}</span> ({c.platform})
                   </span>
                   <button onClick={()=>setLeftPickCampId(null)}
-                    style={{background:"none",border:"1px solid #f59e0b40",borderRadius:4,padding:"2px 8px",color:"#f59e0b",fontSize:10,cursor:"pointer"}}>
+                    style={{background:"none",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:4,padding:"2px 8px",color:"#f59e0b",fontSize:10,cursor:"pointer"}}>
                     Cancel
                   </button>
                 </div>
@@ -7825,7 +7934,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                 return conf !== undefined && conf < 0.7;
               });
               return lowRows.length > 0 ? (
-                <div style={{padding:"10px 14px",background:"#130800",borderBottom:"1px solid #f59e0b60"}}>
+                <div style={{padding:"10px 14px",background:_lm?"#fffbeb":"#130800",borderBottom:`1px solid ${_lm?"#fcd34d":"#f59e0b60"}`}}>
                   <div style={{fontSize:11,color:"#f59e0b",fontWeight:700,marginBottom:8}}>
                     ⚠ {lowRows.length} low-confidence auto-match{lowRows.length>1?"es":""} — verify these before applying:
                   </div>
@@ -7838,27 +7947,27 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                       const rowLabel=fileSource==="TradeDesk"?getTTDClientName(getTTDAdvertiserName(row)):getCampName(row,fileSource);
                       const m=extractMetrics(row,fileSource);
                       return (
-                        <div key={idxStr} style={{display:"flex",gap:8,alignItems:"center",background:"#1a0e00",border:"1px solid #f59e0b30",borderRadius:5,padding:"5px 8px",fontSize:10}}>
+                        <div key={idxStr} style={{display:"flex",gap:8,alignItems:"center",background:_lm?"#fff7ed":"#1a0e00",border:`1px solid ${_lm?"#fcd34d":"#f59e0b30"}`,borderRadius:5,padding:"5px 8px",fontSize:10}}>
                           <span style={{color:"#f59e0b",fontWeight:700,minWidth:38,flexShrink:0}}>⚠ {Math.round(conf*100)}%</span>
-                          <span style={{color:"#d8eaf8",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={rowLabel}>{rowLabel||"—"}</span>
-                          <span style={{color:"#4d6e8a",flexShrink:0}}>→</span>
-                          <span style={{color:"#00e5a0",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{camp?.campaignName||"?"}</span>
+                          <span style={{color:_lm?"#0f172a":"#d8eaf8",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={rowLabel}>{rowLabel||"—"}</span>
+                          <span style={{color:_lm?"#64748b":"#4d6e8a",flexShrink:0}}>→</span>
+                          <span style={{color:_lm?"#059669":"#00e5a0",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{camp?.campaignName||"?"}</span>
                           {camp&&<span style={{background:(PLT_COLORS[camp.platform]||"#7a9bbf")+"22",color:PLT_COLORS[camp.platform]||"#7a9bbf",borderRadius:3,padding:"0 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{camp.platform}</span>}
-                          <span style={{color:"#3d5a72",flexShrink:0,whiteSpace:"nowrap"}}>{m.impressions.toLocaleString()} impr{m.spend>0?` · $${m.spend.toFixed(0)}`:""}</span>
+                          <span style={{color:_lm?"#94a3b8":"#3d5a72",flexShrink:0,whiteSpace:"nowrap"}}>{m.impressions.toLocaleString()} impr{m.spend>0?` · $${m.spend.toFixed(0)}`:""}</span>
                         </div>
                       );
                     })}
                   </div>
-                  <div style={{fontSize:10,color:"#7a9bbf",marginBottom:8}}>
+                  <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",marginBottom:8}}>
                     These were auto-guessed — if any look wrong, close this and fix the dropdown above before applying.
                   </div>
                   <div style={{display:"flex",gap:8}}>
                     <button onClick={()=>{setConfirmApplyPending(false);applyMapping();}}
-                      style={{background:"#1a0800",border:"1px solid #f59e0b",borderRadius:5,padding:"5px 16px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                      style={{background:_lm?"#fff7ed":"#1a0800",border:"1px solid #f59e0b",borderRadius:5,padding:"5px 16px",color:"#f59e0b",fontSize:11,fontWeight:700,cursor:"pointer"}}>
                       Apply Anyway
                     </button>
                     <button onClick={()=>setConfirmApplyPending(false)}
-                      style={{background:"#162236",border:"1px solid #334155",borderRadius:5,padding:"5px 16px",color:"#4d6e8a",fontSize:11,cursor:"pointer"}}>
+                      style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px 16px",color:_lm?"#475569":"#4d6e8a",fontSize:11,cursor:"pointer"}}>
                       Go Back & Fix
                     </button>
                   </div>
@@ -7885,26 +7994,26 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                 return (
                   <div key={i}
                     onClick={isPickTarget ? ()=>{ setMapping(m=>({...m,[i]:String(leftPickCampId)})); setMatchConf(mc=>({...mc,[i]:1.0})); setLeftPickCampId(null); } : undefined}
-                    style={{borderBottom:"1px solid #0a1018",
-                      background:isPickTarget?"#1a1000":isLowConf?"#100800":assigned?"#001a0e":isUnmatched?"#130b00":"transparent",
+                    style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`,
+                      background:isPickTarget?(_lm?"#fffbeb":"#1a1000"):isLowConf?(_lm?"#fff7ed":"#100800"):assigned?(_lm?"#f0fdf9":"#001a0e"):isUnmatched?(_lm?"#fffbeb":"#130b00"):"transparent",
                       cursor:isPickTarget?"pointer":"default",
                       outline:isPickTarget?"1px solid #f59e0b40":isLowConf?"1px solid #f59e0b20":"none"}}>
                     <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px"}}>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:4}}>
-                          <div style={{fontSize:11,color:isUnmatched?"#f59e0b":"#d8eaf8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:isUnmatched?600:400,flex:1}} title={fileSource==="TradeDesk"?(ttdAdvName+" → "+name):name}>
+                          <div style={{fontSize:11,color:isUnmatched?"#f59e0b":(_lm?"#0f172a":"#d8eaf8"),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:isUnmatched?600:400,flex:1}} title={fileSource==="TradeDesk"?(ttdAdvName+" → "+name):name}>
                             {isUnmatched?"⚠ ":""}{displayName||"—"}
-                            {fileSource==="TradeDesk"&&name&&<span style={{fontSize:9,color:"#3d5a72",marginLeft:6}}>({name})</span>}
+                            {fileSource==="TradeDesk"&&name&&<span style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginLeft:6}}>({name})</span>}
                           </div>
                           {isLowConf&&(
                             <span title={`Low-confidence auto-match (${Math.round(rowConf*100)}%) — verify this is correct before applying`}
-                              style={{fontSize:9,color:"#f59e0b",background:"#1a0e00",border:"1px solid #f59e0b50",borderRadius:3,padding:"0 4px",whiteSpace:"nowrap",flexShrink:0}}>
+                              style={{fontSize:9,color:"#f59e0b",background:_lm?"#fffbeb":"#1a0e00",border:"1px solid #f59e0b50",borderRadius:3,padding:"0 4px",whiteSpace:"nowrap",flexShrink:0}}>
                               ⚠ {Math.round(rowConf*100)}%
                             </span>
                           )}
                           {!isLowConf&&assigned&&rowConf!==undefined&&rowConf<1.0&&(
                             <span title={`Auto-matched at ${Math.round(rowConf*100)}% confidence`}
-                              style={{fontSize:9,color:"#00c896",background:"#001a0e",border:"1px solid #00c89630",borderRadius:3,padding:"0 4px",whiteSpace:"nowrap",flexShrink:0}}>
+                              style={{fontSize:9,color:_lm?"#059669":"#00c896",background:_lm?"#f0fdf9":"#001a0e",border:`1px solid ${_lm?"#00c896":"#00c89630"}`,borderRadius:3,padding:"0 4px",whiteSpace:"nowrap",flexShrink:0}}>
                               {Math.round(rowConf*100)}%
                             </span>
                           )}
@@ -7913,7 +8022,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                               style={{fontSize:9,color:"#a78bfa",flexShrink:0}}>✓</span>
                           )}
                         </div>
-                        <div style={{fontSize:9,color:"#3d5a72",marginTop:1,display:"flex",gap:8}}>
+                        <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:1,display:"flex",gap:8}}>
                           <span>{m.impressions.toLocaleString()} impr</span>
                           <span>{m.clicks} clicks</span>
                           <span>CTR {computedCtr.toFixed(3)}%</span>
@@ -7971,17 +8080,17 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
 
                         return (
                           <div style={{display:"flex",flexDirection:"column",gap:2,minWidth:160,maxWidth:230}}>
-                            <div style={{fontSize:9,color:"#4d6e8a",textAlign:"right",display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
+                            <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textAlign:"right",display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
                               {isTTD && !showingAll && <span style={{color:"#a78bfa",fontSize:9}}>TD/TDA/TDV</span>}
                               {(isFiltered||isTTD) && (
                                 <button onClick={()=>setShowAllMap(m=>({...m,[i]:!m[i]}))}
-                                  style={{background:"none",border:"none",color:"#4d6e8a",fontSize:9,cursor:"pointer",textDecoration:"underline",padding:0}}>
+                                  style={{background:"none",border:"none",color:_lm?"#64748b":"#4d6e8a",fontSize:9,cursor:"pointer",textDecoration:"underline",padding:0}}>
                                   {showingAll ? (isTTD?"TD/TDA/TDV only":"smart filter") : "show all"}
                                 </button>
                               )}
                             </div>
                             <select value={assigned} onChange={e=>{setMapping(mp=>({...mp,[i]:e.target.value}));if(e.target.value)setMatchConf(mc=>({...mc,[i]:1.0}));else setMatchConf(mc=>{const n={...mc};delete n[i];return n;});}}
-                              style={{background:assigned?"#002e24":isUnmatched?"#1a0e00":"#0e1a2e",border:`1px solid ${assigned?"#00c89640":isUnmatched?"#f59e0b40":"#1e293b"}`,borderRadius:5,padding:"3px 7px",color:assigned?"#00e5a0":isUnmatched?"#f59e0b":"#4d6e8a",fontSize:10,outline:"none",cursor:"pointer",width:"100%"}}>
+                              style={{background:assigned?(_lm?"#f0fdf9":"#002e24"):isUnmatched?(_lm?"#fffbeb":"#1a0e00"):(_lm?"#f8fafc":"#0e1a2e"),border:`1px solid ${assigned?(_lm?"#00c896":"#00c89640"):isUnmatched?"#f59e0b40":(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:5,padding:"3px 7px",color:assigned?(_lm?"#059669":"#00e5a0"):isUnmatched?"#f59e0b":(_lm?"#64748b":"#4d6e8a"),fontSize:10,outline:"none",cursor:"pointer",width:"100%"}}>
                               <option value="">— assign to campaign —</option>
                               {displayList.map(c=>(
                                 <option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}</option>
@@ -7993,7 +8102,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                     </div>
                     {assigned&&(()=>{
                       const c=activeCamps.find(x=>String(x.id)===String(assigned));
-                      return c?<div style={{fontSize:9,color:"#00e5a0",paddingLeft:10,paddingBottom:4}}>→ {c.campaignName.trim()} ({c.platform} · {c.mediaPartner})</div>:null;
+                      return c?<div style={{fontSize:9,color:_lm?"#059669":"#00e5a0",paddingLeft:10,paddingBottom:4}}>→ {c.campaignName.trim()} ({c.platform} · {c.mediaPartner})</div>:null;
                     })()}
                   </div>
                 );
@@ -8005,16 +8114,16 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
 
       {/* ── Manual entry table ── */}
       {selected.size>0&&!fileRows&&(
-        <div style={{borderTop:"1px solid #1a2744",overflowX:"auto"}}>
-          <div style={{padding:"5px 12px",background:"#060d18",borderBottom:"1px solid #1a2744",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <span style={{fontSize:10,color:"#4d6e8a"}}>Or enter metrics manually — Tab saves and advances</span>
-            <span style={{fontSize:9,color:"#3d5a72"}}>Esc to cancel field</span>
+        <div style={{borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,overflowX:"auto"}}>
+          <div style={{padding:"5px 12px",background:_lm?"#f8fafc":"#060d18",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a"}}>Or enter metrics manually — Tab saves and advances</span>
+            <span style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72"}}>Esc to cancel field</span>
           </div>
           <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
             <thead>
-              <tr style={{background:"#060d18"}}>
+              <tr style={{background:_lm?"#f8fafc":"#060d18"}}>
                 {["Campaign","Platform","Last Checked","Impressions","Clicks","CTR %","Spend","CPM","Notes"].map(h=>(
-                  <th key={h} style={{padding:"6px 8px",fontSize:9,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",borderBottom:"1px solid #1a2744",textAlign:["Impressions","Clicks","CTR %","Spend","CPM"].includes(h)?"right":"left",whiteSpace:"nowrap"}}>{h}</th>
+                  <th key={h} style={{padding:"6px 8px",fontSize:9,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,textAlign:["Impressions","Clicks","CTR %","Spend","CPM"].includes(h)?"right":"left",whiteSpace:"nowrap"}}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -8025,18 +8134,18 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                 const d=drafts[c.id]||{impressions:"",ctr:"",clicks:"",spend:"",cpm:"",note1:""};
                 const setD=(f,v)=>setDrafts(prev=>({...prev,[c.id]:{...(prev[c.id]||d),[f]:v}}));
                 return (
-                  <tr key={c.id} style={{background:idx%2===0?"#07101c":"#060d18"}}>
-                    <td style={{padding:"4px 8px",borderBottom:"1px solid #0a1018",maxWidth:160}}>
-                      <div style={{fontSize:11,color:"#d8eaf8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
+                  <tr key={c.id} style={{background:idx%2===0?(_lm?"#f8fafc":"#07101c"):(_lm?"#ffffff":"#060d18")}}>
+                    <td style={{padding:"4px 8px",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`,maxWidth:160}}>
+                      <div style={{fontSize:11,color:_lm?"#0f172a":"#d8eaf8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</div>
                     </td>
-                    <td style={{padding:"4px 8px",borderBottom:"1px solid #0a1018"}}>
+                    <td style={{padding:"4px 8px",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`}}>
                       <span style={{background:(PLT_COLORS[c.platform]||"#7a9bbf")+"22",color:PLT_COLORS[c.platform]||"#7a9bbf",borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700}}>{c.platform}</span>
                     </td>
-                    <td style={{padding:"4px 8px",fontSize:10,borderBottom:"1px solid #0a1018",color:isStale?"#f59e0b":"#3d5a72",whiteSpace:"nowrap"}}>
+                    <td style={{padding:"4px 8px",fontSize:10,borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`,color:isStale?"#f59e0b":(_lm?"#94a3b8":"#3d5a72"),whiteSpace:"nowrap"}}>
                       {c.lastChecked?`${c.lastChecked}${daysAgo>=2?` (${daysAgo}d)`:""}`:"—"}
                     </td>
                     {[{f:"impressions",cls:"qci-impr",w:86},{f:"clicks",cls:"qci-clk",w:65},{f:"ctr",cls:"qci-ctr",w:58,dec:true},{f:"spend",cls:"qci-spd",w:60,dec:true},{f:"cpm",cls:"qci-cpm",w:58,dec:true}].map(({f,cls,w,dec})=>(
-                      <td key={f} style={{padding:"3px 5px",borderBottom:"1px solid #0a1018",textAlign:"right"}}>
+                      <td key={f} style={{padding:"3px 5px",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`,textAlign:"right"}}>
                         <input type="text" inputMode={dec?"decimal":"numeric"} className={cls}
                           value={d[f]} onChange={e=>setD(f,e.target.value)} placeholder="-"
                           style={{...iRow,width:w}}
@@ -8049,7 +8158,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                         />
                       </td>
                     ))}
-                    <td style={{padding:"3px 5px",borderBottom:"1px solid #0a1018"}}>
+                    <td style={{padding:"3px 5px",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`}}>
                       <input type="text" value={d.note1} onChange={e=>setD("note1",e.target.value)} placeholder="note"
                         style={{...iRow,textAlign:"left",width:"100%",minWidth:110,fontFamily:"inherit"}}
                         onFocus={e=>e.target.style.borderColor="#00c896"}
@@ -8066,9 +8175,9 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       )}
 
       {/* ── Footer ── */}
-      <div style={{padding:"7px 14px",background:"#060d18",borderTop:"1px solid #1a2744",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <span style={{fontSize:10,color:"#3d5a72"}}>Supports FB CSV · Snapchat XLSX/CSV · any generic CSV with Campaign Name + metrics columns · CTR auto-computed from clicks ÷ impressions</span>
-        <button onClick={onClose} style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"5px 14px",color:"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Done</button>
+      <div style={{padding:"7px 14px",background:_lm?"#f8fafc":"#060d18",borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72"}}>Supports FB CSV · Snapchat XLSX/CSV · any generic CSV with Campaign Name + metrics columns · CTR auto-computed from clicks ÷ impressions</span>
+        <button onClick={onClose} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:6,padding:"5px 14px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Done</button>
       </div>
     </div>
   );
@@ -8115,14 +8224,14 @@ function ReportVault({ onAnalyzeWithZeus }) {
   },{});
 
   function MetricDelta({curr, prev, label, prefix="", suffix="", decimals=0}) {
-    if(!prev&&prev!==0) return <span style={{fontSize:11,color:"#edf4ff",fontWeight:600}}>{prefix}{typeof curr==="number"?curr.toLocaleString(undefined,{maximumFractionDigits:decimals}):curr}{suffix}</span>;
+    if(!prev&&prev!==0) return <span style={{fontSize:11,color:_lm?"#0f172a":"#edf4ff",fontWeight:600}}>{prefix}{typeof curr==="number"?curr.toLocaleString(undefined,{maximumFractionDigits:decimals}):curr}{suffix}</span>;
     const diff = curr - prev;
     const pct  = prev>0 ? (diff/prev*100) : 0;
     const up   = diff>0;
-    const col  = diff===0?"#4d6e8a":up?"#00e5a0":"#ef4444";
+    const col  = diff===0?(_lm?"#475569":"#4d6e8a"):up?(_lm?"#059669":"#00e5a0"):"#ef4444";
     return (
       <div style={{display:"flex",alignItems:"baseline",gap:5}}>
-        <span style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>{prefix}{typeof curr==="number"?curr.toLocaleString(undefined,{maximumFractionDigits:decimals}):curr}{suffix}</span>
+        <span style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{prefix}{typeof curr==="number"?curr.toLocaleString(undefined,{maximumFractionDigits:decimals}):curr}{suffix}</span>
         {diff!==0&&<span style={{fontSize:10,color:col,fontWeight:600}}>{up?"+":""}{typeof diff==="number"?diff.toLocaleString(undefined,{maximumFractionDigits:decimals}):diff} ({up?"+":""}{pct.toFixed(1)}%)</span>}
       </div>
     );
@@ -8136,13 +8245,13 @@ function ReportVault({ onAnalyzeWithZeus }) {
     const pctr = pt.impressions>0?(pt.clicks/pt.impressions*100):pt.ctr||0;
 
     return (
-      <div style={{background:"#0c1625",border:`1px solid ${isCompare?"#334155":"#1e293b"}`,borderRadius:10,padding:"16px",flex:1,minWidth:0}}>
+      <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":isCompare?"#334155":"#1e293b"}`,borderRadius:10,padding:"16px",flex:1,minWidth:0,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
         {/* Header */}
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12,gap:8}}>
           <div>
-            <div style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>{report.title||report.client}</div>
-            <div style={{fontSize:11,color:"#4d6e8a",marginTop:2}}>{report.dateRange?.label||""}</div>
-            <div style={{fontSize:10,color:"#3d5a72",marginTop:1}}>Saved {report.savedAtLabel} · {report.campaigns?.length||0} tactics</div>
+            <div style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{report.title||report.client}</div>
+            <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",marginTop:2}}>{report.dateRange?.label||""}</div>
+            <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:1}}>Saved {report.savedAtLabel} · {report.campaigns?.length||0} tactics</div>
           </div>
           <div style={{width:12,height:12,borderRadius:3,background:report.brandColor||"#1a73e8",flexShrink:0,marginTop:3}}/>
         </div>
@@ -8155,8 +8264,8 @@ function ReportVault({ onAnalyzeWithZeus }) {
             {label:"CTR",         curr:ctr,              prev:pctr,      decimals:3, suffix:"%"},
             {label:"Reach",       curr:t.reach||0,       prev:pt.reach},
           ].map(({label,curr,prev:pv,decimals=0,suffix=""})=>(
-            <div key={label} style={{background:"#07101c",borderRadius:6,padding:"8px 10px"}}>
-              <div style={{fontSize:9,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",marginBottom:4,fontWeight:700}}>{label}</div>
+            <div key={label} style={{background:_lm?"#f8fafc":"#07101c",borderRadius:6,padding:"8px 10px",border:_lm?"1px solid #e2e8f0":"none"}}>
+              <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",marginBottom:4,fontWeight:700}}>{label}</div>
               <MetricDelta curr={curr} prev={comparing?pv:undefined} label={label} decimals={decimals} suffix={suffix}/>
             </div>
           ))}
@@ -8166,9 +8275,9 @@ function ReportVault({ onAnalyzeWithZeus }) {
         <div style={{maxHeight:220,overflowY:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead>
-              <tr style={{background:"#07101c"}}>
+              <tr style={{background:_lm?"#f8fafc":"#07101c"}}>
                 {["Campaign","Impr","Clicks","CTR"].map(h=>(
-                  <th key={h} style={{padding:"5px 8px",fontSize:9,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",textAlign:h==="Campaign"?"left":"right",borderBottom:"1px solid #1a2744"}}>{h}</th>
+                  <th key={h} style={{padding:"5px 8px",fontSize:9,color:_lm?"#64748b":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",textAlign:h==="Campaign"?"left":"right",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -8181,17 +8290,17 @@ function ReportVault({ onAnalyzeWithZeus }) {
                 const imprUp = pc ? c.impressions-pc.impressions : 0;
                 const ctrUp  = pc ? ctr-pctr : 0;
                 return (
-                  <tr key={c.id||i} style={{background:i%2===0?"#07101c":"#060d18"}}>
-                    <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",maxWidth:160}}>
-                      <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#a8c4e0"}}>{c.campaignName?.trim()}</div>
-                      <div style={{fontSize:9,color:"#3d5a72"}}>{c.platform}</div>
+                  <tr key={c.id||i} style={{background:_lm?(i%2===0?"#ffffff":"#f8fafc"):(i%2===0?"#07101c":"#060d18")}}>
+                    <td style={{padding:"5px 8px",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`,maxWidth:160}}>
+                      <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:_lm?"#0f172a":"#a8c4e0"}}>{c.campaignName?.trim()}</div>
+                      <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72"}}>{c.platform}</div>
                     </td>
-                    <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",textAlign:"right",color:"#edf4ff",fontFamily:"monospace"}}>
+                    <td style={{padding:"5px 8px",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`,textAlign:"right",color:_lm?"#0f172a":"#edf4ff",fontFamily:"monospace"}}>
                       {(c.impressions||0).toLocaleString()}
                       {pc&&imprUp!==0&&<div style={{fontSize:9,color:imprUp>0?"#00e5a0":"#ef4444"}}>{imprUp>0?"+":""}{imprUp.toLocaleString()}</div>}
                     </td>
-                    <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",textAlign:"right",color:"#edf4ff",fontFamily:"monospace"}}>{(c.clicks||0).toLocaleString()}</td>
-                    <td style={{padding:"5px 8px",borderBottom:"1px solid #0a1018",textAlign:"right",color:"#edf4ff",fontFamily:"monospace"}}>
+                    <td style={{padding:"5px 8px",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`,textAlign:"right",color:_lm?"#0f172a":"#edf4ff",fontFamily:"monospace"}}>{(c.clicks||0).toLocaleString()}</td>
+                    <td style={{padding:"5px 8px",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`,textAlign:"right",color:_lm?"#0f172a":"#edf4ff",fontFamily:"monospace"}}>
                       {ctr.toFixed(3)}%
                       {pc&&ctrUp!==0&&<div style={{fontSize:9,color:ctrUp>0?"#00e5a0":"#ef4444"}}>{ctrUp>0?"+":""}{ctrUp.toFixed(3)}%</div>}
                     </td>
@@ -8206,11 +8315,11 @@ function ReportVault({ onAnalyzeWithZeus }) {
   }
 
   if(vault.length===0) return (
-    <div style={{textAlign:"center",padding:"60px 40px",color:"#3d5a72"}}>
+    <div style={{textAlign:"center",padding:"60px 40px",color:_lm?"#64748b":"#3d5a72"}}>
       <div style={{fontSize:40,marginBottom:12}}>🗃</div>
-      <div style={{fontSize:16,fontWeight:700,color:"#edf4ff",marginBottom:8}}>Report Vault</div>
+      <div style={{fontSize:16,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:8}}>Report Vault</div>
       <div style={{fontSize:13,lineHeight:1.7,maxWidth:400,margin:"0 auto"}}>
-        No saved reports yet. Go to the <strong style={{color:"#60a5fa"}}>📄 Reports</strong> tab, build a report, then click <strong style={{color:"#60a5fa"}}>🗃 Save to Report Vault</strong>.
+        No saved reports yet. Go to the <strong style={{color:_lm?"#059669":"#60a5fa"}}>📄 Reports</strong> tab, build a report, then click <strong style={{color:_lm?"#059669":"#60a5fa"}}>🗃 Save to Report Vault</strong>.
         <br/><br/>Reports are stored locally and can be compared month-over-month or analyzed by Zeus.
       </div>
     </div>
@@ -8222,42 +8331,42 @@ function ReportVault({ onAnalyzeWithZeus }) {
       <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
         <input value={search} onChange={e=>setSearch(e.target.value)}
           placeholder="Search by client, title, date…"
-          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"7px 14px",color:"#d8eaf8",fontSize:13,width:260,outline:"none"}}/>
-        <span style={{fontSize:12,color:"#4d6e8a",flex:1}}>{vault.length} saved report{vault.length!==1?"s":""}</span>
+          style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"7px 14px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,width:260,outline:"none"}}/>
+        <span style={{fontSize:12,color:_lm?"#475569":"#4d6e8a",flex:1}}>{vault.length} saved report{vault.length!==1?"s":""}</span>
         {selected&&(
           <>
             {!pickMode&&!comparing&&(
               <button onClick={()=>setPickMode(true)}
-                style={{background:"#0d1f35",border:"1px solid #1e4d7a",borderRadius:7,padding:"6px 14px",color:"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                style={{background:_lm?"#f0f9ff":"#0d1f35",border:`1px solid ${_lm?"#bae6fd":"#1e4d7a"}`,borderRadius:7,padding:"6px 14px",color:_lm?"#0369a1":"#60a5fa",fontSize:12,fontWeight:600,cursor:"pointer"}}>
                 ⇄ Compare to another report
               </button>
             )}
             {comparing&&(
               <button onClick={()=>{setComparing(null);setPickMode(false);}}
-                style={{background:"#1a0e00",border:"1px solid #92400e",borderRadius:7,padding:"6px 14px",color:"#f59e0b",fontSize:12,cursor:"pointer"}}>
+                style={{background:_lm?"#fffbeb":"#1a0e00",border:`1px solid ${_lm?"#fcd34d":"#92400e"}`,borderRadius:7,padding:"6px 14px",color:"#f59e0b",fontSize:12,cursor:"pointer"}}>
                 × Clear comparison
               </button>
             )}
             {onAnalyzeWithZeus&&(
               <button onClick={()=>onAnalyzeWithZeus(selected, comparing)}
-                style={{background:"#0d1f0d",border:"1px solid #166534",borderRadius:7,padding:"6px 14px",color:"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                style={{background:_lm?"#f0fdf9":"#0d1f0d",border:`1px solid ${_lm?"#00c896":"#166534"}`,borderRadius:7,padding:"6px 14px",color:_lm?"#059669":"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer"}}>
                 ⚡ Analyze with Zeus
               </button>
             )}
             <button onClick={()=>{setSelected(null);setComparing(null);setPickMode(false);}}
-              style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"6px 14px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>
+              style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:7,padding:"6px 14px",color:_lm?"#475569":"#4d6e8a",fontSize:12,cursor:"pointer"}}>
               ← Back to list
             </button>
           </>
         )}
-        <button onClick={clearAll} style={{background:"none",border:"none",color:"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>
+        <button onClick={clearAll} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#3d5a72",fontSize:11,cursor:"pointer"}}>Clear all</button>
       </div>
 
       {/* ── Detail view ── */}
       {selected&&(
         <div>
           {pickMode&&!comparing&&(
-            <div style={{background:"#001a2e",border:"1px solid #1e4d7a",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#60a5fa"}}>
+            <div style={{background:_lm?"#f0f9ff":"#001a2e",border:`1px solid ${_lm?"#bae6fd":"#1e4d7a"}`,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:_lm?"#0369a1":"#60a5fa"}}>
               Pick a report from the list below to compare with "{selected.title}"
             </div>
           )}
@@ -8271,7 +8380,7 @@ function ReportVault({ onAnalyzeWithZeus }) {
       {/* ── Report list ── */}
       {(!selected||pickMode)&&Object.entries(byClient).map(([client,reports])=>(
         <div key={client} style={{marginBottom:20}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#4d6e8a",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:"1px solid #1e293b"}}>{client} — {reports.length} report{reports.length!==1?"s":""}</div>
+          <div style={{fontSize:11,fontWeight:700,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8,paddingBottom:6,borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`}}>{client} — {reports.length} report{reports.length!==1?"s":""}</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:10}}>
             {reports.map(r=>{
               const isSelected=selected?.id===r.id;
@@ -8282,25 +8391,25 @@ function ReportVault({ onAnalyzeWithZeus }) {
                     if(pickMode&&selected&&r.id!==selected.id){ setComparing(r); setPickMode(false); return; }
                     setSelected(r); setComparing(null); setPickMode(false);
                   }}
-                  style={{background:isSelected?"#001a2e":isComparing?"#1a1000":"#0c1625",border:`1px solid ${isSelected?"#1e4d7a":isComparing?"#92400e":"#1e293b"}`,borderRadius:8,padding:"12px 14px",cursor:"pointer",transition:"all .15s",position:"relative"}}>
+                  style={{background:_lm?(isSelected?"#f0fdf9":isComparing?"#fffbeb":"#ffffff"):(isSelected?"#001a2e":isComparing?"#1a1000":"#0c1625"),border:`1px solid ${_lm?(isSelected?"#00c896":isComparing?"#fcd34d":"#e2e8f0"):(isSelected?"#1e4d7a":isComparing?"#92400e":"#1e293b")}`,borderRadius:8,padding:"12px 14px",cursor:"pointer",transition:"all .15s",position:"relative",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
                   <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:6}}>
                     <div style={{minWidth:0,flex:1}}>
-                      <div style={{fontSize:12,fontWeight:700,color:isSelected?"#60a5fa":"#edf4ff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title||r.client}</div>
-                      <div style={{fontSize:11,color:"#4d6e8a",marginTop:2}}>{r.dateRange?.label||""}</div>
-                      <div style={{fontSize:10,color:"#3d5a72",marginTop:1}}>{r.savedAtLabel} · {r.campaigns?.length||0} tactics</div>
+                      <div style={{fontSize:12,fontWeight:700,color:_lm?(isSelected?"#059669":"#0f172a"):(isSelected?"#60a5fa":"#edf4ff"),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title||r.client}</div>
+                      <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",marginTop:2}}>{r.dateRange?.label||""}</div>
+                      <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:1}}>{r.savedAtLabel} · {r.campaigns?.length||0} tactics</div>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
                       <div style={{width:10,height:10,borderRadius:2,background:r.brandColor||"#1a73e8"}}/>
                       <button onClick={e=>{e.stopPropagation();deleteReport(r.id);}}
-                        style={{background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:13,padding:"0 2px",lineHeight:1}}>×</button>
+                        style={{background:"none",border:"none",color:_lm?"#94a3b8":"#3d5a72",cursor:"pointer",fontSize:13,padding:"0 2px",lineHeight:1}}>×</button>
                     </div>
                   </div>
-                  <div style={{display:"flex",gap:12,marginTop:8,fontSize:10,color:"#4d6e8a"}}>
+                  <div style={{display:"flex",gap:12,marginTop:8,fontSize:10,color:_lm?"#64748b":"#4d6e8a"}}>
                     <span>{(r.totals?.impressions||0).toLocaleString()} impr</span>
                     <span>{(r.totals?.clicks||0).toLocaleString()} clicks</span>
                     {r.totals?.impressions>0&&<span>{(r.totals.clicks/r.totals.impressions*100).toFixed(3)}% CTR</span>}
                   </div>
-                  {(isSelected||isComparing)&&<div style={{position:"absolute",top:8,right:32,fontSize:9,color:isSelected?"#60a5fa":"#f59e0b",fontWeight:700}}>{isSelected?"VIEWING":"COMPARING"}</div>}
+                  {(isSelected||isComparing)&&<div style={{position:"absolute",top:8,right:32,fontSize:9,color:_lm?(isSelected?"#059669":"#f59e0b"):(isSelected?"#60a5fa":"#f59e0b"),fontWeight:700}}>{isSelected?"VIEWING":"COMPARING"}</div>}
                 </div>
               );
             })}
@@ -8544,8 +8653,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
     }
   });
 
-  const card = {background:"#0c1625",border:"1px solid #1a2744",borderRadius:10};
-  const labelStyle = {fontSize:10,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700};
+  const card = _lm?{background:"#ffffff",border:"1px solid #e2e8f0",borderRadius:10,boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}:{background:"#0c1625",border:"1px solid #1a2744",borderRadius:10};
+  const labelStyle = {fontSize:10,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700};
 
   // ═══════ Chart geometry (fixed, no overflow) ═══════
   // Vertical layout for the chart:
@@ -8559,15 +8668,15 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
   const NEG_HALF = 60;
 
   return (
-    <div style={{color:"#d8eaf8", maxWidth:1500, margin:"0 auto"}}>
+    <div style={{color:_lm?"#0f172a":"#d8eaf8", maxWidth:1500, margin:"0 auto"}}>
       {/* ── Header ─────────────────────────────────────────────── */}
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:14}}>
         <div>
-          <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:2}}>💰 Revenue Dashboard</div>
-          <div style={{fontSize:11,color:"#4d6e8a"}}>{withContract.length} campaigns · {trackableCampaigns.length} with spend data{totPendingCampaigns>0?` · ${totPendingCampaigns} pending`:""}</div>
+          <div style={{fontSize:15,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginBottom:2}}>💰 Revenue Dashboard</div>
+          <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a"}}>{withContract.length} campaigns · {trackableCampaigns.length} with spend data{totPendingCampaigns>0?` · ${totPendingCampaigns} pending`:""}</div>
         </div>
         <select value={filterPartner} onChange={e=>setFilterPartner(e.target.value)}
-          style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"6px 12px",color:"#d8eaf8",fontSize:12,cursor:"pointer"}}>
+          style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"6px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,cursor:"pointer"}}>
           {partners.map(p=><option key={p} value={p}>{p==="all"?"All Partners":p}</option>)}
         </select>
       </div>
@@ -8576,27 +8685,27 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
       {(losersThisFocus.length>0 || pendingThisFocus.length>0) && (
         <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
           {losersThisFocus.length>0 && (
-            <div style={{flex:"1 1 240px",background:"#2a0d12",border:"1px solid #ef444455",borderRadius:9,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{flex:"1 1 240px",background:_lm?"#fee2e2":"#2a0d12",border:`1px solid ${_lm?"#ef4444":"#ef444455"}`,borderRadius:9,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:16}}>⚠️</span>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12,fontWeight:700,color:"#fca5a5"}}>{losersThisFocus.length} losing money in {focusLabelShort}</div>
-                <div style={{fontSize:10,color:"#9ca3af",marginTop:2}}>Combined: {$f(losersThisFocus.reduce((s,r)=>s+r.focusCell.profit,0))}</div>
+                <div style={{fontSize:12,fontWeight:700,color:_lm?"#b91c1c":"#fca5a5"}}>{losersThisFocus.length} losing money in {focusLabelShort}</div>
+                <div style={{fontSize:10,color:_lm?"#64748b":"#9ca3af",marginTop:2}}>Combined: {$f(losersThisFocus.reduce((s,r)=>s+r.focusCell.profit,0))}</div>
               </div>
               <button onClick={()=>setSortKey("loss")}
-                style={{background:"#ef444422",border:"1px solid #ef444466",color:"#fca5a5",borderRadius:6,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                style={{background:_lm?"#fca5a522":"#ef444422",border:`1px solid ${_lm?"#ef4444":"#ef444466"}`,color:_lm?"#b91c1c":"#fca5a5",borderRadius:6,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
                 Sort →
               </button>
             </div>
           )}
           {pendingThisFocus.length>0 && (
-            <div style={{flex:"1 1 240px",background:"#2a1f0a",border:"1px solid #f59e0b55",borderRadius:9,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{flex:"1 1 240px",background:_lm?"#fffbeb":"#2a1f0a",border:`1px solid ${_lm?"#f59e0b":"#f59e0b55"}`,borderRadius:9,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:16}}>⏳</span>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12,fontWeight:700,color:"#fcd34d"}}>{pendingThisFocus.length} awaiting spend entry</div>
-                <div style={{fontSize:10,color:"#9ca3af",marginTop:2}}>Untracked revenue: {$f(pendingThisFocus.reduce((s,r)=>s+r.focusCell.rev,0))}</div>
+                <div style={{fontSize:12,fontWeight:700,color:_lm?"#92400e":"#fcd34d"}}>{pendingThisFocus.length} awaiting spend entry</div>
+                <div style={{fontSize:10,color:_lm?"#64748b":"#9ca3af",marginTop:2}}>Untracked revenue: {$f(pendingThisFocus.reduce((s,r)=>s+r.focusCell.rev,0))}</div>
               </div>
               <button onClick={()=>setSortKey("pending")}
-                style={{background:"#f59e0b22",border:"1px solid #f59e0b66",color:"#fcd34d",borderRadius:6,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                style={{background:_lm?"#fef3c7":"#f59e0b22",border:`1px solid ${_lm?"#f59e0b":"#f59e0b66"}`,color:_lm?"#92400e":"#fcd34d",borderRadius:6,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
                 Sort →
               </button>
             </div>
@@ -8613,7 +8722,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
           const canNext = activeIdx < months.length - 1;
           const navBtn = (label, onClick, enabled) => (
             <button onClick={onClick} disabled={!enabled}
-              style={{background:"#1a2744",border:"1px solid #1e3a5f",borderRadius:8,color:"#7a9bbf",
+              style={{background:_lm?"#f1f5f9":"#1a2744",border:`1px solid ${_lm?"#e2e8f0":"#1e3a5f"}`,borderRadius:8,color:_lm?"#475569":"#7a9bbf",
                 fontSize:28,fontWeight:700,padding:"4px 20px",cursor:enabled?"pointer":"default",
                 lineHeight:1,opacity:enabled?1:0.25,transition:"opacity .15s",userSelect:"none"}}>
               {label}
@@ -8625,11 +8734,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
             <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:24,marginBottom:14}}>
               {navBtn("‹", goPrev, canPrev)}
               <div style={{textAlign:"center",minWidth:220}}>
-                <div style={{fontSize:26,fontWeight:800,color:"#edf4ff",lineHeight:1,marginBottom:6}}>{focusLabel}</div>
+                <div style={{fontSize:26,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",lineHeight:1,marginBottom:6}}>{focusLabel}</div>
                 <div style={{display:"flex",gap:6,justifyContent:"center",flexWrap:"wrap",alignItems:"center"}}>
-                  {isCurrentFocus && <span style={{fontSize:9,background:"#00e5a022",color:"#00e5a0",padding:"2px 8px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em"}}>CURRENT</span>}
-                  {isLockedFocus && <span style={{fontSize:9,background:"#7a9bbf22",color:"#7a9bbf",padding:"2px 8px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em"}}>🔒 LOCKED</span>}
-                  {!isCurrentFocus && <button onClick={()=>setFocusMonth(null)} style={{fontSize:9,background:"transparent",border:"1px solid #1e293b",color:"#4d6e8a",padding:"2px 8px",borderRadius:10,fontWeight:600,cursor:"pointer",letterSpacing:"0.04em"}}>↩ Current</button>}
+                  {isCurrentFocus && <span style={{fontSize:9,background:_lm?"#f0fdf9":"#00e5a022",color:_lm?"#059669":"#00e5a0",padding:"2px 8px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em",border:_lm?"1px solid #00c89640":"none"}}>CURRENT</span>}
+                  {isLockedFocus && <span style={{fontSize:9,background:_lm?"#f1f5f9":"#7a9bbf22",color:_lm?"#475569":"#7a9bbf",padding:"2px 8px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em"}}>🔒 LOCKED</span>}
+                  {!isCurrentFocus && <button onClick={()=>setFocusMonth(null)} style={{fontSize:9,background:"transparent",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,color:_lm?"#64748b":"#4d6e8a",padding:"2px 8px",borderRadius:10,fontWeight:600,cursor:"pointer",letterSpacing:"0.04em"}}>↩ Current</button>}
                 </div>
               </div>
               {navBtn("›", goNext, canNext)}
@@ -8647,14 +8756,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
             const hasTrackable = t.revenueWithSpend > 0;
             return (
               <button key={mo} onClick={()=>setFocusMonth(mo===thisMonth?null:mo)}
-                style={{background:isFocus?"#1a2744":"transparent",
-                  border:isFocus?"1px solid #00e5a055":isCurr?"1px solid #00e5a033":isLocked?"1px solid #7a9bbf44":"1px solid #1e293b",
+                style={{background:isFocus?(_lm?"#f0fdf9":"#1a2744"):"transparent",
+                  border:isFocus?`1px solid ${_lm?"#00c896":"#00e5a055"}`:isCurr?`1px solid ${_lm?"#00c89650":"#00e5a033"}`:isLocked?`1px solid ${_lm?"#e2e8f0":"#7a9bbf44"}`:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,
                   borderRadius:6,padding:"4px 9px",cursor:"pointer",minWidth:52,
                   display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
-                <div style={{fontSize:9,color:isFocus?"#00e5a0":isCurr?"#7a9bbf":"#4d6e8a",fontWeight:isFocus||isCurr?700:500}}>
+                <div style={{fontSize:9,color:isFocus?(_lm?"#059669":"#00e5a0"):isCurr?(_lm?"#059669":"#7a9bbf"):(_lm?"#64748b":"#4d6e8a"),fontWeight:isFocus||isCurr?700:500}}>
                   {moDate(mo).toLocaleDateString("en-US",{month:"short"})} '{mo.slice(2,4)}{isLocked?" 🔒":""}
                 </div>
-                <div style={{fontSize:9,fontWeight:700,color:hasTrackable?profitColor(p):"#3d5a72"}}>
+                <div style={{fontSize:9,fontWeight:700,color:hasTrackable?profitColor(p):(_lm?"#94a3b8":"#3d5a72")}}>
                   {hasTrackable?(p>=0?"+":"")+$fk(p):(t.revenue>0?"⏳":"·")}
                 </div>
               </button>
@@ -8667,26 +8776,24 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
       <div style={{...card,padding:"16px 20px",marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap"}}>
           <div style={{...labelStyle,flex:1}}>{focusLabel}</div>
-          {isCurrentFocus && <span style={{fontSize:9,background:"#00e5a022",color:"#00e5a0",padding:"2px 7px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em"}}>CURRENT</span>}
-          {isLockedFocus && <span title={`Locked on ${monthLocks[activeMonth]?.lockedAt} — spend data frozen`} style={{fontSize:9,background:"#7a9bbf22",color:"#7a9bbf",padding:"2px 7px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em",cursor:"default"}}>🔒 LOCKED</span>}
-          {/* Export P&L — available any time there is data */}
+          {isCurrentFocus && <span style={{fontSize:9,background:_lm?"#f0fdf9":"#00e5a022",color:_lm?"#059669":"#00e5a0",padding:"2px 7px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em",border:_lm?"1px solid #00c89640":"none"}}>CURRENT</span>}
+          {isLockedFocus && <span title={`Locked on ${monthLocks[activeMonth]?.lockedAt} — spend data frozen`} style={{fontSize:9,background:_lm?"#f1f5f9":"#7a9bbf22",color:_lm?"#475569":"#7a9bbf",padding:"2px 7px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em",cursor:"default"}}>🔒 LOCKED</span>}
           {(fmRevWithSpend>0||fmRev>0) && (
             <button onClick={()=>setShowPLReport(true)}
-              style={{background:"#0d1a2e",border:"1px solid #3B8FFF60",borderRadius:7,padding:"5px 12px",color:"#7dd3fc",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+              style={{background:_lm?"#f1f5f9":"#0d1a2e",border:`1px solid ${_lm?"#e2e8f0":"#3B8FFF60"}`,borderRadius:7,padding:"5px 12px",color:_lm?"#475569":"#7dd3fc",fontSize:11,fontWeight:700,cursor:"pointer"}}>
               📊 Export P&L
             </button>
           )}
-          {/* Lock / Unlock — only for completed past months */}
           {isPastFocus && !isLockedFocus && fmRevWithSpend>0 && (
             <button onClick={()=>lockMonth(activeMonth)}
-              style={{background:"#0d1a0a",border:"1px solid #00d48a60",borderRadius:7,padding:"5px 12px",color:"#00d48a",fontSize:11,fontWeight:700,cursor:"pointer"}}
+              style={{background:_lm?"#f0fdf9":"#0d1a0a",border:`1px solid ${_lm?"#00c896":"#00d48a60"}`,borderRadius:7,padding:"5px 12px",color:_lm?"#059669":"#00d48a",fontSize:11,fontWeight:700,cursor:"pointer"}}
               title={`Freeze ${focusLabel} spend data so future CSV drops don't overwrite it`}>
               🔒 Lock {focusLabelShort} Final Data
             </button>
           )}
           {isPastFocus && isLockedFocus && (
             <button onClick={()=>unlockMonth(activeMonth)}
-              style={{background:"#1a0808",border:"1px solid #ef444460",borderRadius:7,padding:"5px 12px",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer"}}
+              style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#ef4444":"#ef444460"}`,borderRadius:7,padding:"5px 12px",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer"}}
               title="Remove lock — spend data will update from next CSV drop">
               Unlock
             </button>
@@ -8708,7 +8815,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
             <div key={s.label}>
               <div style={{...labelStyle,marginBottom:4}}>{s.label}</div>
               <div style={{fontSize:24,fontWeight:800,color:s.color,lineHeight:1,marginBottom:3}}>{s.val}</div>
-              <div style={{fontSize:10,color:"#3d5a72"}}>{s.sub}</div>
+              <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{s.sub}</div>
             </div>
           ))}
         </div>
@@ -8717,8 +8824,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
       {/* ── 12-month PROFIT bar chart (big & clean) ─────────── */}
       <div style={{...card,padding:"22px 26px",marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>Monthly Profit</div>
-          <div style={{display:"flex",gap:16,fontSize:11,color:"#7a9bbf",alignItems:"center"}}>
+          <div style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>Monthly Profit</div>
+          <div style={{display:"flex",gap:16,fontSize:11,color:_lm?"#64748b":"#7a9bbf",alignItems:"center"}}>
             <span><span style={{display:"inline-block",width:10,height:10,background:"#00d48a",borderRadius:2,marginRight:6,verticalAlign:"middle"}}/>Profit</span>
             <span><span style={{display:"inline-block",width:10,height:10,background:"#ef4444",borderRadius:2,marginRight:6,verticalAlign:"middle"}}/>Loss</span>
             <span style={{color:"#f59e0b"}}><span style={{display:"inline-block",width:10,height:10,background:"#f59e0b",borderRadius:2,marginRight:6,verticalAlign:"middle"}}/>Pending</span>
@@ -8749,7 +8856,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
 
                   return (
                     <div key={mo} onClick={()=>setFocusMonth(mo===thisMonth?null:mo)}
-                      style={{flex:"1 0 56px",cursor:"pointer",borderRadius:6,background:isFocus?"#1a274455":"transparent",display:"flex",flexDirection:"column",padding:"0 4px"}}>
+                      style={{flex:"1 0 56px",cursor:"pointer",borderRadius:6,background:isFocus?(_lm?"#f0fdf9":"#1a274455"):"transparent",display:"flex",flexDirection:"column",padding:"0 4px"}}>
                       {/* Value above bar */}
                       <div style={{height:20,display:"flex",alignItems:"flex-end",justifyContent:"center",fontSize:11,fontWeight:600,color:hasPending?"#f59e0b":pColor}}>
                         {hasTrackable && profit > 0 ? "+"+$fk(profit) : hasPending ? $fk(t.pendingRev) : ""}
@@ -8766,7 +8873,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                         )}
                       </div>
                       {/* Zero baseline */}
-                      <div style={{height:2,background:"#1a2744",margin:"0 -4px"}}/>
+                      <div style={{height:2,background:_lm?"#cbd5e1":"#1a2744",margin:"0 -4px"}}/>
                       {/* Negative bar zone */}
                       <div style={{height:NEG_H,display:"flex",alignItems:"flex-start",justifyContent:"center"}}>
                         {negH > 0 && (
@@ -8780,8 +8887,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                       </div>
                       {/* Month label */}
                       <div style={{height:LABEL_H,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-start",paddingTop:8,gap:2}}>
-                        <div style={{fontSize:12,color:isFocus?"#00e5a0":isCurr?"#7a9bbf":"#4d6e8a",fontWeight:isFocus||isCurr?700:500,lineHeight:1}}>{label}{isCurr?" •":""}</div>
-                        <div style={{fontSize:10,color:"#3d5a72",lineHeight:1}}>'{yr}</div>
+                        <div style={{fontSize:12,color:isFocus?(_lm?"#059669":"#00e5a0"):isCurr?(_lm?"#0f172a":"#7a9bbf"):(_lm?"#64748b":"#4d6e8a"),fontWeight:isFocus||isCurr?700:500,lineHeight:1}}>{label}{isCurr?" •":""}</div>
+                        <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",lineHeight:1}}>'{yr}</div>
                       </div>
                     </div>
                   );
@@ -8803,14 +8910,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
           <div key={s.label} style={{...card,padding:"12px 16px"}}>
             <div style={{...labelStyle,marginBottom:5}}>{s.label}</div>
             <div style={{fontSize:20,fontWeight:800,color:s.color,lineHeight:1,marginBottom:3}}>{s.val}</div>
-            <div style={{fontSize:10,color:"#3d5a72"}}>{s.sub}</div>
+            <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{s.sub}</div>
           </div>
         ))}
       </div>
 
       {/* ── Campaign breakdown — focused month ───────────────── */}
       {sortedRows.length===0?(
-        <div style={{textAlign:"center",padding:"40px 0",color:"#3d5a72"}}>
+        <div style={{textAlign:"center",padding:"40px 0",color:_lm?"#64748b":"#3d5a72"}}>
           <div style={{fontSize:28,marginBottom:8}}>💰</div>
           <div style={{fontSize:13}}>No campaigns with contract values yet.</div>
           <div style={{fontSize:11,marginTop:5}}>Edit a campaign and fill in the Contract Value field to start tracking.</div>
@@ -8820,16 +8927,16 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
             <div style={{...labelStyle}}>Campaign Breakdown — {focusLabelShort}</div>
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-              <div style={{display:"flex",background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:5,padding:1}}>
+              <div style={{display:"flex",background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:1}}>
                 {[{k:"dollar",l:"$"},{k:"margin",l:"%"}].map(o=>(
                   <button key={o.k} onClick={()=>setCellMode(o.k)}
                     title={o.k==="dollar"?"Show profit in dollars":"Show profit margin %"}
-                    style={{background:cellMode===o.k?"#1a2744":"transparent",border:"none",color:cellMode===o.k?"#00e5a0":"#4d6e8a",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:4,cursor:"pointer",minWidth:24}}>
+                    style={{background:cellMode===o.k?(_lm?"#f0fdf9":"#1a2744"):"transparent",border:"none",color:cellMode===o.k?(_lm?"#059669":"#00e5a0"):(_lm?"#475569":"#4d6e8a"),fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:4,cursor:"pointer",minWidth:24}}>
                     {o.l}
                   </button>
                 ))}
               </div>
-              <span style={{fontSize:10,color:"#4d6e8a"}}>Sort:</span>
+              <span style={{fontSize:10,color:_lm?"#475569":"#4d6e8a"}}>Sort:</span>
               {[
                 {k:"profit",  l:"Top profit"},
                 {k:"loss",    l:"Biggest loss"},
@@ -8838,14 +8945,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                 {k:"name",    l:"Name"},
               ].map(o=>(
                 <button key={o.k} onClick={()=>setSortKey(o.k)}
-                  style={{background:sortKey===o.k?"#1a2744":"transparent",border:"1px solid "+(sortKey===o.k?"#00e5a055":"#1e293b"),color:sortKey===o.k?"#00e5a0":"#7a9bbf",fontSize:10,fontWeight:sortKey===o.k?700:500,padding:"3px 8px",borderRadius:5,cursor:"pointer"}}>
+                  style={{background:sortKey===o.k?(_lm?"#f0fdf9":"#1a2744"):"transparent",border:`1px solid ${sortKey===o.k?(_lm?"#00c896":"#00e5a055"):(_lm?"#e2e8f0":"#1e293b")}`,color:sortKey===o.k?(_lm?"#059669":"#00e5a0"):(_lm?"#475569":"#7a9bbf"),fontSize:10,fontWeight:sortKey===o.k?700:500,padding:"3px 8px",borderRadius:5,cursor:"pointer"}}>
                   {o.l}
                 </button>
               ))}
             </div>
           </div>
           {/* Header */}
-          <div style={{display:"grid",gridTemplateColumns:"minmax(240px,1fr) 130px 130px 140px 90px 120px 120px",gap:10,padding:"6px 12px",fontSize:10,color:"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:"1px solid #1a2744",marginBottom:4,alignItems:"center"}}>
+          <div style={{display:"grid",gridTemplateColumns:"minmax(240px,1fr) 130px 130px 140px 90px 120px 120px",gap:10,padding:"6px 12px",fontSize:10,color:_lm?"#64748b":"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,marginBottom:4,alignItems:"center"}}>
             <span>Campaign</span>
             <span style={{textAlign:"right"}}>Revenue</span>
             <span style={{textAlign:"right"}}>Spend</span>
@@ -8862,27 +8969,27 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
             const profDisp = cellMode==="margin"
               ? (r.focusMargin!=null ? (r.focusMargin>=0?"+":"")+r.focusMargin.toFixed(0)+"%" : "—")
               : (r.focusCell.profit!=null && r.focusCell.rev>0 ? (r.focusCell.profit>=0?"+":"")+$fk(r.focusCell.profit) : r.focusCell.pending?"⏳":"—");
-            const rowBg = isOpen ? "#0e1828" : idx%2===1 ? "#060e1a" : "transparent";
+            const rowBg = _lm?(isOpen?"#f0fdf9":idx%2===1?"#f8fafc":"transparent"):(isOpen?"#0e1828":idx%2===1?"#060e1a":"transparent");
             return (
               <Fragment key={r.c.id}>
                 <div onClick={()=>setExpandedRow(isOpen?null:r.c.id)}
-                  style={{display:"grid",gridTemplateColumns:"minmax(240px,1fr) 130px 130px 140px 90px 120px 120px",gap:10,padding:"12px 12px",borderBottom:"1px solid #0e1828",alignItems:"center",cursor:"pointer",background:rowBg,borderRadius:5,marginBottom:1}}>
+                  style={{display:"grid",gridTemplateColumns:"minmax(240px,1fr) 130px 130px 140px 90px 120px 120px",gap:10,padding:"12px 12px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#0e1828"}`,alignItems:"center",cursor:"pointer",background:rowBg,borderRadius:5,marginBottom:1}}>
                   {/* Campaign name */}
                   <div style={{overflow:"hidden"}}>
                     <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-                      <span style={{color:"#4d6e8a",fontSize:10}}>{isOpen?"▼":"▶"}</span>
-                      <span style={{background:r.pCol+"22",color:r.pCol,border:"1px solid "+r.pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.c.platform}</span>
-                      <span style={{fontSize:13,fontWeight:600,color:"#d8eaf8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.c.campaignName.trim()}</span>
+                      <span style={{color:_lm?"#94a3b8":"#4d6e8a",fontSize:10}}>{isOpen?"▼":"▶"}</span>
+                      {_lm?(()=>{const rc=r.pCol;const rr=parseInt(rc.slice(1,3),16)/255,rg=parseInt(rc.slice(3,5),16)/255,rb=parseInt(rc.slice(5,7),16)/255;const txt=(0.299*rr+0.587*rg+0.114*rb)>0.45?"#0a1a0a":"#ffffff";return<span style={{background:rc,color:txt,border:"none",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.c.platform}</span>;})():<span style={{background:r.pCol+"22",color:r.pCol,border:"1px solid "+r.pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.c.platform}</span>}
+                      <span style={{fontSize:13,fontWeight:600,color:_lm?"#0f172a":"#d8eaf8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.c.campaignName.trim()}</span>
                       {!r.trackable && <span title="No spend data yet" style={{fontSize:10,color:"#f59e0b"}}>⏳</span>}
                     </div>
-                    <div style={{fontSize:10,color:"#3d5a72",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",paddingLeft:16}}>{r.c.mediaPartner}</div>
+                    <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",paddingLeft:16}}>{r.c.mediaPartner}</div>
                   </div>
                   {/* Revenue */}
-                  <div style={{textAlign:"right",fontSize:14,fontWeight:700,color:r.focusCell.rev>0?"#7a9bbf":"#3d5a72"}}>
+                  <div style={{textAlign:"right",fontSize:14,fontWeight:700,color:r.focusCell.rev>0?(_lm?"#0ea5e9":"#7a9bbf"):(_lm?"#94a3b8":"#3d5a72")}}>
                     {r.focusCell.rev>0?$fk(r.focusCell.rev):"—"}
                   </div>
                   {/* Spend */}
-                  <div style={{textAlign:"right",fontSize:14,fontWeight:700,color:r.focusCell.spend!=null?"#f59e0b":r.focusCell.pending?"#f59e0b88":"#3d5a72"}}>
+                  <div style={{textAlign:"right",fontSize:14,fontWeight:700,color:r.focusCell.spend!=null?"#f59e0b":r.focusCell.pending?"#f59e0b88":(_lm?"#94a3b8":"#3d5a72")}}>
                     {r.focusCell.spend!=null?$fk(r.focusCell.spend):r.focusCell.pending?"⏳":"—"}
                   </div>
                   {/* Profit or Margin (toggled) */}
@@ -8894,30 +9001,30 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                     {r.focusMargin!=null?r.focusMargin.toFixed(0)+"%":"—"}
                   </div>
                   {/* 12-Mo profit */}
-                  <div style={{textAlign:"right",fontSize:13,fontWeight:700,color:r.windowProfit!=null?profitColor(r.windowProfit):"#3d5a72"}}>
+                  <div style={{textAlign:"right",fontSize:13,fontWeight:700,color:r.windowProfit!=null?profitColor(r.windowProfit):(_lm?"#94a3b8":"#3d5a72")}}>
                     {r.windowProfit!=null?(r.windowProfit>=0?"+":"")+$fk(r.windowProfit):"⏳"}
                   </div>
                   {/* Lifetime profit */}
-                  <div style={{textAlign:"right",fontSize:13,fontWeight:800,color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):"#3d5a72"}}>
+                  <div style={{textAlign:"right",fontSize:13,fontWeight:800,color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):(_lm?"#94a3b8":"#3d5a72")}}>
                     {r.lifetimeProfit!=null?(r.lifetimeProfit>=0?"+":"")+$fk(r.lifetimeProfit):"⏳"}
                   </div>
                 </div>
                 {/* Expanded detail row */}
                 {isOpen && (
-                  <div style={{background:"#0a1320",border:"1px solid #1a2744",borderRadius:8,padding:"18px 22px",margin:"4px 4px 10px"}}>
+                  <div style={{background:_lm?"#f8fafc":"#0a1320",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8,padding:"18px 22px",margin:"4px 4px 10px"}}>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:24,alignItems:"end"}}>
                       <div>
-                        <div style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Contract · {focusLabelShort}</div>
-                        <div style={{fontSize:26,fontWeight:700,color:"#7a9bbf",lineHeight:1}}>{$fc(r.focusCell.rev)}</div>
+                        <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Contract · {focusLabelShort}</div>
+                        <div style={{fontSize:26,fontWeight:700,color:_lm?"#0ea5e9":"#7a9bbf",lineHeight:1}}>{$fc(r.focusCell.rev)}</div>
                       </div>
                       <div>
-                        <div style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Spend</div>
+                        <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Spend</div>
                         <div style={{fontSize:26,fontWeight:700,color:"#f59e0b",lineHeight:1}}>
                           {r.focusCell.spend==null?<span style={{color:"#f59e0b",fontSize:18}}>⏳ pending</span>:$fc(r.focusCell.spend)}
                         </div>
                       </div>
                       <div>
-                        <div style={{fontSize:10,color:"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
+                        <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
                           Profit{r.focusMargin!=null?<span style={{color:marginColor(r.focusMargin),marginLeft:6,fontWeight:700}}>· {r.focusMargin.toFixed(0)}%</span>:""}
                         </div>
                         <div style={{fontSize:26,fontWeight:700,color:r.focusCell.profit!=null?profitColor(r.focusCell.profit):"#3d5a72",lineHeight:1}}>
@@ -8925,20 +9032,20 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                         </div>
                       </div>
                       <button onClick={(e)=>{ e.stopPropagation(); onEdit(r.c); }}
-                        style={{background:"#162236",border:"1px solid #334155",color:"#7a9bbf",fontSize:12,fontWeight:600,padding:"7px 16px",borderRadius:6,cursor:"pointer",whiteSpace:"nowrap"}}>
+                        style={{background:_lm?"#f0fdf9":"#162236",border:`1px solid ${_lm?"#00c896":"#334155"}`,color:_lm?"#059669":"#7a9bbf",fontSize:12,fontWeight:600,padding:"7px 16px",borderRadius:6,cursor:"pointer",whiteSpace:"nowrap"}}>
                         Edit →
                       </button>
                     </div>
-                    <div style={{fontSize:11,color:"#4d6e8a",marginTop:14,paddingTop:12,borderTop:"1px solid #1a2744",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                    <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
                       <span>{r.c.mediaPartner||"—"} · {r.c.startDate||"—"} → {r.c.endDate||"—"}</span>
-                      <span>Lifetime: <span style={{color:"#7a9bbf"}}>{$fc(r.contract)}</span> contract / <span style={{color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):"#3d5a72",fontWeight:700}}>{r.lifetimeProfit==null?"⏳":((r.lifetimeProfit>=0?"+":"")+$f(r.lifetimeProfit))}</span> profit</span>
+                      <span>Lifetime: <span style={{color:_lm?"#0ea5e9":"#7a9bbf"}}>{$fc(r.contract)}</span> contract / <span style={{color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):(_lm?"#94a3b8":"#3d5a72"),fontWeight:700}}>{r.lifetimeProfit==null?"⏳":((r.lifetimeProfit>=0?"+":"")+$f(r.lifetimeProfit))}</span> profit</span>
                     </div>
                   </div>
                 )}
               </Fragment>
             );
           })}
-          <div style={{marginTop:10,fontSize:10,color:"#3d5a72",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+          <div style={{marginTop:10,fontSize:10,color:_lm?"#64748b":"#3d5a72",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
             <span>Click campaign to expand · use ‹ › arrows or mini strip to change month · ⏳ = spend not yet entered</span>
             <span><span style={{color:"#00d48a"}}>green</span> profit · <span style={{color:"#ef4444"}}>red</span> loss · <span style={{color:"#f59e0b"}}>amber</span> pending</span>
           </div>
@@ -8965,29 +9072,29 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
         return (
           <div style={{position:"fixed",inset:0,background:"#000a",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
             onClick={e=>{if(e.target===e.currentTarget)setShowPLReport(false);}}>
-            <div style={{background:"#0c1625",border:"1px solid #1a2744",borderRadius:14,width:"100%",maxWidth:820,maxHeight:"90vh",overflow:"auto",padding:0}}>
+            <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:14,width:"100%",maxWidth:820,maxHeight:"90vh",overflow:"auto",padding:0}}>
               {/* Modal header */}
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 22px",borderBottom:"1px solid #1a2744",position:"sticky",top:0,background:"#0c1625",zIndex:2}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 22px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,position:"sticky",top:0,background:_lm?"#ffffff":"#0c1625",zIndex:2}}>
                 <div>
-                  <div style={{fontSize:16,fontWeight:800,color:"#edf4ff"}}>📊 P&L Report — {focusLabel}</div>
-                  <div style={{fontSize:11,color:"#4d6e8a",marginTop:2}}>{lock?`Locked ${lock.lockedAt}`:"Live data — lock the month to freeze"} · {reportRows.length} campaigns</div>
+                  <div style={{fontSize:16,fontWeight:800,color:_lm?"#0f172a":"#edf4ff"}}>📊 P&L Report — {focusLabel}</div>
+                  <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:2}}>{lock?`Locked ${lock.lockedAt}`:"Live data — lock the month to freeze"} · {reportRows.length} campaigns</div>
                 </div>
                 <div style={{display:"flex",gap:8}}>
-                  <button onClick={()=>window.print()} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"7px 14px",color:"#7dd3fc",fontSize:12,fontWeight:700,cursor:"pointer"}}>🖨 Print / Save PDF</button>
-                  <button onClick={()=>setShowPLReport(false)} style={{background:"none",border:"1px solid #334155",borderRadius:7,padding:"7px 12px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>✕ Close</button>
+                  <button onClick={()=>window.print()} style={{background:_lm?"#f0fdf9":"#162236",border:`1px solid ${_lm?"#00c896":"#334155"}`,borderRadius:7,padding:"7px 14px",color:_lm?"#059669":"#7dd3fc",fontSize:12,fontWeight:700,cursor:"pointer"}}>🖨 Print / Save PDF</button>
+                  <button onClick={()=>setShowPLReport(false)} style={{background:"none",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"7px 12px",color:_lm?"#475569":"#4d6e8a",fontSize:12,cursor:"pointer"}}>✕ Close</button>
                 </div>
               </div>
               {/* Summary KPIs */}
               <div id={printId} style={{padding:"18px 22px"}}>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20}}>
                   {[
-                    {label:"Revenue",val:"$"+Math.round(totalRev).toLocaleString(),color:"#7dd3fc"},
+                    {label:"Revenue",val:"$"+Math.round(totalRev).toLocaleString(),color:_lm?"#0ea5e9":"#7dd3fc"},
                     {label:"Platform Spend",val:"$"+Math.round(totalSpend).toLocaleString(),color:"#f59e0b"},
                     {label:"Gross Profit",val:(totalProfit>=0?"+":"-")+"$"+Math.round(Math.abs(totalProfit)).toLocaleString(),color:totalProfit>=0?"#00d48a":"#ef4444"},
                     {label:"Margin",val:totalRev>0?totalMargin.toFixed(1)+"%":"—",color:totalMargin>=30?"#00d48a":totalMargin>=15?"#f59e0b":"#ef4444"},
                   ].map(s=>(
-                    <div key={s.label} style={{background:"#0a1628",border:"1px solid #1a2744",borderRadius:8,padding:"12px 14px"}}>
-                      <div style={{fontSize:9,color:"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:4}}>{s.label}</div>
+                    <div key={s.label} style={{background:_lm?"#f8fafc":"#0a1628",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8,padding:"12px 14px"}}>
+                      <div style={{fontSize:9,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:4}}>{s.label}</div>
                       <div style={{fontSize:22,fontWeight:800,color:s.color,lineHeight:1}}>{s.val}</div>
                     </div>
                   ))}
@@ -8995,38 +9102,41 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                 {/* Campaign table */}
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead>
-                    <tr style={{borderBottom:"2px solid #1a2744"}}>
+                    <tr style={{borderBottom:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
                       {["Campaign","Partner","Plt","Revenue","Spend","Profit","Margin"].map(h=>(
-                        <th key={h} style={{padding:"7px 8px",textAlign:["Revenue","Spend","Profit","Margin"].includes(h)?"right":"left",color:"#3d5a72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
+                        <th key={h} style={{padding:"7px 8px",textAlign:["Revenue","Spend","Profit","Margin"].includes(h)?"right":"left",color:_lm?"#64748b":"#3d5a72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {[...reportRows].sort((a,b)=>(b.profit||0)-(a.profit||0)).map((r,i)=>{
                       const margin = r.revenue>0&&r.spend!=null?((r.profit||0)/r.revenue*100):null;
+                      const pc = PLT_COLORS[r.platform]||"#4d6e8a";
+                      const pr=parseInt(pc.slice(1,3),16)/255,pg=parseInt(pc.slice(3,5),16)/255,pb=parseInt(pc.slice(5,7),16)/255;
+                      const ptxt=(0.299*pr+0.587*pg+0.114*pb)>0.45?"#0a1a0a":"#ffffff";
                       return (
-                        <tr key={i} style={{borderBottom:"1px solid #0d1525",background:i%2===0?"transparent":"#06101a"}}>
-                          <td style={{padding:"6px 8px",color:"#d8eaf8",fontWeight:600,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</td>
-                          <td style={{padding:"6px 8px",color:"#7a9bbf",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.partner}</td>
-                          <td style={{padding:"6px 8px"}}><span style={{background:(PLT_COLORS[r.platform]||"#4d6e8a")+"22",color:PLT_COLORS[r.platform]||"#4d6e8a",border:"1px solid "+(PLT_COLORS[r.platform]||"#4d6e8a")+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.platform}</span></td>
-                          <td style={{padding:"6px 8px",textAlign:"right",color:"#7dd3fc",fontWeight:600}}>${Math.round(r.revenue).toLocaleString()}</td>
+                        <tr key={i} style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#0d1525"}`,background:_lm?(i%2===0?"#ffffff":"#f8fafc"):(i%2===0?"transparent":"#06101a")}}>
+                          <td style={{padding:"6px 8px",color:_lm?"#0f172a":"#d8eaf8",fontWeight:600,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</td>
+                          <td style={{padding:"6px 8px",color:_lm?"#475569":"#7a9bbf",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.partner}</td>
+                          <td style={{padding:"6px 8px"}}>{_lm?<span style={{background:pc,color:ptxt,borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.platform}</span>:<span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.platform}</span>}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:600}}>${Math.round(r.revenue).toLocaleString()}</td>
                           <td style={{padding:"6px 8px",textAlign:"right",color:"#f59e0b"}}>{r.spend!=null?"$"+Math.round(r.spend).toLocaleString():"⏳"}</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:r.profit==null?"#3d5a72":r.profit>=0?"#00d48a":"#ef4444"}}>{r.profit==null?"—":(r.profit>=0?"+":"-")+"$"+Math.round(Math.abs(r.profit||0)).toLocaleString()}</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",color:margin==null?"#3d5a72":margin>=30?"#00d48a":margin>=15?"#f59e0b":"#ef4444"}}>{margin==null?"—":margin.toFixed(1)+"%"}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:r.profit==null?(_lm?"#94a3b8":"#3d5a72"):r.profit>=0?"#00d48a":"#ef4444"}}>{r.profit==null?"—":(r.profit>=0?"+":"-")+"$"+Math.round(Math.abs(r.profit||0)).toLocaleString()}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",color:margin==null?(_lm?"#94a3b8":"#3d5a72"):margin>=30?"#00d48a":margin>=15?"#f59e0b":"#ef4444"}}>{margin==null?"—":margin.toFixed(1)+"%"}</td>
                         </tr>
                       );
                     })}
                     {/* Totals row */}
-                    <tr style={{borderTop:"2px solid #1a2744",background:"#0a1628"}}>
-                      <td colSpan={3} style={{padding:"8px 8px",color:"#edf4ff",fontWeight:800,fontSize:13}}>TOTAL</td>
-                      <td style={{padding:"8px 8px",textAlign:"right",color:"#7dd3fc",fontWeight:800,fontSize:13}}>${Math.round(totalRev).toLocaleString()}</td>
+                    <tr style={{borderTop:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`,background:_lm?"#f0fdf9":"#0a1628"}}>
+                      <td colSpan={3} style={{padding:"8px 8px",color:_lm?"#059669":"#edf4ff",fontWeight:800,fontSize:13}}>TOTAL</td>
+                      <td style={{padding:"8px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:800,fontSize:13}}>${Math.round(totalRev).toLocaleString()}</td>
                       <td style={{padding:"8px 8px",textAlign:"right",color:"#f59e0b",fontWeight:800,fontSize:13}}>${Math.round(totalSpend).toLocaleString()}</td>
                       <td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,fontSize:13,color:totalProfit>=0?"#00d48a":"#ef4444"}}>{(totalProfit>=0?"+":"-")+"$"+Math.round(Math.abs(totalProfit)).toLocaleString()}</td>
                       <td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,fontSize:13,color:totalMargin>=30?"#00d48a":totalMargin>=15?"#f59e0b":"#ef4444"}}>{totalRev>0?totalMargin.toFixed(1)+"%":"—"}</td>
                     </tr>
                   </tbody>
                 </table>
-                <div style={{marginTop:14,fontSize:10,color:"#3d5a72",display:"flex",justifyContent:"space-between"}}>
+                <div style={{marginTop:14,fontSize:10,color:_lm?"#64748b":"#3d5a72",display:"flex",justifyContent:"space-between"}}>
                   <span>Recrue Media · {focusLabel} P&L{lock?" · 🔒 Locked "+lock.lockedAt:" · Live data (not locked)"}</span>
                   <span>Generated {new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span>
                 </div>
@@ -9277,13 +9387,13 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
   const snapRefresh     = getVal("snap.credentials.refresh_token");
 
   // Shared styles
-  const iS = {background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,width:"100%",boxSizing:"border-box",fontFamily:"inherit",outline:"none"};
-  const labelS = {display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700};
+  const iS = {background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,width:"100%",boxSizing:"border-box",fontFamily:"inherit",outline:"none"};
+  const labelS = {display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700};
 
   const sectionBtn = (key,label,icon) => (
     <button key={key} onClick={()=>setActiveSection(key)}
-      style={{background:activeSection===key?"#002e24":"#0e1a2e",border:"1px solid "+(activeSection===key?"#00c896":"#1e293b"),
-        borderRadius:8,padding:"10px 0",color:activeSection===key?"#00e5a0":"#4d6e8a",
+      style={{background:activeSection===key?(_lm?"#f0fdf9":"#002e24"):(_lm?"#f1f5f9":"#0e1a2e"),border:`1px solid ${activeSection===key?(_lm?"#00c896":"#00c896"):(_lm?"#cbd5e1":"#1e293b")}`,
+        borderRadius:8,padding:"10px 0",color:activeSection===key?(_lm?"#059669":"#00e5a0"):(_lm?"#475569":"#4d6e8a"),
         fontSize:13,fontWeight:activeSection===key?700:400,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7,
         minWidth:200,flexShrink:0}}>
       <span style={{fontSize:16}}>{icon}</span>{label}
@@ -9304,25 +9414,25 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
     const name = c.campaignName.trim();
 
     return (
-      <div key={c.id} style={{background:"#0a1422",border:"1px solid "+(done?"#00d48a30":"#162236"),borderRadius:8,padding:"12px 14px"}}>
+      <div key={c.id} style={{background:_lm?"#f8fafc":"#0a1422",border:`1px solid ${done?(_lm?"#00c89640":"#00d48a30"):(_lm?"#e2e8f0":"#162236")}`,borderRadius:8,padding:"12px 14px"}}>
         <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
-          <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>
-          <span style={{fontSize:12,fontWeight:700,color:"#edf4ff"}}>{name}</span>
-          <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:done?"#00d48a":"#3d5a72"}}>{done?"✓ Ready":"Incomplete"}</span>
+          {_lm?(()=>{const pr=parseInt(pCol.slice(1,3),16)/255,pg=parseInt(pCol.slice(3,5),16)/255,pb=parseInt(pCol.slice(5,7),16)/255;const ptxt=(0.299*pr+0.587*pg+0.114*pb)>0.45?"#0a1a0a":"#ffffff";return<span style={{background:pCol,color:ptxt,borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>;})():<span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>}
+          <span style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{name}</span>
+          <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:done?"#00d48a":(_lm?"#94a3b8":"#3d5a72")}}>{done?"✓ Ready":"Incomplete"}</span>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <div>
             <label style={labelS}>{accountLabel}</label>
             <input value={accVal} onChange={e=>setVal(`${pfx}.campaigns.${c.id}.${accKey}`,e.target.value)}
               placeholder={accountPlaceholder} style={{...iS,fontFamily:"monospace"}}/>
-            <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>{accountHint}</div>
+            <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>{accountHint}</div>
           </div>
           <div>
-            <label style={labelS}>Campaign ID(s) <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>— one per line</span></label>
+            <label style={labelS}>Campaign ID(s) <span style={{color:_lm?"#94a3b8":"#3d5a72",textTransform:"none",fontWeight:400}}>— one per line</span></label>
             <textarea value={idsVal} onChange={e=>setVal(`${pfx}.campaigns.${c.id}.${idsKey}`,e.target.value)}
               placeholder={pfx==="meta"?"23456789012345\n23456789098765":"abc123def\nxyz456ghi"} rows={3}
               style={{...iS,resize:"vertical",fontFamily:"monospace",minHeight:58}}/>
-            <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>{idHint}</div>
+            <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>{idHint}</div>
           </div>
         </div>
       </div>
@@ -9341,10 +9451,10 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
     return (
       <div style={{marginBottom:16}}>
         {/* Partner header */}
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,paddingBottom:6,borderBottom:"1px solid #1a2744"}}>
-          <span style={{fontSize:12,fontWeight:800,color:"#edf4ff"}}>{partner}</span>
-          <span style={{fontSize:10,color:"#3d5a72"}}>{pCampaigns.length} campaign{pCampaigns.length!==1?"s":""}</span>
-          <span style={{fontSize:10,fontWeight:700,color:allDone?"#00d48a":anyDone?"#f59e0b":"#3d5a72",marginLeft:"auto"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,paddingBottom:6,borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+          <span style={{fontSize:12,fontWeight:800,color:_lm?"#0f172a":"#edf4ff"}}>{partner}</span>
+          <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72"}}>{pCampaigns.length} campaign{pCampaigns.length!==1?"s":""}</span>
+          <span style={{fontSize:10,fontWeight:700,color:allDone?"#00d48a":anyDone?"#f59e0b":(_lm?"#94a3b8":"#3d5a72"),marginLeft:"auto"}}>
             {allDone?"✓ All ready":anyDone?"Partial":"Not configured"}
           </span>
           {/* Apply-to-all button: show when there are 2+ campaigns and an account ID is set */}
@@ -9352,7 +9462,7 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
             <button
               onClick={()=>applyToPartner(platform, partner, repAccKey, repAccVal)}
               title={`Copy "${repAccVal}" to all ${partner} campaigns`}
-              style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:5,padding:"2px 9px",color:"#00e5a0",fontSize:10,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+              style={{background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:5,padding:"2px 9px",color:_lm?"#059669":"#00e5a0",fontSize:10,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
               Apply ID to all ↓
             </button>
           )}
@@ -9369,10 +9479,10 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
   }
 
   return (
-    <div style={{color:"#d8eaf8",maxWidth:1100}}>
+    <div style={{color:_lm?"#0f172a":"#d8eaf8",maxWidth:1100}}>
       <div style={{marginBottom:20}}>
-        <div style={{fontSize:15,fontWeight:800,color:"#edf4ff",marginBottom:4}}>⚙️ Platform Config</div>
-        <div style={{fontSize:11,color:"#4d6e8a"}}>Connect your ad platforms so campaign metrics sync automatically via GitHub Actions. Fill in credentials and IDs below, then download the config files to drop into your repo.</div>
+        <div style={{fontSize:15,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginBottom:4}}>⚙️ Platform Config</div>
+        <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a"}}>Connect your ad platforms so campaign metrics sync automatically via GitHub Actions. Fill in credentials and IDs below, then download the config files to drop into your repo.</div>
       </div>
 
       {/* Section switcher + download */}
@@ -9388,31 +9498,31 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
         {/* Download button — sits right next to Setup Guide, only on non-setup sections */}
         {activeSection==="meta" && metaActive.length>0 && (
           <button title="Download meta_config.json" onClick={()=>downloadJSON("meta_config.json", buildMetaConfig())}
-            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89650"}`,borderRadius:8,padding:"10px 18px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
             <span style={{fontSize:16}}>⬇</span>Config
           </button>
         )}
         {activeSection==="ttd" && ttdActive.length>0 && (
           <button title="Download ttd_config.json" onClick={()=>downloadJSON("ttd_config.json", buildTTDConfig())}
-            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89650"}`,borderRadius:8,padding:"10px 18px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
             <span style={{fontSize:16}}>⬇</span>Config
           </button>
         )}
         {activeSection==="dsp" && dspActive.length>0 && (
           <button title="Download dsp_config.json" onClick={()=>downloadJSON("dsp_config.json", buildDSPConfig())}
-            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89650"}`,borderRadius:8,padding:"10px 18px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
             <span style={{fontSize:16}}>⬇</span>Config
           </button>
         )}
         {activeSection==="google" && googleActive.length>0 && (
           <button title="Download google_ads_config.json" onClick={()=>downloadJSON("google_ads_config.json", buildGoogleConfig())}
-            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89650"}`,borderRadius:8,padding:"10px 18px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
             <span style={{fontSize:16}}>⬇</span>Config
           </button>
         )}
         {activeSection==="snap" && snapActive.length>0 && (
           <button title="Download snap_config.json" onClick={()=>downloadJSON("snap_config.json", buildSnapConfig())}
-            style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:8,padding:"10px 18px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
+            style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89650"}`,borderRadius:8,padding:"10px 18px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7,whiteSpace:"nowrap",flexShrink:0}}>
             <span style={{fontSize:16}}>⬇</span>Config
           </button>
         )}
@@ -9420,49 +9530,49 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
       {/* Search — second row, hidden on Setup Guide */}
       {activeSection!=="setup" && (
         <div style={{marginBottom:16,position:"relative",display:"inline-block"}}>
-          <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#3d5a72",fontSize:13,pointerEvents:"none"}}>🔍</span>
+          <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:_lm?"#94a3b8":"#3d5a72",fontSize:13,pointerEvents:"none"}}>🔍</span>
           <input value={search} onChange={e=>setSearch(e.target.value)}
             placeholder="Search campaigns…"
-            style={{...iS,width:240,paddingLeft:30,background:"#0a1422"}}/>
+            style={{...iS,width:240,paddingLeft:30}}/>
           {search && <button onClick={()=>setSearch("")}
-            style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#3d5a72",cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}
+            style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:_lm?"#94a3b8":"#3d5a72",cursor:"pointer",fontSize:14,lineHeight:1,padding:0}}>×</button>}
         </div>
       )}
 
       {/* ── META ── */}
       {activeSection==="meta"&&<div>
         {/* Credentials */}
-        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+        <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"16px 20px",marginBottom:16,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+          <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
             🔑 Meta Credentials
-            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally in your browser — never sent anywhere</span>
+            <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",fontWeight:400}}>Stored locally in your browser — never sent anywhere</span>
           </div>
           <div style={{maxWidth:580}}>
-            <label style={labelS}>Access Token <span style={{color:"#3d5a72",textTransform:"none",fontSize:10,fontWeight:400}}>— System User token with ads_read + read_insights</span></label>
+            <label style={labelS}>Access Token <span style={{color:_lm?"#94a3b8":"#3d5a72",textTransform:"none",fontSize:10,fontWeight:400}}>— System User token with ads_read + read_insights</span></label>
             <div style={{display:"flex",gap:6}}>
               <input type="password" value={metaToken} onChange={e=>setVal("meta.credentials.token",e.target.value)}
                 placeholder="EAAxxxxxxxx..." style={{...iS,flex:1,fontFamily:"monospace"}}/>
               {metaToken&&<button onClick={()=>copyText(metaToken,"meta-token")}
-                style={{background:"#002e24",border:"1px solid #00c89640",borderRadius:6,padding:"7px 12px",color:"#00e5a0",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                style={{background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:6,padding:"7px 12px",color:_lm?"#059669":"#00e5a0",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
                 {copied==="meta-token"?"✓ Copied":"Copy"}
               </button>}
             </div>
-            <div style={{fontSize:10,color:"#3d5a72",marginTop:4}}>Meta Business Suite → Business Settings → System Users → Add Token</div>
+            <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:4}}>Meta Business Suite → Business Settings → System Users → Add Token</div>
           </div>
         </div>
 
         {/* Progress */}
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+          <div style={{flex:1,background:_lm?"#e2e8f0":"#07101c",borderRadius:4,height:6}}>
             <div style={{background:metaDone===metaActive.length&&metaActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:metaActive.length>0?(metaDone/metaActive.length*100)+"%":"0%",transition:"width .3s"}}/>
           </div>
-          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{metaDone} / {metaActive.length} campaigns configured</span>
+          <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",whiteSpace:"nowrap"}}>{metaDone} / {metaActive.length} campaigns configured</span>
           {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {metaFiltered.length} match{metaFiltered.length!==1?"es":""}</span>}
         </div>
 
         {/* Grouped campaigns */}
         {metaFiltered.length===0
-          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active FB/FBV/IG campaigns found."}</div>
+          ? <div style={{textAlign:"center",padding:"30px 0",color:_lm?"#64748b":"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active FB/FBV/IG campaigns found."}</div>
           : groupByPartner(metaFiltered).map(([partner, pCampaigns])=>(
             <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="meta"
               completeCheck={metaComplete}
@@ -9478,39 +9588,39 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
       {/* ── TTD ── */}
       {activeSection==="ttd"&&<div>
         {/* Credentials */}
-        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+        <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"16px 20px",marginBottom:16,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+          <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
             🔑 TTD API Credentials
-            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
+            <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,maxWidth:700}}>
             <div>
               <label style={labelS}>API Login</label>
               <input value={ttdLogin} onChange={e=>setVal("ttd.credentials.login",e.target.value)}
                 placeholder="your@email.com" style={{...iS,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>TTD UI → Accounts → API Access → create credential</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>TTD UI → Accounts → API Access → create credential</div>
             </div>
             <div>
               <label style={labelS}>API Password</label>
               <input type="password" value={ttdPass} onChange={e=>setVal("ttd.credentials.password",e.target.value)}
                 placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Use an API-only credential, not your UI login password</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Use an API-only credential, not your UI login password</div>
             </div>
           </div>
         </div>
 
         {/* Progress */}
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+          <div style={{flex:1,background:_lm?"#e2e8f0":"#07101c",borderRadius:4,height:6}}>
             <div style={{background:ttdDone===ttdActive.length&&ttdActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:ttdActive.length>0?(ttdDone/ttdActive.length*100)+"%":"0%",transition:"width .3s"}}/>
           </div>
-          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{ttdDone} / {ttdActive.length} campaigns configured</span>
+          <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",whiteSpace:"nowrap"}}>{ttdDone} / {ttdActive.length} campaigns configured</span>
           {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {ttdFiltered.length} match{ttdFiltered.length!==1?"es":""}</span>}
         </div>
 
         {/* Grouped campaigns */}
         {ttdFiltered.length===0
-          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active TD campaigns found."}</div>
+          ? <div style={{textAlign:"center",padding:"30px 0",color:_lm?"#64748b":"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active TD campaigns found."}</div>
           : groupByPartner(ttdFiltered).map(([partner, pCampaigns])=>(
             <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="ttd"
               completeCheck={ttdComplete}
@@ -9526,51 +9636,51 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
       {/* ── DSP ── */}
       {activeSection==="dsp"&&<div>
         {/* Credentials */}
-        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+        <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"16px 20px",marginBottom:16,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+          <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
             🔑 DSP API Credentials
-            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
+            <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <div>
               <label style={labelS}>AWS Access Key ID</label>
               <input value={dspAccessKey} onChange={e=>setVal("dsp.credentials.access_key",e.target.value)}
                 placeholder="AKIAXXXXXXXXXXXXXXXX" style={{...iS,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Provided by your DSP rep</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Provided by your DSP rep</div>
             </div>
             <div>
               <label style={labelS}>AWS Secret Access Key</label>
               <input type="password" value={dspSecretKey} onChange={e=>setVal("dsp.credentials.secret_key",e.target.value)}
                 placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Provided by your DSP rep</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Provided by your DSP rep</div>
             </div>
             <div>
               <label style={labelS}>x-api-key</label>
               <input type="password" value={dspApiKey} onChange={e=>setVal("dsp.credentials.api_key",e.target.value)}
                 placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Provided by your DSP rep alongside AWS credentials</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Provided by your DSP rep alongside AWS credentials</div>
             </div>
             <div>
-              <label style={labelS}>AWS Session Token <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>— optional</span></label>
+              <label style={labelS}>AWS Session Token <span style={{color:_lm?"#94a3b8":"#3d5a72",textTransform:"none",fontWeight:400}}>— optional</span></label>
               <input type="password" value={dspSession} onChange={e=>setVal("dsp.credentials.session_token",e.target.value)}
                 placeholder="Leave blank if not using temporary credentials" style={{...iS,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Only needed if your rep issued temporary IAM credentials</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Only needed if your rep issued temporary IAM credentials</div>
             </div>
           </div>
         </div>
 
         {/* Progress */}
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+          <div style={{flex:1,background:_lm?"#e2e8f0":"#07101c",borderRadius:4,height:6}}>
             <div style={{background:dspDone===dspActive.length&&dspActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:dspActive.length>0?(dspDone/dspActive.length*100)+"%":"0%",transition:"width .3s"}}/>
           </div>
-          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{dspDone} / {dspActive.length} campaigns configured</span>
+          <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",whiteSpace:"nowrap"}}>{dspDone} / {dspActive.length} campaigns configured</span>
           {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {dspFiltered.length} match{dspFiltered.length!==1?"es":""}</span>}
         </div>
 
         {/* Grouped campaigns */}
         {dspFiltered.length===0
-          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active DSP campaigns found."}</div>
+          ? <div style={{textAlign:"center",padding:"30px 0",color:_lm?"#64748b":"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active DSP campaigns found."}</div>
           : groupByPartner(dspFiltered).map(([partner, pCampaigns])=>(
             <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="dsp"
               completeCheck={dspComplete}
@@ -9586,25 +9696,25 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
       {/* ── GOOGLE ADS ── */}
       {activeSection==="google"&&<div>
         {/* Credentials */}
-        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:4,display:"flex",alignItems:"center",gap:8}}>
+        <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"16px 20px",marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:4,display:"flex",alignItems:"center",gap:8}}>
             🔑 Google Ads API Credentials
-            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
+            <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
           </div>
-          <div style={{fontSize:11,color:"#4d6e8a",marginBottom:12}}>
+          <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",marginBottom:12}}>
             Requires a Google Ads developer token + OAuth2 credentials.{" "}
             <a href="https://developers.google.com/google-ads/api/docs/get-started/oauth-cloud" target="_blank" rel="noreferrer"
-              style={{color:"#60a5fa",textDecoration:"none"}}>Setup guide →</a>
+              style={{color:_lm?"#059669":"#60a5fa",textDecoration:"none"}}>Setup guide →</a>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <div style={{gridColumn:"1 / -1",background:"#07101c",borderRadius:7,padding:"10px 14px",display:"flex",alignItems:"center",gap:12}}>
+            <div style={{gridColumn:"1 / -1",background:_lm?"#f8fafc":"#07101c",borderRadius:7,padding:"10px 14px",display:"flex",alignItems:"center",gap:12,border:_lm?"1px solid #e2e8f0":"none"}}>
               <div style={{flex:1}}>
                 <label style={labelS}>MCC Manager Account ID</label>
                 <input value={googleMccId} onChange={e=>setVal("google.credentials.mcc_id",e.target.value)}
                   placeholder="1234567890  (no dashes)" style={{...iS,fontFamily:"monospace"}}/>
-                <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Your top-level manager account ID — Google Ads UI → account switcher → MCC account number</div>
+                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Your top-level manager account ID — Google Ads UI → account switcher → MCC account number</div>
               </div>
-              <div style={{fontSize:11,color:"#4d6e8a",maxWidth:220,lineHeight:1.4}}>
+              <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",maxWidth:220,lineHeight:1.4}}>
                 Since you have an MCC, one set of credentials covers all client accounts. Each campaign card below just needs the client's customer ID.
               </div>
             </div>
@@ -9612,41 +9722,41 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
               <label style={labelS}>Developer Token</label>
               <input type="password" value={googleDevToken} onChange={e=>setVal("google.credentials.developer_token",e.target.value)}
                 placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Google Ads UI → Tools → API Center</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Google Ads UI → Tools → API Center</div>
             </div>
             <div>
               <label style={labelS}>OAuth2 Client ID</label>
               <input value={googleClientId} onChange={e=>setVal("google.credentials.client_id",e.target.value)}
                 placeholder="xxxxxxxxxxxx.apps.googleusercontent.com" style={{...iS,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Google Cloud Console → APIs & Services → Credentials</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Google Cloud Console → APIs & Services → Credentials</div>
             </div>
             <div>
               <label style={labelS}>OAuth2 Client Secret</label>
               <input type="password" value={googleClientSec} onChange={e=>setVal("google.credentials.client_secret",e.target.value)}
                 placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Same credentials screen as Client ID</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Same credentials screen as Client ID</div>
             </div>
             <div>
               <label style={labelS}>Refresh Token</label>
               <input type="password" value={googleRefresh} onChange={e=>setVal("google.credentials.refresh_token",e.target.value)}
                 placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Generated once via OAuth flow — does not expire</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Generated once via OAuth flow — does not expire</div>
             </div>
           </div>
         </div>
 
         {/* Progress */}
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+          <div style={{flex:1,background:_lm?"#e2e8f0":"#07101c",borderRadius:4,height:6}}>
             <div style={{background:googleDone===googleActive.length&&googleActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:googleActive.length>0?(googleDone/googleActive.length*100)+"%":"0%",transition:"width .3s"}}/>
           </div>
-          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{googleDone} / {googleActive.length} campaigns configured</span>
+          <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",whiteSpace:"nowrap"}}>{googleDone} / {googleActive.length} campaigns configured</span>
           {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {googleFiltered.length} match{googleFiltered.length!==1?"es":""}</span>}
         </div>
 
         {/* Grouped campaigns */}
         {googleFiltered.length===0
-          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active SEM or YT campaigns found."}</div>
+          ? <div style={{textAlign:"center",padding:"30px 0",color:_lm?"#64748b":"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active SEM or YT campaigns found."}</div>
           : groupByPartner(googleFiltered).map(([partner, pCampaigns])=>(
             <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="google"
               completeCheck={googleComplete}
@@ -9662,54 +9772,54 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
       {/* ── SNAPCHAT ── */}
       {activeSection==="snap"&&<div>
         {/* Approval warning */}
-        <div style={{background:"#1a1000",border:"1px solid #f59e0b40",borderRadius:8,padding:"12px 16px",marginBottom:16,display:"flex",gap:10,alignItems:"flex-start"}}>
+        <div style={{background:_lm?"#fffbeb":"#1a1000",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:8,padding:"12px 16px",marginBottom:16,display:"flex",gap:10,alignItems:"flex-start"}}>
           <span style={{fontSize:18,flexShrink:0}}>⚠️</span>
           <div>
             <div style={{fontSize:12,fontWeight:700,color:"#f59e0b",marginBottom:3}}>Snapchat API approval required before this will work</div>
-            <div style={{fontSize:11,color:"#92400e",lineHeight:1.5}}>Submit your app for review at <span style={{color:"#fbbf24"}}>developers.snap.com</span> → My Apps → New App. Request <strong>snapchat-marketing-api</strong> scope. Approval takes 2–5 business days. See the Snapchat API Setup Guide for full instructions.</div>
+            <div style={{fontSize:11,color:_lm?"#92400e":"#92400e",lineHeight:1.5}}>Submit your app for review at <span style={{color:_lm?"#b45309":"#fbbf24"}}>developers.snap.com</span> → My Apps → New App. Request <strong>snapchat-marketing-api</strong> scope. Approval takes 2–5 business days. See the Snapchat API Setup Guide for full instructions.</div>
           </div>
         </div>
 
         {/* Credentials */}
-        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",marginBottom:16}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+        <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"16px 20px",marginBottom:16,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+          <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
             🔑 Snapchat API Credentials
-            <span style={{fontSize:10,color:"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
+            <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",fontWeight:400}}>Stored locally — never sent anywhere</span>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
             <div>
               <label style={labelS}>OAuth2 Client ID</label>
               <input value={snapClientId} onChange={e=>setVal("snap.credentials.client_id",e.target.value)}
                 placeholder="From developers.snap.com → My Apps" style={{...iS,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Snap Developer Portal → your app → Client ID</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Snap Developer Portal → your app → Client ID</div>
             </div>
             <div>
               <label style={labelS}>OAuth2 Client Secret</label>
               <input type="password" value={snapClientSec} onChange={e=>setVal("snap.credentials.client_secret",e.target.value)}
                 placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Same app page as Client ID</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Same app page as Client ID</div>
             </div>
             <div>
               <label style={labelS}>Refresh Token</label>
               <input type="password" value={snapRefresh} onChange={e=>setVal("snap.credentials.refresh_token",e.target.value)}
                 placeholder="••••••••" style={{...iS,fontFamily:"monospace"}}/>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Generated via OAuth flow — see setup guide. Expires after 12 months.</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Generated via OAuth flow — see setup guide. Expires after 12 months.</div>
             </div>
           </div>
         </div>
 
         {/* Progress */}
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-          <div style={{flex:1,background:"#07101c",borderRadius:4,height:6}}>
+          <div style={{flex:1,background:_lm?"#e2e8f0":"#07101c",borderRadius:4,height:6}}>
             <div style={{background:snapDone===snapActive.length&&snapActive.length>0?"#00d48a":"#3b82f6",height:"100%",borderRadius:4,width:snapActive.length>0?(snapDone/snapActive.length*100)+"%":"0%",transition:"width .3s"}}/>
           </div>
-          <span style={{fontSize:11,color:"#4d6e8a",whiteSpace:"nowrap"}}>{snapDone} / {snapActive.length} campaigns configured</span>
+          <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",whiteSpace:"nowrap"}}>{snapDone} / {snapActive.length} campaigns configured</span>
           {q && <span style={{fontSize:11,color:"#f59e0b"}}>Showing {snapFiltered.length} match{snapFiltered.length!==1?"es":""}</span>}
         </div>
 
         {/* Grouped campaigns */}
         {snapFiltered.length===0
-          ? <div style={{textAlign:"center",padding:"30px 0",color:"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active SP campaigns found."}</div>
+          ? <div style={{textAlign:"center",padding:"30px 0",color:_lm?"#64748b":"#3d5a72",fontSize:13}}>{q?"No campaigns match your search.":"No active SP campaigns found."}</div>
           : groupByPartner(snapFiltered).map(([partner, pCampaigns])=>(
             <PartnerGroup key={partner} partner={partner} campaigns={pCampaigns} platform="snap"
               completeCheck={snapComplete}
@@ -9724,7 +9834,7 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
 
       {/* ── SETUP GUIDE ── */}
       {activeSection==="health"&&<div>
-        <div style={{fontSize:14,fontWeight:700,color:"#edf4ff",marginBottom:16}}>🩺 Sync Health Dashboard</div>
+        <div style={{fontSize:14,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:16}}>🩺 Sync Health Dashboard</div>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {[
             {key:"meta",   label:"Meta (FB / FBV / IG)", icon:"📘", color:"#60a5fa",  status:metaSyncStatus,   info:metaSyncInfo,   active:metaActive},
@@ -9756,32 +9866,32 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
                       : {c:"#3d5a72",label:"Not set up"};
 
             return (
-              <div key={key} style={{background:"#0c1625",border:`1px solid ${dot.c}30`,borderRadius:10,padding:"14px 18px"}}>
+              <div key={key} style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${dot.c}30`,borderRadius:10,padding:"14px 18px",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom: hasErrors||lastSync ? 10 : 0}}>
                   {/* Status dot */}
                   <div style={{width:10,height:10,borderRadius:"50%",background:dot.c,flexShrink:0,
                     boxShadow: status==="syncing"?`0 0 6px ${dot.c}`:"none"}}/>
                   {/* Platform name */}
-                  <span style={{fontSize:13,fontWeight:700,color:"#edf4ff"}}>{icon} {label}</span>
+                  <span style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{icon} {label}</span>
                   {/* Status badge */}
                   <span style={{fontSize:11,background:dot.c+"22",border:`1px solid ${dot.c}40`,
                     borderRadius:4,padding:"1px 8px",color:dot.c,fontWeight:600}}>{dot.label}</span>
                   <div style={{flex:1}}/>
                   {/* Campaign count */}
                   {isConfigured && (
-                    <span style={{fontSize:11,color:"#4d6e8a"}}>
+                    <span style={{fontSize:11,color:_lm?"#475569":"#4d6e8a"}}>
                       {fetched}/{total} campaigns synced
                     </span>
                   )}
                   {!isConfigured && (
-                    <span style={{fontSize:11,color:"#3d5a72"}}>Not configured</span>
+                    <span style={{fontSize:11,color:_lm?"#94a3b8":"#3d5a72"}}>Not configured</span>
                   )}
                 </div>
 
                 {/* Last sync time row */}
                 {lastSync && (
-                  <div style={{display:"flex",alignItems:"center",gap:16,fontSize:11,color:"#4d6e8a",paddingLeft:20}}>
-                    <span>⏱ Last sync: <span style={{color:"#7a9bbf",fontWeight:500}}>{syncAge}</span>
+                  <div style={{display:"flex",alignItems:"center",gap:16,fontSize:11,color:_lm?"#475569":"#4d6e8a",paddingLeft:20}}>
+                    <span>⏱ Last sync: <span style={{color:_lm?"#059669":"#7a9bbf",fontWeight:500}}>{syncAge}</span>
                       <span style={{opacity:0.5,marginLeft:6}}>{new Date(lastSync).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</span>
                     </span>
                     {/* Staleness warning */}
@@ -9802,14 +9912,14 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
                       ⚠ {info.errors.length} error{info.errors.length!==1?"s":""} in last sync:
                     </div>
                     {info.errors.slice(0,3).map((e,i)=>(
-                      <div key={i} style={{fontSize:11,color:"#92400e",background:"#1a0808",border:"1px solid #ef444430",
+                      <div key={i} style={{fontSize:11,color:_lm?"#b91c1c":"#92400e",background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444430"}`,
                         borderRadius:5,padding:"4px 10px",marginBottom:3,fontFamily:"monospace"}}>
                         {e.window && <span style={{color:"#ef4444",marginRight:6}}>[{e.window}]</span>}
                         {e.error?.slice(0,120)}
                       </div>
                     ))}
                     {info.errors.length > 3 && (
-                      <div style={{fontSize:10,color:"#3d5a72",marginTop:2}}>
+                      <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>
                         +{info.errors.length-3} more errors
                       </div>
                     )}
@@ -9821,8 +9931,8 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
         </div>
 
         {/* Schedule reference */}
-        <div style={{marginTop:16,background:"#07101c",border:"1px solid #1e293b",borderRadius:8,padding:"12px 16px"}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#4d6e8a",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>Daily sync schedule (ET)</div>
+        <div style={{marginTop:16,background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:8,padding:"12px 16px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:_lm?"#475569":"#4d6e8a",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>Daily sync schedule (ET)</div>
           <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
             {[
               {label:"📘 Meta",  time:"8:00am"},
@@ -9831,8 +9941,8 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
               {label:"🔍 Google",time:"9:30am"},
               {label:"👻 Snap",  time:"10:00am"},
             ].map(({label,time})=>(
-              <div key={label} style={{fontSize:11,color:"#4d6e8a"}}>
-                {label} <span style={{color:"#7a9bbf",fontWeight:600}}>{time}</span>
+              <div key={label} style={{fontSize:11,color:_lm?"#475569":"#4d6e8a"}}>
+                {label} <span style={{color:_lm?"#059669":"#7a9bbf",fontWeight:600}}>{time}</span>
               </div>
             ))}
           </div>
@@ -9841,34 +9951,34 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
 
       {activeSection==="platforms"&&(
         <div style={{display:"flex",flexDirection:"column",gap:16}}>
-          <div style={{fontSize:12,color:"#4d6e8a",lineHeight:1.6}}>
+          <div style={{fontSize:12,color:_lm?"#475569":"#4d6e8a",lineHeight:1.6}}>
             Add platforms not in the default list — Pinterest, TikTok Shop, LinkedIn, etc. Custom platforms appear everywhere: campaign dropdowns, filters, pacing, and Zeus. Changes take effect immediately.
           </div>
 
           {/* Add new platform */}
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"20px 22px"}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#edf4ff",marginBottom:14}}>Add New Platform</div>
+          <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:12,padding:"20px 22px",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+            <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:14}}>Add New Platform</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:10,alignItems:"end"}}>
               <div>
-                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Platform Code</label>
+                <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Platform Code</label>
                 <input
                   value={newPlatName}
                   onChange={e=>setNewPlatName(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,""))}
                   onKeyDown={e=>e.key==="Enter"&&saveCustomPlatform()}
                   placeholder="e.g. PIN, LI, TTSHOP"
                   maxLength={8}
-                  style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"8px 12px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit",boxSizing:"border-box",outline:"none"}}
+                  style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:6,padding:"8px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontFamily:"inherit",boxSizing:"border-box",outline:"none"}}
                 />
-                <div style={{fontSize:10,color:"#3d5a72",marginTop:3}}>Short code shown on campaign rows. Letters/numbers only, max 8 chars.</div>
+                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Short code shown on campaign rows. Letters/numbers only, max 8 chars.</div>
               </div>
               <div>
-                <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Color</label>
+                <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Color</label>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <input
                     type="color"
                     value={newPlatColor}
                     onChange={e=>setNewPlatColor(e.target.value)}
-                    style={{width:44,height:36,border:"1px solid #334155",borderRadius:6,background:"#162236",cursor:"pointer",padding:2}}
+                    style={{width:44,height:36,border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:6,background:_lm?"#f8fafc":"#162236",cursor:"pointer",padding:2}}
                   />
                   <span style={{fontSize:12,fontWeight:700,color:newPlatColor,background:newPlatColor+"22",border:`1px solid ${newPlatColor}60`,borderRadius:6,padding:"4px 10px",fontFamily:"monospace"}}>
                     {newPlatName||"ABC"}
@@ -9878,15 +9988,15 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
               <button
                 onClick={saveCustomPlatform}
                 disabled={!newPlatName.trim()}
-                style={{background:newPlatName.trim()?"#002e24":"#0e1a2e",border:`1px solid ${newPlatName.trim()?"#00c89650":"#1e293b"}`,borderRadius:8,padding:"8px 20px",color:newPlatName.trim()?"#00e5a0":"#3d5a72",fontSize:13,fontWeight:700,cursor:newPlatName.trim()?"pointer":"default",whiteSpace:"nowrap",alignSelf:"flex-end",transition:"all .15s"}}>
+                style={{background:newPlatName.trim()?(_lm?"#00e19e":"#002e24"):(_lm?"#f1f5f9":"#0e1a2e"),border:`1px solid ${newPlatName.trim()?(_lm?"#00c896":"#00c89650"):(_lm?"#cbd5e1":"#1e293b")}`,borderRadius:8,padding:"8px 20px",color:newPlatName.trim()?(_lm?"#0a1a0a":"#00e5a0"):(_lm?"#94a3b8":"#3d5a72"),fontSize:13,fontWeight:700,cursor:newPlatName.trim()?"pointer":"default",whiteSpace:"nowrap",alignSelf:"flex-end",transition:"all .15s"}}>
                 {platSaved?"✓ Saved!":"+ Add Platform"}
               </button>
             </div>
           </div>
 
           {/* Quick add common platforms */}
-          <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"16px 20px"}}>
-            <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Quick Add Common Platforms</div>
+          <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:12,padding:"16px 20px",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+            <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Quick Add Common Platforms</div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               {[
                 {code:"PIN",color:"#e60069",name:"Pinterest"},
@@ -9915,34 +10025,34 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
 
           {/* Existing custom platforms */}
           {customData.platforms.length > 0 && (
-            <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:12,padding:"16px 20px"}}>
-              <div style={{fontSize:11,color:"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Your Custom Platforms</div>
+            <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:12,padding:"16px 20px",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+              <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Your Custom Platforms</div>
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
                 {customData.platforms.map(name=>{
                   const color = customData.colors[name]||"#7a9bbf";
                   const count = campaigns.filter(c=>c.platform===name).length;
                   return (
-                    <div key={name} style={{display:"flex",alignItems:"center",gap:12,background:"#07101c",border:`1px solid ${color}30`,borderRadius:8,padding:"10px 14px"}}>
-                      <span style={{fontWeight:800,color,background:color+"22",border:`1px solid ${color}50`,borderRadius:5,padding:"3px 10px",fontSize:13,fontFamily:"monospace",minWidth:60,textAlign:"center"}}>{name}</span>
-                      <span style={{fontSize:11,color:"#4d6e8a",flex:1}}>{count} campaign{count!==1?"s":""} using this platform</span>
+                    <div key={name} style={{display:"flex",alignItems:"center",gap:12,background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?color+"40":color+"30"}`,borderRadius:8,padding:"10px 14px"}}>
+                      {_lm?(()=>{const cr=parseInt(color.slice(1,3),16)/255,cg=parseInt(color.slice(3,5),16)/255,cb=parseInt(color.slice(5,7),16)/255;const ct=(0.299*cr+0.587*cg+0.114*cb)>0.45?"#0a1a0a":"#ffffff";return<span style={{fontWeight:800,color:ct,background:color,borderRadius:5,padding:"3px 10px",fontSize:13,fontFamily:"monospace",minWidth:60,textAlign:"center"}}>{name}</span>;})():<span style={{fontWeight:800,color,background:color+"22",border:`1px solid ${color}50`,borderRadius:5,padding:"3px 10px",fontSize:13,fontFamily:"monospace",minWidth:60,textAlign:"center"}}>{name}</span>}
+                      <span style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",flex:1}}>{count} campaign{count!==1?"s":""} using this platform</span>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
                         <input type="color" value={color} onChange={e=>updateCustomColor(name,e.target.value)}
-                          title="Change color" style={{width:32,height:28,border:"1px solid #334155",borderRadius:4,background:"#162236",cursor:"pointer",padding:1}}/>
+                          title="Change color" style={{width:32,height:28,border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:4,background:_lm?"#f8fafc":"#162236",cursor:"pointer",padding:1}}/>
                         <button onClick={()=>removeCustomPlatform(name)}
-                          style={{background:"#1a0808",border:"1px solid #ef444440",borderRadius:5,padding:"4px 10px",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer"}}>Remove</button>
+                          style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444440"}`,borderRadius:5,padding:"4px 10px",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer"}}>Remove</button>
                       </div>
                     </div>
                   );
                 })}
               </div>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:10}}>⚠ Removing a platform doesn't affect existing campaigns that use it — they'll still show the platform code, it just won't appear in the add/edit dropdown.</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:10}}>⚠ Removing a platform doesn't affect existing campaigns that use it — they'll still show the platform code, it just won't appear in the add/edit dropdown.</div>
             </div>
           )}
 
           {customData.platforms.length===0&&(
-            <div style={{background:"#07101c",border:"1px solid #1e293b",borderRadius:10,padding:"28px",textAlign:"center",color:"#3d5a72"}}>
+            <div style={{background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"28px",textAlign:"center",color:_lm?"#64748b":"#3d5a72"}}>
               <div style={{fontSize:24,marginBottom:8}}>🎨</div>
-              <div style={{fontSize:13,color:"#4d6e8a"}}>No custom platforms yet. Add Pinterest, LinkedIn, or any other platform above.</div>
+              <div style={{fontSize:13,color:_lm?"#475569":"#4d6e8a"}}>No custom platforms yet. Add Pinterest, LinkedIn, or any other platform above.</div>
             </div>
           )}
         </div>
@@ -10014,16 +10124,16 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
             ]
           },
         ].map(({step,title,color,lines})=>(
-          <div key={step} style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,padding:"16px 20px",display:"flex",gap:16}}>
+          <div key={step} style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"16px 20px",display:"flex",gap:16,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
             <div style={{width:32,height:32,borderRadius:"50%",background:color+"22",border:"2px solid "+color+"60",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}>
               <span style={{fontSize:13,fontWeight:800,color}}>{step}</span>
             </div>
             <div>
-              <div style={{fontSize:13,fontWeight:700,color:"#edf4ff",marginBottom:8}}>{title}</div>
+              <div style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:8}}>{title}</div>
               {lines.map((l,i)=>(
                 <div key={i} style={{display:"flex",gap:8,marginBottom:5,alignItems:"flex-start"}}>
                   <span style={{color,fontSize:11,marginTop:1,flexShrink:0}}>›</span>
-                  <span style={{fontSize:12,color:"#7a9bbf",lineHeight:1.5}}>{l}</span>
+                  <span style={{fontSize:12,color:_lm?"#475569":"#7a9bbf",lineHeight:1.5}}>{l}</span>
                 </div>
               ))}
             </div>
@@ -10048,9 +10158,9 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
   const [goal, setGoal]                 = useState(campaign.note1 || "");
   const [contractValue, setContractValue] = useState(campaign.contractValue || "");
   const [applyAll, setApplyAll]         = useState(clientCampaigns.length > 1);
-  const iS = {width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,
-    padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"};
-  const labelS = {display:"block",fontSize:10,color:"#7a9bbf",marginBottom:3,
+  const iS = {width:"100%",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,
+    padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"};
+  const labelS = {display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,
     textTransform:"uppercase",letterSpacing:"0.06em"};
 
   function doExtend() {
@@ -10095,51 +10205,51 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
   return (
     <div {...renewBackdrop} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",
       display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#0e1a2e",border:"1px solid #1e293b",
-        borderRadius:14,padding:24,width:"min(540px,96vw)",boxShadow:"0 30px 80px rgba(0,0,0,.9)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,
+        borderRadius:14,padding:24,width:"min(540px,96vw)",boxShadow:_lm?"0 30px 80px rgba(0,0,0,.12)":"0 30px 80px rgba(0,0,0,.9)"}}>
 
         {/* Header */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
           <div>
-            <div style={{fontSize:15,fontWeight:800,color:"#edf4ff"}}>{isExtend?"📅 Extend":"🔄 Renew"} Campaign</div>
-            <div style={{fontSize:12,color:"#4d6e8a",marginTop:2}}>{campaign.campaignName.trim()} · {campaign.platform} · {campaign.mediaPartner}</div>
+            <div style={{fontSize:15,fontWeight:800,color:_lm?"#0f172a":"#edf4ff"}}>{isExtend?"📅 Extend":"🔄 Renew"} Campaign</div>
+            <div style={{fontSize:12,color:_lm?"#64748b":"#4d6e8a",marginTop:2}}>{campaign.campaignName.trim()} · {campaign.platform} · {campaign.mediaPartner}</div>
           </div>
-          <button onClick={onClose} style={{background:"none",border:"none",color:"#4d6e8a",fontSize:20,cursor:"pointer",lineHeight:1}}>×</button>
+          <button onClick={onClose} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",fontSize:20,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
 
         {/* Mode toggle */}
-        <div style={{display:"flex",gap:6,marginBottom:20,background:"#07101c",borderRadius:9,padding:4}}>
+        <div style={{display:"flex",gap:6,marginBottom:20,background:_lm?"#f1f5f9":"#07101c",borderRadius:9,padding:4}}>
           {[
             {key:"extend", icon:"📅", label:"Extend", desc:"Same campaign, new end date. Config stays intact, sync keeps working."},
             {key:"renew",  icon:"🔄", label:"Renew",  desc:"Fresh campaign row with clean metrics. Use when flight truly ends."},
           ].map(({key,icon,label,desc})=>(
             <button key={key} onClick={()=>setMode(key)}
-              style={{flex:1,background:mode===key?"#0e1a2e":"none",
+              style={{flex:1,background:mode===key?(_lm?"#ffffff":"#0e1a2e"):"none",
                 border:`1px solid ${mode===key?"#00c896":"transparent"}`,
                 borderRadius:7,padding:"10px 12px",cursor:"pointer",textAlign:"left"}}>
-              <div style={{fontSize:12,fontWeight:700,color:mode===key?"#00e5a0":"#4d6e8a",marginBottom:3}}>
+              <div style={{fontSize:12,fontWeight:700,color:mode===key?(_lm?"#059669":"#00e5a0"):(_lm?"#64748b":"#4d6e8a"),marginBottom:3}}>
                 {icon} {label}
               </div>
-              <div style={{fontSize:10,color:mode===key?"#4d6e8a":"#2a3f55",lineHeight:1.4}}>{desc}</div>
+              <div style={{fontSize:10,color:mode===key?(_lm?"#94a3b8":"#4d6e8a"):(_lm?"#cbd5e1":"#2a3f55"),lineHeight:1.4}}>{desc}</div>
             </button>
           ))}
         </div>
 
         {/* Apply to all platforms toggle */}
         {clientCampaigns.length > 1 && (
-          <div onClick={()=>setApplyAll(v=>!v)} style={{background:applyAll?"#002e24":"#0a1525",
-            border:`1px solid ${applyAll?"#00c896":"#1e293b"}`,borderRadius:8,padding:"10px 14px",
+          <div onClick={()=>setApplyAll(v=>!v)} style={{background:applyAll?(_lm?"#f0fdf9":"#002e24"):(_lm?"#f8fafc":"#0a1525"),
+            border:`1px solid ${applyAll?"#00c896":(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:8,padding:"10px 14px",
             marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:16,height:16,borderRadius:3,background:applyAll?"#00c896":"#162236",
-              border:`1px solid ${applyAll?"#00c896":"#334155"}`,display:"flex",alignItems:"center",
+            <div style={{width:16,height:16,borderRadius:3,background:applyAll?"#00c896":(_lm?"#e2e8f0":"#162236"),
+              border:`1px solid ${applyAll?"#00c896":(_lm?"#cbd5e1":"#334155")}`,display:"flex",alignItems:"center",
               justifyContent:"center",flexShrink:0}}>
               {applyAll && <span style={{color:"#000",fontSize:11,fontWeight:900}}>✓</span>}
             </div>
             <div>
-              <div style={{fontSize:12,fontWeight:700,color:applyAll?"#00e5a0":"#7a9bbf"}}>
+              <div style={{fontSize:12,fontWeight:700,color:applyAll?(_lm?"#059669":"#00e5a0"):(_lm?"#475569":"#7a9bbf")}}>
                 {isExtend?"Extend":"Renew"} all {clientCampaigns.length} platforms for {campaign.campaignName.trim()}
               </div>
-              <div style={{fontSize:10,color:"#3d5a72",marginTop:1}}>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:1}}>
                 {clientCampaigns.map(c=>c.platform).join(" · ")}
               </div>
             </div>
@@ -10162,7 +10272,7 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
               <DatePicker value={endDate} onChange={v=>setEndDate(v)} placeholder="Select end date…"/>
             </div>
             {isExtend && campaign.endDate && (
-              <span style={{fontSize:11,color:"#3d5a72",whiteSpace:"nowrap"}}>
+              <span style={{fontSize:11,color:_lm?"#94a3b8":"#3d5a72",whiteSpace:"nowrap"}}>
                 Currently: {campaign.endDate}
               </span>
             )}
@@ -10173,7 +10283,7 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
         <div style={{marginBottom:14}}>
           <label style={labelS}>Monthly Goal
             {applyAll && clientCampaigns.length > 1 &&
-              <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}> — leave blank to keep each platform's goal</span>}
+              <span style={{color:_lm?"#94a3b8":"#3d5a72",textTransform:"none",fontWeight:400}}> — leave blank to keep each platform's goal</span>}
           </label>
           <input value={goal} onChange={e=>setGoal(e.target.value)}
             placeholder={campaign.note1 || "e.g. 125K/Mo — leave blank to keep existing"}
@@ -10182,14 +10292,14 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
 
         {/* Contract value */}
         <div style={{marginBottom:16}}>
-          <label style={labelS}>Contract Value ($) <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>— leave blank to keep existing</span></label>
+          <label style={labelS}>Contract Value ($) <span style={{color:_lm?"#94a3b8":"#3d5a72",textTransform:"none",fontWeight:400}}>— leave blank to keep existing</span></label>
           <input type="number" value={contractValue} onChange={e=>setContractValue(e.target.value)}
             placeholder={campaign.contractValue || "0.00"} style={iS}/>
         </div>
 
         {/* Info note */}
-        <div style={{background:"#07101c",border:"1px solid #1a2744",borderRadius:7,
-          padding:"9px 14px",marginBottom:20,fontSize:11,color:"#4d6e8a",lineHeight:1.5}}>
+        <div style={{background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:7,
+          padding:"9px 14px",marginBottom:20,fontSize:11,color:_lm?"#64748b":"#4d6e8a",lineHeight:1.5}}>
           {isExtend
             ? "📅 Extend updates the existing row — dates, goal, and contract value only. Metrics and sync data are preserved. Platform config stays intact."
             : "🔄 Renew creates new campaign rows with clean metrics and sync data. Original rows are kept. You'll need to update the platform config with any new campaign IDs."}
@@ -10198,13 +10308,13 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
         {/* Actions */}
         <div style={{display:"flex",gap:10}}>
           <button onClick={isExtend ? doExtend : doRenew} disabled={!canSubmit}
-            style={{flex:1,background:canSubmit?"#00c896":"#162236",border:"none",borderRadius:8,
-              padding:"11px 0",color:canSubmit?"#000":"#3d5a72",fontWeight:700,fontSize:14,
+            style={{flex:1,background:canSubmit?"#00e19e":(_lm?"#f1f5f9":"#162236"),border:"none",borderRadius:8,
+              padding:"11px 0",color:canSubmit?"#0a1a0a":(_lm?"#94a3b8":"#3d5a72"),fontWeight:700,fontSize:14,
               cursor:canSubmit?"pointer":"default"}}>
             {isExtend?"📅":"🔄"} {isExtend?"Extend":"Renew"}{applyAll&&clientCampaigns.length>1?` All ${clientCampaigns.length} Platforms`:""}
           </button>
-          <button onClick={onClose} style={{flex:1,background:"#162236",border:"1px solid #334155",
-            borderRadius:8,padding:"11px 0",color:"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>
+          <button onClick={onClose} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,
+            borderRadius:8,padding:"11px 0",color:_lm?"#475569":"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>
             Cancel
           </button>
         </div>
@@ -10253,6 +10363,7 @@ export default function App() {
   const [dateRange, setDateRange] = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
   const [activeTab, setActiveTab] = useState("campaigns");
   const [lightMode, setLightMode] = useState(()=>localStorage.getItem("zeus-light-mode")==="true");
+  _lm = lightMode; // sync global flag so StatusBadge/PlatformTag/RowActions can read it
   useEffect(()=>{ localStorage.setItem("zeus-light-mode", lightMode); }, [lightMode]);
 
   // Count "behind" campaigns for the tab badge — use same filter as the pacing dashboard (anything not "off")
@@ -10796,26 +10907,29 @@ export default function App() {
   };
 
   const TH = ({k,label,style={}}) => (
-    <th onClick={()=>k&&sort(k)} style={{padding:"11px 13px",textAlign:"left",fontSize:12,fontWeight:700,color:sortKey===k?"#00e5a0":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",whiteSpace:"nowrap",cursor:k?"pointer":"default",userSelect:"none",borderBottom:"1px solid #1e293b",...style}}>
+    <th onClick={()=>k&&sort(k)} style={{padding:"11px 13px",textAlign:"left",fontSize:12,fontWeight:700,
+      color:lightMode?(sortKey===k?"#059669":"#64748b"):(sortKey===k?"#00e5a0":"#4d6e8a"),
+      textTransform:"uppercase",letterSpacing:"0.07em",whiteSpace:"nowrap",cursor:k?"pointer":"default",userSelect:"none",
+      borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`,...style}}>
       {label}{sortKey===k?(sortDir==="asc"?" ↑":" ↓"):""}
     </th>
   );
-  const TD = ({children,style={}}) => <td style={{padding:"9px 12px",borderBottom:"1px solid #060c18",verticalAlign:"middle",...style}}>{children}</td>;
+  const TD = ({children,style={}}) => <td style={{padding:"9px 12px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#060c18"}`,verticalAlign:"middle",...style}}>{children}</td>;
 
   return (
-    <div style={{minHeight:"100vh",background:"#070d16",fontFamily:"'Inter','Segoe UI',sans-serif",color:"#d8eaf8",fontSize:14,filter:lightMode?"invert(1) hue-rotate(180deg)":"none",transition:"filter .25s ease"}}>
+    <div style={{minHeight:"100vh",background:lightMode?"#f0f4f8":"#070d16",fontFamily:"'Inter','Segoe UI',sans-serif",color:lightMode?"#0f172a":"#d8eaf8",fontSize:14,transition:"background .2s ease"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         *{box-sizing:border-box;}
         ::-webkit-scrollbar{width:5px;height:5px;}
-        ::-webkit-scrollbar-track{background:#0b1624;}
-        ::-webkit-scrollbar-thumb{background:#1e3350;border-radius:3px;}
+        ::-webkit-scrollbar-track{background:${lightMode?"#e2e8f0":"#0b1624"};}
+        ::-webkit-scrollbar-thumb{background:${lightMode?"#94a3b8":"#1e3350"};border-radius:3px;}
         input,select{outline:none;font-family:inherit;}
         input[type=number]::-webkit-inner-spin-button{opacity:.3;}
         .note1-text{color:#3B8FFF!important;text-shadow:0 0 8px #3B8FFF40;}
         .eb-glow{box-shadow:0 0 0 1px #3B8FFF40,0 0 8px #3B8FFF20;}
-        input::placeholder{color:#1e3a50;}
-        .crow:hover td{background:#0a1c32!important;}
+        input::placeholder{color:${lightMode?"#94a3b8":"#1e3a50"};}
+        .crow:hover td{background:${lightMode?"#f1f5f9":"#0a1c32"}!important;}
         .crow:hover .star-toggle{opacity:1!important;}
         button{font-family:inherit;}
         .xbtn{transition:transform .18s ease;}
@@ -10823,41 +10937,41 @@ export default function App() {
       `}</style>
 
       {/* Header */}
-      <div style={{background:"linear-gradient(180deg,#0e2038 0%,#0c1625 100%)",borderBottom:"1px solid #00c89628",borderTop:"2px solid #00c896",padding:"13px 20px",position:"sticky",top:0,zIndex:50}}>
+      <div style={{background:lightMode?"#ffffff":"linear-gradient(180deg,#0e2038 0%,#0c1625 100%)",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#00c89628"}`,borderTop:"3px solid #00c896",padding:"12px 20px",position:"sticky",top:0,zIndex:50,boxShadow:lightMode?"0 1px 8px rgba(0,0,0,0.08)":"none"}}>
         <div style={{maxWidth:1920,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:17,fontWeight:800,color:"#00e5a0",letterSpacing:"-0.03em"}}>Campaign Tracker</span>
-            <span style={{fontSize:11,padding:"2px 7px",borderRadius:4,background:saved?"#00200f":"transparent",color:saved?"#00d48a":"transparent",border:saved?"1px solid #22c55e40":"1px solid transparent",transition:"all .3s",fontWeight:600}}>✓ Saved</span>
-            {metaSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing Meta…</span>}
-            {metaSyncStatus==="done" && metaSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(metaSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#002018",border:"1px solid #00c89640",color:"#00d48a",fontWeight:600,cursor:"default"}}>⬡ Meta: {metaSyncInfo.fetched_count} synced</span>}
-            {metaSyncStatus==="error" && <span title={metaSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Meta sync —</span>}
-            {ttdSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing TTD…</span>}
-            {ttdSyncStatus==="done" && ttdSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(ttdSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#002018",border:"1px solid #00c89640",color:"#00d48a",fontWeight:600,cursor:"default"}}>⬡ TTD: {ttdSyncInfo.fetched_count} synced</span>}
-            {ttdSyncStatus==="error" && <span title={ttdSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ TTD sync —</span>}
-            {dspSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing DSP…</span>}
-            {dspSyncStatus==="done" && dspSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(dspSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#001a10",border:"1px solid #34d39940",color:"#34d399",fontWeight:600,cursor:"default"}}>⬡ DSP: {dspSyncInfo.fetched_count} synced</span>}
-            {dspSyncStatus==="error" && <span title={dspSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ DSP sync —</span>}
-            {googleSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing Google…</span>}
-            {googleSyncStatus==="done" && googleSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(googleSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a1000",border:"1px solid #f59e0b40",color:"#f59e0b",fontWeight:600,cursor:"default"}}>⬡ Google: {googleSyncInfo.fetched_count} synced</span>}
-            {googleSyncStatus==="error" && <span title={googleSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Google sync —</span>}
-            {snapSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#0e1a2e",border:"1px solid #3b82f640",color:"#60a5fa",fontWeight:600}}>⟳ Syncing Snap…</span>}
-            {snapSyncStatus==="done" && snapSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(snapSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0010",border:"1px solid #f9a8d440",color:"#f9a8d4",fontWeight:600,cursor:"default"}}>⬡ Snap: {snapSyncInfo.fetched_count} synced</span>}
-            {snapSyncStatus==="error" && <span title={snapSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:"#1a0808",border:"1px solid #ef444440",color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Snap sync —</span>}
+            <span style={{fontSize:17,fontWeight:800,color:"#00c896",letterSpacing:"-0.03em"}}>Campaign Tracker</span>
+            <span style={{fontSize:11,padding:"2px 7px",borderRadius:4,background:saved?(lightMode?"#dcfce7":"#00200f"):"transparent",color:saved?"#00c896":"transparent",border:saved?"1px solid #00c89640":"1px solid transparent",transition:"all .3s",fontWeight:600}}>✓ Saved</span>
+            {metaSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dbeafe":"#0e1a2e",border:`1px solid ${lightMode?"#93c5fd":"#3b82f640"}`,color:lightMode?"#1d4ed8":"#60a5fa",fontWeight:600}}>⟳ Syncing Meta…</span>}
+            {metaSyncStatus==="done" && metaSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(metaSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dcfce7":"#002018",border:`1px solid ${lightMode?"#86efac":"#00c89640"}`,color:lightMode?"#15803d":"#00d48a",fontWeight:600,cursor:"default"}}>⬡ Meta: {metaSyncInfo.fetched_count} synced</span>}
+            {metaSyncStatus==="error" && <span title={metaSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fee2e2":"#1a0808",border:`1px solid ${lightMode?"#fca5a5":"#ef444440"}`,color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Meta sync —</span>}
+            {ttdSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dbeafe":"#0e1a2e",border:`1px solid ${lightMode?"#93c5fd":"#3b82f640"}`,color:lightMode?"#1d4ed8":"#60a5fa",fontWeight:600}}>⟳ Syncing TTD…</span>}
+            {ttdSyncStatus==="done" && ttdSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(ttdSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dcfce7":"#002018",border:`1px solid ${lightMode?"#86efac":"#00c89640"}`,color:lightMode?"#15803d":"#00d48a",fontWeight:600,cursor:"default"}}>⬡ TTD: {ttdSyncInfo.fetched_count} synced</span>}
+            {ttdSyncStatus==="error" && <span title={ttdSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fee2e2":"#1a0808",border:`1px solid ${lightMode?"#fca5a5":"#ef444440"}`,color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ TTD sync —</span>}
+            {dspSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dbeafe":"#0e1a2e",border:`1px solid ${lightMode?"#93c5fd":"#3b82f640"}`,color:lightMode?"#1d4ed8":"#60a5fa",fontWeight:600}}>⟳ Syncing DSP…</span>}
+            {dspSyncStatus==="done" && dspSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(dspSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dcfce7":"#001a10",border:`1px solid ${lightMode?"#86efac":"#34d39940"}`,color:lightMode?"#15803d":"#34d399",fontWeight:600,cursor:"default"}}>⬡ DSP: {dspSyncInfo.fetched_count} synced</span>}
+            {dspSyncStatus==="error" && <span title={dspSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fee2e2":"#1a0808",border:`1px solid ${lightMode?"#fca5a5":"#ef444440"}`,color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ DSP sync —</span>}
+            {googleSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dbeafe":"#0e1a2e",border:`1px solid ${lightMode?"#93c5fd":"#3b82f640"}`,color:lightMode?"#1d4ed8":"#60a5fa",fontWeight:600}}>⟳ Syncing Google…</span>}
+            {googleSyncStatus==="done" && googleSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(googleSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fef3c7":"#1a1000",border:`1px solid ${lightMode?"#fde68a":"#f59e0b40"}`,color:lightMode?"#b45309":"#f59e0b",fontWeight:600,cursor:"default"}}>⬡ Google: {googleSyncInfo.fetched_count} synced</span>}
+            {googleSyncStatus==="error" && <span title={googleSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fee2e2":"#1a0808",border:`1px solid ${lightMode?"#fca5a5":"#ef444440"}`,color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Google sync —</span>}
+            {snapSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dbeafe":"#0e1a2e",border:`1px solid ${lightMode?"#93c5fd":"#3b82f640"}`,color:lightMode?"#1d4ed8":"#60a5fa",fontWeight:600}}>⟳ Syncing Snap…</span>}
+            {snapSyncStatus==="done" && snapSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(snapSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fdf2f8":"#1a0010",border:`1px solid ${lightMode?"#f9a8d4":"#f9a8d440"}`,color:lightMode?"#be185d":"#f9a8d4",fontWeight:600,cursor:"default"}}>⬡ Snap: {snapSyncInfo.fetched_count} synced</span>}
+            {snapSyncStatus==="error" && <span title={snapSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fee2e2":"#1a0808",border:`1px solid ${lightMode?"#fca5a5":"#ef444440"}`,color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Snap sync —</span>}
           </div>
           <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-            <button onClick={()=>setShowReminderModal(true)} style={{position:"relative",background:pendingReminders>0?"#130a00":"#0e1a2e",border:`1px solid ${pendingReminders>0?"#f59e0b60":"#1e293b"}`,borderRadius:7,padding:"6px 13px",color:pendingReminders>0?"#f59e0b":"#4d6e8a",fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            <button onClick={()=>setShowReminderModal(true)} style={{position:"relative",background:lightMode?(pendingReminders>0?"#fef3c7":"#f1f5f9"):(pendingReminders>0?"#130a00":"#0e1a2e"),border:`1px solid ${lightMode?(pendingReminders>0?"#fde68a":"#e2e8f0"):(pendingReminders>0?"#f59e0b60":"#1e293b")}`,borderRadius:7,padding:"6px 13px",color:lightMode?(pendingReminders>0?"#b45309":"#64748b"):(pendingReminders>0?"#f59e0b":"#4d6e8a"),fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
               🔔 Reminders
               {pendingReminders>0 && <span style={{background:"#ef4444",color:"#fff",borderRadius:10,padding:"0px 5px",fontSize:10,fontWeight:700,minWidth:16,textAlign:"center"}}>{pendingReminders}</span>}
             </button>
-            <button onClick={()=>{ setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today}))); addLog({type:"checked",campaignName:"All campaigns",partner:"",platform:"",detail:`Bulk marked all checked on ${today}`}); }} style={{background:"#002e24",border:"1px solid #3b82f640",borderRadius:7,padding:"6px 13px",color:"#00e5a0",fontWeight:600,fontSize:13,cursor:"pointer"}}>✓ Mark All Checked</button>
-            <button onClick={()=>setShowAdd(true)} style={{background:"#00200f",border:"1px solid #22c55e40",borderRadius:7,padding:"6px 13px",color:"#00d48a",fontWeight:600,fontSize:13,cursor:"pointer"}}>+ Add Campaign</button>
-            <button onClick={doExport} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"6px 13px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ JSON</button>
-            <button onClick={doExportCSV} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"6px 13px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ CSV</button>
-            <label style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"6px 13px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>
+            <button onClick={()=>{ setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today}))); addLog({type:"checked",campaignName:"All campaigns",partner:"",platform:"",detail:`Bulk marked all checked on ${today}`}); }} style={{background:lightMode?"#00c896":"#002e24",border:lightMode?"none":"1px solid #3b82f640",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#00e5a0",fontWeight:700,fontSize:13,cursor:"pointer"}}>✓ Mark All Checked</button>
+            <button onClick={()=>setShowAdd(true)} style={{background:lightMode?"#059669":"#00200f",border:lightMode?"none":"1px solid #22c55e40",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#00d48a",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Add Campaign</button>
+            <button onClick={doExport} style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ JSON</button>
+            <button onClick={doExportCSV} style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ CSV</button>
+            <label style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>
               ↑ Import<input type="file" accept=".json" style={{display:"none"}} onChange={doImport}/>
             </label>
             <button onClick={()=>setLightMode(v=>!v)} title={lightMode?"Switch to dark mode":"Switch to light mode"}
-              style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"6px 13px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>
+              style={{background:lightMode?"#1e293b":"#162236",border:"none",borderRadius:7,padding:"6px 13px",color:lightMode?"#f1f5f9":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>
               {lightMode?"🌙 Dark":"☀️ Light"}
             </button>
           </div>
@@ -10867,7 +10981,7 @@ export default function App() {
       <div style={{maxWidth:1920,margin:"0 auto",padding:"18px 20px 40px"}}>
 
         {/* Tab Bar — always visible */}
-        <div style={{borderBottom:"1px solid #1e293b",marginBottom:18}}>
+        <div style={{borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`,marginBottom:18}}>
           <div style={{display:"flex",gap:0,flexWrap:"wrap"}}>
             {[
               {key:"campaigns", label:"📋 Campaigns"},
@@ -10881,11 +10995,14 @@ export default function App() {
               {key:"ai",        label:"⚡ Zeus"},
             ].map(t=>(
               <button key={t.key} onClick={()=>setActiveTab(t.key)}
-                style={{background:"none",border:"none",borderBottom:activeTab===t.key?"2px solid #00e5a0":"2px solid transparent",
-                  padding:"9px 18px",color:activeTab===t.key?"#00e5a0":"#4d6e8a",fontSize:13,fontWeight:activeTab===t.key?700:400,
+                style={{background:"none",border:"none",
+                  borderBottom:activeTab===t.key?`2px solid ${lightMode?"#059669":"#00e5a0"}`:"2px solid transparent",
+                  padding:"9px 18px",
+                  color:activeTab===t.key?(lightMode?"#059669":"#00e5a0"):(lightMode?"#64748b":"#4d6e8a"),
+                  fontSize:13,fontWeight:activeTab===t.key?700:400,
                   cursor:"pointer",transition:"all .15s",marginBottom:-1,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
                 {t.label}
-                {t.badge>0&&<span style={{background:"#f59e0b22",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,color:"#f59e0b",lineHeight:1.4}}>{t.badge}</span>}
+                {t.badge>0&&<span style={{background:lightMode?"#fef3c7":"#f59e0b22",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b60"}`,borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,color:lightMode?"#92400e":"#f59e0b",lineHeight:1.4}}>{t.badge}</span>}
               </button>
             ))}
           </div>
@@ -10975,47 +11092,47 @@ export default function App() {
 
         {/* Bulk Edit Bar */}
         {selectedIds.size>0 && (
-          <div style={{background:"#001e14",border:"1px solid #00c89660",borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",flexWrap:"wrap",gap:12}}>
+          <div style={{background:lightMode?"#dcfce7":"#001e14",border:`1px solid ${lightMode?"#22c55e":"#00c89660"}`,borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",flexWrap:"wrap",gap:12}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <span style={{background:"#00c896",color:"#000",borderRadius:6,padding:"2px 9px",fontSize:12,fontWeight:800}}>{selectedIds.size}</span>
-              <span style={{fontSize:13,color:"#00e5a0",fontWeight:700}}>campaign{selectedIds.size!==1?"s":""} selected</span>
+              <span style={{fontSize:13,color:lightMode?"#166534":"#00e5a0",fontWeight:700}}>campaign{selectedIds.size!==1?"s":""} selected</span>
             </div>
             {!showBulkEdit ? (
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                <button onClick={()=>setShowBulkEdit(true)} style={{background:"#002e24",border:"1px solid #00c89650",borderRadius:7,padding:"7px 16px",color:"#00e5a0",fontSize:13,fontWeight:700,cursor:"pointer"}}>✏️ Bulk Edit</button>
-                <button onClick={()=>{ setCampaigns(cs=>cs.map(c=>selectedIds.has(c.id)?{...c,lastChecked:today}:c)); setSelectedIds(new Set()); }} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:7,padding:"7px 14px",color:"#00d48a",fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ Mark All Checked</button>
-                <button onClick={()=>setSelectedIds(new Set())} style={{background:"none",border:"1px solid #1e293b",borderRadius:7,padding:"7px 12px",color:"#4d6e8a",fontSize:13,cursor:"pointer"}}>Clear</button>
+                <button onClick={()=>setShowBulkEdit(true)} style={{background:lightMode?"#059669":"#002e24",border:`1px solid ${lightMode?"#059669":"#00c89650"}`,borderRadius:7,padding:"7px 16px",color:"#ffffff",fontSize:13,fontWeight:700,cursor:"pointer"}}>✏️ Bulk Edit</button>
+                <button onClick={()=>{ setCampaigns(cs=>cs.map(c=>selectedIds.has(c.id)?{...c,lastChecked:today}:c)); setSelectedIds(new Set()); }} style={{background:lightMode?"#dcfce7":"#002018",border:`1px solid ${lightMode?"#22c55e":"#22c55e40"}`,borderRadius:7,padding:"7px 14px",color:lightMode?"#166534":"#00d48a",fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ Mark All Checked</button>
+                <button onClick={()=>setSelectedIds(new Set())} style={{background:"none",border:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"7px 12px",color:lightMode?"#64748b":"#4d6e8a",fontSize:13,cursor:"pointer"}}>Clear</button>
               </div>
             ) : (
-              <div style={{flex:1,background:"#0a1c2e",border:"1px solid #1e3a50",borderRadius:9,padding:"14px 18px",display:"flex",flexDirection:"column",gap:14}}>
-                <div style={{fontSize:12,color:"#00e5a0",fontWeight:700}}>Bulk Edit — changes apply to all {selectedIds.size} selected campaigns · leave any field blank to keep existing value</div>
+              <div style={{flex:1,background:_lm?"#ffffff":"#0a1c2e",border:`1px solid ${_lm?"#e2e8f0":"#1e3a50"}`,borderRadius:9,padding:"14px 18px",display:"flex",flexDirection:"column",gap:14}}>
+                <div style={{fontSize:12,color:_lm?"#059669":"#00e5a0",fontWeight:700}}>Bulk Edit — changes apply to all {selectedIds.size} selected campaigns · leave any field blank to keep existing value</div>
 
                 {/* ── Row 1: Status / Platform / Monthly Flight / Last Checked ── */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Status</label>
-                    <select value={bulkDraft.status} onChange={e=>setBulkDraft(p=>({...p,status:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit"}}>
+                    <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Status</label>
+                    <select value={bulkDraft.status} onChange={e=>setBulkDraft(p=>({...p,status:e.target.value}))} style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontFamily:"inherit"}}>
                       <option value="">— No change —</option>
                       {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Platform</label>
-                    <select value={bulkDraft.platform} onChange={e=>setBulkDraft(p=>({...p,platform:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit"}}>
+                    <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Platform</label>
+                    <select value={bulkDraft.platform} onChange={e=>setBulkDraft(p=>({...p,platform:e.target.value}))} style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontFamily:"inherit"}}>
                       <option value="">— No change —</option>
                       {ALL_PLATFORMS.map(p=><option key={p} value={p}>{p}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#00e5c0",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>★ Monthly Flight</label>
-                    <select value={bulkDraft.monthlyFlight} onChange={e=>setBulkDraft(p=>({...p,monthlyFlight:e.target.value}))} style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,fontFamily:"inherit"}}>
+                    <label style={{display:"block",fontSize:10,color:_lm?"#059669":"#00e5c0",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>★ Monthly Flight</label>
+                    <select value={bulkDraft.monthlyFlight} onChange={e=>setBulkDraft(p=>({...p,monthlyFlight:e.target.value}))} style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontFamily:"inherit"}}>
                       <option value="">— No change —</option>
                       <option value="yes">Enable ★</option>
                       <option value="no">Disable</option>
                     </select>
                   </div>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Last Checked</label>
+                    <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Last Checked</label>
                     <DatePicker value={bulkDraft.lastChecked} onChange={v=>setBulkDraft(p=>({...p,lastChecked:v}))}/>
                   </div>
                 </div>
@@ -11023,7 +11140,7 @@ export default function App() {
                 {/* ── Row 2: Dates ── */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Start Date</label>
+                    <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Start Date</label>
                     <DatePicker value={bulkDraft.startDate||""} onChange={v=>setBulkDraft(p=>({...p,startDate:v}))}/>
                   </div>
                   <div>
@@ -11036,7 +11153,7 @@ export default function App() {
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 Contract Value ($)</label>
-                    <input type="number" value={bulkDraft.contractValue} onChange={e=>setBulkDraft(p=>({...p,contractValue:e.target.value}))} placeholder="e.g. 5000" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                    <input type="number" value={bulkDraft.contractValue} onChange={e=>setBulkDraft(p=>({...p,contractValue:e.target.value}))} placeholder="e.g. 5000" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
                   </div>
                 </div>
 
@@ -11044,11 +11161,11 @@ export default function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Goal</label>
-                    <input value={bulkDraft.note1} onChange={e=>setBulkDraft(p=>({...p,note1:e.target.value}))} placeholder="e.g. 125K/Mo" style={{width:"100%",background:"#162236",border:`1px solid ${bulkDraft.note1.trim()?"#3B8FFF60":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                    <input value={bulkDraft.note1} onChange={e=>setBulkDraft(p=>({...p,note1:e.target.value}))} placeholder="e.g. 125K/Mo" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.note1.trim()?"#3B8FFF60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#ef4444",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>⚠ Note 2 (warning flag)</label>
-                    <input value={bulkDraft.note2} onChange={e=>setBulkDraft(p=>({...p,note2:e.target.value}))} placeholder="e.g. FB Access needed" style={{width:"100%",background:"#162236",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                    <input value={bulkDraft.note2} onChange={e=>setBulkDraft(p=>({...p,note2:e.target.value}))} placeholder="e.g. FB Access needed" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
                   </div>
                 </div>
 
@@ -11056,11 +11173,11 @@ export default function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#60a5fa",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📎 Projection Sheet URL</label>
-                    <input type="url" value={bulkDraft.projectionUrl} onChange={e=>setBulkDraft(p=>({...p,projectionUrl:e.target.value}))} placeholder="https://docs.google.com/…" style={{width:"100%",background:"#162236",border:`1px solid ${bulkDraft.projectionUrl.trim()?"#60a5fa60":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"monospace"}}/>
+                    <input type="url" value={bulkDraft.projectionUrl} onChange={e=>setBulkDraft(p=>({...p,projectionUrl:e.target.value}))} placeholder="https://docs.google.com/…" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.projectionUrl.trim()?"#60a5fa60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"monospace"}}/>
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌐 Client Website</label>
-                    <input type="url" value={bulkDraft.clientWebsite} onChange={e=>setBulkDraft(p=>({...p,clientWebsite:e.target.value}))} placeholder="https://example.com" style={{width:"100%",background:"#162236",border:`1px solid ${bulkDraft.clientWebsite.trim()?"#34d39960":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"monospace"}}/>
+                    <input type="url" value={bulkDraft.clientWebsite} onChange={e=>setBulkDraft(p=>({...p,clientWebsite:e.target.value}))} placeholder="https://example.com" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.clientWebsite.trim()?"#34d39960":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"monospace"}}/>
                   </div>
                 </div>
 
@@ -11068,33 +11185,33 @@ export default function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#60a5fa",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌎 Geo Target</label>
-                    <input value={bulkDraft.geoTarget} onChange={e=>setBulkDraft(p=>({...p,geoTarget:e.target.value}))} placeholder="e.g. West Virginia statewide" style={{width:"100%",background:"#162236",border:`1px solid ${bulkDraft.geoTarget.trim()?"#60a5fa60":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                    <input value={bulkDraft.geoTarget} onChange={e=>setBulkDraft(p=>({...p,geoTarget:e.target.value}))} placeholder="e.g. West Virginia statewide" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.geoTarget.trim()?"#60a5fa60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
                   </div>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📁 Client Folder Path</label>
-                    <input value={bulkDraft.folderPath} onChange={e=>setBulkDraft(p=>({...p,folderPath:e.target.value}))} placeholder="\\192.168.3.2\Data\…" style={{width:"100%",background:"#162236",border:`1px solid ${bulkDraft.folderPath.trim()?"#7a9bbf60":"#334155"}`,borderRadius:6,padding:"7px 10px",color:"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"monospace"}}/>
+                    <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📁 Client Folder Path</label>
+                    <input value={bulkDraft.folderPath} onChange={e=>setBulkDraft(p=>({...p,folderPath:e.target.value}))} placeholder="\\192.168.3.2\Data\…" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.folderPath.trim()?"#7a9bbf60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"monospace"}}/>
                   </div>
                 </div>
 
                 {/* ── History entry ── */}
                 <div>
-                  <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 History Entry <span style={{color:"#3d5a72",textTransform:"none",fontWeight:400}}>— prepended to each campaign's history with today's date</span></label>
+                  <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 History Entry <span style={{color:_lm?"#94a3b8":"#3d5a72",textTransform:"none",fontWeight:400}}>— prepended to each campaign's history with today's date</span></label>
                   <div style={{position:"relative"}}>
                     <textarea value={bulkDraft.history} onChange={e=>setBulkDraft(p=>({...p,history:e.target.value}))}
                       placeholder="e.g. New creatives launched for FB, SP & DSP"
                       rows={2}
-                      style={{width:"100%",background:"#0e1a2e",border:`1px solid ${bulkDraft.history.trim()?"#f59e0b60":"#334155"}`,borderRadius:6,padding:"7px 36px 7px 10px",color:"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit",resize:"vertical",lineHeight:1.5,outline:"none"}}/>
-                    {bulkDraft.history.trim()&&<span style={{position:"absolute",top:8,right:10,fontSize:10,color:"#f59e0b",fontWeight:600,pointerEvents:"none",background:"#0e1a2e",padding:"1px 4px",borderRadius:3}}>{today} —</span>}
+                      style={{width:"100%",background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${bulkDraft.history.trim()?"#f59e0b60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 36px 7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit",resize:"vertical",lineHeight:1.5,outline:"none"}}/>
+                    {bulkDraft.history.trim()&&<span style={{position:"absolute",top:8,right:10,fontSize:10,color:"#f59e0b",fontWeight:600,pointerEvents:"none",background:_lm?"#f8fafc":"#0e1a2e",padding:"1px 4px",borderRadius:3}}>{today} —</span>}
                   </div>
                 </div>
 
                 {/* ── Actions ── */}
                 <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                  <button onClick={applyBulkEdit} style={{background:"#00c896",border:"none",borderRadius:7,padding:"9px 24px",color:"#000",fontWeight:700,fontSize:13,cursor:"pointer"}}>Apply to {selectedIds.size} Campaign{selectedIds.size!==1?"s":""}</button>
-                  <button onClick={applyBulkClearMetrics} title="Zero out all metric data — use at the start of a new month" style={{background:"#1a0808",border:"1px solid #ef444460",borderRadius:7,padding:"9px 16px",color:"#ef4444",fontWeight:700,fontSize:13,cursor:"pointer"}}>🗑 Clear Metrics</button>
-                  <button onClick={()=>{ setShowBulkEdit(false); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",startDate:"",endDate:"",projectionUrl:"",clientWebsite:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",contractValue:"",monthlyFlight:"",platform:"",history:""}); }} style={{background:"#162236",border:"1px solid #334155",borderRadius:7,padding:"9px 16px",color:"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>Cancel</button>
-                  <button onClick={()=>{ setShowBulkEdit(false); setSelectedIds(new Set()); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",startDate:"",endDate:"",projectionUrl:"",clientWebsite:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",contractValue:"",monthlyFlight:"",platform:"",history:""}); }} style={{background:"none",border:"1px solid #334155",borderRadius:7,padding:"9px 12px",color:"#4d6e8a",fontSize:12,cursor:"pointer"}}>Clear selection</button>
-                  <span style={{fontSize:11,color:"#3d5a72",marginLeft:4}}>{Object.values(bulkDraft).filter(v=>v!=="").length} field{Object.values(bulkDraft).filter(v=>v!=="").length!==1?"s":""} set</span>
+                  <button onClick={applyBulkEdit} style={{background:"#00e19e",border:"none",borderRadius:7,padding:"9px 24px",color:"#0a1a0a",fontWeight:700,fontSize:13,cursor:"pointer"}}>Apply to {selectedIds.size} Campaign{selectedIds.size!==1?"s":""}</button>
+                  <button onClick={applyBulkClearMetrics} title="Zero out all metric data — use at the start of a new month" style={{background:_lm?"#fee2e2":"#1a0808",border:"1px solid #ef444460",borderRadius:7,padding:"9px 16px",color:"#ef4444",fontWeight:700,fontSize:13,cursor:"pointer"}}>🗑 Clear Metrics</button>
+                  <button onClick={()=>{ setShowBulkEdit(false); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",startDate:"",endDate:"",projectionUrl:"",clientWebsite:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",contractValue:"",monthlyFlight:"",platform:"",history:""}); }} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"9px 16px",color:_lm?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>Cancel</button>
+                  <button onClick={()=>{ setShowBulkEdit(false); setSelectedIds(new Set()); setBulkDraft({note1:"",note2:"",status:"",lastChecked:"",startDate:"",endDate:"",projectionUrl:"",clientWebsite:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",contractValue:"",monthlyFlight:"",platform:"",history:""}); }} style={{background:"none",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"9px 12px",color:_lm?"#475569":"#4d6e8a",fontSize:12,cursor:"pointer"}}>Clear selection</button>
+                  <span style={{fontSize:11,color:_lm?"#94a3b8":"#3d5a72",marginLeft:4}}>{Object.values(bulkDraft).filter(v=>v!=="").length} field{Object.values(bulkDraft).filter(v=>v!=="").length!==1?"s":""} set</span>
                 </div>
               </div>
             )}
@@ -11102,12 +11219,12 @@ export default function App() {
         )}
 
         {showExportReminder && (
-          <div style={{background:"#0d1a0a",border:"1px solid #f59e0b60",borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+          <div style={{background:lightMode?"#fffbeb":"#0d1a0a",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b60"}`,borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:18}}>💾</span>
               <div>
                 <div style={{color:"#f59e0b",fontWeight:700,fontSize:13}}>Time to back up your data!</div>
-                <div style={{color:"#92400e",fontSize:11,marginTop:1}}>It's been 3+ days since your last export.</div>
+                <div style={{color:lightMode?"#92400e":"#92400e",fontSize:11,marginTop:1}}>It's been 3+ days since your last export.</div>
               </div>
             </div>
             <div style={{display:"flex",gap:8}}>
@@ -11120,9 +11237,9 @@ export default function App() {
         {/* Stats */}
         <div style={{display:"flex",gap:9,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
           {[{label:"Total",val:stats.total,color:"#7a9bbf"},{label:"Active",val:stats.active,color:"#00d48a"},{label:"Ahead",val:stats.ahead,color:"#f97316"},{label:"Behind",val:stats.behind,color:"#f59e0b"},{label:"Close to Goal",val:stats.closeToGoal,color:"#00e5c0"},{label:"Off",val:stats.off,color:"#ef4444"},{label:"≤14d End",val:stats.soon,color:"#f87171"},{label:"★ Monthly",val:stats.monthlyFlights,color:"#00e5c0"}].map(s=>(
-            <div key={s.label} style={{background:"#0e1a2e",border:`1px solid ${s.color}30`,borderRadius:8,padding:"9px 15px",minWidth:75}}>
+            <div key={s.label} style={{background:lightMode?"#ffffff":"#0e1a2e",border:lightMode?`1px solid ${s.color}60`:`1px solid ${s.color}30`,borderRadius:8,padding:"9px 15px",minWidth:75,boxShadow:lightMode?"0 1px 3px rgba(0,0,0,0.08)":"none"}}>
               <div style={{fontSize:22,fontWeight:800,color:s.color,lineHeight:1,letterSpacing:"-0.02em"}}>{s.val}</div>
-              <div style={{fontSize:11,color:"#4d6e8a",marginTop:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>{s.label}</div>
+              <div style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a",marginTop:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>{s.label}</div>
             </div>
           ))}
           <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
@@ -11130,10 +11247,10 @@ export default function App() {
               <button
                 onClick={async()=>{ if(await confirm({title:"Reset all goal badges?",message:"Clears 🎯 Goal Hit and ⏳ Close to Goal from all campaigns. Monthly Flight ★ and Reminders 🔔 are not affected.",confirmLabel:"Reset"})) setCampaigns(cs=>cs.map(c=>({...c,goalHit:false,closeToGoal:false,goalHitDismissed:false}))); }}
                 title="Clear all Goal Hit and Close to Goal badges — use at the start of a new month"
-                style={{background:"#0e1a2e",border:"1px solid #334155",borderRadius:7,padding:"7px 13px",color:"#4d6e8a",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}
+                style={{background:lightMode?"#f1f5f9":"#0e1a2e",border:`1px solid ${lightMode?"#cbd5e1":"#334155"}`,borderRadius:7,padding:"7px 13px",color:lightMode?"#475569":"#4d6e8a",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}
               >↺ Reset Goals</button>
             )}
-            <span style={{fontSize:11,color:"#3d5a72"}}>Today: {today}</span>
+            <span style={{fontSize:11,color:lightMode?"#94a3b8":"#3d5a72"}}>Today: {today}</span>
           </div>
         </div>
 
@@ -11141,7 +11258,7 @@ export default function App() {
 
         {/* Filters */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…" style={{background:"#0e1a2e",border:"1px solid #1e293b",borderRadius:7,padding:"8px 14px",color:"#d8eaf8",fontSize:14,width:280}}/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…" style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"8px 14px",color:lightMode?"#0f172a":"#d8eaf8",fontSize:14,width:280}}/>
           <select
             value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":fGoalHit?"__goalHit__":fCloseToGoal?"__closeToGoal__":fRecentDays>0?"__recent__":fNote2?"__note2__":fNoRetargeting?"__noRT__":fHasData==="yes"?"__hasData__":fHasData==="no"?"__noData__":"all")}
             onChange={e=>{
@@ -11159,7 +11276,7 @@ export default function App() {
               else if(v==="__noData__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFHasData("no");}
               else{setFStatus(v);if(sortKey==="reminder")setSortKey("endDate");setFHasData("all");}
             }}
-            style={{background:"#0e1a2e",border:`1px solid ${fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":fGoalHit?"#00c896":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":fHasData==="yes"?"#00c896":fHasData==="no"?"#ef4444":"#162236"}`,borderRadius:7,padding:"7px 11px",color:fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":fGoalHit?"#00e5a0":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":fHasData==="yes"?"#00e5a0":fHasData==="no"?"#ef4444":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient||fGoalHit||fCloseToGoal||fRecentDays>0||fNote2||fNoRetargeting||fHasData!=="all")?700:400}}>
+            style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#cbd5e1":fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":fGoalHit?"#00c896":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":fHasData==="yes"?"#00c896":fHasData==="no"?"#ef4444":"#162236"}`,borderRadius:7,padding:"7px 11px",color:lightMode?"#0f172a":fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":fGoalHit?"#00e5a0":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":fHasData==="yes"?"#00e5a0":fHasData==="no"?"#ef4444":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient||fGoalHit||fCloseToGoal||fRecentDays>0||fNote2||fNoRetargeting||fHasData!=="all")?700:400}}>
             <option value="all">All Statuses</option>
             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
             <option value="__monthly__">★ Monthly Flights</option>
@@ -11175,64 +11292,63 @@ export default function App() {
           </select>
           {/* Inline day range picker — only shown when Recently Added is active */}
           {fRecentDays>0&&(
-            <div style={{display:"flex",alignItems:"center",gap:6,background:"#06101f",border:"1px solid #7dd3fc40",borderRadius:7,padding:"4px 10px"}}>
-              <span style={{fontSize:11,color:"#7dd3fc",fontWeight:700,whiteSpace:"nowrap"}}>🆕 Last</span>
+            <div style={{display:"flex",alignItems:"center",gap:6,background:lightMode?"#e0f2fe":"#06101f",border:`1px solid ${lightMode?"#7dd3fc":"#7dd3fc40"}`,borderRadius:7,padding:"4px 10px"}}>
+              <span style={{fontSize:11,color:lightMode?"#0369a1":"#7dd3fc",fontWeight:700,whiteSpace:"nowrap"}}>🆕 Last</span>
               {[1,3,7,14,30].map(d=>(
                 <button key={d} onClick={()=>setFRecentDays(d)}
-                  style={{background:fRecentDays===d?"#7dd3fc22":"none",border:`1px solid ${fRecentDays===d?"#7dd3fc60":"transparent"}`,borderRadius:5,padding:"2px 8px",color:fRecentDays===d?"#7dd3fc":"#3d5a72",fontSize:12,fontWeight:fRecentDays===d?700:400,cursor:"pointer",transition:"all .12s"}}>
+                  style={{background:fRecentDays===d?(lightMode?"#7dd3fc":"#7dd3fc22"):"none",border:`1px solid ${fRecentDays===d?(lightMode?"#0369a1":"#7dd3fc60"):"transparent"}`,borderRadius:5,padding:"2px 8px",color:fRecentDays===d?(lightMode?"#0a1a0a":"#7dd3fc"):(lightMode?"#475569":"#3d5a72"),fontSize:12,fontWeight:fRecentDays===d?700:400,cursor:"pointer",transition:"all .12s"}}>
                   {d}d
                 </button>
               ))}
               <button onClick={()=>setFRecentDays(0)}
-                style={{background:"none",border:"none",color:"#3d5a72",fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1,marginLeft:2}}>×</button>
+                style={{background:"none",border:"none",color:lightMode?"#64748b":"#3d5a72",fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1,marginLeft:2}}>×</button>
             </div>
           )}
-          <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms}/>
+          <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode}/>
           <button
             onClick={()=>setFExcludeGoalHit(v=>!v)}
             title="Hide campaigns that have already hit their monthly goal"
             style={{
-              background:fExcludeGoalHit?"#1a0e00":"#0e1a2e",
-              border:`1px solid ${fExcludeGoalHit?"#f59e0b":"#162236"}`,
+              background:lightMode?(fExcludeGoalHit?"#f0fdf9":"#f1f5f9"):(fExcludeGoalHit?"#1a0e00":"#0e1a2e"),
+              border:`1px solid ${fExcludeGoalHit?(lightMode?"#00c896":"#f59e0b"):(lightMode?"#cbd5e1":"#162236")}`,
               borderRadius:7,padding:"7px 11px",
-              color:fExcludeGoalHit?"#f59e0b":"#4d6e8a",
+              color:fExcludeGoalHit?(lightMode?"#059669":"#f59e0b"):(lightMode?"#475569":"#4d6e8a"),
               fontSize:13,fontWeight:fExcludeGoalHit?700:400,
-              cursor:"pointer",whiteSpace:"nowrap",
-              transition:"all .15s",
+              cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s",
             }}>
             {fExcludeGoalHit?"🎯 Hiding Goal Hit":"🎯 Exclude Goal Hit"}
           </button>
           <button onClick={()=>setShowDailyGoal(v=>!v)}
-            style={{background:showDailyGoal?"#1a0a2e":"#0e1a2e",
-              border:`1px solid ${showDailyGoal?"#a855f780":"#1e293b"}`,
+            style={{background:lightMode?(showDailyGoal?"#f0fdf9":"#f1f5f9"):(showDailyGoal?"#1a0a2e":"#0e1a2e"),
+              border:`1px solid ${showDailyGoal?(lightMode?"#00c896":"#a855f780"):(lightMode?"#cbd5e1":"#1e293b")}`,
               borderRadius:7,padding:"7px 11px",
-              color:showDailyGoal?"#a855f7":"#4d6e8a",
+              color:showDailyGoal?(lightMode?"#059669":"#a855f7"):(lightMode?"#475569":"#4d6e8a"),
               fontSize:12,fontWeight:showDailyGoal?700:400,
               cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s",
             }} title={showDailyGoal?"Hide daily impression target":"Show daily impression target"}>
-            {showDailyGoal?"🟣 Daily Goal":"⬛ Daily Goal"}
+            {showDailyGoal?"📊 Daily Goal":"📊 Daily Goal"}
           </button>
           <button onClick={()=>setShowPacingBar(v=>!v)}
-            style={{background:showPacingBar?"#001a2e":"#0e1a2e",
-              border:`1px solid ${showPacingBar?"#38bdf860":"#1e293b"}`,
+            style={{background:lightMode?(showPacingBar?"#f0fdf9":"#f1f5f9"):(showPacingBar?"#001a2e":"#0e1a2e"),
+              border:`1px solid ${showPacingBar?(lightMode?"#00c896":"#38bdf860"):(lightMode?"#cbd5e1":"#1e293b")}`,
               borderRadius:7,padding:"7px 11px",
-              color:showPacingBar?"#38bdf8":"#4d6e8a",
+              color:showPacingBar?(lightMode?"#059669":"#38bdf8"):(lightMode?"#475569":"#4d6e8a"),
               fontSize:12,fontWeight:showPacingBar?700:400,
               cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s",
             }} title={showPacingBar?"Hide pacing bars":"Show pacing bars"}>
             {showPacingBar?"📊 Pacing Bar":"📊 Pacing Bar"}
           </button>
           <button onClick={()=>setQuickCheckIn(v=>!v)}
-            style={{background:quickCheckIn?"#001a2e":"#0e1a2e",
-              border:`1px solid ${quickCheckIn?"#00c896":"#1e293b"}`,
+            style={{background:lightMode?(quickCheckIn?"#f0fdf9":"#f1f5f9"):(quickCheckIn?"#001a2e":"#0e1a2e"),
+              border:`1px solid ${quickCheckIn?(lightMode?"#00c896":"#00c896"):(lightMode?"#cbd5e1":"#1e293b")}`,
               borderRadius:7,padding:"7px 11px",
-              color:quickCheckIn?"#00e5a0":"#4d6e8a",
+              color:quickCheckIn?(lightMode?"#059669":"#00e5a0"):(lightMode?"#475569":"#4d6e8a"),
               fontSize:12,fontWeight:quickCheckIn?700:400,
               cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s",
             }} title="Quick Check-in mode — tab through campaigns, paste impressions">
             {quickCheckIn?"✓ Quick Check-in":"⚡ Quick Check-in"}
           </button>
-          <span style={{fontSize:11,color:"#3d5a72"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
+          <span style={{fontSize:11,color:lightMode?"#94a3b8":"#3d5a72"}}>{filtered.length} result{filtered.length!==1?"s":""}</span>
         </div>
 
         {/* ── Quick Check-in mode ── */}
@@ -11244,20 +11360,20 @@ export default function App() {
             onClose={()=>setQuickCheckIn(false)}
           />
         )}
-        <div style={{background:"#0c1625",border:"1px solid #1e293b",borderRadius:10,overflow:"hidden"}}>
+        <div style={{background:lightMode?"#ffffff":"#0c1625",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:10,overflow:"hidden",boxShadow:lightMode?"0 1px 4px rgba(0,0,0,0.07)":"none"}}>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:920}}>
               <thead>
-                <tr style={{background:"#070d16"}}>
-                  <th style={{width:36,padding:"0 8px",borderBottom:"1px solid #1e293b",textAlign:"center"}}>
+                <tr style={{background:lightMode?"#f8fafc":"#070d16"}}>
+                  <th style={{width:36,padding:"0 8px",borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`,textAlign:"center"}}>
                     <DarkCheckbox
                       checked={filtered.length>0&&filtered.every(c=>selectedIds.has(c.id))}
                       indeterminate={filtered.some(c=>selectedIds.has(c.id))&&!filtered.every(c=>selectedIds.has(c.id))}
                       onChange={e=>{ if(e.target.checked) setSelectedIds(new Set(filtered.map(c=>c.id))); else setSelectedIds(new Set()); }}
                     />
                   </th>
-                  <th style={{width:28,borderBottom:"1px solid #1e293b"}}/>
-                  <th style={{width:36,borderBottom:"1px solid #1e293b"}}/>
+                  <th style={{width:28,borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}/>
+                  <th style={{width:36,borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}/>
                   <TH k="mediaPartner" label="Partner"/>
                   <TH k="campaignName" label="Campaign"/>
                   <TH k="platform" label="Platform"/>
@@ -11266,7 +11382,7 @@ export default function App() {
                   <TH k="startDate" label="Start Date"/>
                   <TH k="endDate" label="End Date"/>
                   <TH k="lastChecked" label="Last Checked"/>
-                  <th style={{padding:"10px 12px",fontSize:11,color:"#4d6e8a",borderBottom:"1px solid #1e293b",textTransform:"uppercase",letterSpacing:"0.07em"}}>Actions</th>
+                  <th style={{padding:"10px 12px",fontSize:11,color:lightMode?"#64748b":"#4d6e8a",borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`,textTransform:"uppercase",letterSpacing:"0.07em"}}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -11296,41 +11412,41 @@ export default function App() {
                     // Client header row
                     rows.push(
                       <tr key={`grp-${clientName}`} onClick={()=>toggleClient(clientName)}
-                        style={{background:"#07101c",cursor:"pointer",borderTop:"2px solid #1e3a5f"}}>
-                        <td style={{padding:"0 8px",borderBottom:"1px solid #1e293b",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
+                        style={{background:lightMode?"#f0f9ff":"#07101c",cursor:"pointer",borderTop:`2px solid ${lightMode?"#bae6fd":"#1e3a5f"}`}}>
+                        <td style={{padding:"0 8px",borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`,textAlign:"center"}} onClick={e=>e.stopPropagation()}>
                           <DarkCheckbox checked={camps.every(c=>selectedIds.has(c.id))} indeterminate={camps.some(c=>selectedIds.has(c.id))&&!camps.every(c=>selectedIds.has(c.id))} onChange={e=>{ const ids=camps.map(c=>c.id); setSelectedIds(prev=>{ const n=new Set(prev); e.target.checked?ids.forEach(id=>n.add(id)):ids.forEach(id=>n.delete(id)); return n; }); }}/>
                         </td>
-                        <td colSpan={2} style={{padding:"0 0 0 12px",borderBottom:"1px solid #1e293b"}}>
-                          <span style={{color:"#3d5a72",fontSize:11,userSelect:"none"}}>{isCollapsed?"▶":"▼"}</span>
+                        <td colSpan={2} style={{padding:"0 0 0 12px",borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}>
+                          <span style={{color:lightMode?"#64748b":"#3d5a72",fontSize:11,userSelect:"none"}}>{isCollapsed?"▶":"▼"}</span>
                         </td>
-                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
-                          <span style={{color:"#a8c4e0",fontWeight:600,fontSize:13}}>{partner}</span>
+                        <td style={{padding:"9px 12px",borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}>
+                          <span style={{color:lightMode?"#475569":"#a8c4e0",fontWeight:600,fontSize:13}}>{partner}</span>
                         </td>
-                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
+                        <td style={{padding:"9px 12px",borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}>
                           <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
-                            <span style={{color:"#edf4ff",fontWeight:700,fontSize:13}}>{clientName}</span>
+                            <span style={{color:lightMode?"#0f172a":"#edf4ff",fontWeight:700,fontSize:13}}>{clientName}</span>
                             {hasReminder && <span style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700}}>🔔</span>}
                             {platforms.map(p=>(
-                              <span key={p} style={{fontSize:10,background:(PLT[p]||PLT.default)+"22",border:`1px solid ${(PLT[p]||PLT.default)}40`,borderRadius:4,padding:"1px 6px",color:PLT[p]||PLT.default,fontWeight:600}}>{p}</span>
+                              <span key={p} style={{fontSize:10,background:_lm?(PLT[p]||PLT.default):(PLT[p]||PLT.default)+"22",border:`1px solid ${(PLT[p]||PLT.default)}${_lm?"":"40"}`,borderRadius:4,padding:"1px 6px",color:_lm?"#0a1a0a":(PLT[p]||PLT.default),fontWeight:600}}>{p}</span>
                             ))}
                           </div>
                         </td>
-                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}/>
-                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
-                          <span style={{background:scfg.bg,color:scfg.color,border:`1px solid ${scfg.color}40`,borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:600}}>{scfg.label}</span>
+                        <td style={{padding:"9px 12px",borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}/>
+                        <td style={{padding:"9px 12px",borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}>
+                          <span style={{background:lightMode?scfg.color:scfg.bg,color:lightMode?"#0a1a0a":scfg.color,border:lightMode?"none":`1px solid ${scfg.color}40`,borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:700}}>{scfg.label}</span>
                         </td>
-                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
-                          <span style={{fontSize:11,color:"#4d6e8a"}}>{camps.length} platform{camps.length!==1?"s":""}</span>
-                          {totalContract>0 && <span style={{fontSize:11,color:"#34d399",marginLeft:8}}>${Math.round(totalContract).toLocaleString()}</span>}
+                        <td style={{padding:"9px 12px",borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}>
+                          <span style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a"}}>{camps.length} platform{camps.length!==1?"s":""}</span>
+                          {totalContract>0 && <span style={{fontSize:11,color:lightMode?"#059669":"#34d399",marginLeft:8}}>${Math.round(totalContract).toLocaleString()}</span>}
                         </td>
-                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}/>
-                        <td style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}>
+                        <td style={{padding:"9px 12px",borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}/>
+                        <td style={{padding:"9px 12px",borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}>
                           {earliestEnd && <span style={{fontSize:12,color:drc,fontWeight:600}}>
                             {dLeft==null?"":dLeft<0?"Ended":dLeft===0?"Today":`${dLeft}d`}{" "}
                             <span style={{fontWeight:400,opacity:0.7,fontSize:11}}>{earliestEnd}</span>
                           </span>}
                         </td>
-                        <td colSpan={3} style={{padding:"9px 12px",borderBottom:"1px solid #1e293b"}}/>
+                        <td colSpan={3} style={{padding:"9px 12px",borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}/>
                       </tr>
                     );
                     // Platform rows — indented, hidden when collapsed
@@ -11339,24 +11455,24 @@ export default function App() {
                         const stale = c.lastChecked!==today;
                         const open  = expanded.has(c.id);
                         const hasData = !!(c.impressions||c.ctr||c.cpm||c.spend);
-                        const rowBg = i%2===0?"#0c1828":"#080f1a";
+                        const rowBg = lightMode?(i%2===0?"#ffffff":"#f8fafc"):(i%2===0?"#0c1828":"#080f1a");
                         const soonDate = new Date(today); soonDate.setDate(soonDate.getDate()+3); const soonStr=soonDate.toISOString().slice(0,10);
                         const campReminders = reminders.filter(r=>!r.dismissed&&r.campaignId===c.id&&r.date<=today);
                         const campUpcoming  = reminders.filter(r=>!r.dismissed&&r.campaignId===c.id&&r.date>today&&r.date<=soonStr);
                         rows.push(
                           <Fragment key={c.id}>
-                            <tr style={{background:selectedIds.has(c.id)?"#002418":rowBg}}>
-                              <td style={{padding:"0 8px",borderBottom:"1px solid #060c18",textAlign:"center",verticalAlign:"middle"}}>
+                            <tr style={{background:selectedIds.has(c.id)?(lightMode?"#dcfce7":"#002418"):rowBg}}>
+                              <td style={{padding:"0 8px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#060c18"}`,textAlign:"center",verticalAlign:"middle"}}>
                                 <DarkCheckbox checked={selectedIds.has(c.id)} onChange={e=>setSelectedIds(prev=>{ const n=new Set(prev); e.target.checked?n.add(c.id):n.delete(c.id); return n; })}/>
                               </td>
-                              <td style={{padding:"0 0 0 6px",borderBottom:"1px solid #060c18",width:28}}/>
-                              <td style={{padding:"0 0 0 8px",borderBottom:"1px solid #060c18",width:36,textAlign:"center",verticalAlign:"middle"}}>
-                                <button onClick={()=>toggleExpand(c.id)} className="xbtn" style={{background:"none",border:"none",cursor:"pointer",padding:"5px 6px",color:hasData?"#00c896":"#1e3048",transform:open?"rotate(90deg)":"rotate(0deg)",fontSize:11,lineHeight:1,display:"block",margin:"0 auto"}}>▶</button>
+                              <td style={{padding:"0 0 0 6px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#060c18"}`,width:28}}/>
+                              <td style={{padding:"0 0 0 8px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#060c18"}`,width:36,textAlign:"center",verticalAlign:"middle"}}>
+                                <button onClick={()=>toggleExpand(c.id)} className="xbtn" style={{background:"none",border:"none",cursor:"pointer",padding:"5px 6px",color:hasData?(lightMode?"#059669":"#00c896"):(lightMode?"#cbd5e1":"#1e3048"),transform:open?"rotate(90deg)":"rotate(0deg)",fontSize:11,lineHeight:1,display:"block",margin:"0 auto"}}>▶</button>
                               </td>
-                              <TD><span style={{color:"#4d6e8a",fontSize:11,paddingLeft:8}}>↳</span></TD>
+                              <TD><span style={{color:lightMode?"#94a3b8":"#4d6e8a",fontSize:11,paddingLeft:8}}>↳</span></TD>
                               <TD>
                                 <div style={{display:"flex",alignItems:"center",gap:5,paddingLeft:12}}>
-                                  <span style={{color:"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
+                                  <span style={{color:lightMode?"#0f172a":"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
                                   {(()=>{
                                     const disp=resolveMetrics(c,dateRange.preset);
                                     const pacing=computeMonthlyPacing(c, disp, c.note1);
@@ -11372,14 +11488,14 @@ export default function App() {
                                     </>);
                                   })()}
                                   {campReminders.length>0 && <button onClick={()=>setShowReminderModal(c.id)} style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>🔔 {campReminders.length}</button>}
-                                  {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,whiteSpace:"nowrap"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
+                                  {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:lightMode?"#fee2e2":"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,whiteSpace:"nowrap"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                                 </div>
                                 {c.note1&&c.note1.trim()&&(()=>{
                                   const disp=resolveMetrics(c,dateRange.preset);
                                   const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
                                   return (
                                     <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,paddingLeft:12,flexWrap:"wrap"}}>
-                                      <div style={{fontSize:11,color:"#00ffb3",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
+                                      <div style={{fontSize:11,color:lightMode?"#059669":"#00ffb3",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
                                       {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                                     </div>
                                   );
@@ -11387,8 +11503,8 @@ export default function App() {
                               </TD>
                               <TD><StatusBadge status={c.status}/></TD>
                               <TD><span style={{fontSize:12,color:(PLT[c.platform]||PLT.default),fontWeight:700}}>{c.platform}</span></TD>
-                              <TD><span style={{fontSize:11,color:"#7a9bbf"}}>{c.note1||"—"}</span></TD>
-                              <TD><span style={{fontSize:11,color:"#4d6e8a"}}>{c.startDate||"—"}</span></TD>
+                              <TD><span style={{fontSize:11,color:lightMode?"#475569":"#7a9bbf"}}>{c.note1||"—"}</span></TD>
+                              <TD><span style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a"}}>{c.startDate||"—"}</span></TD>
                               <TD><EndChip d={c.endDate}/></TD>
                               <TD>
                                 {(()=>{
@@ -11396,7 +11512,7 @@ export default function App() {
                                   const label = daysAgo===null?"—":daysAgo===0?"Today":daysAgo===1?"1d ago":`${daysAgo}d ago`;
                                   return <span title={fmtDate(c.lastChecked)} style={{fontSize:11,color:stale?"#f59e0b":"#00d48a",fontWeight:stale?600:400,cursor:"default"}}>{label}</span>;
                                 })()}
-                                {stale&&<button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00ffb3",fontSize:10,padding:"1px 6px",cursor:"pointer",fontWeight:700,marginLeft:4}}>✓</button>}
+                                {stale&&<button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{background:lightMode?"#f0fdf9":"#002018",border:`1px solid ${lightMode?"#00c896":"#22c55e40"}`,borderRadius:4,color:lightMode?"#059669":"#00ffb3",fontSize:10,padding:"1px 6px",cursor:"pointer",fontWeight:700,marginLeft:4}}>✓</button>}
                               </TD>
                               <TD>
                                 <RowActions c={c} onEdit={()=>setEditTarget(c)} onRenew={()=>setRenewTarget(c)}
@@ -11417,7 +11533,7 @@ export default function App() {
                   const stale = c.lastChecked!==today;
                   const open  = expanded.has(c.id);
                   const hasData = !!(c.impressions||c.ctr||c.cpm||c.spend);
-                  const rowBg = i%2===0?"#0c1625":"#090f1c";
+                  const rowBg = lightMode?(i%2===0?"#ffffff":"#f8fafc"):(i%2===0?"#0c1625":"#090f1c");
                   const soonDate = new Date(today); soonDate.setDate(soonDate.getDate()+3); const soonStr=soonDate.toISOString().slice(0,10);
                   const campReminders = reminders.filter(r=>!r.dismissed&&r.campaignId===c.id&&r.date<=today);
                   const campUpcoming  = reminders.filter(r=>!r.dismissed&&r.campaignId===c.id&&r.date>today&&r.date<=soonStr);
@@ -11431,23 +11547,23 @@ export default function App() {
                         onDragOver={e=>onDragOver(e,c.id)}
                         onDrop={e=>onDrop(e,c.id)}
                         onDragEnd={onDragEnd}
-                        style={{background:selectedIds.has(c.id)?"#002418":dragOverId===c.id?"#0a1c30":rowBg,opacity:dragId===c.id?0.4:1,transition:"opacity .15s,background .1s"}}
+                        style={{background:selectedIds.has(c.id)?(lightMode?"#dcfce7":"#002418"):dragOverId===c.id?(lightMode?"#e0f2fe":"#0a1c30"):rowBg,opacity:dragId===c.id?0.4:1,transition:"opacity .15s,background .1s"}}
                       >
-                        <td style={{padding:"0 8px",borderBottom:"1px solid #060c18",textAlign:"center",verticalAlign:"middle"}} onMouseDown={e=>e.stopPropagation()}>
+                        <td style={{padding:"0 8px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#060c18"}`,textAlign:"center",verticalAlign:"middle"}} onMouseDown={e=>e.stopPropagation()}>
                           <DarkCheckbox checked={selectedIds.has(c.id)} onChange={e=>setSelectedIds(prev=>{ const n=new Set(prev); e.target.checked?n.add(c.id):n.delete(c.id); return n; })}/>
                         </td>
-                        <td style={{padding:"0 0 0 6px",borderBottom:"1px solid #060c18",textAlign:"center",verticalAlign:"middle",width:28,cursor:"grab"}}>
-                          <span style={{color:"#1e3048",fontSize:12,userSelect:"none",display:"block",lineHeight:1}}>⠿</span>
+                        <td style={{padding:"0 0 0 6px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#060c18"}`,textAlign:"center",verticalAlign:"middle",width:28,cursor:"grab"}}>
+                          <span style={{color:lightMode?"#cbd5e1":"#1e3048",fontSize:12,userSelect:"none",display:"block",lineHeight:1}}>⠿</span>
                         </td>
-                        <td style={{padding:"0 0 0 8px",borderBottom:"1px solid #060c18",textAlign:"center",verticalAlign:"middle",width:36}}>
-                          <button onClick={()=>toggleExpand(c.id)} className="xbtn" style={{background:"none",border:"none",cursor:"pointer",padding:"5px 6px",color:hasData?"#00c896":"#1e3048",transform:open?"rotate(90deg)":"rotate(0deg)",fontSize:11,lineHeight:1,display:"block",margin:"0 auto"}}>▶</button>
+                        <td style={{padding:"0 0 0 8px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#060c18"}`,textAlign:"center",verticalAlign:"middle",width:36}}>
+                          <button onClick={()=>toggleExpand(c.id)} className="xbtn" style={{background:"none",border:"none",cursor:"pointer",padding:"5px 6px",color:hasData?(lightMode?"#059669":"#00c896"):(lightMode?"#cbd5e1":"#1e3048"),transform:open?"rotate(90deg)":"rotate(0deg)",fontSize:11,lineHeight:1,display:"block",margin:"0 auto"}}>▶</button>
                         </td>
-                        <TD><span style={{color:"#a8c4e0",fontWeight:500}}>{c.mediaPartner.trim()}</span></TD>
+                        <TD><span style={{color:lightMode?"#475569":"#a8c4e0",fontWeight:500}}>{c.mediaPartner.trim()}</span></TD>
                         <TD>
                           <div style={{display:"flex",alignItems:"center",gap:5}}>
-                            <span style={{color:"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
-                            {(()=>{ const daysOld=(Date.now()-(typeof c.id==="number"?c.id:parseInt(c.id)||0))/86400000; return daysOld<=7?<span title={`Added ${daysOld<1?"today":Math.floor(daysOld)+"d ago"}`} style={{background:"#7dd3fc18",border:"1px solid #7dd3fc50",borderRadius:4,padding:"1px 5px",fontSize:9,color:"#7dd3fc",fontWeight:700,flexShrink:0,letterSpacing:"0.04em"}}>NEW</span>:null; })()}
-                            {c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:false})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#00e5c0",fontSize:13,lineHeight:1,flexShrink:0}}>★</button>}
+                            <span style={{color:lightMode?"#0f172a":"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
+                            {(()=>{ const daysOld=(Date.now()-(typeof c.id==="number"?c.id:parseInt(c.id)||0))/86400000; return daysOld<=7?<span title={`Added ${daysOld<1?"today":Math.floor(daysOld)+"d ago"}`} style={{background:lightMode?"#dbeafe":"#7dd3fc18",border:`1px solid ${lightMode?"#7dd3fc":"#7dd3fc50"}`,borderRadius:4,padding:"1px 5px",fontSize:9,color:lightMode?"#1e40af":"#7dd3fc",fontWeight:700,flexShrink:0,letterSpacing:"0.04em"}}>NEW</span>:null; })()}
+                            {c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:false})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:lightMode?"#059669":"#00e5c0",fontSize:13,lineHeight:1,flexShrink:0}}>★</button>}
                             {!c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:true})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#1e3048",fontSize:13,lineHeight:1,flexShrink:0,opacity:0}} className="star-toggle">★</button>}
                             {c.retargeting && <button onClick={()=>updateCampaign({...c,retargeting:false})} title="RT pixel not placed — click when pixel is live" style={{background:"#FF6B6B22",border:"1px solid #FF6B6B60",borderRadius:4,padding:"0px 5px",cursor:"pointer",color:"#FF6B6B",fontSize:10,lineHeight:1.6,flexShrink:0,fontWeight:900}}>RT</button>}
                             {!c.retargeting && <button onClick={()=>updateCampaign({...c,retargeting:true})} title="Pixel placed — click to flag as missing" style={{background:"none",border:"1px solid #1e3048",borderRadius:4,padding:"0px 5px",cursor:"pointer",color:"#FF6B6B",fontSize:10,lineHeight:1.6,flexShrink:0,fontWeight:900,opacity:0}} className="star-toggle">RT</button>}
@@ -11475,17 +11591,17 @@ export default function App() {
                               <button onClick={()=>setShowReminderModal(c.id)} title="Reminder due!" style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer",flexShrink:0}}>🔔 {campReminders.length}</button>
                             )}
                             {campUpcoming.length>0 && campReminders.length===0 && (
-                              <button onClick={()=>setShowReminderModal(c.id)} title={`${campUpcoming.length} reminder${campUpcoming.length>1?"s":""} coming up soon`} style={{background:"#1e293b",border:"1px solid #475569",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#94a3b8",fontWeight:600,cursor:"pointer",flexShrink:0,opacity:0.75}}>🔔 {campUpcoming.length}</button>
+                              <button onClick={()=>setShowReminderModal(c.id)} title={`${campUpcoming.length} reminder${campUpcoming.length>1?"s":""} coming up soon`} style={{background:lightMode?"#f1f5f9":"#1e293b",border:`1px solid ${lightMode?"#cbd5e1":"#475569"}`,borderRadius:10,padding:"1px 6px",fontSize:10,color:lightMode?"#475569":"#94a3b8",fontWeight:600,cursor:"pointer",flexShrink:0,opacity:0.75}}>🔔 {campUpcoming.length}</button>
                             )}
-{c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
+{c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:lightMode?"#fee2e2":"#200808",border:`1px solid ${lightMode?"#ef4444":"#ef444460"}`,borderRadius:3,padding:"1px 5px",fontSize:9,color:lightMode?"#b91c1c":"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                           </div>
                           {c.note1&&c.note1.trim()&&(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
                             const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
                             return (
                               <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,flexWrap:"wrap"}}>
-                                <div style={{fontSize:11,color:"#00ffb3",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
-                                {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
+                                <div style={{fontSize:11,color:lightMode?"#059669":"#00ffb3",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
+                                {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:lightMode?"#7c3aed":"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                               </div>
                             );
                           })()}
@@ -11498,13 +11614,13 @@ export default function App() {
                             const pacingTipGoal = pacing.unit==="$" ? "$"+Math.round(pacing.goal).toLocaleString() : pacing.goal.toLocaleString()+" "+pacing.unit;
                             return (
                               <div style={{marginTop:4,width:140}} title={`${pacing.label}: ${pacingTipDel} of ${pacingTipGoal} goal`}>
-                                <div style={{position:"relative",background:"#0e1a2e",borderRadius:3,height:5,width:"100%",overflow:"visible",marginBottom:2}}>
-                                  <div style={{position:"absolute",top:-2,left:`${Math.min(97,pacing.expectedPct*100)}%`,width:2,height:9,background:"#334155",borderRadius:1,zIndex:2}}/>
+                                <div style={{position:"relative",background:lightMode?"#e2e8f0":"#0e1a2e",borderRadius:3,height:5,width:"100%",overflow:"visible",marginBottom:2}}>
+                                  <div style={{position:"absolute",top:-2,left:`${Math.min(97,pacing.expectedPct*100)}%`,width:2,height:9,background:lightMode?"#94a3b8":"#334155",borderRadius:1,zIndex:2}}/>
                                   <div style={{background:pacing.color,height:"100%",width:`${Math.min(100,pacing.pct*100)}%`,borderRadius:3,transition:"width .3s"}}/>
                                 </div>
                                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                                   <span style={{fontSize:9,color:pacing.color,fontWeight:700,letterSpacing:"0.03em"}}>{(pacing.pct*100).toFixed(0)}% of goal</span>
-                                  <span style={{fontSize:9,color:"#2a4060",fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>{getPeriodLabel(dateRange.preset)}</span>
+                                  <span style={{fontSize:9,color:lightMode?"#94a3b8":"#2a4060",fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>{getPeriodLabel(dateRange.preset)}</span>
                                 </div>
                               </div>
                             );
@@ -11513,18 +11629,23 @@ export default function App() {
                         </TD>
                         <TD><PlatformTag p={c.platform}/></TD>
                         <TD>
-                          <select value={c.status||""} onChange={e=>updateCampaign({...c,status:e.target.value})} style={{background:STATUS_CFG[c.status||""]?.bg||"#0e1a2e",border:`1px solid ${STATUS_CFG[c.status||""]?.color||"#1e293b"}40`,borderRadius:5,color:STATUS_CFG[c.status||""]?.color||"#4d6e8a",fontSize:11,padding:"3px 6px",cursor:"pointer",fontWeight:600}}>
+                          <select value={c.status||""} onChange={e=>updateCampaign({...c,status:e.target.value})} style={{
+                            background:lightMode?(STATUS_CFG[c.status||""]?.color||"#059669"):(STATUS_CFG[c.status||""]?.bg||"#0e1a2e"),
+                            border:lightMode?"none":`1px solid ${STATUS_CFG[c.status||""]?.color||"#1e293b"}40`,
+                            borderRadius:5,
+                            color:lightMode?"#0a1a0a":(STATUS_CFG[c.status||""]?.color||"#4d6e8a"),
+                            fontSize:11,padding:"3px 8px",cursor:"pointer",fontWeight:700}}>
                             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
                           </select>
                         </TD>
-                        <TD style={{maxWidth:170}}><span style={{color:"#7a9bbf",fontSize:13,display:"block",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}} title={c.goal}>{c.goal}</span></TD>
+                        <TD style={{maxWidth:170}}><span style={{color:lightMode?"#475569":"#7a9bbf",fontSize:13,display:"block",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}} title={c.goal}>{c.goal}</span></TD>
                         <TD>
                           {c.startDate ? (
                             <div>
-                              <span style={{color:"#7a9bbf",fontSize:12,fontVariantNumeric:"tabular-nums"}}>{fmtDate(c.startDate)}</span>
-                              {(()=>{ const total=Math.ceil((new Date(c.endDate)-new Date(c.startDate))/86400000); const elapsed=Math.ceil((new Date()-new Date(c.startDate))/86400000); const pct=Math.min(100,Math.max(0,Math.round(elapsed/total*100))); const col=pct<33?"#00d48a":pct<66?"#f59e0b":"#ef4444"; return total>0?(<div style={{marginTop:3}}><div style={{background:"#0e1a2e",borderRadius:3,height:3,width:80,overflow:"hidden"}}><div style={{background:col,height:"100%",width:pct+"%",transition:"width .3s"}}/></div><span style={{fontSize:9,color:col,marginTop:1,display:"block"}}>{pct}% through</span></div>):null; })()}
+                              <span style={{color:lightMode?"#475569":"#7a9bbf",fontSize:12,fontVariantNumeric:"tabular-nums"}}>{fmtDate(c.startDate)}</span>
+                              {(()=>{ const total=Math.ceil((new Date(c.endDate)-new Date(c.startDate))/86400000); const elapsed=Math.ceil((new Date()-new Date(c.startDate))/86400000); const pct=Math.min(100,Math.max(0,Math.round(elapsed/total*100))); const col=pct<33?"#00d48a":pct<66?"#f59e0b":"#ef4444"; return total>0?(<div style={{marginTop:3}}><div style={{background:lightMode?"#e2e8f0":"#0e1a2e",borderRadius:3,height:3,width:80,overflow:"hidden"}}><div style={{background:col,height:"100%",width:pct+"%",transition:"width .3s"}}/></div><span style={{fontSize:9,color:col,marginTop:1,display:"block"}}>{pct}% through</span></div>):null; })()}
                             </div>
-                          ) : <span style={{color:"#2a4060",fontSize:11}}>—</span>}
+                          ) : <span style={{color:lightMode?"#94a3b8":"#2a4060",fontSize:11}}>—</span>}
                         </TD>
                         <TD><EndChip d={c.endDate}/></TD>
                         <TD>
@@ -11534,7 +11655,7 @@ export default function App() {
                               const label = daysAgo===null?"—":daysAgo===0?"Today":daysAgo===1?"1d ago":`${daysAgo}d ago`;
                               return <span title={fmtDate(c.lastChecked)} style={{fontSize:11,color:stale?"#f59e0b":"#00d48a",fontWeight:stale?600:400,whiteSpace:"nowrap",cursor:"default"}}>{label}</span>;
                             })()}
-                            {stale&&<button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{background:"#002018",border:"1px solid #22c55e40",borderRadius:4,color:"#00ffb3",fontSize:10,padding:"1px 6px",cursor:"pointer",fontWeight:700}}>✓</button>}
+                            {stale&&<button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{background:lightMode?"#dcfce7":"#002018",border:`1px solid ${lightMode?"#22c55e":"#22c55e40"}`,borderRadius:4,color:lightMode?"#166534":"#00ffb3",fontSize:10,padding:"1px 6px",cursor:"pointer",fontWeight:700}}>✓</button>}
                           </div>
                         </TD>
                         <TD>
@@ -11551,10 +11672,10 @@ export default function App() {
                 })}
               </tbody>
             </table>
-            {filtered.length===0 && <div style={{textAlign:"center",padding:"50px 0",color:"#3d5a72"}}>No campaigns match your filters.</div>}
+            {filtered.length===0 && <div style={{textAlign:"center",padding:"50px 0",color:lightMode?"#94a3b8":"#3d5a72"}}>No campaigns match your filters.</div>}
           </div>
         </div>
-        <div style={{marginTop:8,fontSize:11,color:"#1e3048",textAlign:"right"}}>▶ click to expand metrics · blue arrow = data entered</div>
+        <div style={{marginTop:8,fontSize:11,color:lightMode?"#cbd5e1":"#1e3048",textAlign:"right"}}>▶ click to expand metrics · blue arrow = data entered</div>
       </>
       )}
 
