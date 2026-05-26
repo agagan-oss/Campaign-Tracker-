@@ -5162,8 +5162,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       })()} {/* end calcMonthlyRevenue IIFE */}
 
       {/* Per-line breakdown dropdown — shown when sync has 2+ lines mapped to this campaign.
-          Surfaces ad-set / line-item stats so the user can see if retargeting (or any specific
-          line) is actually running, not just the rolled-up campaign total. */}
+          Surfaces ad-set / line-item stats AND per-line yesterday delivery so the user
+          can see if a specific line (e.g. retargeting) actually spent yesterday. */}
       {(()=>{
         // Find whichever snapshot source has breakdown data — checks all 5 platforms
         const snapshotSources = [c.metaSnapshots, c.ttdSnapshots, c.dspSnapshots, c.googleSnapshots, c.snapSnapshots];
@@ -5177,32 +5177,49 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         }
         const breakdown = snap?.breakdown;
         if (!breakdown || breakdown.length < 2) return null;
+        // Build a lookup of yesterday's MTD per line (by name) so we can diff for "yesterday delivered per line"
+        const priorBd = snap?.priorBreakdown || null;
+        const priorByName = {};
+        if (priorBd) priorBd.forEach(p => { if (p?.name) priorByName[p.name] = p; });
         // Sort descending by impressions so heaviest line shows first
         const sortedBreakdown = [...breakdown].sort((a,b)=>(b.impressions||0)-(a.impressions||0));
         const totalImpr = sortedBreakdown.reduce((s,b)=>s+(b.impressions||0),0);
+        const hasPrior = !!snap?.priorBreakdown;
         return (
           <div style={{marginTop:8,borderTop:`1px solid ${lightMode?"#e2e8f0":"#1a2744"}`,paddingTop:8}}>
             <button onClick={()=>setBreakdownOpen(v=>!v)}
               style={{display:"flex",alignItems:"center",gap:6,width:"100%",background:"none",border:"none",padding:"2px 0",cursor:"pointer",color:lightMode?"#3b82f6":"#7ec8ff",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>
               <span style={{display:"inline-block",transform:breakdownOpen?"rotate(90deg)":"rotate(0deg)",transition:"transform .15s"}}>▸</span>
-              <span>{breakdownOpen?"Hide":"Show"} line breakdown ({sortedBreakdown.length})</span>
+              <span>{breakdownOpen?"Hide":"Show"} line breakdown ({sortedBreakdown.length}){hasPrior?` · vs ${snap.priorBreakdownDate}`:""}</span>
             </button>
             {breakdownOpen&&(
               <div style={{display:"flex",flexDirection:"column",gap:3,marginTop:6}}>
                 {sortedBreakdown.map(b=>{
                   const pctOfTotal = totalImpr>0 ? (b.impressions/totalImpr)*100 : 0;
                   const isQuiet = b.impressions === 0 || pctOfTotal < 5;
+                  const prior = priorByName[b.name];
+                  const yestImpr = prior ? Math.max(0, (b.impressions||0) - (prior.impressions||0)) : null;
+                  const yestSpend = prior ? Math.max(0, (b.spend||0) - (prior.spend||0)) : null;
                   return (
                     <div key={b.id} style={{display:"flex",alignItems:"center",gap:6,background:lightMode?"#f8fafc":"#07101c",border:`1px solid ${isQuiet?(lightMode?"#fca5a5":"#7f1d1d"):(lightMode?"#e2e8f0":"transparent")}`,borderRadius:5,padding:"5px 8px"}}>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:10,color:lightMode?"#334155":"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}
                           title={b.name}>{b.name}</div>
-                        <div style={{fontSize:8,color:lightMode?"#94a3b8":"#3d5a72",marginTop:1}}>{pctOfTotal.toFixed(0)}% of total{isQuiet?" · ⚠ low / not running":""}</div>
+                        <div style={{fontSize:8,color:lightMode?"#94a3b8":"#3d5a72",marginTop:1}}>
+                          {pctOfTotal.toFixed(0)}% of total
+                          {yestImpr!=null&&<>
+                            {" · "}
+                            <span style={{color:yestImpr===0?(lightMode?"#dc2626":"#ef4444"):(lightMode?"#059669":"#00d48a"),fontWeight:700}}>
+                              yest: {yestImpr.toLocaleString()} impr{yestSpend>0?` · $${Math.round(yestSpend).toLocaleString()}`:""}
+                            </span>
+                          </>}
+                          {isQuiet?" · ⚠ low / not running":""}
+                        </div>
                       </div>
                       <div style={{display:"flex",gap:8,flexShrink:0}}>
-                        <span style={{fontSize:10,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:600,fontVariantNumeric:"tabular-nums"}}>{parseInt(b.impressions||0).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}> impr</span></span>
-                        {b.spend>0&&<span style={{fontSize:10,color:"#f472b6",fontWeight:600}}>${Math.round(b.spend).toLocaleString()}</span>}
-                        {b.ctr>0&&<span style={{fontSize:10,color:"#00ffb3",fontWeight:600}}>{b.ctr.toFixed(2)}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}>%</span></span>}
+                        <span style={{fontSize:10,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:600,fontVariantNumeric:"tabular-nums"}} title="MTD impressions">{parseInt(b.impressions||0).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}> impr</span></span>
+                        {b.spend>0&&<span style={{fontSize:10,color:"#f472b6",fontWeight:600}} title="MTD spend">${Math.round(b.spend).toLocaleString()}</span>}
+                        {b.ctr>0&&<span style={{fontSize:10,color:"#00ffb3",fontWeight:600}} title="MTD CTR">{b.ctr.toFixed(2)}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}>%</span></span>}
                       </div>
                     </div>
                   );
@@ -5248,17 +5265,25 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const [rowBreakdownOpen, setRowBreakdownOpen] = useState(false);
     const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
     const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null;
-    // Resolve the per-line breakdown (if any) for the disclosure widget
-    const rowBreakdown = (()=>{
+    // Resolve the per-line breakdown (if any) for the disclosure widget.
+    // Also pull the snapshot itself so we can show prior-day per-line delta.
+    const rowSnap = (()=>{
       const sources = [c.metaSnapshots, c.ttdSnapshots, c.dspSnapshots, c.googleSnapshots, c.snapSnapshots];
       for (const source of sources) {
         if (!source) continue;
         for (const key of ['mtd','last30','yesterday']) {
-          if (source[key]?.breakdown?.length >= 2) return source[key].breakdown;
+          if (source[key]?.breakdown?.length >= 2) return source[key];
         }
       }
       return null;
     })();
+    const rowBreakdown = rowSnap?.breakdown || null;
+    const rowPriorByName = (()=>{
+      const m = {};
+      (rowSnap?.priorBreakdown||[]).forEach(p => { if (p?.name) m[p.name] = p; });
+      return m;
+    })();
+    const rowPriorDate = rowSnap?.priorBreakdownDate || null;
     const col=pacing?.color??"#3d5a72", pCol=PLT_COLORS[c.platform]||PLT_COLORS.default;
     const dr=daysRemaining(c), drc=daysRemainingColor(dr);
     const kpi=PLT_KPI[c.platform];
@@ -5512,33 +5537,59 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               style={{background:lightMode?"#f1f5f9":"none",border:lightMode?"1px solid #cbd5e1":"none",borderRadius:4,color:lightMode?"#94a3b8":"#3d5a72",fontSize:13,padding:"2px 5px",cursor:"pointer",lineHeight:1}}>✕</button>}
       </div>
     </div>
-    {/* Expanded per-line breakdown — full-width row beneath the campaign row */}
+    {/* Expanded per-line breakdown — full-width row beneath the campaign row.
+        Shows BOTH MTD totals AND a separate "yesterday delivered" column per line
+        (today MTD − prior-day MTD), so you can see e.g. retargeting spent $0 yesterday. */}
     {rowBreakdown&&rowBreakdownOpen&&(()=>{
       const sorted = [...rowBreakdown].sort((a,b)=>(b.impressions||0)-(a.impressions||0));
       const totalImpr = sorted.reduce((s,b)=>s+(b.impressions||0),0);
+      const hasPrior = Object.keys(rowPriorByName).length > 0;
       return (
         <div style={{background:lightMode?"#f8fafc":"#050b14",borderBottom:"1px solid "+lmBrdR,borderLeft:"3px solid "+col,padding:"6px 16px 10px 42px"}}>
           <div style={{fontSize:9,color:lightMode?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5}}>
             Line breakdown — {sorted.length} ad set{sorted.length!==1?"s":""} rolled up into this campaign
+            {hasPrior&&<span style={{color:lightMode?"#3b82f6":"#7ec8ff",marginLeft:6,textTransform:"none",letterSpacing:0}}>· yesterday delivery vs {rowPriorDate}</span>}
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
             {sorted.map(b=>{
               const pctOfTotal = totalImpr>0 ? (b.impressions/totalImpr)*100 : 0;
               const isQuiet = b.impressions === 0 || pctOfTotal < 5;
+              const prior = rowPriorByName[b.name];
+              const yestImpr  = prior ? Math.max(0, (b.impressions||0) - (prior.impressions||0)) : null;
+              const yestSpend = prior ? Math.max(0, (b.spend||0)       - (prior.spend||0))       : null;
+              const yestClk   = prior ? Math.max(0, (b.clicks||0)      - (prior.clicks||0))      : null;
+              const yestColor = yestImpr === 0 ? (lightMode?"#dc2626":"#ef4444") : (lightMode?"#059669":"#00d48a");
               return (
                 <div key={b.id} style={{display:"flex",alignItems:"center",gap:10,background:lightMode?"#ffffff":"#0a1320",border:`1px solid ${isQuiet?(lightMode?"#fca5a5":"#7f1d1d"):(lightMode?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"6px 10px"}}>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:11,color:lightMode?"#334155":"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={b.name}>{b.name}</div>
                     <div style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",marginTop:1}}>{pctOfTotal.toFixed(0)}% of total impr{isQuiet?" · ⚠ low / not running":""}</div>
                   </div>
-                  <span style={{fontSize:11,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:700,fontVariantNumeric:"tabular-nums",minWidth:80,textAlign:"right"}}>{parseInt(b.impressions||0).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}> impr</span></span>
-                  {b.clicks>0&&<span style={{fontSize:11,color:"#a3bffa",fontWeight:600,minWidth:50,textAlign:"right"}}>{parseInt(b.clicks).toLocaleString()} clk</span>}
-                  {b.ctr>0&&<span style={{fontSize:11,color:"#00ffb3",fontWeight:600,minWidth:55,textAlign:"right"}}>{b.ctr.toFixed(2)}%</span>}
-                  {b.spend>0&&<span style={{fontSize:11,color:"#f472b6",fontWeight:600,minWidth:55,textAlign:"right"}}>${Math.round(b.spend).toLocaleString()}</span>}
+                  {/* MTD column */}
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,paddingRight:hasPrior?10:0,borderRight:hasPrior?`1px solid ${lightMode?"#e2e8f0":"#1a2744"}`:"none"}}>
+                    <span style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",fontWeight:700,textTransform:"uppercase"}}>MTD</span>
+                    <span style={{fontSize:11,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:700,fontVariantNumeric:"tabular-nums",minWidth:70,textAlign:"right"}}>{parseInt(b.impressions||0).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400,fontSize:9}}> impr</span></span>
+                    {b.clicks>0&&<span style={{fontSize:11,color:"#a3bffa",fontWeight:600,minWidth:45,textAlign:"right"}}>{parseInt(b.clicks).toLocaleString()} clk</span>}
+                    {b.ctr>0&&<span style={{fontSize:11,color:"#00ffb3",fontWeight:600,minWidth:48,textAlign:"right"}}>{b.ctr.toFixed(2)}%</span>}
+                    {b.spend>0&&<span style={{fontSize:11,color:"#f472b6",fontWeight:600,minWidth:50,textAlign:"right"}}>${Math.round(b.spend).toLocaleString()}</span>}
+                  </div>
+                  {/* YESTERDAY column — appears only when prior breakdown exists */}
+                  {hasPrior&&(
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                      <span style={{fontSize:9,color:yestColor,fontWeight:700,textTransform:"uppercase"}}>Yest</span>
+                      {yestImpr!=null
+                        ? <span style={{fontSize:11,color:yestColor,fontWeight:700,fontVariantNumeric:"tabular-nums",minWidth:70,textAlign:"right"}}>{yestImpr.toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400,fontSize:9}}> impr</span></span>
+                        : <span style={{fontSize:11,color:lmTxtD,minWidth:70,textAlign:"right"}}>—</span>}
+                      {yestClk!=null&&yestClk>0&&<span style={{fontSize:11,color:"#a3bffa",fontWeight:600,minWidth:45,textAlign:"right"}}>{yestClk.toLocaleString()} clk</span>}
+                      {yestSpend!=null&&yestSpend>0&&<span style={{fontSize:11,color:"#f472b6",fontWeight:600,minWidth:50,textAlign:"right"}}>${Math.round(yestSpend).toLocaleString()}</span>}
+                      {yestImpr===0&&<span style={{fontSize:9,color:lightMode?"#dc2626":"#ef4444",fontWeight:700,background:lightMode?"#fee2e2":"#3a0010",padding:"1px 5px",borderRadius:3}}>NOT RUNNING</span>}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
+          {!hasPrior&&<div style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",fontStyle:"italic",marginTop:6}}>Yesterday delivery per line will appear after your next CSV drop (needs two days of data to compute).</div>}
         </div>
       );
     })()}
@@ -7952,19 +8003,6 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       const ctrDisplay = (computedCtr * 100).toFixed(3);
       // Check-in log line — stored in checkInLog (separate from personal history notes)
       const histLine=`${stamp} | ${u.impressions.toLocaleString()} impr | ${u.clicks} clicks | CTR ${ctrDisplay}%${u.spend>0?" | $"+u.spend.toFixed(2)+" spend":""}${u.completionRate>0?" | VCR "+u.completionRate.toFixed(1)+"%":""} | ${sourceLabel}`;
-      // Build the MTD snapshot — same shape for every source. The `breakdown` array
-      // preserves per-line stats so the Pacing card can show the ad-set breakdown
-      // when one tracker campaign has multiple CSV rows mapped to it.
-      const mtdSnap = {
-        impressions: u.impressions||null,
-        clicks:      u.clicks||null,
-        ctr:         computedCtr||null,
-        spend:       u.spend||null,
-        cpm:         computedCpm||null,
-        vcr:         u.completionRate||null,
-        updatedAt:   stamp,
-        breakdown:   u.breakdown && u.breakdown.length >= 2 ? u.breakdown : null,
-      };
       // Map source → snapshot field. Writes to whichever snapshot the PacingCard
       // breakdown viewer scans (metaSnapshots / ttdSnapshots / dspSnapshots /
       // googleSnapshots / snapSnapshots).
@@ -7974,6 +8012,30 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                       : fileSource==="Snapchat"      ? "snapSnapshots"
                       : fileSource==="DSP-Internal"  ? "dspSnapshots"
                       : null;
+      // Roll over the existing breakdown into priorBreakdown ONLY if its date is
+      // earlier than today — that's what lets us diff yesterday's per-line stats
+      // (today MTD per line - prior MTD per line = delivered yesterday per line).
+      const existingMtd = snapField ? c[snapField]?.mtd : null;
+      const existingBd  = existingMtd?.breakdown;
+      const existingDate = existingMtd?.updatedAt;
+      const shouldRollOver = existingBd && existingBd.length && existingDate && existingDate !== stamp;
+      const priorBreakdown     = shouldRollOver ? existingBd : (existingMtd?.priorBreakdown || null);
+      const priorBreakdownDate = shouldRollOver ? existingDate : (existingMtd?.priorBreakdownDate || null);
+      // Build the MTD snapshot — same shape for every source. The `breakdown` array
+      // preserves per-line stats; `priorBreakdown` holds the last prior-day snapshot
+      // so we can compute per-line yesterday delivery.
+      const mtdSnap = {
+        impressions: u.impressions||null,
+        clicks:      u.clicks||null,
+        ctr:         computedCtr||null,
+        spend:       u.spend||null,
+        cpm:         computedCpm||null,
+        vcr:         u.completionRate||null,
+        updatedAt:   stamp,
+        breakdown:   u.breakdown && u.breakdown.length >= 2 ? u.breakdown : null,
+        priorBreakdown,
+        priorBreakdownDate,
+      };
       const sourceSnap = snapField ? {
         [snapField]: { ...(c[snapField]||{}), mtd: mtdSnap }
       } : {};
