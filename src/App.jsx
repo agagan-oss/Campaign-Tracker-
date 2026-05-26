@@ -7844,6 +7844,9 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         // lastCheckInImpr: MTD impressions as of the most recent check-in
         // Used to detect dead campaigns: if next check-in shows same/lower number, campaign went dark
         lastCheckInImpr: String(u.impressions||0),
+        // Track which file source last synced this campaign and when — shown in QCI left panel
+        lastQciSource: fileSource,
+        lastQciDate: stamp,
       };
     }));
     // Save per-name memory (persists across future file drops even if file contents change)
@@ -7867,7 +7870,14 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       })
       .filter(e=>e.csvName&&e.campId);
     if(entries.length){ persistNameMappings(fileSource,entries); }
-    setSavedMsg(`✓ Applied ${Object.keys(updates).length} campaigns · ${entries.length} mappings saved for next time`);
+    const appliedCampCount = Object.keys(updates).length;
+    const totalRowCount = fileRows.length;
+    const unmatchedRowCount = fileRows.filter((_,i)=>!mapping[i]).length;
+    const matchedRowCount = totalRowCount - unmatchedRowCount;
+    const msgParts = [`✓ Applied to ${appliedCampCount} campaign${appliedCampCount!==1?"s":""} · ${matchedRowCount}/${totalRowCount} rows matched`];
+    if(unmatchedRowCount>0) msgParts.push(`⚠ ${unmatchedRowCount} row${unmatchedRowCount>1?"s":""} had no match — verify below`);
+    msgParts.push(`${entries.length} mappings saved`);
+    setSavedMsg(msgParts.join(" · "));
     setFileRows(null); setMapping({}); setMatchConf({}); setConfirmApplyPending(false);
   }
 
@@ -8009,8 +8019,20 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                       <div style={{fontSize:11,color:isMapped?(_lm?"#059669":"#00e5a0"):isPickTarget?"#f59e0b":sel?(_lm?"#0f172a":"#edf4ff"):(_lm?"#475569":"#7a9bbf"),fontWeight:(sel||isPickTarget)?600:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                         {isMapped&&"✓ "}{isPickTarget&&!isMapped&&"→ "}{c.campaignName.trim()}
                       </div>
-                      <div style={{fontSize:9,color:isPickTarget&&!isMapped?(_lm?"#d97706":"#a07000"):(_lm?"#94a3b8":"#3d5a72")}}>
-                        {isPickTarget&&!isMapped ? "click a row on the right to assign →" : c.mediaPartner}
+                      <div style={{fontSize:9,color:isPickTarget&&!isMapped?(_lm?"#d97706":"#a07000"):(_lm?"#94a3b8":"#3d5a72"),display:"flex",gap:4,alignItems:"center",overflow:"hidden"}}>
+                        {isPickTarget&&!isMapped
+                          ? "click a row on the right to assign →"
+                          : <><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.mediaPartner}</span>
+                            {c.lastQciDate&&(()=>{
+                              const srcMap={"TradeDesk":"TTD","Google":"GGL","Facebook/Meta":"FB","Snapchat":"SNAP","Generic":"CSV"};
+                              const srcLabel=srcMap[c.lastQciSource]||(c.lastQciSource||"CSV").slice(0,4);
+                              const isToday=c.lastQciDate===getToday();
+                              return <span style={{flexShrink:0,color:isToday?(_lm?"#059669":"#00c896"):(_lm?"#94a3b8":"#2a4060"),fontWeight:isToday?700:400}} title={`Last QCI: ${c.lastQciDate} via ${c.lastQciSource||"CSV"}`}>
+                                · {isToday?"✓ "+srcLabel+" today":c.lastQciDate.slice(5).replace("-","/")+` ${srcLabel}`}
+                              </span>;
+                            })()}
+                          </>
+                        }
                       </div>
                     </div>
                     <span style={{background:(PLT_COLORS[c.platform]||"#7a9bbf")+"22",color:PLT_COLORS[c.platform]||"#7a9bbf",border:`1px solid ${PLT_COLORS[c.platform]||"#7a9bbf"}40`,borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
@@ -8639,6 +8661,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
   const [cellMode, setCellMode]             = useState("dollar"); // "dollar" | "margin"
   const [monthLocks, setMonthLocks]         = useState(() => { try { return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); } catch { return {}; } });
   const [showPLReport, setShowPLReport]     = useState(false);
+  const [showEnded, setShowEnded]           = useState(false); // show campaigns that ended before active month
   const now = new Date();
   // Use local-time formatting — toISOString() converts to UTC and can roll back a month for US timezones
   const moStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
@@ -8724,9 +8747,21 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
   }
 
   // Include campaigns that have either a legacy contract value OR a rate-based monthly revenue setup
-  const withContract = campaigns.filter(c =>
-    parseFloat(c.contractValue) > 0 ||
-    (c.dealType && parseFloat(c.contractRate) > 0)
+  // By default, exclude campaigns that ended before the active month (they're done — no need to clutter)
+  const withContract = campaigns.filter(c => {
+    const hasRevenue = parseFloat(c.contractValue) > 0 || (c.dealType && parseFloat(c.contractRate) > 0);
+    if (!hasRevenue) return false;
+    if (!showEnded && c.endDate) {
+      const endMo = c.endDate.slice(0, 7); // "YYYY-MM"
+      if (endMo < activeMonth) return false; // ended before the viewed month
+    }
+    return true;
+  });
+  // Active non-SEM campaigns that have no CPM rate set yet — shown as a nudge in the header
+  const missingRates = campaigns.filter(c =>
+    c.status === "active" &&
+    c.platform !== "SEM" &&
+    !parseFloat(c.contractRate)
   );
   const partners = ["all", ...new Set(withContract.map(c=>c.mediaPartner))].sort();
   const filtered  = filterPartner==="all" ? withContract : withContract.filter(c=>c.mediaPartner===filterPartner);
@@ -8892,10 +8927,17 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
           <div style={{fontSize:15,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginBottom:2}}>💰 Revenue Dashboard</div>
           <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a"}}>{withContract.length} campaigns · {trackableCampaigns.length} with spend data{totPendingCampaigns>0?` · ${totPendingCampaigns} pending`:""}</div>
         </div>
-        <select value={filterPartner} onChange={e=>setFilterPartner(e.target.value)}
-          style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"6px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,cursor:"pointer"}}>
-          {partners.map(p=><option key={p} value={p}>{p==="all"?"All Partners":p}</option>)}
-        </select>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <button onClick={()=>setShowEnded(v=>!v)}
+            title={showEnded?"Hide campaigns that ended before this month":"Show all campaigns including ones that ended before this month"}
+            style={{background:showEnded?(_lm?"#eff6ff":"#0a1a2e"):(_lm?"#f8fafc":"#060d18"),border:`1px solid ${showEnded?(_lm?"#3b82f6":"#3b82f660"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:7,padding:"6px 12px",color:showEnded?(_lm?"#3b82f6":"#7ab4f5"):(_lm?"#94a3b8":"#3d5a72"),fontSize:11,fontWeight:showEnded?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>
+            {showEnded?"✓ Showing ended":"Show ended"}
+          </button>
+          <select value={filterPartner} onChange={e=>setFilterPartner(e.target.value)}
+            style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"6px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,cursor:"pointer"}}>
+            {partners.map(p=><option key={p} value={p}>{p==="all"?"All Partners":p}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* ── Alert row: losses + pending ───────────────────────── */}
@@ -8927,6 +8969,18 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Missing rates nudge ──────────────────────────────── */}
+      {missingRates.length>0&&(
+        <div style={{background:_lm?"#f8fafc":"#0a1320",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:9,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:13}}>📊</span>
+          <div style={{flex:1}}>
+            <span style={{fontSize:12,fontWeight:600,color:_lm?"#475569":"#7a9bbf"}}>{missingRates.length} active campaign{missingRates.length!==1?"s":""} have no CPM rate set</span>
+            <span style={{fontSize:11,color:_lm?"#94a3b8":"#3d5a72",marginLeft:8}}>Edit each campaign → add CPM rate + monthly goal in Note 1 → revenue auto-calculates</span>
+          </div>
+          <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",whiteSpace:"nowrap"}}>{missingRates.map(c=>c.campaignName.trim().split(" ")[0]).slice(0,3).join(", ")}{missingRates.length>3?` +${missingRates.length-3} more`:""}</span>
         </div>
       )}
 
@@ -9238,7 +9292,21 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                             {r.c.dealType==="CPV"?`$${parseFloat(r.c.contractRate).toFixed(3)} CPV`:`$${parseFloat(r.c.contractRate).toFixed(2)} CPM`}</span>}
                         </div>
                         <div style={{fontSize:26,fontWeight:700,color:_lm?"#0ea5e9":"#7a9bbf",lineHeight:1}}>{$fc(r.focusCell.rev)}</div>
-                        {r.monthlyRev!=null&&<div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:3}}>per month</div>}
+                        {r.monthlyRev!=null&&(()=>{
+                          const goal=parseMonthlyGoal(r.c.note1);
+                          const effectiveDt=r.c.platform==="YT"?(r.c.dealType||"CPM"):"CPM";
+                          const rateNum=parseFloat(r.c.contractRate)||0;
+                          if(goal&&rateNum){
+                            return <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:3}}>
+                              {effectiveDt==="CPV"
+                                ? `${(goal/1000).toFixed(0)}K views × $${rateNum.toFixed(3)}/view`
+                                : `${(goal/1000).toFixed(0)}K impr × $${rateNum.toFixed(2)} CPM`
+                              } = <span style={{color:_lm?"#059669":"#00c896",fontWeight:700}}>${Math.round(r.monthlyRev).toLocaleString()}/mo</span>
+                              <span style={{color:_lm?"#94a3b8":"#3d5a72",marginLeft:4}}>(from Note 1 goal)</span>
+                            </div>;
+                          }
+                          return <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:3}}>per month</div>;
+                        })()}
                       </div>
                       <div>
                         <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Spend</div>
@@ -9287,13 +9355,18 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
           : rows.filter(r=>r.monthCells[activeMonth]?.rev>0||r.monthCells[activeMonth]?.spend>0).map(r=>({
               name:r.c.campaignName.trim(), partner:r.c.mediaPartner, platform:r.c.platform,
               revenue:r.monthCells[activeMonth]?.rev||0,
-              spend:r.monthCells[activeMonth]?.spend||0,
-              profit:r.monthCells[activeMonth]?.profit||null,
+              // Keep null as null — don't coerce to 0 — so pending rows stay out of profit math
+              spend:r.monthCells[activeMonth]?.spend!=null ? r.monthCells[activeMonth].spend : null,
+              profit:r.monthCells[activeMonth]?.profit??null,
+              pending:!!(r.monthCells[activeMonth]?.pending),
             }));
         const totalRev   = reportRows.reduce((s,r)=>s+r.revenue,0);
-        const totalSpend = reportRows.reduce((s,r)=>s+(r.spend||0),0);
-        const totalProfit= totalRev - totalSpend;
-        const totalMargin= totalRev>0?(totalProfit/totalRev)*100:0;
+        const totalSpend = reportRows.reduce((s,r)=>s+(r.spend!=null?r.spend:0),0);
+        // Mirror dashboard logic: profit only on campaigns that have real spend data (not pending)
+        const totalRevWithSpend = reportRows.filter(r=>r.spend!=null).reduce((s,r)=>s+r.revenue,0);
+        const totalProfit= totalRevWithSpend - totalSpend;
+        const totalMargin= totalRevWithSpend>0?(totalProfit/totalRevWithSpend)*100:0;
+        const pendingCount = reportRows.filter(r=>r.spend==null).length;
         const printId = "pl-report-"+activeMonth;
         return (
           <div style={{position:"fixed",inset:0,background:"#000a",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
@@ -9314,14 +9387,15 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
               <div id={printId} style={{padding:"18px 22px"}}>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20}}>
                   {[
-                    {label:"Revenue",val:"$"+Math.round(totalRev).toLocaleString(),color:_lm?"#0ea5e9":"#7dd3fc"},
+                    {label:"Revenue (tracked)",val:"$"+Math.round(totalRevWithSpend).toLocaleString(),sub:pendingCount>0?`+$${Math.round(totalRev-totalRevWithSpend).toLocaleString()} pending`:null,color:_lm?"#0ea5e9":"#7dd3fc"},
                     {label:"Platform Spend",val:"$"+Math.round(totalSpend).toLocaleString(),color:"#f59e0b"},
-                    {label:"Gross Profit",val:(totalProfit>=0?"+":"-")+"$"+Math.round(Math.abs(totalProfit)).toLocaleString(),color:totalProfit>=0?"#00d48a":"#ef4444"},
-                    {label:"Margin",val:totalRev>0?totalMargin.toFixed(1)+"%":"—",color:totalMargin>=30?"#00d48a":totalMargin>=15?"#f59e0b":"#ef4444"},
+                    {label:"Gross Profit",val:(totalProfit>=0?"+":"-")+"$"+Math.round(Math.abs(totalProfit)).toLocaleString(),sub:pendingCount>0?`${pendingCount} campaigns pending`:null,color:totalProfit>=0?"#00d48a":"#ef4444"},
+                    {label:"Margin",val:totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—",color:totalMargin>=30?"#00d48a":totalMargin>=15?"#f59e0b":"#ef4444"},
                   ].map(s=>(
                     <div key={s.label} style={{background:_lm?"#f8fafc":"#0a1628",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8,padding:"12px 14px"}}>
                       <div style={{fontSize:9,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:4}}>{s.label}</div>
                       <div style={{fontSize:22,fontWeight:800,color:s.color,lineHeight:1}}>{s.val}</div>
+                      {s.sub&&<div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>{s.sub}</div>}
                     </div>
                   ))}
                 </div>
@@ -9354,11 +9428,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                     })}
                     {/* Totals row */}
                     <tr style={{borderTop:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`,background:_lm?"#f0fdf9":"#0a1628"}}>
-                      <td colSpan={3} style={{padding:"8px 8px",color:_lm?"#059669":"#edf4ff",fontWeight:800,fontSize:13}}>TOTAL</td>
-                      <td style={{padding:"8px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:800,fontSize:13}}>${Math.round(totalRev).toLocaleString()}</td>
+                      <td colSpan={3} style={{padding:"8px 8px",color:_lm?"#059669":"#edf4ff",fontWeight:800,fontSize:13}}>
+                        TOTAL {pendingCount>0&&<span style={{fontSize:10,fontWeight:400,color:_lm?"#94a3b8":"#3d5a72",marginLeft:6}}>({pendingCount} pending excluded from profit)</span>}
+                      </td>
+                      <td style={{padding:"8px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:800,fontSize:13}}>${Math.round(totalRevWithSpend).toLocaleString()}</td>
                       <td style={{padding:"8px 8px",textAlign:"right",color:"#f59e0b",fontWeight:800,fontSize:13}}>${Math.round(totalSpend).toLocaleString()}</td>
                       <td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,fontSize:13,color:totalProfit>=0?"#00d48a":"#ef4444"}}>{(totalProfit>=0?"+":"-")+"$"+Math.round(Math.abs(totalProfit)).toLocaleString()}</td>
-                      <td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,fontSize:13,color:totalMargin>=30?"#00d48a":totalMargin>=15?"#f59e0b":"#ef4444"}}>{totalRev>0?totalMargin.toFixed(1)+"%":"—"}</td>
+                      <td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,fontSize:13,color:totalMargin>=30?"#00d48a":totalMargin>=15?"#f59e0b":"#ef4444"}}>{totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—"}</td>
                     </tr>
                   </tbody>
                 </table>
