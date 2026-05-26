@@ -8704,6 +8704,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
     const mtd = c.metaSnapshots?.mtd?.spend ?? c.ttdSnapshots?.mtd?.spend ?? c.dspSnapshots?.mtd?.spend ?? c.googleSnapshots?.mtd?.spend ?? c.snapSnapshots?.mtd?.spend;
     return mtd != null ? parseFloat(mtd) : null;
   }
+  // Actual MTD impressions from the most recent QCI drop or synced snapshot
+  function getActualMtdImpressions(c) {
+    const snap = c.metaSnapshots?.mtd?.impressions ?? c.ttdSnapshots?.mtd?.impressions ?? c.dspSnapshots?.mtd?.impressions ?? c.googleSnapshots?.mtd?.impressions ?? c.snapSnapshots?.mtd?.impressions;
+    if (snap != null) return parseInt(snap);
+    const manual = parseInt(c.impressions);
+    return manual > 0 ? manual : null;
+  }
   function getManualSpend(c) {
     return parseFloat(c.spend) || 0;
   }
@@ -8834,7 +8841,19 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
     const monthCells = {};
     let windowRev=0, windowSpend=0, windowHasSpend=false;
     months.forEach(mo => {
-      const rev = spread[mo] || 0;
+      let rev = spread[mo] || 0;
+      // For the current month, CPM campaigns: use actual delivered impressions instead of goal
+      // so underdelivering campaigns don't show inflated revenue/profit
+      if (mo === thisMonth && rev > 0 && c.platform !== "SEM") {
+        const rate = parseFloat(c.contractRate);
+        const effectiveDt = c.platform === "YT" ? (c.dealType||"") : "CPM";
+        if (rate > 0 && effectiveDt === "CPM") {
+          const actualImpr = getActualMtdImpressions(c);
+          if (actualImpr != null && actualImpr > 0) {
+            rev = (actualImpr / 1000) * rate;
+          }
+        }
+      }
       const spn = trackable ? (spendForMonth(c, mo) || 0) : null;
       monthCells[mo] = { rev, spend:spn, profit: spn==null?null:(rev-spn), pending: rev>0 && spn==null };
       windowRev += rev;
@@ -8868,9 +8887,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
       return ap - bp;
     }
     if (sortKey==="pending") {
-      const ap = a.trackable ? 1 : 0, bp = b.trackable ? 1 : 0;
-      if (ap !== bp) return ap - bp; // pending (0) first
-      return b.contract - a.contract;
+      // Sort by whether THIS MONTH is pending (no spend entered), not lifetime trackable
+      const ap = a.focusCell.pending ? 0 : 1, bp = b.focusCell.pending ? 0 : 1;
+      if (ap !== bp) return ap - bp; // pending this month → top
+      return (b.focusCell.rev||0) - (a.focusCell.rev||0); // then by revenue desc
     }
     if (sortKey==="monthly")  return (b.monthlyRev??-Infinity)-(a.monthlyRev??-Infinity);
     if (sortKey==="contract") return b.contract - a.contract;
@@ -9296,14 +9316,22 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                           const goal=parseMonthlyGoal(r.c.note1);
                           const effectiveDt=r.c.platform==="YT"?(r.c.dealType||"CPM"):"CPM";
                           const rateNum=parseFloat(r.c.contractRate)||0;
-                          if(goal&&rateNum){
-                            return <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:3}}>
-                              {effectiveDt==="CPV"
-                                ? `${(goal/1000).toFixed(0)}K views × $${rateNum.toFixed(3)}/view`
-                                : `${(goal/1000).toFixed(0)}K impr × $${rateNum.toFixed(2)} CPM`
-                              } = <span style={{color:_lm?"#059669":"#00c896",fontWeight:700}}>${Math.round(r.monthlyRev).toLocaleString()}/mo</span>
-                              <span style={{color:_lm?"#94a3b8":"#3d5a72",marginLeft:4}}>(from Note 1 goal)</span>
-                            </div>;
+                          if(rateNum>0){
+                            // For current month, check if we're using actual impressions
+                            const actualImpr = activeMonth===thisMonth ? getActualMtdImpressions(r.c) : null;
+                            const usingActual = actualImpr!=null && actualImpr>0 && effectiveDt==="CPM";
+                            const imprBasis = usingActual ? actualImpr : goal;
+                            if(imprBasis){
+                              return <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:3}}>
+                                {effectiveDt==="CPV"
+                                  ? `${(imprBasis/1000).toFixed(0)}K views × $${rateNum.toFixed(3)}/view`
+                                  : `${(imprBasis/1000).toFixed(0)}K impr × $${rateNum.toFixed(2)} CPM`
+                                } = <span style={{color:_lm?"#059669":"#00c896",fontWeight:700}}>${Math.round(r.focusCell.rev||r.monthlyRev||0).toLocaleString()}</span>
+                                <span style={{color:usingActual?(_lm?"#f59e0b":"#f59e0b"):(_lm?"#94a3b8":"#3d5a72"),marginLeft:4}}>
+                                  {usingActual?"(actual delivered so far)":"(from Note 1 goal)"}
+                                </span>
+                              </div>;
+                            }
                           }
                           return <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:3}}>per month</div>;
                         })()}
@@ -10654,7 +10682,7 @@ export default function App() {
   const [fHasData, setFHasData]                 = useState("all"); // all | yes | no — filter by whether campaign has metrics
   const [fNoRetargeting, setFNoRetargeting]     = useState(false); // show only campaigns without retargeting
   const [showDailyGoal, setShowDailyGoal]       = useState(false);
-  const [showPacingBar, setShowPacingBar]       = useState(true);
+  const [showPacingBar, setShowPacingBar]       = useState(false);
   const [quickCheckIn, setQuickCheckIn]         = useState(false);
   const [collapsedClients, setCollapsedClients] = useState(new Set());
   const [dragId, setDragId]       = useState(null);
