@@ -4993,6 +4993,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   }
 
   function PacingCard({c,disp,pacing,monthlyGoal}){
+    const [breakdownOpen, setBreakdownOpen] = useState(false);
     const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
     const cardMetricKind = pacingMetricFor(c.platform);
     const cardDelivered = cardMetricKind==="views" ? (parseInt(disp.videoViews||c.videoViews)||0)
@@ -5098,9 +5099,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         ); // end IIFE return
       })()} {/* end calcMonthlyRevenue IIFE */}
 
-      {/* Per-campaign breakdown — shown when sync has breakdown data */}
+      {/* Per-line breakdown dropdown — shown when sync has 2+ lines mapped to this campaign.
+          Surfaces ad-set / line-item stats so the user can see if retargeting (or any specific
+          line) is actually running, not just the rolled-up campaign total. */}
       {(()=>{
-        // Find whichever snapshot source is active and has breakdown data
+        // Find whichever snapshot source has breakdown data — checks all 5 platforms
         const snapshotSources = [c.metaSnapshots, c.ttdSnapshots, c.dspSnapshots, c.googleSnapshots, c.snapSnapshots];
         let snap = null;
         for (const source of snapshotSources) {
@@ -5112,26 +5115,38 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         }
         const breakdown = snap?.breakdown;
         if (!breakdown || breakdown.length < 2) return null;
+        // Sort descending by impressions so heaviest line shows first
+        const sortedBreakdown = [...breakdown].sort((a,b)=>(b.impressions||0)-(a.impressions||0));
+        const totalImpr = sortedBreakdown.reduce((s,b)=>s+(b.impressions||0),0);
         return (
           <div style={{marginTop:8,borderTop:`1px solid ${lightMode?"#e2e8f0":"#1a2744"}`,paddingTop:8}}>
-            <div style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5}}>
-              Campaign Breakdown ({breakdown.length})
-            </div>
-            <div style={{display:"flex",flexDirection:"column",gap:3}}>
-              {breakdown.map(b=>(
-                <div key={b.id} style={{display:"flex",alignItems:"center",gap:6,background:lightMode?"#f8fafc":"#07101c",border:lightMode?"1px solid #e2e8f0":"none",borderRadius:5,padding:"5px 8px"}}>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:10,color:lightMode?"#334155":"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}
-                      title={b.name}>{b.name}</div>
-                  </div>
-                  <div style={{display:"flex",gap:8,flexShrink:0}}>
-                    <span style={{fontSize:10,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:600,fontVariantNumeric:"tabular-nums"}}>{parseInt(b.impressions).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}> impr</span></span>
-                    {b.spend>0&&<span style={{fontSize:10,color:"#f472b6",fontWeight:600}}>${Math.round(b.spend).toLocaleString()}</span>}
-                    {b.ctr>0&&<span style={{fontSize:10,color:"#00ffb3",fontWeight:600}}>{b.ctr.toFixed(2)}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}>%</span></span>}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <button onClick={()=>setBreakdownOpen(v=>!v)}
+              style={{display:"flex",alignItems:"center",gap:6,width:"100%",background:"none",border:"none",padding:"2px 0",cursor:"pointer",color:lightMode?"#3b82f6":"#7ec8ff",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+              <span style={{display:"inline-block",transform:breakdownOpen?"rotate(90deg)":"rotate(0deg)",transition:"transform .15s"}}>▸</span>
+              <span>{breakdownOpen?"Hide":"Show"} line breakdown ({sortedBreakdown.length})</span>
+            </button>
+            {breakdownOpen&&(
+              <div style={{display:"flex",flexDirection:"column",gap:3,marginTop:6}}>
+                {sortedBreakdown.map(b=>{
+                  const pctOfTotal = totalImpr>0 ? (b.impressions/totalImpr)*100 : 0;
+                  const isQuiet = b.impressions === 0 || pctOfTotal < 5;
+                  return (
+                    <div key={b.id} style={{display:"flex",alignItems:"center",gap:6,background:lightMode?"#f8fafc":"#07101c",border:`1px solid ${isQuiet?(lightMode?"#fca5a5":"#7f1d1d"):(lightMode?"#e2e8f0":"transparent")}`,borderRadius:5,padding:"5px 8px"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:10,color:lightMode?"#334155":"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}
+                          title={b.name}>{b.name}</div>
+                        <div style={{fontSize:8,color:lightMode?"#94a3b8":"#3d5a72",marginTop:1}}>{pctOfTotal.toFixed(0)}% of total{isQuiet?" · ⚠ low / not running":""}</div>
+                      </div>
+                      <div style={{display:"flex",gap:8,flexShrink:0}}>
+                        <span style={{fontSize:10,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:600,fontVariantNumeric:"tabular-nums"}}>{parseInt(b.impressions||0).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}> impr</span></span>
+                        {b.spend>0&&<span style={{fontSize:10,color:"#f472b6",fontWeight:600}}>${Math.round(b.spend).toLocaleString()}</span>}
+                        {b.ctr>0&&<span style={{fontSize:10,color:"#00ffb3",fontWeight:600}}>{b.ctr.toFixed(2)}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}>%</span></span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         );
       })()}
@@ -5168,8 +5183,20 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const GRID = "minmax(200px,1fr) 72px 82px 240px 80px 100px 84px 84px 90px 68px 76px 76px 68px 62px 60px";
 
   function TableRow({c,disp,pacing,monthlyGoal}){
+    const [rowBreakdownOpen, setRowBreakdownOpen] = useState(false);
     const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
     const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null;
+    // Resolve the per-line breakdown (if any) for the disclosure widget
+    const rowBreakdown = (()=>{
+      const sources = [c.metaSnapshots, c.ttdSnapshots, c.dspSnapshots, c.googleSnapshots, c.snapSnapshots];
+      for (const source of sources) {
+        if (!source) continue;
+        for (const key of ['mtd','last30','yesterday']) {
+          if (source[key]?.breakdown?.length >= 2) return source[key].breakdown;
+        }
+      }
+      return null;
+    })();
     const col=pacing?.color??"#3d5a72", pCol=PLT_COLORS[c.platform]||PLT_COLORS.default;
     const dr=daysRemaining(c), drc=daysRemainingColor(dr);
     const kpi=PLT_KPI[c.platform];
@@ -5259,11 +5286,20 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       : npd >= 1000 ? (npd/1000).toFixed(0)+"K" : String(npd);
     const npdCol = paceGap === null ? "#3d5a72" : paceGap < 0 ? "#ef4444" : "#f97316";
 
-    return <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 16px",borderBottom:"1px solid "+lmBrdR,alignItems:"center",background:lmBg,borderLeft:"3px solid "+col}}>
+    return <React.Fragment>
+    <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 16px",borderBottom:rowBreakdown&&rowBreakdownOpen?"none":"1px solid "+lmBrdR,alignItems:"center",background:lmBg,borderLeft:"3px solid "+col}}>
 
       {/* Campaign + partner */}
       <div style={{minWidth:0}}>
-        <div style={{fontSize:12,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
+        <div style={{fontSize:12,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:6}}>
+          {rowBreakdown&&(
+            <button onClick={()=>setRowBreakdownOpen(v=>!v)}
+              title={`${rowBreakdown.length} CSV lines mapped to this campaign — click to expand`}
+              style={{background:"none",border:"none",padding:0,cursor:"pointer",color:lightMode?"#3b82f6":"#7ec8ff",fontSize:10,fontWeight:700,flexShrink:0,display:"inline-block",transform:rowBreakdownOpen?"rotate(90deg)":"rotate(0deg)",transition:"transform .15s"}}>▸</button>
+          )}
+          <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</span>
+          {rowBreakdown&&<span style={{fontSize:9,color:lightMode?"#3b82f6":"#7ec8ff",background:lightMode?"#dbeafe":"#0a2540",borderRadius:3,padding:"0 4px",fontWeight:700,flexShrink:0}}>{rowBreakdown.length}</span>}
+        </div>
         <div style={{display:"flex",alignItems:"center",gap:5,overflow:"hidden"}}>
           <div style={{fontSize:10,color:lmTxtS,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
           {c.lastChecked===todayStr
@@ -5398,7 +5434,38 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           : <button onClick={()=>setClearPendingId(c.id)} title="Clear metrics"
               style={{background:lightMode?"#f1f5f9":"none",border:lightMode?"1px solid #cbd5e1":"none",borderRadius:4,color:lightMode?"#94a3b8":"#3d5a72",fontSize:13,padding:"2px 5px",cursor:"pointer",lineHeight:1}}>✕</button>}
       </div>
-    </div>;
+    </div>
+    {/* Expanded per-line breakdown — full-width row beneath the campaign row */}
+    {rowBreakdown&&rowBreakdownOpen&&(()=>{
+      const sorted = [...rowBreakdown].sort((a,b)=>(b.impressions||0)-(a.impressions||0));
+      const totalImpr = sorted.reduce((s,b)=>s+(b.impressions||0),0);
+      return (
+        <div style={{background:lightMode?"#f8fafc":"#050b14",borderBottom:"1px solid "+lmBrdR,borderLeft:"3px solid "+col,padding:"6px 16px 10px 42px"}}>
+          <div style={{fontSize:9,color:lightMode?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5}}>
+            Line breakdown — {sorted.length} ad set{sorted.length!==1?"s":""} rolled up into this campaign
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+            {sorted.map(b=>{
+              const pctOfTotal = totalImpr>0 ? (b.impressions/totalImpr)*100 : 0;
+              const isQuiet = b.impressions === 0 || pctOfTotal < 5;
+              return (
+                <div key={b.id} style={{display:"flex",alignItems:"center",gap:10,background:lightMode?"#ffffff":"#0a1320",border:`1px solid ${isQuiet?(lightMode?"#fca5a5":"#7f1d1d"):(lightMode?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"6px 10px"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:11,color:lightMode?"#334155":"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={b.name}>{b.name}</div>
+                    <div style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",marginTop:1}}>{pctOfTotal.toFixed(0)}% of total impr{isQuiet?" · ⚠ low / not running":""}</div>
+                  </div>
+                  <span style={{fontSize:11,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:700,fontVariantNumeric:"tabular-nums",minWidth:80,textAlign:"right"}}>{parseInt(b.impressions||0).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}> impr</span></span>
+                  {b.clicks>0&&<span style={{fontSize:11,color:"#a3bffa",fontWeight:600,minWidth:50,textAlign:"right"}}>{parseInt(b.clicks).toLocaleString()} clk</span>}
+                  {b.ctr>0&&<span style={{fontSize:11,color:"#00ffb3",fontWeight:600,minWidth:55,textAlign:"right"}}>{b.ctr.toFixed(2)}%</span>}
+                  {b.spend>0&&<span style={{fontSize:11,color:"#f472b6",fontWeight:600,minWidth:55,textAlign:"right"}}>${Math.round(b.spend).toLocaleString()}</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    })()}
+    </React.Fragment>;
   }
 
   function TableHeader(){
@@ -7773,7 +7840,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       if(!campId) return;
       const row=fileRows[parseInt(idxStr)]; if(!row) return;
       const m=extractMetrics(row,fileSource);
-      if(!updates[campId]) updates[campId]={impressions:0,clicks:0,spend:0,reach:0,videoViews:0,completionRate:0,frequency:0,freqCount:0};
+      if(!updates[campId]) updates[campId]={impressions:0,clicks:0,spend:0,reach:0,videoViews:0,completionRate:0,frequency:0,freqCount:0,breakdown:[]};
       updates[campId].impressions+=m.impressions;
       updates[campId].clicks+=m.clicks;
       updates[campId].spend+=m.spend;
@@ -7782,6 +7849,21 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       if(m.videoViews>0) updates[campId].videoViews+=m.videoViews;
       if(m.completionRate>0) updates[campId].completionRate=m.completionRate;
       if(parseFloat(m.frequency)>0){ updates[campId].frequency+=parseFloat(m.frequency); updates[campId].freqCount++; }
+      // Per-line breakdown — preserve each CSV row's stats so user can see what's happening
+      // at the ad-set / line-item level (e.g. retargeting vs prospecting under one FB campaign)
+      const lineName = getCampName(row, fileSource) || `Line ${updates[campId].breakdown.length+1}`;
+      // CTR displayed as percent (0-100); m.ctr is stored as ratio (0.003 = 0.3%)
+      const lineCtr = m.ctr > 1 ? m.ctr : m.ctr * 100;
+      updates[campId].breakdown.push({
+        id: `${idxStr}-${campId}`,
+        name: lineName,
+        impressions: m.impressions,
+        clicks: m.clicks,
+        spend: m.spend,
+        ctr: lineCtr,
+        videoViews: m.videoViews,
+        vcr: m.completionRate,
+      });
     });
     setCampaigns(cs=>cs.map(c=>{
       const u=updates[c.id]||updates[String(c.id)]; if(!u) return c;
@@ -7793,39 +7875,33 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       const ctrDisplay = (computedCtr * 100).toFixed(3);
       // Check-in log line — stored in checkInLog (separate from personal history notes)
       const histLine=`${stamp} | ${u.impressions.toLocaleString()} impr | ${u.clicks} clicks | CTR ${ctrDisplay}%${u.spend>0?" | $"+u.spend.toFixed(2)+" spend":""}${u.completionRate>0?" | VCR "+u.completionRate.toFixed(1)+"%":""} | ${sourceLabel}`;
-      // For TradeDesk imports, save to ttdSnapshots.mtd so the ⬡ TTD badge shows and Zeus can reference it
-      const ttdSnap = fileSource==="TradeDesk" ? {
-        ttdSnapshots: {
-          ...(c.ttdSnapshots||{}),
-          mtd: {
-            impressions: u.impressions||null,
-            clicks:      u.clicks||null,
-            ctr:         computedCtr||null,
-            spend:       u.spend||null,
-            cpm:         computedCpm||null,
-            vcr:         u.completionRate||null,
-            updatedAt:   stamp,
-          }
-        }
-      } : {};
-      // For Google imports, save to googleSnapshots.mtd (same pattern as TTD)
-      const googleSnap = fileSource==="Google" ? {
-        googleSnapshots: {
-          ...(c.googleSnapshots||{}),
-          mtd: {
-            impressions: u.impressions||null,
-            clicks:      u.clicks||null,
-            ctr:         computedCtr||null,
-            spend:       u.spend||null,
-            cpm:         computedCpm||null,
-            vcr:         u.completionRate||null,
-            updatedAt:   stamp,
-          }
-        }
+      // Build the MTD snapshot — same shape for every source. The `breakdown` array
+      // preserves per-line stats so the Pacing card can show the ad-set breakdown
+      // when one tracker campaign has multiple CSV rows mapped to it.
+      const mtdSnap = {
+        impressions: u.impressions||null,
+        clicks:      u.clicks||null,
+        ctr:         computedCtr||null,
+        spend:       u.spend||null,
+        cpm:         computedCpm||null,
+        vcr:         u.completionRate||null,
+        updatedAt:   stamp,
+        breakdown:   u.breakdown && u.breakdown.length >= 2 ? u.breakdown : null,
+      };
+      // Map source → snapshot field. Writes to whichever snapshot the PacingCard
+      // breakdown viewer scans (metaSnapshots / ttdSnapshots / dspSnapshots /
+      // googleSnapshots / snapSnapshots).
+      const snapField = fileSource==="TradeDesk"     ? "ttdSnapshots"
+                      : fileSource==="Google"        ? "googleSnapshots"
+                      : fileSource==="Facebook/Meta" ? "metaSnapshots"
+                      : fileSource==="Snapchat"      ? "snapSnapshots"
+                      : fileSource==="DSP-Internal"  ? "dspSnapshots"
+                      : null;
+      const sourceSnap = snapField ? {
+        [snapField]: { ...(c[snapField]||{}), mtd: mtdSnap }
       } : {};
       return {...c,
-        ...ttdSnap,
-        ...googleSnap,
+        ...sourceSnap,
         // Auto-activate if status was blank (new campaign added but never set to Active)
         status: c.status===""?"active":c.status,
         impressions:u.impressions>0?String(u.impressions):c.impressions,
