@@ -1377,7 +1377,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   const modalBackdrop = useBackdropClose(onClose);
   return (
     <div {...modalBackdrop} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 30px 80px rgba(0,0,0,.15)":"0 30px 80px rgba(0,0,0,.9)",borderRadius:12,width:"min(1100px,96vw)",maxHeight:"95vh",display:"flex",flexDirection:"column"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 30px 80px rgba(0,0,0,.15)":"0 30px 80px rgba(0,0,0,.9)",borderRadius:12,width:"min(1260px,96vw)",maxHeight:"95vh",display:"flex",flexDirection:"column"}}>
 
         {/* ── Sticky header ── */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 28px 14px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,flexShrink:0}}>
