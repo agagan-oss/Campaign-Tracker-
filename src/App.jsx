@@ -1306,7 +1306,7 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
 }
 
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[] }) {
-  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",clientWebsite:"",
+  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",clientWebsite:"",
     // Report data fields
     demoAge:"",       // JSON: [{label:"18-24",pct:32},{label:"25-34",pct:28}...]
     demoGender:"",    // JSON: [{label:"Female",pct:62},{label:"Male",pct:38}]
@@ -1416,12 +1416,58 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               {row("lastChecked","Last Checked","date")}
               {/* Contract Value */}
               <div style={{marginBottom:12}}>
-                <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 Contract Value</label>
+                <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 Contract Value <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(total)</span></label>
                 <div style={{display:"flex",alignItems:"center",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,overflow:"hidden"}}>
                   <span style={{padding:"7px 10px",color:"#34d399",fontWeight:700,fontSize:13,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
-                  <input type="number" value={f.contractValue||""} onChange={e=>set("contractValue",e.target.value)} placeholder="e.g. 5000" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
+                  <input type="number" value={f.contractValue||""} onChange={e=>set("contractValue",e.target.value)} placeholder="e.g. 15000" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
                 </div>
               </div>
+              {/* Deal Type + Contract Rate — drives monthly revenue calculation */}
+              {f.platform!=="SEM" && (
+                <div style={{marginBottom:12}}>
+                  <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📈 Monthly Revenue Rate</label>
+                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    {/* YT: CPM/CPV select. All others: fixed CPM badge */}
+                    {f.platform==="YT" ? (
+                      <select value={f.dealType||""} onChange={e=>set("dealType",e.target.value)}
+                        style={{background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:f.dealType?(_lm?"#0f172a":"#d8eaf8"):(_lm?"#94a3b8":"#4d6e8a"),fontSize:12,fontWeight:600,cursor:"pointer",outline:"none",minWidth:80}}>
+                        <option value="">Type…</option>
+                        <option value="CPM">CPM</option>
+                        <option value="CPV">CPV</option>
+                      </select>
+                    ) : (
+                      <div style={{background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89660"}`,borderRadius:6,padding:"7px 12px",color:_lm?"#059669":"#00e19e",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>CPM</div>
+                    )}
+                    {/* Rate input */}
+                    <div style={{display:"flex",alignItems:"center",flex:1,background:_lm?"#f8fafc":"#162236",border:`1px solid ${f.contractRate?(_lm?"#00c896":"#00c89660"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,overflow:"hidden"}}>
+                      <span style={{padding:"7px 8px",color:"#34d399",fontWeight:700,fontSize:13,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
+                      <input type="number" step="0.01" value={f.contractRate||""}
+                        onChange={e=>{ set("contractRate",e.target.value); if(f.platform!=="YT") set("dealType","CPM"); }}
+                        placeholder={f.platform==="YT"&&f.dealType==="CPV"?"CPV rate (e.g. 0.08)":"CPM rate (e.g. 18.00)"}
+                        style={{flex:1,background:"transparent",border:"none",padding:"7px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
+                      {(f.dealType==="CPM"||(f.platform!=="YT"&&f.platform!=="SEM"))&&<span style={{padding:"0 8px",color:_lm?"#94a3b8":"#3d5a72",fontSize:10,whiteSpace:"nowrap"}}>/1K impr</span>}
+                      {f.platform==="YT"&&f.dealType==="CPV"&&<span style={{padding:"0 8px",color:_lm?"#94a3b8":"#3d5a72",fontSize:10,whiteSpace:"nowrap"}}>/view</span>}
+                    </div>
+                  </div>
+                  {/* Monthly revenue preview */}
+                  {(()=>{
+                    const rate=parseFloat(f.contractRate);
+                    const goal=parseMonthlyGoal(f.note1);
+                    const effectiveDt = f.platform==="YT" ? (f.dealType||"") : "CPM";
+                    if(!rate||!effectiveDt) return null;
+                    let mo=null;
+                    if(effectiveDt==="CPM"&&goal) mo=(goal/1000)*rate;
+                    if(effectiveDt==="CPV"&&goal) mo=goal*rate;
+                    if(mo===null) return <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:4}}>
+                      {!goal?"Add a monthly goal in Note 1 to preview revenue":""}
+                    </div>;
+                    return <div style={{fontSize:11,color:_lm?"#059669":"#00e19e",fontWeight:700,marginTop:5}}>
+                      ≈ ${mo.toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0})}/mo
+                      <span style={{fontWeight:400,color:_lm?"#475569":"#4d6e8a"}}> · {effectiveDt==="CPV"?(goal/1000).toFixed(1)+"K views":(goal/1000).toFixed(1)+"K impr"}</span>
+                    </div>;
+                  })()}
+                </div>
+              )}
             </div>
 
             {/* Full-width fields below the grid */}
@@ -1988,6 +2034,10 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       if(c.note1)             row.n1   = c.note1;
       if(c.note2)             row.n2   = c.note2;
       if(c.contractValue)     row.cv   = c.contractValue;
+      if(c.dealType)          row.dt   = c.dealType;
+      if(c.contractRate)      row.rate = c.contractRate;
+      const moRev = calcMonthlyRevenue(c);
+      if(moRev!=null)         row.moRev = Math.round(moRev);
       if(disp.impressions)    row.impr = disp.impressions;
       if(disp.ctr)            row.ctr  = disp.ctr;
       if(disp.cpm)            row.cpm  = disp.cpm;
@@ -5018,6 +5068,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </div>}
 
       {/* All metric boxes */}
+      {(()=>{
+        const moRev = calcMonthlyRevenue(c);
+        return (
       <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:2}}>
         {monthlyGoal&&[
           {label:"Delivered",val:del>0?del.toLocaleString():"—",color:"#00e5a0"},
@@ -5028,6 +5081,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           <div style={{fontSize:9,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
           <div style={{fontSize:11,fontWeight:700,color}}>{val}</div>
         </div>)}
+        {/* Monthly revenue box — only shown when dealType + contractRate are set */}
+        {moRev!=null&&<div style={{background:lightMode?"#f0fdf9":"#002018",border:`1px solid ${lightMode?"#00c896":"#00c89640"}`,borderRadius:5,padding:"5px 9px",minWidth:60,textAlign:"center"}}>
+          <div style={{fontSize:9,color:lightMode?"#059669":"#00c896",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{c.dealType==="CPV"?"CPV Rev":"CPM Rev"}</div>
+          <div style={{fontSize:11,fontWeight:700,color:lightMode?"#059669":"#00e19e"}}>${moRev>=1000?(moRev/1000).toFixed(1)+"k":moRev.toLocaleString("en-US",{maximumFractionDigits:0})}</div>
+        </div>}
         {monthlyGoal&&perfBoxes.length>0&&<div style={{width:1,background:lightMode?"#e2e8f0":"#1a2744",alignSelf:"stretch",margin:"0 3px"}}/>}
         {perfBoxes.map(({label,val,color})=>(
           <div key={label} style={{background:lmBgTrk,border:"1px solid "+color+"28",borderRadius:5,padding:"5px 9px",minWidth:54,textAlign:"center"}}>
@@ -5035,8 +5093,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             <div style={{fontSize:11,fontWeight:700,color}}>{val}</div>
           </div>
         ))}
-        {!monthlyGoal&&!perfBoxes.length&&<div style={{fontSize:11,color:lmTxtD,fontStyle:"italic"}}>No goal or metrics yet</div>}
+        {!monthlyGoal&&!perfBoxes.length&&moRev==null&&<div style={{fontSize:11,color:lmTxtD,fontStyle:"italic"}}>No goal or metrics yet</div>}
       </div>
+        ); // end IIFE return
+      })()} {/* end calcMonthlyRevenue IIFE */}
 
       {/* Per-campaign breakdown — shown when sync has breakdown data */}
       {(()=>{
@@ -5238,16 +5298,24 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         </>:<div style={{fontSize:10,color:lmTxtD}}>—</div>}
       </div>
 
-      {/* Monthly Goal */}
-      <div>
-        {monthlyGoal
-          ? <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}}>
-              {metricKind==="spend"
-                ? "$"+(monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"k":monthlyGoal.toFixed(0))
-                : monthlyGoal>=1000000?(monthlyGoal/1000000).toFixed(2)+"M":monthlyGoal>=1000?(monthlyGoal/1000).toFixed(0)+"K":String(monthlyGoal)}
-            </span>
-          : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
-      </div>
+      {/* Monthly Goal + Revenue/mo */}
+      {(()=>{
+        const moRev = calcMonthlyRevenue(c);
+        return (
+        <div>
+          {monthlyGoal
+            ? <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}}>
+                {metricKind==="spend"
+                  ? "$"+(monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"k":monthlyGoal.toFixed(0))
+                  : monthlyGoal>=1000000?(monthlyGoal/1000000).toFixed(2)+"M":monthlyGoal>=1000?(monthlyGoal/1000).toFixed(0)+"K":String(monthlyGoal)}
+              </span>
+            : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
+          {moRev!=null&&<div style={{fontSize:9,fontWeight:700,color:lightMode?"#059669":"#00e19e",marginTop:1}}>
+            ${moRev>=1000?(moRev/1000).toFixed(1)+"k":moRev.toLocaleString("en-US",{maximumFractionDigits:0})}/mo
+          </div>}
+        </div>
+        );
+      })()}
 
       {/* Primary delivery metric — Views (YT), Spend (SEM), or Impressions */}
       <div title={metricKind==="views" ? "Views delivered this period (MTD)" : metricKind==="spend" ? "Spend delivered this period (MTD)" : "Impressions delivered this period (MTD)"}>
@@ -5511,6 +5579,50 @@ function spreadRevenue(c) {
 
 
 
+
+// Returns the expected monthly revenue for a campaign using deal type + contract rate.
+// SEM is always excluded (management fee model, not CPM billed).
+// CPM:  (monthlyGoal impressions / 1000) × contractRate
+// CPV:  monthlyGoal views × contractRate   (YouTube only)
+// Flat: contractRate directly (no goal needed)
+function calcMonthlyRevenue(c) {
+  if (!c || c.platform === "SEM") return null;
+  const rate = parseFloat(c.contractRate);
+  if (!rate || rate <= 0) return null;
+  // Non-YT platforms always bill CPM; YT needs an explicit dealType
+  const effectiveDt = c.platform === "YT" ? (c.dealType || "") : "CPM";
+  if (!effectiveDt) return null;
+  const goal = parseMonthlyGoal(c.note1);
+  if (!goal || goal <= 0) return null;
+  if (effectiveDt === "CPM") return (goal / 1000) * rate;
+  if (effectiveDt === "CPV") return goal * rate;
+  return null;
+}
+
+// Returns a { [YYYY-MM]: revenue } map for a campaign.
+// Prefers CPM/CPV rate-based monthly revenue (if contractRate is set).
+// Falls back to the legacy pro-rated contractValue spread for old-style campaigns.
+function revenueMapForCampaign(c) {
+  const monthly = calcMonthlyRevenue(c);
+  if (monthly !== null) {
+    // Apply the flat monthly amount to each calendar month the campaign is active
+    if (!c.startDate || !c.endDate) return {};
+    const start = new Date(c.startDate + "T00:00:00");
+    const end   = new Date(c.endDate   + "T00:00:00");
+    if (isNaN(start) || isNaN(end) || end < start) return {};
+    const map = {};
+    let cur = new Date(start.getFullYear(), start.getMonth(), 1);
+    const endMo = new Date(end.getFullYear(), end.getMonth(), 1);
+    while (cur <= endMo) {
+      const mo = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`;
+      map[mo] = monthly;
+      cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1);
+    }
+    return map;
+  }
+  // Legacy: spread total contract value pro-rated over campaign dates
+  return spreadRevenue(c);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // REPORTING HELPERS
@@ -7285,15 +7397,23 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     // 3. Client name contains the full tracker campaignName as a substring
     const rev = tdCamps.find(c => cn.includes(c.campaignName.trim().toLowerCase()));
     if (rev) return String(rev.id);
-    // 4. Strict word overlap — require >60% of meaningful client words in campaign name
-    const clientWords = cn.split(/\s+/).filter(w => w.length > 3);
+    // 4. Word-overlap — uses DISTINCTIVE words only (same stop-word list as Google matching).
+    //    Prevents "Shining Star Schools" from matching "Shining Star South" and
+    //    "Shining Star Christian School" equally — only exact/substring should handle those.
+    const ttdGeneric = new Set([
+      "credit","union","federal","bank","banking","financial","services","service",
+      "group","national","community","cooperative","corp","corporation","inc","llc",
+      "company","enterprise","partners","solutions","health","care","school","schools",
+      "university","college","institute","foundation","association","agency"
+    ]);
+    const clientWords = cn.split(/\s+/).filter(w => w.length > 3 && !ttdGeneric.has(w));
     if (clientWords.length > 0) {
       let best = null, bestCount = 0;
       tdCamps.forEach(c => {
         const campLower = c.campaignName.trim().toLowerCase();
         const matches = clientWords.filter(w => campLower.includes(w)).length;
         const ratio = matches / clientWords.length;
-        if (ratio > 0.6 && matches > bestCount) { best = c; bestCount = matches; }
+        if (ratio > 0.7 && matches >= 1 && matches > bestCount) { best = c; bestCount = matches; }
       });
       if (best) return String(best.id);
     }
@@ -7324,24 +7444,38 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     if (!clientName) return "";
     const cn = clientName.toLowerCase().trim();
     const googCamps = camps.filter(c => c.platform === "SEM" || c.platform === "YT");
+    if (!googCamps.length) return "";
     // 1. Exact match on campaignName
     const exact = googCamps.find(c => c.campaignName.trim().toLowerCase() === cn);
     if (exact) return String(exact.id);
-    // 2. Tracker campaignName contains the full client name
+    // 2. Tracker campaignName contains the full client name as a substring
     const sub = googCamps.find(c => c.campaignName.trim().toLowerCase().includes(cn));
     if (sub) return String(sub.id);
-    // 3. Client name contains the full tracker campaignName
-    const rev = googCamps.find(c => cn.includes(c.campaignName.trim().toLowerCase()));
+    // 3. Client name contains the full tracker campaignName as a substring
+    //    Guard: tracker campaignName must be ≥8 chars to avoid trivial matches (e.g. "SEM","YT","Bank")
+    const rev = googCamps.find(c => {
+      const cname = c.campaignName.trim().toLowerCase();
+      return cname.length >= 8 && cn.includes(cname);
+    });
     if (rev) return String(rev.id);
-    // 4. Strict word overlap — require >60% of meaningful client words in campaign name
-    const clientWords = cn.split(/\s+/).filter(w => w.length > 3);
-    if (clientWords.length > 0) {
+    // 4. Word-overlap — uses DISTINCTIVE words only (strips generic financial/industry terms).
+    //    Prevents "Envista Credit Union" matching "Pearl Hawaii Federal Credit Union" just because
+    //    both share "credit" and "union".  Requires >70% ratio AND ≥1 distinctive word match.
+    const googleGeneric = new Set([
+      "credit","union","federal","bank","banking","financial","services","service",
+      "group","national","community","cooperative","corp","corporation","inc","llc",
+      "company","enterprise","partners","solutions","health","care","school","schools",
+      "university","college","institute","foundation","association","agency"
+    ]);
+    const distinctiveWords = cn.split(/\s+/).filter(w => w.length > 3 && !googleGeneric.has(w));
+    if (distinctiveWords.length > 0) {
       let best = null, bestCount = 0;
       googCamps.forEach(c => {
         const campLower = c.campaignName.trim().toLowerCase();
-        const matches = clientWords.filter(w => campLower.includes(w)).length;
-        const ratio = matches / clientWords.length;
-        if (ratio > 0.6 && matches > bestCount) { best = c; bestCount = matches; }
+        const matches = distinctiveWords.filter(w => campLower.includes(w)).length;
+        const ratio = matches / distinctiveWords.length;
+        // Require >70% ratio AND at least 1 distinctive word hit — prevents generic-word false matches
+        if (ratio > 0.7 && matches >= 1 && matches > bestCount) { best = c; bestCount = matches; }
       });
       if (best) return String(best.id);
     }
@@ -7355,18 +7489,50 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
   // For Google: use the Account Name (stable) not the campaign name (changes between ad sets).
   // For all other sources: use the campaign name as before.
   function makeNameKey(source, csvName){ return `${source}||${csvName.trim().toLowerCase()}`; }
-  function makeTTDNameKey(advertiserName){ return `TradeDesk||adv:${advertiserName.trim().toLowerCase()}`; }
+  // Compound key: advertiser + TTD campaign name — unique per tracker campaign even when multiple
+  // tracker campaigns share the same TTD advertiser (e.g. "SPI-Shining Star Schools_AG" covers both
+  // Shining Star South and Shining Star Christian School).
+  function makeTTDNameKey(advertiserName, ttdCampName){
+    return `TradeDesk||adv:${advertiserName.trim().toLowerCase()}||camp:${(ttdCampName||"").trim().toLowerCase()}`;
+  }
+  // Adv-only key — kept for reading legacy saves (before compound key existed). Never written to.
+  function makeTTDAdvOnlyKey(advertiserName){ return `TradeDesk||adv:${advertiserName.trim().toLowerCase()}`; }
 
   // lookupMemory: for TradeDesk, the csvName passed here is the TTD campaign name,
   // but the stable key we save is the advertiser name. So we try both.
   // For Google: primary key is Account Name (stable across exports; campaign names change per ad set).
   function lookupMemory(source, csvName, row){
-    // For TradeDesk: primary key is advertiser name (stable across exports)
     if(source==="TradeDesk" && row){
-      const advKey = makeTTDNameKey(getTTDAdvertiserName(row));
-      const advEntry = savedMappings[advKey];
-      // Compare as strings to handle both number and string campId
-      if(advEntry && campaigns.find(c=>String(c.id)===String(advEntry.campId))) return advEntry.campId;
+      const advName    = getTTDAdvertiserName(row);
+      const ttdCamp    = getCampName(row, source);          // TTD campaign name from the row
+      // 1. Compound key (adv + TTD campaign) — the authoritative key written by new saves.
+      //    This correctly handles multiple tracker campaigns under the same TTD advertiser.
+      const compoundKey  = makeTTDNameKey(advName, ttdCamp);
+      const compoundEntry = savedMappings[compoundKey];
+      if(compoundEntry && campaigns.find(c=>String(c.id)===String(compoundEntry.campId))) return compoundEntry.campId;
+      // 2. Adv-only key — read-only backward compat for saves written before the compound key existed.
+      //    Only trusted when there is exactly ONE tracker campaign mapped to this advertiser,
+      //    so we don't silently perpetuate the same collision bug on old data.
+      const advOnlyKey = makeTTDAdvOnlyKey(advName);
+      const advOnlyEntry = savedMappings[advOnlyKey];
+      if(advOnlyEntry && campaigns.find(c=>String(c.id)===String(advOnlyEntry.campId))){
+        // Only trust the adv-only key if just ONE active TD campaign matches this client name.
+        // If multiple campaigns match (e.g. "Shining Star South" AND "Shining Star Christian School"
+        // both under "SPI-Shining Star Schools_AG"), the adv-only key is ambiguous — skip it so
+        // we don't perpetuate the collision bug on old data.
+        const clientName = getTTDClientName(advName).toLowerCase().trim();
+        const matchingTDCamps = campaigns.filter(c=>{
+          if(!TTD_PLATFORMS.has(c.platform)) return false;
+          const cn = c.campaignName.trim().toLowerCase();
+          return cn===clientName || cn.includes(clientName) || clientName.includes(cn);
+        });
+        if(matchingTDCamps.length <= 1) return advOnlyEntry.campId;
+        // Multiple campaigns match this advertiser → skip adv-only key (could be wrong for some rows)
+      }
+      // 3. Legacy campaign-name key (covers saves from before any TTD-specific keying)
+      const legacyKey = makeNameKey(source, csvName);
+      const legacyEntry = savedMappings[legacyKey];
+      if(legacyEntry && campaigns.find(c=>String(c.id)===String(legacyEntry.campId))) return legacyEntry.campId;
     }
     // For Google: primary key is Account Name (stable — campaign names vary across ad sets)
     if(source==="Google" && row){
@@ -7377,7 +7543,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         if(accEntry && campaigns.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
       }
     }
-    // Fallback: legacy key by campaign name (covers old saves + non-TTD/Google sources)
+    // Fallback: key by campaign name (non-TTD/Google sources + TTD legacy)
     const key=makeNameKey(source,csvName);
     const entry=savedMappings[key];
     if(entry && campaigns.find(c=>String(c.id)===String(entry.campId))) return entry.campId;
@@ -7391,18 +7557,21 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     // Also save under the campaign name key as a legacy fallback.
     const next={...savedMappings};
     mappingEntries.forEach(({csvName,campId,campName,advertiserName,accountName})=>{
-      if(!csvName||!campId) return;
+      if(!campId) return;
       const payload={campId,campName,source,learnedAt:getToday()};
       if(source==="TradeDesk" && advertiserName){
-        // Primary stable key: advertiser name (same across all future exports)
-        next[makeTTDNameKey(advertiserName)]={...payload,advertiserName};
+        // Compound key: adv + TTD campaign name — one slot per row, never collides across
+        // multiple tracker campaigns that share the same TTD advertiser.
+        // We do NOT write the adv-only key here — that caused collision bugs.
+        next[makeTTDNameKey(advertiserName, csvName)]={...payload,advertiserName,ttdCampName:csvName};
       }
       if(source==="Google" && accountName){
         // Primary stable key: account name (same across all future exports)
         next[makeGoogleNameKey(accountName)]={...payload,accountName};
       }
-      // Always also save by campaign name as legacy fallback
-      next[makeNameKey(source,csvName)]=payload;
+      // Always also save by campaign name as a fallback key (used by non-TTD/Google sources
+      // and as legacy fallback for older TTD saves that lacked the compound key).
+      if(csvName) next[makeNameKey(source,csvName)]=payload;
     });
     persistMappings(next);
   }
@@ -7889,6 +8058,47 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
               <span style={{fontSize:10,color:mappedCount<fileRows.length?"#f59e0b":(_lm?"#059669":"#00e5a0"),fontWeight:600}}>{mappedCount}/{fileRows.length} matched</span>
               {mappedCount<fileRows.length&&<span style={{fontSize:10,color:"#f59e0b"}}>⚠ assign unmatched rows below</span>}
               <div style={{display:"flex",gap:5}}>
+                {/* Forget memory: clears all saved mappings for this source, then re-runs auto-match.
+                    Useful when a previous broken drop poisoned localStorage (e.g. all rows → Pearl Hawaii). */}
+                <button title={`Clear all remembered mappings for ${fileSource} files and re-match fresh`}
+                  onClick={()=>{
+                    // Remove every savedMappings entry for this source
+                    const next={};
+                    Object.entries(savedMappings).forEach(([k,v])=>{
+                      if(v.source!==fileSource) next[k]=v;
+                    });
+                    persistMappings(next);
+                    // Re-run auto-match from scratch (Steps 1+2 will find nothing; Step 3 runs for all)
+                    let reMap={}, reConf={}, autoC=0;
+                    fileRows.forEach((row,i)=>{
+                      reMap[i]="";
+                      const qciFiltered2 = qciPlatforms.size>0 ? activeCamps.filter(c=>qciPlatforms.has(c.platform)) : activeCamps;
+                      const sourcePlats2 = SOURCE_PLATFORMS[fileSource];
+                      const cands2 = sourcePlats2 ? qciFiltered2.filter(c=>sourcePlats2.has(c.platform)) : qciFiltered2;
+                      if(fileSource==="TradeDesk"){
+                        const advN=getTTDAdvertiserName(row); const clN=getTTDClientName(advN);
+                        const mid=matchTTDClientToTracker(clN,cands2);
+                        if(mid){reMap[i]=mid;reConf[i]=0.8;autoC++;}
+                      } else if(fileSource==="Google"){
+                        const aN=getGoogleAccountName(row); const clN=getGoogleClientName(aN);
+                        const mid=matchGoogleToTracker(clN,cands2);
+                        if(mid){reMap[i]=mid;reConf[i]=0.8;autoC++;}
+                        else {
+                          const csvN=getCampName(row,fileSource);
+                          if(csvN){let bId="",bSc=0;cands2.forEach(c=>{const sc=fuzzyScore(csvN,c.campaignName);if(sc>bSc&&sc>=0.45){bSc=sc;bId=String(c.id);}});if(bId){reMap[i]=bId;reConf[i]=bSc;autoC++;}}
+                        }
+                      } else {
+                        const csvN=getCampName(row,fileSource);
+                        let bId="",bSc=0;
+                        cands2.forEach(c=>{const sc=fuzzyScore(csvN,c.campaignName);if(sc>bSc&&sc>=0.45){bSc=sc;bId=String(c.id);}});
+                        if(bId){reMap[i]=bId;reConf[i]=bSc;autoC++;}
+                      }
+                    });
+                    setMapping(reMap); setMatchConf(reConf);
+                    setSavedMsg(`🗑 Memory cleared for ${fileSource} · ⚡ Re-matched ${autoC} rows`);
+                  }}
+                  style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444430"}`,borderRadius:5,padding:"3px 9px",color:_lm?"#dc2626":"#f87171",fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}
+                >🗑 Reset Memory</button>
                 {btn("Clear",()=>{setFileRows(null);setMapping({});setMatchConf({});setConfirmApplyPending(false);setFileSource("");setSavedMsg("");})}
                 <button onClick={()=>{
                   if(!mappedCount) return;
@@ -8513,7 +8723,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
     return "prorated";
   }
 
-  const withContract = campaigns.filter(c => parseFloat(c.contractValue) > 0);
+  // Include campaigns that have either a legacy contract value OR a rate-based monthly revenue setup
+  const withContract = campaigns.filter(c =>
+    parseFloat(c.contractValue) > 0 ||
+    (c.dealType && parseFloat(c.contractRate) > 0)
+  );
   const partners = ["all", ...new Set(withContract.map(c=>c.mediaPartner))].sort();
   const filtered  = filterPartner==="all" ? withContract : withContract.filter(c=>c.mediaPartner===filterPartner);
 
@@ -8529,7 +8743,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
   const monthTotals = {};
   months.forEach(mo => { monthTotals[mo] = { revenue:0, spend:0, revenueWithSpend:0, pendingRev:0, pendingCount:0 }; });
   filtered.forEach(c => {
-    const spread = spreadRevenue(c);
+    const spread = revenueMapForCampaign(c);
     Object.entries(spread).forEach(([mo, rev]) => {
       if (!monthTotals[mo]) return;
       monthTotals[mo].revenue += rev;
@@ -8580,7 +8794,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
 
   // Per-campaign rows with month grid
   const rows = filtered.map(c=>{
-    const spread = spreadRevenue(c);
+    const spread = revenueMapForCampaign(c);
     const trackable = hasSpendData(c);
     const monthCells = {};
     let windowRev=0, windowSpend=0, windowHasSpend=false;
@@ -8592,13 +8806,15 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
       if (spn != null) { windowSpend += spn; windowHasSpend = true; }
     });
     const contract = parseFloat(c.contractValue)||0;
+    // Monthly revenue: use rate-based calc if available; fall back to contract value for lifetime view
+    const monthlyRev = calcMonthlyRevenue(c);
     const totalSpend = getLifetimeSpend(c);
     const lifetimeProfit = trackable ? (contract - totalSpend) : null;
     const lifetimeMargin = trackable && contract>0 ? (lifetimeProfit/contract)*100 : null;
     const focusCell = monthCells[activeMonth] || {rev:0,spend:null,profit:null,pending:false};
     const focusMargin = focusCell.profit!=null && focusCell.rev>0 ? (focusCell.profit/focusCell.rev)*100 : null;
     return {
-      c, contract, totalSpend, trackable,
+      c, contract, monthlyRev, totalSpend, trackable,
       lifetimeProfit, lifetimeMargin,
       monthCells, focusCell, focusMargin,
       windowRev, windowSpend, windowProfit: windowHasSpend ? windowRev - windowSpend : null,
@@ -8621,6 +8837,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
       if (ap !== bp) return ap - bp; // pending (0) first
       return b.contract - a.contract;
     }
+    if (sortKey==="monthly")  return (b.monthlyRev??-Infinity)-(a.monthlyRev??-Infinity);
     if (sortKey==="contract") return b.contract - a.contract;
     if (sortKey==="name") return (a.c.campaignName||"").localeCompare(b.c.campaignName||"");
     return 0;
@@ -8940,6 +9157,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
               {[
                 {k:"profit",  l:"Top profit"},
                 {k:"loss",    l:"Biggest loss"},
+                {k:"monthly", l:"Monthly Rev"},
                 {k:"pending", l:"Pending first"},
                 {k:"contract",l:"Contract"},
                 {k:"name",    l:"Name"},
@@ -9014,8 +9232,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                   <div style={{background:_lm?"#f8fafc":"#0a1320",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8,padding:"18px 22px",margin:"4px 4px 10px"}}>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:24,alignItems:"end"}}>
                       <div>
-                        <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Contract · {focusLabelShort}</div>
+                        <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
+                          Revenue · {focusLabelShort}
+                          {r.monthlyRev!=null&&<span style={{color:_lm?"#00c896":"#00e19e",fontWeight:400,textTransform:"none",marginLeft:6,letterSpacing:0}}>
+                            {r.c.dealType==="CPV"?`$${parseFloat(r.c.contractRate).toFixed(3)} CPV`:`$${parseFloat(r.c.contractRate).toFixed(2)} CPM`}</span>}
+                        </div>
                         <div style={{fontSize:26,fontWeight:700,color:_lm?"#0ea5e9":"#7a9bbf",lineHeight:1}}>{$fc(r.focusCell.rev)}</div>
+                        {r.monthlyRev!=null&&<div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:3}}>per month</div>}
                       </div>
                       <div>
                         <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Spend</div>
@@ -9038,7 +9261,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                     </div>
                     <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
                       <span>{r.c.mediaPartner||"—"} · {r.c.startDate||"—"} → {r.c.endDate||"—"}</span>
-                      <span>Lifetime: <span style={{color:_lm?"#0ea5e9":"#7a9bbf"}}>{$fc(r.contract)}</span> contract / <span style={{color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):(_lm?"#94a3b8":"#3d5a72"),fontWeight:700}}>{r.lifetimeProfit==null?"⏳":((r.lifetimeProfit>=0?"+":"")+$f(r.lifetimeProfit))}</span> profit</span>
+                      <span>
+                        {r.c.contractValue&&parseFloat(r.c.contractValue)>0&&<>Total contract: <span style={{color:_lm?"#0ea5e9":"#7a9bbf"}}>{$fc(parseFloat(r.c.contractValue))}</span> · </>}
+                        <span style={{color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):(_lm?"#94a3b8":"#3d5a72"),fontWeight:700}}>{r.lifetimeProfit==null?"⏳":((r.lifetimeProfit>=0?"+":"")+$f(r.lifetimeProfit))}</span> lifetime profit
+                      </span>
                     </div>
                   </div>
                 )}
