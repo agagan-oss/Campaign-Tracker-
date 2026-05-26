@@ -4978,6 +4978,55 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return currentImpr > 0 && currentImpr <= priorDay.impr;
   });
 
+  // ── Yesterday's delivery helper ─────────────────────────────────────────
+  // Returns the impressions/views/spend delivered yesterday by diffing today's
+  // MTD against the most recent prior-day MTD from the check-in log. This is
+  // the "how much actually ran yesterday?" number — what you compare to
+  // Need/Day to decide if you need to add/remove budget.
+  //
+  // Returns { delivered, neededPerDay, pctOfNeeded, color, status, baseDate, baseImpr, todayImpr } or null
+  function computeYesterdayDelivery(c, monthlyGoal) {
+    if (!c.checkInLog) return null;
+    const metricKind = pacingMetricFor(c.platform);
+    // Today's MTD value (uses snapshot if present, else c.impressions)
+    const todayDisp = resolveMetrics(c, "mtd");
+    const todayMtd = metricKind === "views"
+      ? (parseInt(todayDisp.videoViews || c.videoViews) || 0)
+      : metricKind === "spend"
+        ? (parseFloat(todayDisp.spend || c.spend) || 0)
+        : (parseInt(todayDisp.impressions || c.impressions) || 0);
+    // Walk the log for a prior-day entry. The log only stores impressions, not
+    // views/spend — so for YT/SEM, we can only confidently report yesterday
+    // delivery for impression-based platforms. For others, we fall back to
+    // impr-based comparison.
+    const logLines = c.checkInLog.split("\n").filter(Boolean);
+    const parsed = logLines.map(parseLogLine).filter(Boolean);
+    if (!parsed.length) return null;
+    // Prefer the most recent prior-day entry; for impression metric the log impr is correct
+    const priorEntry = parsed.find(e => e.dateStr !== today && e.impr > 0);
+    if (!priorEntry) return null;
+    // For non-impression platforms, log-based diff would mix metrics. Skip for now.
+    if (metricKind !== "impressions") return null;
+    const delivered = todayMtd - priorEntry.impr;
+    if (delivered < 0) return null; // negative = data weirdness (impr reset, etc.)
+    // Compute needed/day so we can compare
+    const dimDate = new Date(); const dim = new Date(dimDate.getFullYear(), dimDate.getMonth()+1, 0).getDate();
+    const dom = dimDate.getDate();
+    const dr = daysRemaining(c);
+    const daysLeftMonth = dim - dom;
+    const daysLeft = (dr !== null && dr >= 0 && dr < daysLeftMonth) ? dr : daysLeftMonth;
+    const remaining = Math.max(0, (monthlyGoal||0) - todayMtd);
+    const neededPerDay = daysLeft > 0 && monthlyGoal > 0 ? Math.round(remaining / daysLeft) : 0;
+    const pctOfNeeded = neededPerDay > 0 ? (delivered / neededPerDay) * 100 : null;
+    // Status color: green if hit needed/day, yellow if 75-99%, red if <75%
+    let color = "#4d6e8a", status = "—";
+    if (pctOfNeeded === null) { color = "#4d6e8a"; status = "no target"; }
+    else if (pctOfNeeded >= 100) { color = "#00d48a"; status = "on pace"; }
+    else if (pctOfNeeded >= 75)  { color = "#f59e0b"; status = "slightly behind"; }
+    else                          { color = "#ef4444"; status = "needs push"; }
+    return { delivered, neededPerDay, pctOfNeeded, color, status, baseDate: priorEntry.dateStr, baseImpr: priorEntry.impr, todayImpr: todayMtd };
+  }
+
   function KpiBox({c,disp}){
     const kpi=PLT_KPI[c.platform]; if(!kpi) return null;
     const isCTV=c.platform==="CTV"||c.platform==="OTT";
@@ -5071,15 +5120,28 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* All metric boxes */}
       {(()=>{
         const moRev = calcMonthlyRevenue(c);
-        return (
-      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:2}}>
-        {monthlyGoal&&[
+        // Compute yesterday's delivery vs needed/day so we can show a side-by-side check
+        const yest = computeYesterdayDelivery(c, monthlyGoal);
+        // Build the metric box list — Yesterday slots in right next to Need/Day
+        // so the comparison is immediate (did we deliver enough yesterday vs what
+        // we need each remaining day to hit goal?)
+        const boxes = [
           {label:"Delivered",val:del>0?del.toLocaleString():"—",color:"#00e5a0"},
           {label:"Expected", val:exp?exp.toLocaleString():"—",  color:"#7a9bbf"},
           {label:"Remaining",val:del>0?rem.toLocaleString():"—",color:rem>0?"#f59e0b":"#00d48a"},
           {label:"Need/Day", val:fmtNpd, color:pacing?.label==="Behind"?"#ef4444":"#f97316"},
-        ].map(({label,val,color})=><div key={label} style={{background:lmBgTrk,border:"1px solid "+(lightMode?"#e2e8f0":"#1a2744"),borderRadius:5,padding:"5px 9px",minWidth:60,textAlign:"center"}}>
-          <div style={{fontSize:9,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
+        ];
+        // Insert Yesterday right after Need/Day for direct visual comparison
+        if (yest) {
+          const yLabel = yest.pctOfNeeded != null ? `Yest (${yest.pctOfNeeded.toFixed(0)}%)` : "Yesterday";
+          const yVal = yest.delivered.toLocaleString();
+          const yTitle = `Yesterday delivered ${yest.delivered.toLocaleString()} impr · Needed/day: ${yest.neededPerDay.toLocaleString()} · ${yest.status} (baseline ${yest.baseDate})`;
+          boxes.push({ label: yLabel, val: yVal, color: yest.color, title: yTitle, highlight: true });
+        }
+        return (
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:2}}>
+        {monthlyGoal&&boxes.map(({label,val,color,title,highlight})=><div key={label} title={title||""} style={{background:highlight?(lightMode?"#fffbeb":"#1a1200"):lmBgTrk,border:`1px solid ${highlight?color+"60":(lightMode?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"5px 9px",minWidth:60,textAlign:"center"}}>
+          <div style={{fontSize:9,color:highlight?color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1,fontWeight:highlight?700:400}}>{label}</div>
           <div style={{fontSize:11,fontWeight:700,color}}>{val}</div>
         </div>)}
         {/* Monthly revenue box — only shown when dealType + contractRate are set */}
@@ -5179,8 +5241,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return cpm <= warnAt ? "#00d48a" : cpm <= badAt ? "#fde047" : "#ef4444";
   };
 
-  // grid columns: name | platform | status | pacing bar | impr/views | gap | CTR/VCR | Clicks | CPM | spend | reach | freq | days | edit
-  const GRID = "minmax(200px,1fr) 72px 82px 240px 80px 100px 84px 84px 90px 68px 76px 76px 68px 62px 60px";
+  // grid columns: name | platform | status | pacing bar | goal | impr/views | gap | need/day | yest | CTR/VCR | Clicks | CPM | spend | reach | freq | edit
+  const GRID = "minmax(200px,1fr) 72px 82px 240px 80px 100px 84px 84px 84px 90px 68px 76px 76px 68px 62px 60px";
 
   function TableRow({c,disp,pacing,monthlyGoal}){
     const [rowBreakdownOpen, setRowBreakdownOpen] = useState(false);
@@ -5381,6 +5443,21 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
+      {/* Yesterday — actual delivered yesterday (from check-in log diff).
+          Color-coded vs Need/Day so you can see at a glance if you need to push or pull back. */}
+      {(()=>{
+        const yest = computeYesterdayDelivery(c, monthlyGoal);
+        if (!yest) return <div><span style={{fontSize:11,color:lmTxtD}}>—</span></div>;
+        const fmtY = yest.delivered >= 1000 ? (yest.delivered/1000).toFixed(1)+"K" : String(yest.delivered);
+        const pctTxt = yest.pctOfNeeded != null ? `${yest.pctOfNeeded.toFixed(0)}%` : "";
+        return (
+          <div title={`Yesterday: ${yest.delivered.toLocaleString()} impr · Needed/day: ${yest.neededPerDay.toLocaleString()} · ${yest.status} (baseline ${yest.baseDate} → ${today})`}>
+            <span style={{fontSize:11,fontWeight:700,color:yest.color}}>{fmtY}</span>
+            {pctTxt&&<span style={{fontSize:9,color:yest.color,marginLeft:3,fontWeight:600}}>{pctTxt}</span>}
+          </div>
+        );
+      })()}
+
       {/* CTR or VCR — color-coded from benchmarks */}
       <div title={kpi?.tip||""}>
         {isVCR && vcrDisp > 0
@@ -5470,7 +5547,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   function TableHeader(){
     return <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"6px 16px",borderBottom:"1px solid "+(lightMode?"#e2e8f0":"#1a2744"),marginBottom:2}}>
-      {["Campaign","Platform","Status","Mo. Pacing","Goal","Impr / Views","Gap","Need/Day","CTR / VCR","Clicks","CPM","Spend","Reach","Freq",""].map((h,i)=>(
+      {["Campaign","Platform","Status","Mo. Pacing","Goal","Impr / Views","Gap","Need/Day","Yest","CTR / VCR","Clicks","CPM","Spend","Reach","Freq",""].map((h,i)=>(
         <div key={i} style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
       ))}
     </div>;
