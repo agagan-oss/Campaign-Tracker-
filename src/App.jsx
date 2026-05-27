@@ -268,24 +268,52 @@ function isStoppedServing(c) {
 // of advertising service blocks. Each "X Included? Yes" block has start/end dates,
 // impressions, CPM, budget, and notes. parseIOPdf returns those services as
 // structured data; buildDraftsFromIO turns them into tracker campaign drafts.
+// Try multiple CDNs in order — different networks block different providers,
+// so we walk the list until one succeeds. Using pdfjs-dist 3.11.174: stable,
+// widely cached, and exposes the same `window.pdfjsLib` API on all CDNs.
+const PDFJS_CDNS = [
+  { lib: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js",         worker: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js" },
+  { lib: "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js",                    worker: "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js" },
+  { lib: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",         worker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js" },
+];
 let _pdfjsPromise = null;
-function ensurePdfJs() {
-  if (_pdfjsPromise) return _pdfjsPromise;
-  _pdfjsPromise = new Promise((resolve, reject) => {
-    if (window.pdfjsLib) { resolve(window.pdfjsLib); return; }
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
     const s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js";
-    s.onload = () => {
-      if (window.pdfjsLib) {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js";
-        resolve(window.pdfjsLib);
-      } else {
-        reject(new Error("PDF.js loaded but window.pdfjsLib not found"));
-      }
-    };
-    s.onerror = () => reject(new Error("Failed to load PDF.js from CDN — check your network connection"));
+    s.src = src;
+    s.async = true;
+    s.onload = () => resolve(true);
+    s.onerror = () => reject(new Error("script load failed: " + src));
     document.head.appendChild(s);
   });
+}
+function ensurePdfJs() {
+  if (_pdfjsPromise) return _pdfjsPromise;
+  _pdfjsPromise = (async () => {
+    if (window.pdfjsLib) return window.pdfjsLib;
+    const errors = [];
+    for (const { lib, worker } of PDFJS_CDNS) {
+      try {
+        await loadScriptOnce(lib);
+        if (window.pdfjsLib) {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = worker;
+          return window.pdfjsLib;
+        }
+        errors.push(`loaded ${lib} but window.pdfjsLib undefined`);
+      } catch (e) {
+        errors.push(e.message || String(e));
+      }
+    }
+    // All CDNs failed — surface a useful error
+    throw new Error(
+      "All PDF.js CDNs failed to load. This usually means your network is blocking external scripts " +
+      "(corporate firewall, VPN, ad-blocker, or strict browser content policy). " +
+      "Tried: cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com. " +
+      "Details: " + errors.join(" | ")
+    );
+  })();
+  // If the load fails, reset so the next attempt isn't stuck on the cached rejection
+  _pdfjsPromise.catch(() => { _pdfjsPromise = null; });
   return _pdfjsPromise;
 }
 
@@ -5072,6 +5100,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // offBannerOpen: whether the "off campaigns with data" banner is expanded
   // to show the full list with per-row activate buttons.
   const [offBannerOpen, setOffBannerOpen] = useState(false);
+  // showOffSection: whether the "Off Campaigns" section (paused/goal-hit
+  // campaigns) is expanded. Defaults OPEN — Austin wants to see them by default
+  // since they're intentionally paused (hit goal, etc.) and the data is useful.
+  const [showOffSection, setShowOffSection] = useState(true);
   // Light-mode badge helpers
   const pBg     = (col) => col + "22";   // badge background
   const pBorder = (col) => col + "40";   // badge border
@@ -5209,6 +5241,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return {c,disp,pacing,monthlyGoal};
   });
 
+  // Rows for OFF campaigns — shown in a separate collapsible section so the
+  // user can still see pacing/data for paused campaigns (e.g. ones that already
+  // hit goal) without them mixing into the active Behind/On Track/Ahead buckets.
+  const offRows = campaigns.filter(c => c.status === "off").map(c => {
+    const disp = resolveMetrics(c, dateRange.preset);
+    const pacing = computeMonthlyPacing(c, disp, c.note1);
+    const monthlyGoal = parseMonthlyGoal(c.note1);
+    return { c, disp, pacing, monthlyGoal };
+  });
+
   // Apply search + filters
   const q = search.trim().toLowerCase();
   const updatedTodayCount = allRows.filter(({c})=>c.lastChecked===todayStr).length;
@@ -5224,6 +5266,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   const withGoal  = filtered.filter(r=>r.monthlyGoal);
   const noGoalRows= filtered.filter(r=>!r.monthlyGoal);
+
+  // Apply the same search/partner/platform filter to off-campaign rows so the
+  // section respects whatever filters the user has set on the page.
+  const offFiltered = offRows.filter(({c})=>{
+    if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
+    if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
+    if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
+    return true;
+  });
 
   // Sort
   const orderMap={"Behind":0,"No data":1,"On Track":2,"Ahead":3};
@@ -5246,6 +5297,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   };
   withGoal.sort(sortFn);
   noGoalRows.sort(sortFn);
+  offFiltered.sort(sortFn);
   const behind  = withGoal.filter(r=>r.pacing?.label==="Behind");
   const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
   const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
@@ -6245,12 +6297,36 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         })}
       </div>
     )}
+    {/* ── Off Campaigns section ────────────────────────────────────────────
+        Collapsible bucket for status="off" campaigns. Surfaces pacing data
+        for campaigns the user intentionally paused (e.g. hit goal, ended early)
+        so they can still glance at the numbers without those campaigns mixing
+        into the active Behind/On Track/Ahead sections. Defaults OPEN. */}
+    {offFiltered.length > 0 && (
+      <div style={{marginTop:4}}>
+        <div onClick={()=>setShowOffSection(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:showOffSection?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
+          <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",
+            ...(lightMode
+              ? {color:"#64748b",background:"#64748b14",border:"1px solid #64748b33",padding:"2px 8px",borderRadius:4}
+              : {color:"#7a9bbf"})
+          }}>Off Campaigns ({offFiltered.length})</span>
+          <span style={{fontSize:10,color:lmTxtS,fontStyle:"italic"}}>
+            · paused/ended — still visible for reference, won't show in alerts
+          </span>
+          <span style={{color:lmTxtD,fontSize:10,display:"inline-block",transform:showOffSection?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
+        </div>
+        {showOffSection&&viewMode==="table"&&<TableHeader/>}
+        {showOffSection&&offFiltered.map(r=>viewMode==="table"
+          ?<TableRow key={r.c.id} {...r}/>
+          :<PacingCard key={r.c.id} {...r}/>
+        )}
+      </div>
+    )}
+    {/* "No Impressions" and "Needs Monthly Goal" pushed BELOW Off Campaigns —
+        these are housekeeping buckets (campaigns that aren't producing data yet
+        or aren't configured to pace), so they belong at the bottom of the page. */}
     <Section label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>
     {noGoalRows.length>0&&(()=>{
-      // Auto-expand "Needs Goal" section if any campaign inside was synced today.
-      // Otherwise users who just dropped a CSV for a brand-new campaign think
-      // "my mapping didn't work" when really the campaign is sitting here, hidden
-      // because it has no monthly goal in Note 1 yet.
       const syncedToday = noGoalRows.filter(r => r.c.lastChecked === todayStr);
       const open = showNoGoal || syncedToday.length > 0;
       const hasSyncedToday = syncedToday.length > 0;
