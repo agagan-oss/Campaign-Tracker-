@@ -144,14 +144,19 @@ function parseMonthlyGoal(note1) {
     if (m[2] && m[2].toLowerCase()==="m") n *= 1000000;
     return isNaN(n) ? null : Math.round(n);
   }
-  // "125K/Mo", "100K Monthly", "72K/Mo (extra notes)", "3K Views/Mo" (YT), "$900/Mo" (SEM)
+  // ── Strategy 1: Anchored at start ── "125K/Mo", "100K Monthly", "72K/Mo (notes)", "3K Views/Mo", "$900/Mo"
   // (?:\s+\w+)? allows an optional word like "Views" between the number and /Mo
   const moMatch = s.match(/^([\d.,]+\s*[KkMm]?)(?:\s+\w+)?\s*(?:\/Mo|Monthly|\/month)/i);
   if (moMatch) return parseNum(moMatch[1]);
-  // "40K Feb/March" = two months, divide by 2
+  // ── Strategy 2: Anywhere in the string ── catches "Audio: 71.5K/Mo", "Q4 - 50K/Mo",
+  // "🎯 100K/Mo", "Goal 71.5K Monthly", etc. Less strict, but the /Mo|/month|Monthly
+  // anchor still keeps it safe from matching arbitrary numbers like "spent 50K so far".
+  const anywhereMatch = s.match(/([\d.,]+\s*[KkMm]?)\s*(?:\/Mo\b|\/month\b|Monthly\b)/i);
+  if (anywhereMatch) return parseNum(anywhereMatch[1]);
+  // ── Strategy 3: "40K Feb/March" = two months, divide by 2
   const twoMonthMatch = s.match(/^([\d.,]+\s*[KkMm]?)\s+\w+\/\w+$/i);
   if (twoMonthMatch) { const total = parseNum(twoMonthMatch[1]); return total ? Math.round(total/2) : null; }
-  // "95K March" = single named month
+  // ── Strategy 4: "95K March" = single named month
   const oneMonthMatch = s.match(/^([\d.,]+\s*[KkMm]?)\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)$/i);
   if (oneMonthMatch) return parseNum(oneMonthMatch[1]);
   return null;
@@ -4782,7 +4787,7 @@ function PacingDateBar({ range, setRange, lightMode=false }) {
 }
 
 // ─── Pacing Dashboard ─────────────────────────────────────────────────────
-function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{} }) {
+function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{}, onActivate=()=>{} }) {
   // Light-mode badge helpers
   const pBg     = (col) => col + "22";   // badge background
   const pBorder = (col) => col + "40";   // badge border
@@ -5696,12 +5701,46 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     </div>;
   }
 
+  // Campaigns flagged "off" that are quietly receiving live data. Pacing excludes
+  // status="off" entirely (so they appear nowhere), but if they have impressions OR
+  // were synced recently, they're clearly running — surface a one-click activate notice.
+  const offWithData = campaigns.filter(c => {
+    if (c.status !== "off") return false;
+    const impr = parseInt(c.impressions) || 0;
+    const recent = c.lastChecked && c.lastChecked >= (() => {
+      // "recent" = within last 7 days
+      const d = new Date(); d.setDate(d.getDate() - 7);
+      return d.toISOString().slice(0, 10);
+    })();
+    return impr > 0 || recent;
+  });
+
   return <div style={{color:lmTxt,maxWidth:1700,margin:"0 auto",background:lightMode?"#ffffff":"transparent",minHeight:lightMode?"100vh":"auto",padding:lightMode?"0 0 24px 0":"0"}}>
     {/* Header */}
     <div style={{marginBottom:14}}>
       <div style={{fontSize:15,fontWeight:800,color:lmTxt,marginBottom:2}}>📈 Pacing Dashboard</div>
       <div style={{fontSize:11,color:lmTxtS}}>{allActive.length} active · {withGoal.length} with goals{anyFilter?" · filtered":""}</div>
     </div>
+
+    {/* "Off" campaigns with recent data — discoverable activate notice ── */}
+    {offWithData.length > 0 && (
+      <div style={{background:lightMode?"#fffbeb":"#1a1208",border:`1px solid ${lightMode?"#fcd34d":"#f59e0b40"}`,borderRadius:9,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <span style={{fontSize:14}}>⏸</span>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:12,fontWeight:700,color:lightMode?"#92400e":"#fcd34d"}}>
+            {offWithData.length} "off" campaign{offWithData.length!==1?"s":""} {offWithData.length===1?"has":"have"} data but won't show in pacing
+          </div>
+          <div style={{fontSize:10,color:lmTxtS,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+            {offWithData.slice(0,4).map(c=>c.campaignName.trim()).join(" · ")}
+            {offWithData.length>4&&` · +${offWithData.length-4} more`}
+          </div>
+        </div>
+        <button onClick={()=>offWithData.forEach(c=>onActivate(c.id))}
+          style={{background:lightMode?"#fef3c7":"#f59e0b22",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b66"}`,color:lightMode?"#92400e":"#fcd34d",borderRadius:6,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+          Activate all →
+        </button>
+      </div>
+    )}
 
     {/* Date bar */}
     <div style={{background:lmBg,border:"1px solid "+lmBrd,borderRadius:9,padding:"10px 14px",marginBottom:10}}>
@@ -5804,17 +5843,35 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </div>
     )}
     <Section label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>
-    {noGoalRows.length>0&&<div style={{marginTop:4}}>
-      <div onClick={()=>setShowNoGoal(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:showNoGoal?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
-        <span style={{fontSize:11,color:lmTxtD,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>No Goal Set ({noGoalRows.length})</span>
-        <span style={{color:lmTxtD,fontSize:10,display:"inline-block",transform:showNoGoal?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
-      </div>
-      {showNoGoal&&viewMode==="table"&&<TableHeader/>}
-      {showNoGoal&&noGoalRows.map(r=>viewMode==="table"
-        ?<TableRow key={r.c.id} {...r}/>
-        :<PacingCard key={r.c.id} {...r}/>
-      )}
-    </div>}
+    {noGoalRows.length>0&&(()=>{
+      // Auto-expand "Needs Goal" section if any campaign inside was synced today.
+      // Otherwise users who just dropped a CSV for a brand-new campaign think
+      // "my mapping didn't work" when really the campaign is sitting here, hidden
+      // because it has no monthly goal in Note 1 yet.
+      const syncedToday = noGoalRows.filter(r => r.c.lastChecked === todayStr);
+      const open = showNoGoal || syncedToday.length > 0;
+      const hasSyncedToday = syncedToday.length > 0;
+      return (
+        <div style={{marginTop:4}}>
+          <div onClick={()=>setShowNoGoal(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:open?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
+            <span style={{fontSize:11,color:hasSyncedToday?(lightMode?"#d97706":"#fbbf24"):lmTxtD,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>
+              Needs Monthly Goal ({noGoalRows.length})
+            </span>
+            {hasSyncedToday&&(
+              <span style={{fontSize:10,color:lightMode?"#d97706":"#fbbf24",fontStyle:"italic"}}>
+                · {syncedToday.length} synced today — add "30K/Mo" to Note 1 to track pacing
+              </span>
+            )}
+            <span style={{color:lmTxtD,fontSize:10,display:"inline-block",transform:open?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
+          </div>
+          {open&&viewMode==="table"&&<TableHeader/>}
+          {open&&noGoalRows.map(r=>viewMode==="table"
+            ?<TableRow key={r.c.id} {...r}/>
+            :<PacingCard key={r.c.id} {...r}/>
+          )}
+        </div>
+      );
+    })()}
   </div>;
 }
 
@@ -7525,16 +7582,26 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       ctr = impressions > 0 && clicks > 0 ? clicks / impressions : 0;
 
     } else if (source==="Facebook/Meta") {
-      impressions = parseInt((row["Impressions"]||"").replace(/[^0-9]/g,""))||0;
+      // Defensive cleaner — XLSX cells can be either strings (with commas/$) or
+      // raw numbers. Calling .replace() on a number crashes (TypeError → white screen).
+      // Always coerce to string first.
+      const clean = v => (v==null?"":v).toString().replace(/[$,%,\s]/g,"");
+      // Supports BOTH file formats:
+      //  - Meta Ads Manager native CSV: "Impressions", "Link clicks", "CPM (cost per 1,000 impressions) (USD)", "Amount spent (USD)", "Frequency", "Reach"
+      //  - TapClicks Facebook XLSX:     "Impressions", "Link Clicks", "CPM",      "Spend",                       "Avg. Daily Frequency"  (no Reach)
+      impressions = parseInt(clean(row["Impressions"]||row["impressions"]))||0;
       // Link clicks = intentional ad clicks; avoid "Clicks (all)" which includes page/profile clicks
-      clicks      = parseInt((row["Link clicks"]||row["link clicks"]||row["Link Clicks"]||"").replace(/[^0-9]/g,""))||0;
-      // CTR stored as raw ratio (0.003531 for 0.353%); display layer multiplies by 100
-      ctr         = impressions > 0 && clicks > 0 ? (clicks / impressions) : 0;
-      cpm         = parseFloat(row["CPM (cost per 1,000 impressions) (USD)"]||0)||0;
-      spend       = parseFloat(row["Amount spent (USD)"]||0)||0;
-      reach       = parseInt((row["Reach"]||"").replace(/[^0-9]/g,""))||0;
-      // Frequency
-      const freqRaw = parseFloat(row["Frequency"]||0)||0;
+      clicks      = parseInt(clean(row["Link clicks"]||row["link clicks"]||row["Link Clicks"]||row["link_clicks"]||""))||0;
+      // CTR — prefer to compute from clicks/impressions for consistency, but TapClicks provides a decimal ratio we can fall back to
+      ctr         = impressions > 0 && clicks > 0
+        ? (clicks / impressions)
+        : (parseFloat(clean(row["CTR (Link Click-Through Rate)"]||row["CTR"]||0)) || 0);
+      if (ctr > 1) ctr = ctr / 100; // normalize if expressed as percent
+      cpm         = parseFloat(clean(row["CPM (cost per 1,000 impressions) (USD)"]||row["CPM"]||row["cpm"]||0))||0;
+      spend       = parseFloat(clean(row["Amount spent (USD)"]||row["Spend"]||row["spend"]||0))||0;
+      reach       = parseInt(clean(row["Reach"]||row["reach"]||""))||0;
+      // Frequency — TapClicks calls it "Avg. Daily Frequency", Meta native calls it "Frequency"
+      const freqRaw = parseFloat(clean(row["Frequency"]||row["Avg. Daily Frequency"]||row["frequency"]||0))||0;
       if (freqRaw > 0) row["_frequency"] = freqRaw;
 
     } else if (source==="Google") {
@@ -7597,13 +7664,74 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
 
   function getCampName(row, source){
     if (source==="Snapchat") return row["Campaign Name"]||"";
-    if (source==="Facebook/Meta") return row["Campaign name"]||row["Campaign"]||"";
+    if (source==="Facebook/Meta") {
+      // Two file formats:
+      //  - Meta Ads Manager native: just "Campaign name" (full client + ad set combined)
+      //  - TapClicks Facebook XLSX: "Account" = client identifier, "Campaign" = ad set name only
+      // For TapClicks, combine both so each row is uniquely named AND the QCI panel shows
+      // what client the ad set belongs to. Account-based matching handled separately.
+      const meta = row["Campaign name"];
+      if (meta) return meta;
+      const acct = row["Account"];
+      const camp = row["Campaign"];
+      if (acct && camp) return `${acct} · ${camp}`;
+      return acct || camp || "";
+    }
     if (source==="DSP-Internal") return row["campaign"]||"";
     // TradeDesk: use Campaign column for display; matching uses advertiser name (see matchTTDClientToTracker)
     if (source==="TradeDesk") return row["Campaign"]||row["campaign"]||"";
     if (source==="Google") return row["Campaign Name"]||row["Campaign"]||row["Campaign name"]||row["campaign_name"]||"";
     // Generic — try common campaign name columns
     return findCol(row, ["campaign name","campaign","name","ad campaign","campaign title"])||"";
+  }
+
+  // ── Facebook / TapClicks Account helpers ─────────────────────────────────────
+  // The TapClicks Facebook export has an "Account" column with prefix-encoded
+  // client names like "WVR-Citynet_AG" or "SPI-Providence Academy_AG".
+  // Pattern mirrors TradeDesk: strip the prefix codes + the _XX rep suffix
+  // to get the bare client name that should match a tracker campaignName.
+  function getFBAccountName(row){ return (row["Account"]||"").toString().trim(); }
+  function getFBClientName(accountName){
+    let s = (accountName||"").trim();
+    s = s.replace(/_[A-Za-z]{2,3}\s*$/, "");   // strip _AG, _GC, _ZB, _ks etc.
+    s = s.replace(/^([A-Z]{2,5}\d*-)+/, "");   // strip WVR-, SPI-, COM-, SYN- etc.
+    return s.trim();
+  }
+  // Exact-first matching: FB client name → FB/FBV/IG campaign
+  // Mirrors matchTTDClientToTracker but restricted to FB platforms.
+  function matchFBClientToTracker(clientName, camps){
+    if (!clientName) return "";
+    const cn = clientName.toLowerCase().trim();
+    const fbCamps = camps.filter(c => ["FB","FBV","IG"].includes(c.platform));
+    if (!fbCamps.length) return "";
+    // 1. Exact match
+    const exact = fbCamps.find(c => c.campaignName.trim().toLowerCase() === cn);
+    if (exact) return String(exact.id);
+    // 2. Tracker name contains client name
+    const sub = fbCamps.find(c => c.campaignName.trim().toLowerCase().includes(cn));
+    if (sub) return String(sub.id);
+    // 3. Client name contains tracker name (min 8 chars to avoid trivial matches)
+    const rev = fbCamps.find(c => c.campaignName.trim().length >= 8 && cn.includes(c.campaignName.trim().toLowerCase()));
+    if (rev) return String(rev.id);
+    // 4. Word-overlap with generic stop-word filter
+    const fbGeneric = new Set([
+      "credit","union","federal","bank","banking","financial","services","service",
+      "group","national","community","cooperative","corp","corporation","inc","llc",
+      "company","enterprise","partners","solutions","health","care","school","schools",
+      "university","college","institute","foundation","association","agency","department",
+    ]);
+    const clientWords = cn.split(/\s+/).filter(w => w.length > 3 && !fbGeneric.has(w));
+    if (clientWords.length > 0) {
+      let best = null, bestCount = 0;
+      fbCamps.forEach(c => {
+        const campLower = c.campaignName.trim().toLowerCase();
+        const matches = clientWords.filter(w => campLower.includes(w)).length;
+        const ratio = matches / clientWords.length;
+        if (ratio > 0.7 && matches >= 1 && matches > bestCount) { best = c; bestCount = matches; }
+      });
+      if (best) return String(best.id);
+    }
+    return "";
   }
 
   // For DSP-Internal: the advertiser_name field contains the rep initials suffix (_AG, _ZB, etc.)
@@ -7813,6 +7941,16 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         if(accEntry && campaigns.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
       }
     }
+    // For Facebook TapClicks XLSX format: primary key is Account Name (same stability
+    // argument as Google — ad sets change names but the Account stays constant)
+    if(source==="Facebook/Meta" && row && row["Account"]){
+      const accName = getFBAccountName(row);
+      if(accName){
+        const accKey = `Facebook/Meta||acc:${accName.toLowerCase()}`;
+        const accEntry = savedMappings[accKey];
+        if(accEntry && campaigns.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
+      }
+    }
     // Fallback: key by campaign name (non-TTD/Google sources + TTD legacy)
     const key=makeNameKey(source,csvName);
     const entry=savedMappings[key];
@@ -7838,6 +7976,12 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       if(source==="Google" && accountName){
         // Primary stable key: account name (same across all future exports)
         next[makeGoogleNameKey(accountName)]={...payload,accountName};
+      }
+      if(source==="Facebook/Meta" && accountName){
+        // TapClicks Facebook XLSX format — Account field is the stable client identifier.
+        // Same pattern as Google: future drops with the same Account → auto-match without
+        // needing to remember per-line ad set names.
+        next[`Facebook/Meta||acc:${accountName.toLowerCase()}`]={...payload,accountName};
       }
       // Always also save by campaign name as a fallback key (used by non-TTD/Google sources
       // and as legacy fallback for older TTD saves that lacked the compound key).
@@ -8013,6 +8157,27 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
             if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; }
           }
         }
+      } else if(source==="Facebook/Meta" && row["Account"]){
+        // TapClicks Facebook XLSX format: has an "Account" column with prefix-encoded
+        // client names. Match TTD-style (account → strip prefix/suffix → match client).
+        // Falls back to fuzzy if no match — handles cases where account names diverge
+        // from tracker names.
+        const accName = getFBAccountName(row);
+        const clientName = getFBClientName(accName);
+        const matchedId = matchFBClientToTracker(clientName, matchCandidates);
+        if(matchedId){ initMap[i]=matchedId; initConf[i]=0.8; autoCount++; }
+        else {
+          // Fuzzy fallback on the combined "Account · Campaign" name
+          const csvName = getCampName(row, source);
+          if(csvName){
+            let bestId="",bestScore=0;
+            matchCandidates.forEach(c=>{
+              const score=fuzzyScore(csvName,c.campaignName);
+              if(score>bestScore&&score>=0.45){ bestScore=score; bestId=String(c.id); }
+            });
+            if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; }
+          }
+        }
       } else {
         // All other sources: fuzzy match by campaign name — raised threshold to 0.45 to avoid false matches
         const csvName=getCampName(row,source);
@@ -8116,7 +8281,11 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       } : {};
       return {...c,
         ...sourceSnap,
-        // Auto-activate if status was blank (new campaign added but never set to Active)
+        // Auto-activate ONLY if status was blank (a fresh campaign that's never been set).
+        // Never auto-flip an "off" campaign back to active — "off" means manually paused,
+        // and that decision belongs to the user. The Pacing tab shows a discoverable
+        // banner instead, listing "off" campaigns with recent data + a one-click activate
+        // button if the user wants to flip them.
         status: c.status===""?"active":c.status,
         impressions:u.impressions>0?String(u.impressions):c.impressions,
         clicks:     u.clicks>0?String(u.clicks):c.clicks,
@@ -8158,7 +8327,11 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         const csvName=getCampName(row,fileSource);
         const campName=campaigns.find(c=>String(c.id)===String(campId))?.campaignName||"";
         const advertiserName = fileSource==="TradeDesk" ? getTTDAdvertiserName(row) : undefined;
-        const accountName = fileSource==="Google" ? getGoogleAccountName(row) : undefined;
+        // For Google AND Facebook (TapClicks format), save the Account field as a stable key
+        // so future file drops match by account name even if campaign names change.
+        const accountName = fileSource==="Google" ? getGoogleAccountName(row)
+                          : (fileSource==="Facebook/Meta" && row["Account"]) ? getFBAccountName(row)
+                          : undefined;
         return {csvName,campId:String(campId),campName,advertiserName,accountName};
       })
       .filter(e=>e.csvName&&e.campId);
@@ -11714,7 +11887,9 @@ export default function App() {
         ) : activeTab==="activity" ? (
           <ActivityLog log={activityLog} campaigns={campaigns} onUndo={handleUndo} onClear={async()=>{ if(await confirm({title:"Clear activity log?",message:"This cannot be undone.",confirmLabel:"Clear",danger:true})){ setActivityLog([]); try{localStorage.removeItem(ACTIVITY_KEY);}catch(e){} }}} />
         ) : activeTab==="pacing" ? (
-          <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} lightMode={lightMode} onEdit={(camp)=>setEditTarget(camp)}
+          <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} lightMode={lightMode}
+            onActivate={(id)=>setCampaigns(cs=>cs.map(c=>c.id===id?{...c,status:"active"}:c))}
+            onEdit={(camp)=>setEditTarget(camp)}
             onClearMetrics={(id)=>{
               setCampaigns(cs=>cs.map(c=>{
                 if(c.id!==id) return c;
