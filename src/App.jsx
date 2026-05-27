@@ -218,7 +218,10 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
   else if (ratio < 1.05)    { color="#00d48a"; label="On Track"; }
   else                      { color="#f97316"; label="Ahead";    }
 
-  return { pct: Math.min(1, pct), expectedPct: timeElapsed, ratio, color, label, delivered, goal, expected, metricKind, unit };
+  // pct is clamped to 1.0 so the visual progress bar doesn't overflow past 100%.
+  // pctRaw keeps the actual ratio (e.g. 3.26 for 326% delivery) for overserve
+  // detection — clamping there would hide major budget waste.
+  return { pct: Math.min(1, pct), pctRaw: pct, expectedPct: timeElapsed, ratio, color, label, delivered, goal, expected, metricKind, unit };
 }
 
 // Daily target breakdown — for morning check against yesterday's stats
@@ -5093,10 +5096,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // that lets them move that line's data to a different campaign without redoing QCI.
   const [reassignTarget, setReassignTarget] = useState(null);
   // shape: { line, fromCampaignId, snapField, snapKey }
-  // pendingClearKey: identifies a breakdown line currently in "confirm clear" state.
-  // Two-step click pattern (matches the existing per-row Clear Metrics button).
-  // Format: `${campaignId}|${lineName}`
-  const [pendingClearKey, setPendingClearKey] = useState(null);
+  // clearTarget: when set, opens a confirmation modal for clearing a breakdown line.
+  // Same shape as reassignTarget — { line, fromCampaignId, snapField, snapKey }
+  const [clearTarget, setClearTarget] = useState(null);
   // offBannerOpen: whether the "off campaigns with data" banner is expanded
   // to show the full list with per-row activate buttons.
   const [offBannerOpen, setOffBannerOpen] = useState(false);
@@ -5297,7 +5299,24 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   };
   withGoal.sort(sortFn);
   noGoalRows.sort(sortFn);
-  offFiltered.sort(sortFn);
+  // Off campaigns: prioritize ones with actual data at top (most useful to see
+  // first — these are the "hit goal then paused" campaigns the user wants to
+  // glance at). Campaigns with no impressions go to the bottom.
+  offFiltered.sort((a, b) => {
+    const aImpr = parseInt(a.disp?.impressions || a.c.impressions) || 0;
+    const bImpr = parseInt(b.disp?.impressions || b.c.impressions) || 0;
+    const aHasData = aImpr > 0 ? 1 : 0;
+    const bHasData = bImpr > 0 ? 1 : 0;
+    if (aHasData !== bHasData) return bHasData - aHasData; // data first
+    // Within "has data": sort by pacing % desc so highest-delivering shows top
+    if (aHasData === 1) {
+      const aRatio = a.pacing?.pct ?? 0;
+      const bRatio = b.pacing?.pct ?? 0;
+      return bRatio - aRatio;
+    }
+    // No-data fallback: alpha by name
+    return a.c.campaignName.localeCompare(b.c.campaignName);
+  });
   const behind  = withGoal.filter(r=>r.pacing?.label==="Behind");
   const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
   const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
@@ -5493,6 +5512,23 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         <span style={{fontSize:12,fontWeight:700,color:lmTxt}}>{c.campaignName.trim()}</span>
         <span style={{...vBadge(pCol),borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>
         {pacing&&<span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 6px"}}>{pacing.label}</span>}
+        {/* Goal-hit / overserve badges — use pctRaw (unclamped) so we can detect
+            over-delivery. pacing.pct is clamped at 1.0 for the progress-bar visual,
+            but pctRaw shows actual delivery (e.g. 3.26 = 326% of goal).
+            ≥110% triggers a red "⚠ Over" warning (budget waste);
+            100–109% gets a green ✓ celebration. */}
+        {pacing && pacing.pctRaw >= 1.10 && (
+          <span title={`Delivered ${Math.round(pacing.pctRaw*100)}% of goal — consider pausing or reducing budget`}
+            style={{fontSize:10,fontWeight:700,color:lightMode?"#dc2626":"#fca5a5",background:lightMode?"#fee2e2":"#3a0010",border:`1px solid ${lightMode?"#ef4444":"#7f1d1d"}`,borderRadius:4,padding:"1px 6px"}}>
+            ⚠ Over {Math.round(pacing.pctRaw*100)}%
+          </span>
+        )}
+        {pacing && pacing.pctRaw >= 1.0 && pacing.pctRaw < 1.10 && (
+          <span title={`Hit ${Math.round(pacing.pctRaw*100)}% of monthly goal`}
+            style={{fontSize:10,fontWeight:700,color:lightMode?"#059669":"#00d48a",background:lightMode?"#d1fae5":"#002e24",border:`1px solid ${lightMode?"#10b981":"#00c89660"}`,borderRadius:4,padding:"1px 6px"}}>
+            ✓ Goal Hit
+          </span>
+        )}
         {dr!==null&&<span style={{fontSize:10,fontWeight:700,...vBadge(drc),borderRadius:4,padding:"1px 6px",marginLeft:2}}>
           {dr<=0?"Ended":dr===1?"Last day":dr+"d left"}
         </span>}
@@ -5640,27 +5676,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                           style={{background:"none",border:`1px solid ${lightMode?"#cbd5e1":"#334155"}`,borderRadius:3,color:lightMode?"#475569":"#7a9bbf",fontSize:9,padding:"1px 5px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>
                           ↪
                         </button>
-                        {/* Clear-line button — two-step confirm */}
-                        {(() => {
-                          const key = `${c.id}|${b.name}`;
-                          const isPending = pendingClearKey === key;
-                          return (
-                            <button onClick={()=>{
-                              if (isPending) {
-                                onClearLine({ line:b, fromCampaignId:c.id, snapField, snapKey });
-                                setPendingClearKey(null);
-                              } else {
-                                setPendingClearKey(key);
-                                setTimeout(()=>setPendingClearKey(k => k===key ? null : k), 4000);
-                              }
-                            }}
-                            onMouseLeave={()=>{ if(isPending) setPendingClearKey(null); }}
-                            title={isPending ? "Click again to remove" : "Remove this line and its data"}
-                            style={{background:isPending?(lightMode?"#fee2e2":"#3a0010"):"none",border:`1px solid ${isPending?"#ef4444":(lightMode?"#fca5a5":"#7f1d1d")}`,borderRadius:3,color:isPending?"#ef4444":(lightMode?"#dc2626":"#fca5a5"),fontSize:9,padding:"1px 5px",cursor:"pointer",fontWeight:isPending?700:600,whiteSpace:"nowrap"}}>
-                              {isPending ? "✕?" : "✕"}
-                            </button>
-                          );
-                        })()}
+                        {/* Clear-line button — opens confirmation modal */}
+                        <button onClick={()=>setClearTarget({ line:b, fromCampaignId:c.id, snapField, snapKey })}
+                          title="Remove this line and its data"
+                          style={{background:"none",border:`1px solid ${lightMode?"#fca5a5":"#7f1d1d"}`,borderRadius:3,color:lightMode?"#dc2626":"#fca5a5",fontSize:9,padding:"1px 5px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>
+                          ✕
+                        </button>
                       </div>
                     </div>
                   );
@@ -5700,7 +5721,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   };
 
   // grid columns: name | platform | status | pacing bar | goal | impr/views | gap | need/day | yest | CTR/VCR | Clicks | CPM | spend | reach | freq | edit
-  const GRID = "minmax(200px,1fr) 72px 82px 240px 80px 100px 84px 84px 84px 90px 68px 76px 76px 68px 62px 60px";
+  // Bumped name min from 200→280px so multi-line ad-set names don't get truncated
+  // (e.g. "Shining Star Christian Schools - Device Targeting (FBV)" needs the room)
+  const GRID = "minmax(280px,1.4fr) 72px 82px 240px 80px 100px 84px 84px 84px 90px 68px 76px 76px 68px 62px 60px";
 
   function TableRow({c,disp,pacing,monthlyGoal}){
     const [rowBreakdownOpen, setRowBreakdownOpen] = useState(false);
@@ -5846,7 +5869,24 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
       {/* Pacing status */}
       <div>
-        {pacing?<span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 5px"}}>{pacing.label}</span>
+        {pacing ? (
+          <div style={{display:"flex",flexDirection:"column",gap:2,alignItems:"flex-start"}}>
+            <span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 5px"}}>{pacing.label}</span>
+            {/* Goal-hit / overserve indicators below the status pill (use pctRaw — see PacingCard comment) */}
+            {pacing.pctRaw >= 1.10 && (
+              <span title={`Delivered ${Math.round(pacing.pctRaw*100)}% of goal — overserving`}
+                style={{fontSize:9,fontWeight:700,color:lightMode?"#dc2626":"#fca5a5",background:lightMode?"#fee2e2":"#3a0010",border:`1px solid ${lightMode?"#ef4444":"#7f1d1d"}`,borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap"}}>
+                ⚠ Over {Math.round(pacing.pctRaw*100)}%
+              </span>
+            )}
+            {pacing.pctRaw >= 1.0 && pacing.pctRaw < 1.10 && (
+              <span title={`Hit ${Math.round(pacing.pctRaw*100)}% of monthly goal`}
+                style={{fontSize:9,fontWeight:700,color:lightMode?"#059669":"#00d48a",background:lightMode?"#d1fae5":"#002e24",border:`1px solid ${lightMode?"#10b981":"#00c89660"}`,borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap"}}>
+                ✓ Goal Hit
+              </span>
+            )}
+          </div>
+        )
         :monthlyGoal?<span style={{fontSize:10,color:lmTxtD}}>{metricKind==="views"?"No views":metricKind==="spend"?"No spend":"No impr"}</span>
         :<span style={{fontSize:10,color:lmTxtD}}>No goal</span>}
       </div>
@@ -6045,29 +6085,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                     style={{flexShrink:0,background:"none",border:`1px solid ${lightMode?"#cbd5e1":"#334155"}`,borderRadius:4,color:lightMode?"#475569":"#7a9bbf",fontSize:11,padding:"2px 7px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>
                     ↪ Move
                   </button>
-                  {/* Clear button — removes this line + its data entirely. Useful when the line
-                      doesn't belong to any of your campaigns (rep's data, wrong client, etc.).
-                      Two-step confirm: first click → "Sure?", second click → cleared. */}
-                  {(() => {
-                    const key = `${c.id}|${b.name}`;
-                    const isPending = pendingClearKey === key;
-                    return (
-                      <button onClick={()=>{
-                        if (isPending) {
-                          onClearLine({ line:b, fromCampaignId:c.id, snapField:rowSnapInfo.snapField, snapKey:rowSnapInfo.snapKey });
-                          setPendingClearKey(null);
-                        } else {
-                          setPendingClearKey(key);
-                          setTimeout(()=>setPendingClearKey(k => k===key ? null : k), 4000); // auto-revert after 4s
-                        }
-                      }}
-                      onMouseLeave={()=>{ if(isPending) setPendingClearKey(null); }}
-                      title={isPending ? "Click again to remove this line" : "Remove this line and its data"}
-                      style={{flexShrink:0,background:isPending?(lightMode?"#fee2e2":"#3a0010"):"none",border:`1px solid ${isPending?"#ef4444":(lightMode?"#fca5a5":"#7f1d1d")}`,borderRadius:4,color:isPending?"#ef4444":(lightMode?"#dc2626":"#fca5a5"),fontSize:11,padding:"2px 7px",cursor:"pointer",fontWeight:isPending?700:600,whiteSpace:"nowrap"}}>
-                        {isPending ? "✕ Sure?" : "✕ Clear"}
-                      </button>
-                    );
-                  })()}
+                  {/* Clear button — opens a confirmation modal. (Previously inline two-step
+                      confirm caused the breakdown dropdown to feel like it was collapsing
+                      when the user moved their mouse off the button — a modal is more reliable.) */}
+                  <button onClick={()=>setClearTarget({ line:b, fromCampaignId:c.id, snapField:rowSnapInfo.snapField, snapKey:rowSnapInfo.snapKey })}
+                    title="Remove this line and its data"
+                    style={{flexShrink:0,background:"none",border:`1px solid ${lightMode?"#fca5a5":"#7f1d1d"}`,borderRadius:4,color:lightMode?"#dc2626":"#fca5a5",fontSize:11,padding:"2px 7px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>
+                    ✕ Clear
+                  </button>
                 </div>
               );
             })}
@@ -6120,7 +6145,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return impr > 0 || recent;
   });
 
-  return <div style={{color:lmTxt,maxWidth:1700,margin:"0 auto",background:lightMode?"#ffffff":"transparent",minHeight:lightMode?"100vh":"auto",padding:lightMode?"0 0 24px 0":"0"}}>
+  return <div style={{color:lmTxt,maxWidth:1920,margin:"0 auto",background:lightMode?"#ffffff":"transparent",minHeight:lightMode?"100vh":"auto",padding:lightMode?"0 0 24px 0":"0"}}>
     {/* Header */}
     <div style={{marginBottom:14}}>
       <div style={{fontSize:15,fontWeight:800,color:lmTxt,marginBottom:2}}>📈 Pacing Dashboard</div>
@@ -6364,7 +6389,65 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         }}
       />
     )}
+    {/* Clear-line confirm modal */}
+    {clearTarget && (
+      <ClearLineModal
+        target={clearTarget}
+        fromCampaign={campaigns.find(c => c.id === clearTarget.fromCampaignId)}
+        lightMode={lightMode}
+        onCancel={()=>setClearTarget(null)}
+        onConfirm={()=>{
+          onClearLine(clearTarget);
+          setClearTarget(null);
+        }}
+      />
+    )}
   </div>;
+}
+
+// ─── ClearLineModal — small confirm dialog before removing a breakdown line ──
+function ClearLineModal({ target, fromCampaign, lightMode, onCancel, onConfirm }) {
+  const _lm = lightMode;
+  const line = target.line;
+  return (
+    <div style={{position:"fixed",inset:0,background:"#000c",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+      onClick={e=>{if(e.target===e.currentTarget)onCancel();}}>
+      <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#fca5a5":"#7f1d1d"}`,borderRadius:11,width:"100%",maxWidth:480,padding:0,boxShadow:"0 10px 40px rgba(0,0,0,.4)"}}>
+        <div style={{padding:"16px 20px",borderBottom:`1px solid ${_lm?"#fee2e2":"#3a0010"}`,background:_lm?"#fef2f2":"#1a0808"}}>
+          <div style={{fontSize:14,fontWeight:800,color:_lm?"#991b1b":"#fca5a5",display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:16}}>⚠️</span>
+            Remove this line?
+          </div>
+        </div>
+        <div style={{padding:"16px 20px"}}>
+          <div style={{fontSize:12,color:_lm?"#475569":"#a8c4e0",lineHeight:1.5,marginBottom:12}}>
+            This will permanently remove <strong style={{color:_lm?"#0f172a":"#d8eaf8"}}>"{line.name}"</strong> from
+            {fromCampaign && <> <strong style={{color:_lm?"#0f172a":"#d8eaf8"}}> {fromCampaign.campaignName.trim()}</strong></>}.
+            Its impressions, clicks, and spend will be subtracted from the campaign totals.
+          </div>
+          <div style={{background:_lm?"#f8fafc":"#0a1320",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:6,padding:"8px 12px",fontSize:11,color:_lm?"#475569":"#a8c4e0",display:"flex",gap:12,flexWrap:"wrap"}}>
+            <span><strong style={{color:_lm?"#0f172a":"#d8eaf8"}}>{parseInt(line.impressions||0).toLocaleString()}</strong> impr</span>
+            {line.clicks > 0 && <span>· <strong style={{color:"#a3bffa"}}>{parseInt(line.clicks).toLocaleString()}</strong> clk</span>}
+            {line.spend > 0 && <span>· <strong style={{color:"#f472b6"}}>${(line.spend).toFixed(2)}</strong> spend</span>}
+            {line.ctr > 0 && <span>· <strong style={{color:"#00ffb3"}}>{line.ctr.toFixed(2)}%</strong> CTR</span>}
+          </div>
+          <div style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",marginTop:10,fontStyle:"italic"}}>
+            The line's mapping memory will also be cleared, so future CSV drops with the same name won't auto-route to this campaign.
+          </div>
+        </div>
+        <div style={{padding:"12px 20px",borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <button onClick={onCancel}
+            style={{background:"none",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:7,padding:"7px 14px",color:_lm?"#475569":"#94a3b8",fontSize:12,cursor:"pointer",fontWeight:600}}>
+            Cancel
+          </button>
+          <button onClick={onConfirm} autoFocus
+            style={{background:_lm?"#dc2626":"#3a0010",border:`1px solid ${_lm?"#dc2626":"#7f1d1d"}`,borderRadius:7,padding:"7px 16px",color:_lm?"#ffffff":"#fca5a5",fontSize:12,cursor:"pointer",fontWeight:700}}>
+            ✕ Remove line
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── ReassignLineModal — search for target campaign, move a breakdown line ──
@@ -11999,35 +12082,42 @@ export default function App() {
   // your numbers.
   function clearBreakdownLine({ line, fromCampaignId, snapField, snapKey }) {
     const today = getToday();
+    // Rebuild totals from breakdown sum after removing the line — see
+    // reassignBreakdownLine for the rationale.
+    const totalsFromBreakdown = (lines) => {
+      const impr = lines.reduce((s, b) => s + (parseFloat(b.impressions)||0), 0);
+      const clk  = lines.reduce((s, b) => s + (parseFloat(b.clicks)||0), 0);
+      const spn  = lines.reduce((s, b) => s + (parseFloat(b.spend)||0), 0);
+      const ctr  = impr > 0 && clk > 0 ? clk / impr : 0;
+      const cpm  = impr > 0 && spn > 0 ? (spn / impr) * 1000 : 0;
+      return { impr, clk, spn, ctr, cpm };
+    };
     setCampaigns(cs => cs.map(c => {
       if (c.id !== fromCampaignId) return c;
       const src = c[snapField] || {};
       const snap = src[snapKey] || {};
       const newBreakdown = (snap.breakdown||[]).filter(b => b.name !== line.name);
-      const newImpr = Math.max(0, (snap.impressions||0) - (line.impressions||0));
-      const newClicks = Math.max(0, (snap.clicks||0) - (line.clicks||0));
-      const newSpend = Math.max(0, (snap.spend||0) - (line.spend||0));
-      const newCtr = newImpr > 0 && newClicks > 0 ? newClicks / newImpr : 0;
-      const newCpm = newImpr > 0 && newSpend > 0 ? (newSpend / newImpr) * 1000 : 0;
       const newPriorBd = (snap.priorBreakdown || []).filter(p => p.name !== line.name);
+      const t = totalsFromBreakdown(newBreakdown);
       const updatedSnap = {
         ...snap,
-        breakdown: newBreakdown.length >= 1 ? newBreakdown : null,
+        breakdown: newBreakdown.length ? newBreakdown : null,
         priorBreakdown: newPriorBd.length ? newPriorBd : null,
-        impressions: newImpr || null,
-        clicks: newClicks || null,
-        spend: newSpend || null,
-        ctr: newCtr || null,
-        cpm: newCpm || null,
+        impressions: t.impr || null,
+        clicks: t.clk || null,
+        spend: t.spn || null,
+        ctr: t.ctr || null,
+        cpm: t.cpm || null,
+        updatedAt: today,
       };
       return {
         ...c,
         [snapField]: { ...src, [snapKey]: updatedSnap },
-        impressions: newImpr > 0 ? String(newImpr) : "",
-        clicks: newClicks > 0 ? String(newClicks) : "",
-        spend: newSpend > 0 ? String(newSpend.toFixed(2)) : "",
-        cpm: newCpm > 0 ? String(parseFloat(newCpm.toFixed(4))) : "",
-        ctr: newCtr > 0 ? String(parseFloat(newCtr.toFixed(4))) : "",
+        impressions: t.impr > 0 ? String(Math.round(t.impr)) : "",
+        clicks:      t.clk  > 0 ? String(Math.round(t.clk))  : "",
+        spend:       t.spn  > 0 ? String(parseFloat(t.spn.toFixed(2))) : "",
+        cpm:         t.cpm  > 0 ? String(parseFloat(t.cpm.toFixed(4))) : "",
+        ctr:         t.ctr  > 0 ? String(parseFloat(t.ctr.toFixed(4))) : "",
       };
     }));
     // Also remove any savedMappings entry for this line so the next CSV drop
@@ -12070,78 +12160,77 @@ export default function App() {
   // route the line correctly without the user having to remap.
   function reassignBreakdownLine({ line, fromCampaignId, snapField, snapKey }, toCampaignId) {
     const today = getToday();
-    setCampaigns(cs => {
-      const updated = cs.map(c => {
-        if (c.id === fromCampaignId) {
-          // ── Subtract from source campaign's snapshot ──
-          const src = c[snapField] || {};
-          const snap = src[snapKey] || {};
-          const newBreakdown = (snap.breakdown||[]).filter(b => b.name !== line.name);
-          const newImpr = Math.max(0, (snap.impressions||0) - (line.impressions||0));
-          const newClicks = Math.max(0, (snap.clicks||0) - (line.clicks||0));
-          const newSpend = Math.max(0, (snap.spend||0) - (line.spend||0));
-          const newCtr = newImpr > 0 && newClicks > 0 ? newClicks / newImpr : 0;
-          const newCpm = newImpr > 0 && newSpend > 0 ? (newSpend / newImpr) * 1000 : 0;
-          const newPriorBd = (snap.priorBreakdown || []).filter(p => p.name !== line.name);
-          const updatedSnap = {
-            ...snap,
-            breakdown: newBreakdown.length >= 2 ? newBreakdown : (newBreakdown.length === 1 ? newBreakdown : null),
-            priorBreakdown: newPriorBd.length ? newPriorBd : null,
-            impressions: newImpr || null,
-            clicks: newClicks || null,
-            spend: newSpend || null,
-            ctr: newCtr || null,
-            cpm: newCpm || null,
-          };
-          return {
-            ...c,
-            [snapField]: { ...src, [snapKey]: updatedSnap },
-            // Mirror to top-level fields so the Campaigns table/Pacing rows stay in sync
-            impressions: newImpr > 0 ? String(newImpr) : "",
-            clicks: newClicks > 0 ? String(newClicks) : "",
-            spend: newSpend > 0 ? String(newSpend.toFixed(2)) : "",
-            cpm: newCpm > 0 ? String(parseFloat(newCpm.toFixed(4))) : "",
-            ctr: newCtr > 0 ? String(parseFloat(newCtr.toFixed(4))) : "",
-          };
-        }
-        if (c.id === toCampaignId) {
-          // ── Add to target campaign's snapshot ──
-          const src = c[snapField] || {};
-          const snap = src[snapKey] || { impressions: 0, clicks: 0, spend: 0, breakdown: [] };
-          // Replace any existing line with the same name (don't accidentally double-add)
-          const otherLines = (snap.breakdown||[]).filter(b => b.name !== line.name);
-          const newBreakdown = [...otherLines, line];
-          const newImpr = (snap.impressions||0) + (line.impressions||0);
-          const newClicks = (snap.clicks||0) + (line.clicks||0);
-          const newSpend = (snap.spend||0) + (line.spend||0);
-          const newCtr = newImpr > 0 && newClicks > 0 ? newClicks / newImpr : 0;
-          const newCpm = newImpr > 0 && newSpend > 0 ? (newSpend / newImpr) * 1000 : 0;
-          const updatedSnap = {
-            ...snap,
-            breakdown: newBreakdown,
-            impressions: newImpr,
-            clicks: newClicks,
-            spend: newSpend,
-            ctr: newCtr,
-            cpm: newCpm,
-            updatedAt: today,
-          };
-          return {
-            ...c,
-            [snapField]: { ...src, [snapKey]: updatedSnap },
-            impressions: String(newImpr),
-            clicks: String(newClicks),
-            spend: String(parseFloat(newSpend.toFixed(2))),
-            cpm: String(parseFloat(newCpm.toFixed(4))),
-            ctr: String(parseFloat(newCtr.toFixed(4))),
-            status: c.status === "" ? "active" : c.status,
-            lastChecked: today,
-          };
-        }
-        return c;
-      });
-      return updated;
-    });
+    // Rebuild aggregate totals from the new breakdown array — guarantees the
+    // pacing bar and top-level metrics stay in sync with what the breakdown
+    // shows, regardless of any pre-existing snap totals drift.
+    const totalsFromBreakdown = (lines) => {
+      const impr = lines.reduce((s, b) => s + (parseFloat(b.impressions)||0), 0);
+      const clk  = lines.reduce((s, b) => s + (parseFloat(b.clicks)||0), 0);
+      const spn  = lines.reduce((s, b) => s + (parseFloat(b.spend)||0), 0);
+      const ctr  = impr > 0 && clk > 0 ? clk / impr : 0;
+      const cpm  = impr > 0 && spn > 0 ? (spn / impr) * 1000 : 0;
+      return { impr, clk, spn, ctr, cpm };
+    };
+    setCampaigns(cs => cs.map(c => {
+      if (c.id === fromCampaignId) {
+        // ── Remove the line from the source campaign ──
+        const src = c[snapField] || {};
+        const snap = src[snapKey] || {};
+        const newBreakdown = (snap.breakdown||[]).filter(b => b.name !== line.name);
+        const newPriorBd = (snap.priorBreakdown || []).filter(p => p.name !== line.name);
+        const t = totalsFromBreakdown(newBreakdown);
+        const updatedSnap = {
+          ...snap,
+          breakdown: newBreakdown.length ? newBreakdown : null,
+          priorBreakdown: newPriorBd.length ? newPriorBd : null,
+          impressions: t.impr || null,
+          clicks: t.clk || null,
+          spend: t.spn || null,
+          ctr: t.ctr || null,
+          cpm: t.cpm || null,
+          updatedAt: today,
+        };
+        return {
+          ...c,
+          [snapField]: { ...src, [snapKey]: updatedSnap },
+          impressions: t.impr > 0 ? String(Math.round(t.impr)) : "",
+          clicks:      t.clk  > 0 ? String(Math.round(t.clk))  : "",
+          spend:       t.spn  > 0 ? String(parseFloat(t.spn.toFixed(2))) : "",
+          cpm:         t.cpm  > 0 ? String(parseFloat(t.cpm.toFixed(4))) : "",
+          ctr:         t.ctr  > 0 ? String(parseFloat(t.ctr.toFixed(4))) : "",
+        };
+      }
+      if (c.id === toCampaignId) {
+        // ── Add the line to the target campaign ──
+        const src = c[snapField] || {};
+        const snap = src[snapKey] || { impressions: 0, clicks: 0, spend: 0, breakdown: [] };
+        const otherLines = (snap.breakdown||[]).filter(b => b.name !== line.name);
+        const newBreakdown = [...otherLines, line];
+        const t = totalsFromBreakdown(newBreakdown);
+        const updatedSnap = {
+          ...snap,
+          breakdown: newBreakdown,
+          impressions: t.impr,
+          clicks: t.clk,
+          spend: t.spn,
+          ctr: t.ctr,
+          cpm: t.cpm,
+          updatedAt: today,
+        };
+        return {
+          ...c,
+          [snapField]: { ...src, [snapKey]: updatedSnap },
+          impressions: String(Math.round(t.impr)),
+          clicks:      String(Math.round(t.clk)),
+          spend:       String(parseFloat(t.spn.toFixed(2))),
+          cpm:         String(parseFloat(t.cpm.toFixed(4))),
+          ctr:         String(parseFloat(t.ctr.toFixed(4))),
+          status: c.status === "" ? "active" : c.status,
+          lastChecked: today,
+        };
+      }
+      return c;
+    }));
 
     // ── Update saved mapping memory so future CSV drops route this line correctly ──
     try {
