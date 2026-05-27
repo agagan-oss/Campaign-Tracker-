@@ -263,6 +263,278 @@ function isStoppedServing(c) {
   return impr === 0;
 }
 
+// ─── IO PDF parsing ───────────────────────────────────────────────────────
+// Universal IO PDFs (e.g. Radio FM Media, similar Formsite exports) contain a list
+// of advertising service blocks. Each "X Included? Yes" block has start/end dates,
+// impressions, CPM, budget, and notes. parseIOPdf returns those services as
+// structured data; buildDraftsFromIO turns them into tracker campaign drafts.
+let _pdfjsPromise = null;
+function ensurePdfJs() {
+  if (_pdfjsPromise) return _pdfjsPromise;
+  _pdfjsPromise = new Promise((resolve, reject) => {
+    if (window.pdfjsLib) { resolve(window.pdfjsLib); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js";
+    s.onload = () => {
+      if (window.pdfjsLib) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js";
+        resolve(window.pdfjsLib);
+      } else {
+        reject(new Error("PDF.js loaded but window.pdfjsLib not found"));
+      }
+    };
+    s.onerror = () => reject(new Error("Failed to load PDF.js from CDN — check your network connection"));
+    document.head.appendChild(s);
+  });
+  return _pdfjsPromise;
+}
+
+async function extractPdfText(file) {
+  const lib = await ensurePdfJs();
+  const buf = await file.arrayBuffer();
+  const pdf = await lib.getDocument({data: buf}).promise;
+  let text = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(item => item.str).join("\n") + "\n";
+  }
+  return text;
+}
+
+// Parses Universal IO PDF text into structured data.
+function parseIOPdf(text) {
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+
+  // Returns true if a string looks like a real value (not label residue).
+  // PDF lines often have extra label tail like "Gross Dollar($) Budget to Recrue Media:" —
+  // after slicing the matched label we could be left with that residue. We only accept
+  // the inline rest if it looks like data: starts with digit, $, or is a known answer.
+  function looksLikeValue(s) {
+    if (!s) return false;
+    if (/^[\d$]/.test(s)) return true;                          // numbers, $-amounts, dates
+    if (/^(yes|no|n\/a|none|complete|new io)$/i.test(s)) return true; // common short answers
+    return false;
+  }
+
+  // Find the value that follows a labeled field. PDF.js extracts each cell as
+  // its own text item, so we join with \n and the value is typically on the next
+  // line. If the label line has trailing data (rare), we use that — but only when
+  // it actually LOOKS like a value (digit/$ start) — otherwise it's label residue.
+  function valueAfter(labelPrefix) {
+    const lower = labelPrefix.toLowerCase();
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (l.toLowerCase().startsWith(lower)) {
+        const rest = l.slice(labelPrefix.length).replace(/^[\s:()\#$]+/, "").trim();
+        if (looksLikeValue(rest)) return rest;
+        return lines[i+1] || null;
+      }
+    }
+    return null;
+  }
+
+  // Check if "X Included? Yes" appears for service X.
+  // STRICT: the service label must be the START of a line, otherwise "FB/IG"
+  // would falsely match "Mobile ID Integration: FB/IG Included? Yes".
+  function isIncluded(serviceLabel) {
+    const escaped = serviceLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      // Match "<Label> Included?" at line start — value on next line ("Yes")
+      const reLabel = new RegExp("^" + escaped + "\\s+Included\\??\\s*$", "i");
+      if (reLabel.test(l)) {
+        if ((lines[i+1] || "").trim().toLowerCase() === "yes") return true;
+      }
+      // Match "<Label> Included? Yes" all inline
+      const reCombo = new RegExp("^" + escaped + "\\s+Included\\??\\s+Yes\\s*$", "i");
+      if (reCombo.test(l)) return true;
+    }
+    return false;
+  }
+
+  // Extract a labeled field whose value follows. Same logic as valueAfter but
+  // scoped to a (prefix, label) pair — handles labels like "Gross Dollar" that
+  // are followed by more label text ("($) Budget to Recrue Media:") before the value.
+  function getField(prefix, label) {
+    const full = `${prefix} ${label}`.toLowerCase();
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (l.toLowerCase().startsWith(full)) {
+        const rest = l.slice(full.length).replace(/^[\s:()\#$]+/, "").trim();
+        if (looksLikeValue(rest)) return rest;
+        return lines[i+1] || null;
+      }
+    }
+    return null;
+  }
+
+  function extractServiceBlock(prefix) {
+    // Notes block may span multiple lines — collect everything until the next labeled field
+    function getNotes() {
+      const fullLabel = `${prefix} - Notes/Instructions`.toLowerCase();
+      const startIdx = lines.findIndex(l => l.toLowerCase().startsWith(fullLabel));
+      if (startIdx === -1) return null;
+      // Skip the label line and any continuation of it (e.g., "etc.):")
+      let j = startIdx + 1;
+      // Skip lines that are part of the label (parenthetical extension)
+      while (j < lines.length && /^[a-z(),.\s\w]+:?$/i.test(lines[j]) && !lines[j].toLowerCase().startsWith(prefix.toLowerCase())) {
+        // If next line looks like a value (has substance), break out
+        if (lines[j].length > 40) break;
+        // Otherwise might still be label continuation — keep moving but cap
+        if (j > startIdx + 3) break;
+        j++;
+      }
+      // Now collect lines until the next labeled field starts
+      const notes = [];
+      while (j < lines.length) {
+        const nextLine = lines[j];
+        // Stop at next IO field (begins with prefix or another common label)
+        if (nextLine.toLowerCase().startsWith(prefix.toLowerCase() + " ") ||
+            /^(mobile|video|display|reach|digital|native|search|email|fb|snapchat|linkedin|ip|tvsci|contact|last update|start time|finish time|browser|device|referrer|powered by)/i.test(nextLine)) {
+          break;
+        }
+        notes.push(nextLine);
+        j++;
+        if (notes.length > 30) break; // safety cap
+      }
+      return notes.join(" ").trim() || null;
+    }
+
+    return {
+      startDate: getField(prefix, "Start Date"),
+      endDate:   getField(prefix, "End Date"),
+      impressions: getField(prefix, "Gross Impressions"),
+      cpm:       getField(prefix, "CPM Rate to Recrue Media"),
+      budget:    getField(prefix, "Gross Dollar"),
+      notes:     getNotes(),
+    };
+  }
+
+  const reference  = valueAfter("Reference #");
+  const partner    = valueAfter("Media Partner");
+  const advertiser = valueAfter("Advertiser & Program Name");
+  const submitted  = valueAfter("Submission Date");
+
+  // ── Service detection ──
+  // Each entry: { test: <label>, key, platform, split? }
+  // split: when true → creates DSP + secondary campaign each with half budget/impr
+  const serviceDefs = [
+    { label: "Mobile ID Integration: FB/IG", key: "mobile_id_fbig", split: "FB" },
+    { label: "Mobile ID Integration: SC",    key: "mobile_id_sc",   split: "SP" },
+    { label: "Mobile In-App",                key: "mobile_in_app",  platform: "DSP" },
+    { label: "Display",                      key: "display",        platform: "DSP" },
+    { label: "FB/IG",                        key: "fbig",           platform: "FB" },
+    { label: "Snapchat",                     key: "snapchat",       platform: "SP" },
+    { label: "Reach (Channel) CTV",          key: "ctv",            platform: "CTV" },
+    { label: "Digital Audio",                key: "digital_audio",  platform: "TDA" },
+    { label: "Search",                       key: "search",         platform: "SEM" },
+    { label: "Video",                        key: "video",          platform: "FBV" },
+    { label: "Native",                       key: "native",         platform: "DSP" },
+    { label: "LinkedIn",                     key: "linkedin",       platform: "DSP" }, // no LI platform — defaults to DSP, user can edit
+    { label: "IP",                           key: "ip",             platform: "DSP" },
+    { label: "Email Marketing",              key: "email",          platform: "EMAIL" },
+  ];
+
+  const services = serviceDefs
+    .filter(sd => isIncluded(sd.label))
+    .map(sd => ({
+      key: sd.key,
+      label: sd.label,
+      platform: sd.platform,
+      split: sd.split,
+      details: extractServiceBlock(sd.label),
+    }));
+
+  return { reference, partner, advertiser, submitted, services, rawText: text };
+}
+
+// Build draft campaign objects from parsed IO data.
+function buildDraftsFromIO(io) {
+  const drafts = [];
+
+  function parseDate(s) {
+    if (!s) return "";
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) return `${m[3]}-${m[1].padStart(2,"0")}-${m[2].padStart(2,"0")}`;
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+    return "";
+  }
+  function parseNum(s) {
+    if (s == null) return 0;
+    const cleaned = String(s).replace(/[,$\s]/g, "");
+    return parseFloat(cleaned) || 0;
+  }
+  function fmtK(n) {
+    if (n >= 1000000) return (n/1000000).toFixed(1).replace(/\.0$/, "") + "M";
+    if (n >= 1000) return (n/1000).toFixed(1).replace(/\.0$/, "") + "K";
+    return String(Math.round(n));
+  }
+  function monthsBetween(startISO, endISO) {
+    if (!startISO || !endISO) return 1;
+    // Parse YYYY-MM-DD components directly — avoids the `new Date("2026-06-01")`
+    // UTC-shift trap where in Western timezones it lands on May 31 local.
+    const sm = startISO.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const em = endISO.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!sm || !em) return 1;
+    const months = (parseInt(em[1]) - parseInt(sm[1])) * 12 + (parseInt(em[2]) - parseInt(sm[2])) + 1;
+    return Math.max(1, months);
+  }
+
+  const advertiser = (io.advertiser || "Unnamed").trim();
+
+  io.services.forEach(svc => {
+    const d = svc.details;
+    const startDate = parseDate(d.startDate);
+    const endDate = parseDate(d.endDate);
+    const totalImpr = parseNum(d.impressions);
+    const cpm = parseNum(d.cpm);
+    const totalBudget = parseNum(d.budget);
+    const months = monthsBetween(startDate, endDate);
+
+    // Skip blocks with no budget/impressions — likely the IO has the field but it's $0
+    if (totalImpr <= 0 && totalBudget <= 0) return;
+
+    const baseNote2 = `Auto-imported from IO #${io.reference || "?"}. ${svc.label}. Total: ${totalImpr.toLocaleString()} impr · $${totalBudget.toFixed(2)} budget${cpm>0?` · $${cpm.toFixed(2)} CPM`:""}.${d.notes ? " " + d.notes : ""}`.trim();
+
+    if (svc.split) {
+      // Mobile ID Integration: split half to DSP, half to other platform (FB or SP)
+      const halfImpr = Math.round(totalImpr / 2);
+      const halfBudget = totalBudget / 2;
+      const monthlyImpr = Math.round(halfImpr / months);
+      const note1 = monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "";
+      const common = {
+        mediaPartner: io.partner || "",
+        startDate, endDate,
+        status: "off",
+        contractRate: cpm ? String(cpm) : "",
+        dealType: cpm ? "CPM" : "",
+        note1, note2: baseNote2,
+        contractValue: halfBudget.toFixed(2),
+      };
+      drafts.push({ ...common, campaignName: `${advertiser} - DSP`,         platform: "DSP" });
+      drafts.push({ ...common, campaignName: `${advertiser} - ${svc.split}`, platform: svc.split });
+    } else {
+      const platform = svc.platform || "DSP";
+      const monthlyImpr = Math.round(totalImpr / months);
+      drafts.push({
+        mediaPartner: io.partner || "",
+        campaignName: `${advertiser} - ${platform}`,
+        platform,
+        startDate, endDate,
+        status: "off",
+        contractRate: cpm ? String(cpm) : "",
+        dealType: cpm ? "CPM" : "",
+        contractValue: totalBudget.toFixed(2),
+        note1: monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "",
+        note2: baseNote2,
+      });
+    }
+  });
+
+  return drafts;
+}
+
 function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
   const today = getToday();
   const [cur, setCur] = useState(() => { const n = new Date(); return { y:n.getFullYear(), m:n.getMonth() }; });
@@ -4787,7 +5059,16 @@ function PacingDateBar({ range, setRange, lightMode=false }) {
 }
 
 // ─── Pacing Dashboard ─────────────────────────────────────────────────────
-function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{}, onActivate=()=>{} }) {
+function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{}, onActivate=()=>{}, onReassignLine=()=>{}, onClearLine=()=>{} }) {
+  // ── Reassign-line modal state ──
+  // When the user clicks the ↪ icon on a breakdown line, we open a search modal
+  // that lets them move that line's data to a different campaign without redoing QCI.
+  const [reassignTarget, setReassignTarget] = useState(null);
+  // shape: { line, fromCampaignId, snapField, snapKey }
+  // pendingClearKey: identifies a breakdown line currently in "confirm clear" state.
+  // Two-step click pattern (matches the existing per-row Clear Metrics button).
+  // Format: `${campaignId}|${lineName}`
+  const [pendingClearKey, setPendingClearKey] = useState(null);
   // Light-mode badge helpers
   const pBg     = (col) => col + "22";   // badge background
   const pBorder = (col) => col + "40";   // badge border
@@ -5237,13 +5518,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           Surfaces ad-set / line-item stats AND per-line yesterday delivery so the user
           can see if a specific line (e.g. retargeting) actually spent yesterday. */}
       {(()=>{
-        // Find whichever snapshot source has breakdown data — checks all 5 platforms
-        const snapshotSources = [c.metaSnapshots, c.ttdSnapshots, c.dspSnapshots, c.googleSnapshots, c.snapSnapshots];
-        let snap = null;
-        for (const source of snapshotSources) {
-          if (!source) continue;
+        // Find whichever snapshot source has breakdown data — checks all 5 platforms.
+        // Also tracks WHICH field holds it so the reassign-line action can read/write
+        // data on the correct snapshot.
+        const fieldNames = ["metaSnapshots", "ttdSnapshots", "dspSnapshots", "googleSnapshots", "snapSnapshots"];
+        let snap = null, snapField = null, snapKey = null;
+        for (const field of fieldNames) {
+          const src = c[field];
+          if (!src) continue;
           for (const key of ['mtd','last30','yesterday']) {
-            if (source[key]?.breakdown?.length >= 2) { snap = source[key]; break; }
+            if (src[key]?.breakdown?.length >= 2) { snap = src[key]; snapField = field; snapKey = key; break; }
           }
           if (snap) break;
         }
@@ -5288,10 +5572,37 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                           {isQuiet?" · ⚠ low / not running":""}
                         </div>
                       </div>
-                      <div style={{display:"flex",gap:8,flexShrink:0}}>
+                      <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
                         <span style={{fontSize:10,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:600,fontVariantNumeric:"tabular-nums"}} title="MTD impressions">{parseInt(b.impressions||0).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}> impr</span></span>
                         {b.spend>0&&<span style={{fontSize:10,color:"#f472b6",fontWeight:600}} title="MTD spend">${Math.round(b.spend).toLocaleString()}</span>}
                         {b.ctr>0&&<span style={{fontSize:10,color:"#00ffb3",fontWeight:600}} title="MTD CTR">{b.ctr.toFixed(2)}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}>%</span></span>}
+                        {/* Move-line button — see TableRow version for context */}
+                        <button onClick={()=>setReassignTarget({ line:b, fromCampaignId:c.id, snapField, snapKey })}
+                          title="Move this line to a different campaign"
+                          style={{background:"none",border:`1px solid ${lightMode?"#cbd5e1":"#334155"}`,borderRadius:3,color:lightMode?"#475569":"#7a9bbf",fontSize:9,padding:"1px 5px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>
+                          ↪
+                        </button>
+                        {/* Clear-line button — two-step confirm */}
+                        {(() => {
+                          const key = `${c.id}|${b.name}`;
+                          const isPending = pendingClearKey === key;
+                          return (
+                            <button onClick={()=>{
+                              if (isPending) {
+                                onClearLine({ line:b, fromCampaignId:c.id, snapField, snapKey });
+                                setPendingClearKey(null);
+                              } else {
+                                setPendingClearKey(key);
+                                setTimeout(()=>setPendingClearKey(k => k===key ? null : k), 4000);
+                              }
+                            }}
+                            onMouseLeave={()=>{ if(isPending) setPendingClearKey(null); }}
+                            title={isPending ? "Click again to remove" : "Remove this line and its data"}
+                            style={{background:isPending?(lightMode?"#fee2e2":"#3a0010"):"none",border:`1px solid ${isPending?"#ef4444":(lightMode?"#fca5a5":"#7f1d1d")}`,borderRadius:3,color:isPending?"#ef4444":(lightMode?"#dc2626":"#fca5a5"),fontSize:9,padding:"1px 5px",cursor:"pointer",fontWeight:isPending?700:600,whiteSpace:"nowrap"}}>
+                              {isPending ? "✕?" : "✕"}
+                            </button>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -5338,17 +5649,20 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
     const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null;
     // Resolve the per-line breakdown (if any) for the disclosure widget.
-    // Also pull the snapshot itself so we can show prior-day per-line delta.
-    const rowSnap = (()=>{
-      const sources = [c.metaSnapshots, c.ttdSnapshots, c.dspSnapshots, c.googleSnapshots, c.snapSnapshots];
-      for (const source of sources) {
-        if (!source) continue;
+    // Also tracks WHICH snapshot field (metaSnapshots/ttdSnapshots/etc.) holds the
+    // breakdown so the reassign-line action knows where to read/write data.
+    const rowSnapInfo = (()=>{
+      const fieldNames = ["metaSnapshots", "ttdSnapshots", "dspSnapshots", "googleSnapshots", "snapSnapshots"];
+      for (const field of fieldNames) {
+        const src = c[field];
+        if (!src) continue;
         for (const key of ['mtd','last30','yesterday']) {
-          if (source[key]?.breakdown?.length >= 2) return source[key];
+          if (src[key]?.breakdown?.length >= 2) return { snap: src[key], snapField: field, snapKey: key };
         }
       }
       return null;
     })();
+    const rowSnap = rowSnapInfo?.snap || null;
     const rowBreakdown = rowSnap?.breakdown || null;
     const rowPriorByName = (()=>{
       const m = {};
@@ -5663,6 +5977,38 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                       {yestImpr===0&&<span style={{fontSize:9,color:lightMode?"#dc2626":"#ef4444",fontWeight:700,background:lightMode?"#fee2e2":"#3a0010",padding:"1px 5px",borderRadius:3}}>NOT RUNNING</span>}
                     </div>
                   )}
+                  {/* Reassign button — opens search modal to move this line to another campaign.
+                      Useful when QCI accidentally mapped a line to the wrong campaign (e.g. an FBV
+                      line landed on the FB campaign). Click ↪, pick the right target, line + data
+                      move over, no need to redo QCI. */}
+                  <button onClick={()=>setReassignTarget({ line:b, fromCampaignId:c.id, snapField:rowSnapInfo.snapField, snapKey:rowSnapInfo.snapKey })}
+                    title="Move this line to a different campaign"
+                    style={{flexShrink:0,background:"none",border:`1px solid ${lightMode?"#cbd5e1":"#334155"}`,borderRadius:4,color:lightMode?"#475569":"#7a9bbf",fontSize:11,padding:"2px 7px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap"}}>
+                    ↪ Move
+                  </button>
+                  {/* Clear button — removes this line + its data entirely. Useful when the line
+                      doesn't belong to any of your campaigns (rep's data, wrong client, etc.).
+                      Two-step confirm: first click → "Sure?", second click → cleared. */}
+                  {(() => {
+                    const key = `${c.id}|${b.name}`;
+                    const isPending = pendingClearKey === key;
+                    return (
+                      <button onClick={()=>{
+                        if (isPending) {
+                          onClearLine({ line:b, fromCampaignId:c.id, snapField:rowSnapInfo.snapField, snapKey:rowSnapInfo.snapKey });
+                          setPendingClearKey(null);
+                        } else {
+                          setPendingClearKey(key);
+                          setTimeout(()=>setPendingClearKey(k => k===key ? null : k), 4000); // auto-revert after 4s
+                        }
+                      }}
+                      onMouseLeave={()=>{ if(isPending) setPendingClearKey(null); }}
+                      title={isPending ? "Click again to remove this line" : "Remove this line and its data"}
+                      style={{flexShrink:0,background:isPending?(lightMode?"#fee2e2":"#3a0010"):"none",border:`1px solid ${isPending?"#ef4444":(lightMode?"#fca5a5":"#7f1d1d")}`,borderRadius:4,color:isPending?"#ef4444":(lightMode?"#dc2626":"#fca5a5"),fontSize:11,padding:"2px 7px",cursor:"pointer",fontWeight:isPending?700:600,whiteSpace:"nowrap"}}>
+                        {isPending ? "✕ Sure?" : "✕ Clear"}
+                      </button>
+                    );
+                  })()}
                 </div>
               );
             })}
@@ -5872,7 +6218,116 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         </div>
       );
     })()}
+    {/* Reassign-line modal — renders when the user clicks ↪ on a breakdown line */}
+    {reassignTarget && (
+      <ReassignLineModal
+        target={reassignTarget}
+        campaigns={campaigns}
+        lightMode={lightMode}
+        onCancel={()=>setReassignTarget(null)}
+        onConfirm={(toCampaignId)=>{
+          onReassignLine(reassignTarget, toCampaignId);
+          setReassignTarget(null);
+        }}
+      />
+    )}
   </div>;
+}
+
+// ─── ReassignLineModal — search for target campaign, move a breakdown line ──
+// Lets the user fix an accidental mis-mapping (e.g. an FBV line mapped to FB)
+// without redoing QCI. Restricts target candidates to campaigns whose platform
+// belongs to the same source-platform set as the line (so a Meta line can only
+// move to FB/FBV/IG campaigns, not e.g. an SEM campaign).
+function ReassignLineModal({ target, campaigns, lightMode, onCancel, onConfirm }) {
+  const [search, setSearch] = useState("");
+  const _lm = lightMode;
+  const SOURCE_PLATFORMS = {
+    metaSnapshots:   ["FB","FBV","IG"],
+    ttdSnapshots:    ["TD","TDV","TDA","CTV","OTT","OTTD"],
+    dspSnapshots:    ["DSP"],
+    googleSnapshots: ["SEM","YT"],
+    snapSnapshots:   ["SP"],
+  };
+  const allowedPlatforms = SOURCE_PLATFORMS[target.snapField] || [];
+  const fromCamp = campaigns.find(c => c.id === target.fromCampaignId);
+
+  const candidates = campaigns
+    .filter(c => c.id !== target.fromCampaignId)
+    .filter(c => allowedPlatforms.length === 0 || allowedPlatforms.includes(c.platform))
+    .filter(c => c.status !== "off" || c.status === "")
+    .filter(c => {
+      if (!search.trim()) return true;
+      const q = search.trim().toLowerCase();
+      return c.campaignName.toLowerCase().includes(q) ||
+             (c.mediaPartner||"").toLowerCase().includes(q) ||
+             (c.platform||"").toLowerCase().includes(q);
+    })
+    .sort((a,b)=>a.campaignName.localeCompare(b.campaignName))
+    .slice(0, 50);
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"#000c",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+      onClick={e=>{if(e.target===e.currentTarget)onCancel();}}>
+      <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:12,width:"100%",maxWidth:680,maxHeight:"85vh",display:"flex",flexDirection:"column"}}>
+        {/* Header */}
+        <div style={{padding:"14px 18px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+          <div style={{fontSize:14,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginBottom:6}}>↪ Move line to a different campaign</div>
+          <div style={{fontSize:11,color:_lm?"#64748b":"#7a9bbf",marginBottom:8}}>
+            Moving <strong style={{color:_lm?"#0f172a":"#d8eaf8"}}>"{target.line.name}"</strong>
+            {fromCamp && <> from <strong style={{color:_lm?"#0f172a":"#d8eaf8"}}>{fromCamp.campaignName}</strong></>}
+          </div>
+          <div style={{display:"flex",gap:10,fontSize:10,color:_lm?"#94a3b8":"#3d5a72",flexWrap:"wrap"}}>
+            <span><strong style={{color:_lm?"#0f172a":"#d8eaf8"}}>{parseInt(target.line.impressions||0).toLocaleString()}</strong> impr</span>
+            {target.line.clicks>0 && <span>· <strong style={{color:"#a3bffa"}}>{parseInt(target.line.clicks).toLocaleString()}</strong> clk</span>}
+            {target.line.spend>0 && <span>· <strong style={{color:"#f472b6"}}>${Math.round(target.line.spend).toLocaleString()}</strong> spend</span>}
+            {target.line.ctr>0 && <span>· <strong style={{color:"#00ffb3"}}>{target.line.ctr.toFixed(2)}%</strong> CTR</span>}
+          </div>
+        </div>
+
+        {/* Search */}
+        <div style={{padding:"10px 18px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+          <input autoFocus value={search} onChange={e=>setSearch(e.target.value)}
+            placeholder={`Search ${allowedPlatforms.join("/")} campaigns…`}
+            style={{width:"100%",background:_lm?"#f8fafc":"#0a1628",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"8px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
+          <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:6}}>
+            Showing {candidates.length} matching campaign{candidates.length!==1?"s":""}{allowedPlatforms.length > 0 && ` (${allowedPlatforms.join(", ")} only)`}
+          </div>
+        </div>
+
+        {/* Candidate list */}
+        <div style={{overflow:"auto",flex:1}}>
+          {candidates.length === 0 ? (
+            <div style={{padding:"30px 20px",textAlign:"center",fontSize:12,color:_lm?"#94a3b8":"#4d6e8a"}}>
+              No matching campaigns. Try a different search term.
+            </div>
+          ) : (
+            candidates.map(c => (
+              <button key={c.id} onClick={()=>onConfirm(c.id)}
+                style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"10px 18px",background:"none",border:"none",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0d1525"}`,cursor:"pointer",textAlign:"left"}}
+                onMouseOver={e=>e.currentTarget.style.background=_lm?"#f8fafc":"#0a1628"}
+                onMouseOut={e=>e.currentTarget.style.background="none"}>
+                <span style={{background:(PLT_COLORS[c.platform]||"#4d6e8a")+"22",border:`1px solid ${(PLT_COLORS[c.platform]||"#4d6e8a")}55`,color:PLT_COLORS[c.platform]||"#4d6e8a",borderRadius:3,padding:"1px 6px",fontSize:10,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#d8eaf8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName}</div>
+                  <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf"}}>{c.mediaPartner}</div>
+                </div>
+                <span style={{fontSize:11,color:_lm?"#059669":"#00d48a",fontWeight:700,whiteSpace:"nowrap"}}>Move here →</span>
+              </button>
+            ))
+          )}
+        </div>
+
+        {/* Cancel */}
+        <div style={{padding:"10px 18px",borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",justifyContent:"flex-end"}}>
+          <button onClick={onCancel}
+            style={{background:"none",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:7,padding:"7px 14px",color:_lm?"#475569":"#94a3b8",fontSize:12,cursor:"pointer"}}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── Revenue Dashboard ────────────────────────────────────────────────────
@@ -8081,6 +8536,37 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         return;
       }
       setSavedMsg(`Filtered ${before.toLocaleString()} rows → ${rows.length} rows for _${userInitials}`);
+    }
+
+    // ── Facebook/Meta (TapClicks company-wide export): filter to only this rep's rows ──
+    // Detected by presence of "Account" column with rep-suffix pattern (e.g. "_AG", "_GC").
+    // The old Meta Ads Manager export doesn't have this column, so this filter only
+    // activates for the TapClicks format. Skips silently if no Account column.
+    if(source==="Facebook/Meta" && rows.length > 0 && rows[0]["Account"] !== undefined){
+      // Confirm this is a company-wide file (at least one row has the _XX suffix pattern)
+      const sampleAccounts = rows.slice(0, 5).map(r => (r["Account"]||"").toString());
+      const looksLikeCompanyWide = sampleAccounts.some(a => /_[A-Za-z]{2,3}\s*$/.test(a));
+      if (looksLikeCompanyWide) {
+        if(!userInitials){
+          setShowInitialsPrompt(true);
+          setFileError("Please set your rep initials so we can filter this company-wide FB file to just your campaigns.");
+          return;
+        }
+        const before = rows.length;
+        const initialsLower = userInitials.toLowerCase();
+        rows = rows.filter(row => {
+          const acc = (row["Account"]||"").toString().trim();
+          // Match _XX suffix (case-insensitive) — FB Account suffixes may be uppercase
+          // ("_AG", "_GC") or occasionally lowercase ("_ks"), so normalize both sides.
+          const m = acc.match(/_([A-Za-z]{2,3})\s*$/);
+          return m && m[1].toLowerCase() === initialsLower;
+        });
+        if(!rows.length){
+          setFileError(`No FB rows found for initials _${userInitials}. The file had ${before.toLocaleString()} rows total but none matched your initials. Check your initials in settings or verify the file contains your accounts.`);
+          return;
+        }
+        setSavedMsg(`Filtered ${before.toLocaleString()} FB rows → ${rows.length} rows for _${userInitials}`);
+      }
     }
 
     // Build initial mapping: 1) per-name memory, 2) legacy whole-file memory, 3) source-aware auto-match
@@ -11177,6 +11663,139 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
   );
 }
 
+// ─── IO Draft Review Modal ───────────────────────────────────────────────
+// Shown after dropping an IO PDF. Lists each generated draft as an inline
+// editable card so the user can correct anything the parser got wrong before
+// approving. Approve = push to campaigns. Skip = drop the draft.
+function IODraftReviewModal({ drafts, meta, lightMode, existingPartners, onApprove, onApproveAll, onClose }) {
+  const [editStates, setEditStates] = useState(() => drafts.map(d => ({...d})));
+  const _lm = lightMode;
+  React.useEffect(() => { setEditStates(drafts.map(d => ({...d}))); }, [drafts]);
+
+  function updateField(idx, field, value) {
+    setEditStates(es => es.map((d, i) => i === idx ? {...d, [field]: value} : d));
+  }
+
+  const platformOptions = ["FB","FBV","IG","DSP","TD","TDV","TDA","CTV","OTT","OTTD","SP","SEM","YT","TT","EMAIL"];
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"#000c",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+      onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:14,width:"100%",maxWidth:980,maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
+        {/* Header */}
+        <div style={{padding:"14px 20px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:800,color:_lm?"#0f172a":"#edf4ff"}}>
+              📄 IO PDF — Review {drafts.length} draft{drafts.length!==1?"s":""}
+            </div>
+            <div style={{fontSize:11,color:_lm?"#64748b":"#7a9bbf",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+              {meta?.advertiser && <span style={{fontWeight:700}}>{meta.advertiser}</span>}
+              {meta?.partner && <span> · {meta.partner}</span>}
+              {meta?.reference && <span> · IO #{meta.reference}</span>}
+              {meta?.submitted && <span> · submitted {meta.submitted}</span>}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,flexShrink:0}}>
+            <button onClick={()=>onApproveAll(editStates)}
+              style={{background:_lm?"#059669":"#002e24",border:`1px solid ${_lm?"#059669":"#00c89640"}`,borderRadius:7,padding:"7px 14px",color:_lm?"#ffffff":"#00d48a",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+              ✓ Approve all ({drafts.length})
+            </button>
+            <button onClick={onClose}
+              style={{background:"none",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:7,padding:"7px 12px",color:_lm?"#475569":"#94a3b8",fontSize:12,cursor:"pointer"}}>
+              Close
+            </button>
+          </div>
+        </div>
+
+        {/* Drafts list */}
+        <div style={{overflow:"auto",padding:"14px 20px"}}>
+          <div style={{fontSize:11,color:_lm?"#64748b":"#7a9bbf",marginBottom:10,padding:"8px 12px",background:_lm?"#f0f9ff":"#0a1628",border:`1px solid ${_lm?"#bae6fd":"#1e293b"}`,borderRadius:7}}>
+            💡 Edit any field before approving. Drafts come in as <strong>status="off"</strong> — flip them to active when the campaign launches. CPM rate &amp; Note 1 goal are pre-populated from the PDF so they show in Pacing &amp; Revenue right away.
+          </div>
+          {editStates.map((d, i) => (
+            <div key={i} style={{background:_lm?"#f8fafc":"#0a1628",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:9,padding:"12px 14px",marginBottom:10}}>
+              {/* Top row: campaign name + platform + status + per-draft approve */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 100px 90px 100px",gap:8,marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>Campaign Name</div>
+                  <input value={d.campaignName} onChange={e=>updateField(i,"campaignName",e.target.value)}
+                    style={{width:"100%",background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontWeight:600,outline:"none"}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>Platform</div>
+                  <select value={d.platform} onChange={e=>updateField(i,"platform",e.target.value)}
+                    style={{width:"100%",background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,cursor:"pointer"}}>
+                    {platformOptions.map(p=><option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>Status</div>
+                  <select value={d.status} onChange={e=>updateField(i,"status",e.target.value)}
+                    style={{width:"100%",background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,cursor:"pointer"}}>
+                    <option value="off">off</option>
+                    <option value="active">active</option>
+                  </select>
+                </div>
+                <div style={{display:"flex",gap:5,alignItems:"flex-end"}}>
+                  <button onClick={()=>onApprove(d)}
+                    style={{flex:1,background:_lm?"#059669":"#002e24",border:`1px solid ${_lm?"#059669":"#00c89640"}`,borderRadius:5,padding:"6px 0",color:_lm?"#ffffff":"#00d48a",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                    ✓ Approve
+                  </button>
+                </div>
+              </div>
+              {/* Partner + dates */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 130px 130px",gap:8,marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>Media Partner</div>
+                  <input value={d.mediaPartner} onChange={e=>updateField(i,"mediaPartner",e.target.value)} list={`partners-${i}`}
+                    style={{width:"100%",background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                  <datalist id={`partners-${i}`}>
+                    {existingPartners.map(p=><option key={p} value={p}/>)}
+                  </datalist>
+                </div>
+                <div>
+                  <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>Start Date</div>
+                  <input type="date" value={d.startDate} onChange={e=>updateField(i,"startDate",e.target.value)}
+                    style={{width:"100%",background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>End Date</div>
+                  <input type="date" value={d.endDate} onChange={e=>updateField(i,"endDate",e.target.value)}
+                    style={{width:"100%",background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                </div>
+              </div>
+              {/* Note 1 (goal) + CPM + Contract Value */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 110px 130px",gap:8,marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>Note 1 (Monthly Goal)</div>
+                  <input value={d.note1} onChange={e=>updateField(i,"note1",e.target.value)} placeholder="e.g. 62K/Mo"
+                    style={{width:"100%",background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>CPM Rate ($)</div>
+                  <input value={d.contractRate} onChange={e=>updateField(i,"contractRate",e.target.value)} placeholder="6.75"
+                    style={{width:"100%",background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none",fontFamily:"monospace"}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>Contract Value ($)</div>
+                  <input value={d.contractValue} onChange={e=>updateField(i,"contractValue",e.target.value)} placeholder="1250.03"
+                    style={{width:"100%",background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none",fontFamily:"monospace"}}/>
+                </div>
+              </div>
+              {/* Note 2 (full notes / context from PDF) */}
+              <div>
+                <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>Note 2 (Context)</div>
+                <textarea value={d.note2} onChange={e=>updateField(i,"note2",e.target.value)} rows={2}
+                  style={{width:"100%",background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,outline:"none",fontFamily:"inherit",resize:"vertical"}}/>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const today = getToday();
   const COLS = 12;
@@ -11191,6 +11810,248 @@ export default function App() {
   const [sortKey, setSortKey]     = useState("endDate");
   const [sortDir, setSortDir]     = useState("asc");
   const [editTarget, setEditTarget] = useState(null);
+  // ── IO PDF import state ─────────────────────────────────────────────────
+  // pdfDrafts: array of { ...campaign fields } pending user approval
+  // pdfMeta:   info about the source PDF (reference #, advertiser, partner)
+  // pdfError / pdfProcessing: feedback while parsing
+  const [pdfDrafts, setPdfDrafts] = useState(null);
+  const [pdfMeta, setPdfMeta] = useState(null);
+  const [pdfError, setPdfError] = useState("");
+  const [pdfProcessing, setPdfProcessing] = useState(false);
+
+  async function handleIOPdfDrop(file) {
+    if (!file) return;
+    if (!/\.pdf$/i.test(file.name)) {
+      setPdfError("That doesn't look like a PDF. Only .pdf files are supported.");
+      return;
+    }
+    setPdfError("");
+    setPdfProcessing(true);
+    try {
+      const text = await extractPdfText(file);
+      const io = parseIOPdf(text);
+      if (!io.services.length) {
+        setPdfError(`No service blocks found in the PDF. Expected fields like "Mobile ID Integration: FB/IG Included? Yes" — found none.`);
+        setPdfProcessing(false);
+        return;
+      }
+      const drafts = buildDraftsFromIO(io);
+      if (!drafts.length) {
+        setPdfError(`Found ${io.services.length} service block(s) but couldn't build any drafts — likely all had zero impressions/budget. Open the PDF and verify the numbers.`);
+        setPdfProcessing(false);
+        return;
+      }
+      setPdfMeta({ reference: io.reference, partner: io.partner, advertiser: io.advertiser, submitted: io.submitted, fileName: file.name });
+      setPdfDrafts(drafts);
+    } catch (e) {
+      console.error("PDF parse failed:", e);
+      setPdfError(`Couldn't parse PDF: ${e.message || e}`);
+    } finally {
+      setPdfProcessing(false);
+    }
+  }
+  function approveDraft(draft) {
+    const newCamp = { id: Date.now() + Math.random(), ...draft, history: "", checkInLog: "" };
+    setCampaigns(cs => [...cs, newCamp]);
+    addLog({ type:"added", campaignName: newCamp.campaignName, partner: newCamp.mediaPartner, platform: newCamp.platform, detail: `Added from IO #${pdfMeta?.reference||""}`, campaignId: newCamp.id, prevSnapshot: null });
+  }
+
+  // ── Clear a breakdown line entirely (line doesn't belong to any campaign) ─
+  // Subtracts the line's values from the source snapshot and removes it from
+  // breakdown. Same subtract path as reassign, just without the "add to target".
+  // Useful when a CSV row was accidentally mapped to one of your campaigns but
+  // actually belongs to another rep's account — you don't want it inflating
+  // your numbers.
+  function clearBreakdownLine({ line, fromCampaignId, snapField, snapKey }) {
+    const today = getToday();
+    setCampaigns(cs => cs.map(c => {
+      if (c.id !== fromCampaignId) return c;
+      const src = c[snapField] || {};
+      const snap = src[snapKey] || {};
+      const newBreakdown = (snap.breakdown||[]).filter(b => b.name !== line.name);
+      const newImpr = Math.max(0, (snap.impressions||0) - (line.impressions||0));
+      const newClicks = Math.max(0, (snap.clicks||0) - (line.clicks||0));
+      const newSpend = Math.max(0, (snap.spend||0) - (line.spend||0));
+      const newCtr = newImpr > 0 && newClicks > 0 ? newClicks / newImpr : 0;
+      const newCpm = newImpr > 0 && newSpend > 0 ? (newSpend / newImpr) * 1000 : 0;
+      const newPriorBd = (snap.priorBreakdown || []).filter(p => p.name !== line.name);
+      const updatedSnap = {
+        ...snap,
+        breakdown: newBreakdown.length >= 1 ? newBreakdown : null,
+        priorBreakdown: newPriorBd.length ? newPriorBd : null,
+        impressions: newImpr || null,
+        clicks: newClicks || null,
+        spend: newSpend || null,
+        ctr: newCtr || null,
+        cpm: newCpm || null,
+      };
+      return {
+        ...c,
+        [snapField]: { ...src, [snapKey]: updatedSnap },
+        impressions: newImpr > 0 ? String(newImpr) : "",
+        clicks: newClicks > 0 ? String(newClicks) : "",
+        spend: newSpend > 0 ? String(newSpend.toFixed(2)) : "",
+        cpm: newCpm > 0 ? String(parseFloat(newCpm.toFixed(4))) : "",
+        ctr: newCtr > 0 ? String(parseFloat(newCtr.toFixed(4))) : "",
+      };
+    }));
+    // Also remove any savedMappings entry for this line so the next CSV drop
+    // shows it as unmatched (rather than auto-routing it to the campaign you
+    // just removed it from).
+    try {
+      const stored = JSON.parse(localStorage.getItem("campaign-tracker-csv-mappings") || "{}");
+      const lineNameLower = line.name.toLowerCase();
+      let changed = false;
+      Object.keys(stored).forEach(key => {
+        const entry = stored[key];
+        if (!entry || String(entry.campId) !== String(fromCampaignId)) return;
+        if (key.toLowerCase().includes(lineNameLower) ||
+            (entry.campName && entry.campName.toLowerCase().includes(lineNameLower)) ||
+            (entry.ttdCampName && entry.ttdCampName.toLowerCase() === lineNameLower)) {
+          delete stored[key];
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem("campaign-tracker-csv-mappings", JSON.stringify(stored));
+    } catch (e) { console.warn("Failed to clean mapping memory after clear:", e); }
+    const fromCamp = campaigns.find(c => c.id === fromCampaignId);
+    if (fromCamp) {
+      addLog({
+        type: "edited",
+        campaignName: fromCamp.campaignName,
+        partner: fromCamp.mediaPartner,
+        platform: fromCamp.platform,
+        detail: `Cleared line "${line.name}" (${parseInt(line.impressions||0).toLocaleString()} impr · $${(line.spend||0).toFixed(2)} spend)`,
+        campaignId: fromCamp.id,
+        prevSnapshot: null,
+      });
+    }
+  }
+
+  // ── Reassign a breakdown line from one campaign to another ─────────────
+  // Subtracts the line's values from the source snapshot (re-deriving aggregate
+  // ctr/cpm), adds them to the target snapshot, and updates top-level campaign
+  // fields on both sides. Also writes a savedMappings entry so future QCI drops
+  // route the line correctly without the user having to remap.
+  function reassignBreakdownLine({ line, fromCampaignId, snapField, snapKey }, toCampaignId) {
+    const today = getToday();
+    setCampaigns(cs => {
+      const updated = cs.map(c => {
+        if (c.id === fromCampaignId) {
+          // ── Subtract from source campaign's snapshot ──
+          const src = c[snapField] || {};
+          const snap = src[snapKey] || {};
+          const newBreakdown = (snap.breakdown||[]).filter(b => b.name !== line.name);
+          const newImpr = Math.max(0, (snap.impressions||0) - (line.impressions||0));
+          const newClicks = Math.max(0, (snap.clicks||0) - (line.clicks||0));
+          const newSpend = Math.max(0, (snap.spend||0) - (line.spend||0));
+          const newCtr = newImpr > 0 && newClicks > 0 ? newClicks / newImpr : 0;
+          const newCpm = newImpr > 0 && newSpend > 0 ? (newSpend / newImpr) * 1000 : 0;
+          const newPriorBd = (snap.priorBreakdown || []).filter(p => p.name !== line.name);
+          const updatedSnap = {
+            ...snap,
+            breakdown: newBreakdown.length >= 2 ? newBreakdown : (newBreakdown.length === 1 ? newBreakdown : null),
+            priorBreakdown: newPriorBd.length ? newPriorBd : null,
+            impressions: newImpr || null,
+            clicks: newClicks || null,
+            spend: newSpend || null,
+            ctr: newCtr || null,
+            cpm: newCpm || null,
+          };
+          return {
+            ...c,
+            [snapField]: { ...src, [snapKey]: updatedSnap },
+            // Mirror to top-level fields so the Campaigns table/Pacing rows stay in sync
+            impressions: newImpr > 0 ? String(newImpr) : "",
+            clicks: newClicks > 0 ? String(newClicks) : "",
+            spend: newSpend > 0 ? String(newSpend.toFixed(2)) : "",
+            cpm: newCpm > 0 ? String(parseFloat(newCpm.toFixed(4))) : "",
+            ctr: newCtr > 0 ? String(parseFloat(newCtr.toFixed(4))) : "",
+          };
+        }
+        if (c.id === toCampaignId) {
+          // ── Add to target campaign's snapshot ──
+          const src = c[snapField] || {};
+          const snap = src[snapKey] || { impressions: 0, clicks: 0, spend: 0, breakdown: [] };
+          // Replace any existing line with the same name (don't accidentally double-add)
+          const otherLines = (snap.breakdown||[]).filter(b => b.name !== line.name);
+          const newBreakdown = [...otherLines, line];
+          const newImpr = (snap.impressions||0) + (line.impressions||0);
+          const newClicks = (snap.clicks||0) + (line.clicks||0);
+          const newSpend = (snap.spend||0) + (line.spend||0);
+          const newCtr = newImpr > 0 && newClicks > 0 ? newClicks / newImpr : 0;
+          const newCpm = newImpr > 0 && newSpend > 0 ? (newSpend / newImpr) * 1000 : 0;
+          const updatedSnap = {
+            ...snap,
+            breakdown: newBreakdown,
+            impressions: newImpr,
+            clicks: newClicks,
+            spend: newSpend,
+            ctr: newCtr,
+            cpm: newCpm,
+            updatedAt: today,
+          };
+          return {
+            ...c,
+            [snapField]: { ...src, [snapKey]: updatedSnap },
+            impressions: String(newImpr),
+            clicks: String(newClicks),
+            spend: String(parseFloat(newSpend.toFixed(2))),
+            cpm: String(parseFloat(newCpm.toFixed(4))),
+            ctr: String(parseFloat(newCtr.toFixed(4))),
+            status: c.status === "" ? "active" : c.status,
+            lastChecked: today,
+          };
+        }
+        return c;
+      });
+      return updated;
+    });
+
+    // ── Update saved mapping memory so future CSV drops route this line correctly ──
+    try {
+      const sourceMap = { metaSnapshots: "Facebook/Meta", ttdSnapshots: "TradeDesk", dspSnapshots: "DSP-Internal", googleSnapshots: "Google", snapSnapshots: "Snapchat" };
+      const source = sourceMap[snapField];
+      if (source) {
+        const stored = JSON.parse(localStorage.getItem("campaign-tracker-csv-mappings") || "{}");
+        // Update any existing entry that points to the OLD campaign AND references this line name
+        const lineNameLower = line.name.toLowerCase();
+        Object.keys(stored).forEach(key => {
+          const entry = stored[key];
+          if (!entry || String(entry.campId) !== String(fromCampaignId)) return;
+          if (key.toLowerCase().includes(lineNameLower) ||
+              (entry.campName && entry.campName.toLowerCase().includes(lineNameLower)) ||
+              (entry.ttdCampName && entry.ttdCampName.toLowerCase() === lineNameLower)) {
+            stored[key] = { ...entry, campId: String(toCampaignId), learnedAt: today };
+          }
+        });
+        // Also write a fresh legacy-style key so future drops match by line name alone
+        stored[`${source}||${line.name.trim().toLowerCase()}`] = {
+          campId: String(toCampaignId),
+          source,
+          learnedAt: today,
+        };
+        localStorage.setItem("campaign-tracker-csv-mappings", JSON.stringify(stored));
+      }
+    } catch (e) {
+      console.warn("Failed to update mapping memory after line reassign:", e);
+    }
+
+    // Log the action so it's recoverable / auditable
+    const fromCamp = campaigns.find(c => c.id === fromCampaignId);
+    const toCamp = campaigns.find(c => c.id === toCampaignId);
+    if (fromCamp && toCamp) {
+      addLog({
+        type: "edited",
+        campaignName: toCamp.campaignName,
+        partner: toCamp.mediaPartner,
+        platform: toCamp.platform,
+        detail: `Moved line "${line.name}" from ${fromCamp.campaignName} (${parseInt(line.impressions||0).toLocaleString()} impr · $${(line.spend||0).toFixed(2)} spend)`,
+        campaignId: toCamp.id,
+        prevSnapshot: null,
+      });
+    }
+  }
   const [showAdd, setShowAdd]     = useState(false);
   const [showExportReminder, setShowExportReminder] = useState(false);
   const [showReminderModal, setShowReminderModal]   = useState(null); // null=closed, true=open all, number=open focused on campaign
@@ -11819,6 +12680,27 @@ export default function App() {
             </button>
             <button onClick={()=>{ setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today}))); addLog({type:"checked",campaignName:"All campaigns",partner:"",platform:"",detail:`Bulk marked all checked on ${today}`}); }} style={{background:lightMode?"#00c896":"#002e24",border:lightMode?"none":"1px solid #3b82f640",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#00e5a0",fontWeight:700,fontSize:13,cursor:"pointer"}}>✓ Mark All Checked</button>
             <button onClick={()=>setShowAdd(true)} style={{background:lightMode?"#059669":"#00200f",border:lightMode?"none":"1px solid #22c55e40",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#00d48a",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Add Campaign</button>
+            {/* 📄 IO PDF — drag-and-drop zone OR click to pick. Either way auto-extracts
+                advertiser, dates, impressions, CPM, budget from a Universal IO PDF and
+                creates draft campaigns for review. Mobile ID Integration services split
+                into DSP + FB/SP pairs automatically. */}
+            <label
+              onDragOver={e=>{ e.preventDefault(); if(!pdfProcessing){ e.currentTarget.style.background=lightMode?"#fde68a":"#2a1a00"; e.currentTarget.style.borderColor=lightMode?"#d97706":"#f59e0b"; } }}
+              onDragLeave={e=>{ e.currentTarget.style.background=lightMode?"#fef3c7":"#1a1208"; e.currentTarget.style.borderColor=lightMode?"#f59e0b":"#f59e0b40"; }}
+              onDrop={e=>{
+                e.preventDefault();
+                e.currentTarget.style.background=lightMode?"#fef3c7":"#1a1208";
+                e.currentTarget.style.borderColor=lightMode?"#f59e0b":"#f59e0b40";
+                if (pdfProcessing) return;
+                const file = e.dataTransfer.files && e.dataTransfer.files[0];
+                if (file) handleIOPdfDrop(file);
+              }}
+              style={{background:lightMode?"#fef3c7":"#1a1208",border:lightMode?"1px solid #f59e0b":"1px solid #f59e0b40",borderRadius:7,padding:"6px 13px",color:lightMode?"#92400e":"#fbbf24",fontWeight:700,fontSize:13,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,opacity:pdfProcessing?0.6:1,transition:"background .15s, border-color .15s"}}
+              title="Drop a Universal IO PDF here, or click to pick one">
+              {pdfProcessing ? "⏳ Parsing…" : "📄 Drop IO PDF"}
+              <input type="file" accept=".pdf,application/pdf" style={{display:"none"}} disabled={pdfProcessing}
+                onChange={e=>{ handleIOPdfDrop(e.target.files[0]); e.target.value=""; }}/>
+            </label>
             <button onClick={doExport} style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ JSON</button>
             <button onClick={doExportCSV} style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ CSV</button>
             <label style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>
@@ -11889,6 +12771,8 @@ export default function App() {
         ) : activeTab==="pacing" ? (
           <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} lightMode={lightMode}
             onActivate={(id)=>setCampaigns(cs=>cs.map(c=>c.id===id?{...c,status:"active"}:c))}
+            onReassignLine={(target, toCampaignId) => reassignBreakdownLine(target, toCampaignId)}
+            onClearLine={(target) => clearBreakdownLine(target)}
             onEdit={(camp)=>setEditTarget(camp)}
             onClearMetrics={(id)=>{
               setCampaigns(cs=>cs.map(c=>{
@@ -12539,6 +13423,23 @@ export default function App() {
       {showAdd    && <Modal isNew onSave={n=>{ setCampaigns(cs=>[...cs,n]); addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null}); setShowAdd(false); }} onClose={()=>setShowAdd(false)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
       {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} focusCampaignId={typeof showReminderModal==="number"?showReminderModal:null} onClose={()=>setShowReminderModal(null)} onNavigate={(campId)=>{ setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; }); setSearch(""); setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },200); }}/>}
       {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
+      {/* ── IO PDF review modal — shown after dropping a PDF and parsing drafts ── */}
+      {pdfDrafts && <IODraftReviewModal
+        drafts={pdfDrafts}
+        meta={pdfMeta}
+        lightMode={lightMode}
+        existingPartners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}
+        onApprove={(draft)=>{ approveDraft(draft); setPdfDrafts(ds=>ds.filter(d=>d!==draft)); }}
+        onApproveAll={(draftsList)=>{ draftsList.forEach(approveDraft); setPdfDrafts(null); setPdfMeta(null); }}
+        onClose={()=>{ setPdfDrafts(null); setPdfMeta(null); }}
+      />}
+      {pdfError && !pdfDrafts && (
+        <div onClick={()=>setPdfError("")} style={{position:"fixed",bottom:20,right:20,background:lightMode?"#fee2e2":"#1a0808",border:`1px solid ${lightMode?"#ef4444":"#ef444466"}`,color:lightMode?"#991b1b":"#fca5a5",borderRadius:8,padding:"12px 16px",maxWidth:400,zIndex:9998,cursor:"pointer",boxShadow:"0 4px 16px rgba(0,0,0,.3)"}}>
+          <div style={{fontSize:12,fontWeight:700,marginBottom:4}}>📄 PDF Import Failed</div>
+          <div style={{fontSize:11}}>{pdfError}</div>
+          <div style={{fontSize:10,opacity:.7,marginTop:6}}>Click to dismiss</div>
+        </div>
+      )}
       <ConfirmDialog dialog={dialog} onResolve={onResolve}/>
     </div>
   </div>
