@@ -348,10 +348,11 @@ function parseIOPdf(text) {
     return false;
   }
 
+  // Escape regex special chars in a service/field label
+  function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
   // Find the value that follows a labeled field. PDF.js extracts each cell as
-  // its own text item, so we join with \n and the value is typically on the next
-  // line. If the label line has trailing data (rare), we use that — but only when
-  // it actually LOOKS like a value (digit/$ start) — otherwise it's label residue.
+  // its own text item; values are typically on the line AFTER the label.
   function valueAfter(labelPrefix) {
     const lower = labelPrefix.toLowerCase();
     for (let i = 0; i < lines.length; i++) {
@@ -365,37 +366,62 @@ function parseIOPdf(text) {
     return null;
   }
 
-  // Check if "X Included? Yes" appears for service X.
-  // STRICT: the service label must be the START of a line, otherwise "FB/IG"
-  // would falsely match "Mobile ID Integration: FB/IG Included? Yes".
+  // Check if a service is included. Supports BOTH IO form formats:
+  //  - Radio FM Media style: "Social Media Included? Yes" (no "Is" prefix)
+  //  - Allen Media Broadcasting style: "Is Social Media Included? Yes" (with "Is" prefix)
+  // The serviceLabel arg is the bare service name in either case.
   function isIncluded(serviceLabel) {
-    const escaped = serviceLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escaped = escapeRe(serviceLabel);
+    // Patterns to try (with and without "Is " prefix, ":" optional after Included)
+    const patterns = [
+      new RegExp("^" + escaped + "\\s+Included\\??\\s*$", "i"),
+      new RegExp("^" + escaped + "\\s+Included\\??\\s+Yes\\s*$", "i"),
+      new RegExp("^Is\\s+" + escaped + "\\s+Included\\??\\s*$", "i"),
+      new RegExp("^Is\\s+" + escaped + "\\s+Included\\??\\s+Yes\\s*$", "i"),
+    ];
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
-      // Match "<Label> Included?" at line start — value on next line ("Yes")
-      const reLabel = new RegExp("^" + escaped + "\\s+Included\\??\\s*$", "i");
-      if (reLabel.test(l)) {
-        if ((lines[i+1] || "").trim().toLowerCase() === "yes") return true;
+      for (let p = 0; p < patterns.length; p++) {
+        if (patterns[p].test(l)) {
+          // Even-indexed patterns (0, 2) need a "Yes" on the next line;
+          // odd-indexed (1, 3) already include "Yes" inline.
+          if (p % 2 === 0) {
+            if ((lines[i+1] || "").trim().toLowerCase() === "yes") return true;
+          } else {
+            return true;
+          }
+        }
       }
-      // Match "<Label> Included? Yes" all inline
-      const reCombo = new RegExp("^" + escaped + "\\s+Included\\??\\s+Yes\\s*$", "i");
-      if (reCombo.test(l)) return true;
     }
     return false;
   }
 
-  // Extract a labeled field whose value follows. Same logic as valueAfter but
-  // scoped to a (prefix, label) pair — handles labels like "Gross Dollar" that
-  // are followed by more label text ("($) Budget to Recrue Media:") before the value.
+  // Extract a labeled field. Handles BOTH IO form formats — the colon between
+  // the service prefix and the subfield label is optional:
+  //  - Radio FM: "Mobile ID Integration: FB/IG Start Date: 06/01/2026"  (colon is inside the prefix)
+  //  - AMB:      "Social Media: Start Date: 06/01/2026"                  (colon separates prefix from subfield)
+  // Regex allows ":" between prefix and label OR within label, with whitespace tolerance.
   function getField(prefix, label) {
-    const full = `${prefix} ${label}`.toLowerCase();
+    const re = new RegExp("^" + escapeRe(prefix) + "\\s*:?\\s*" + escapeRe(label) + "\\b", "i");
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
-      if (l.toLowerCase().startsWith(full)) {
-        const rest = l.slice(full.length).replace(/^[\s:()\#$]+/, "").trim();
+      const m = l.match(re);
+      if (m) {
+        const rest = l.slice(m[0].length).replace(/^[\s:()\#$-]+/, "").trim();
         if (looksLikeValue(rest)) return rest;
         return lines[i+1] || null;
       }
+    }
+    return null;
+  }
+
+  // Try several candidate labels and return the first non-null value.
+  // Useful when a service uses different field names across IO formats
+  // (e.g. "CPM Rate to Recrue Media" vs "Hard Cost").
+  function tryFields(prefix, ...labels) {
+    for (const lbl of labels) {
+      const v = getField(prefix, lbl);
+      if (v != null) return v;
     }
     return null;
   }
@@ -435,36 +461,90 @@ function parseIOPdf(text) {
     return {
       startDate: getField(prefix, "Start Date"),
       endDate:   getField(prefix, "End Date"),
-      impressions: getField(prefix, "Gross Impressions"),
-      cpm:       getField(prefix, "CPM Rate to Recrue Media"),
-      budget:    getField(prefix, "Gross Dollar"),
-      notes:     getNotes(),
+      // Single-value fields (Radio FM Media format + AMB single-platform services)
+      impressions: tryFields(prefix, "Gross Impressions"),
+      cpm:         tryFields(prefix, "CPM Rate to Recrue Media", "Hard Cost"),
+      budget:      tryFields(prefix, "Gross Dollar"),
+      // Static/Video split fields (AMB Social Media + similar) — when these exist,
+      // the service produced two ad-creative types with separate budgets/impressions.
+      staticImpr:   getField(prefix, "Gross Impressions - Static"),
+      videoImpr:    getField(prefix, "Gross Impressions - Video"),
+      staticCpm:    getField(prefix, "Hard Cost - Static"),
+      videoCpm:     getField(prefix, "Hard Cost - Video"),
+      staticBudget: tryFields(prefix, "Gross Dollar($) Budget to CTVBuyer - Static", "Gross Dollar Budget to CTVBuyer - Static"),
+      videoBudget:  tryFields(prefix, "Gross Dollar($) Budget to CTVBuyer - Video",  "Gross Dollar Budget to CTVBuyer - Video"),
+      // Which platform the user picked (for Social Media: "Meta", "TikTok", etc.)
+      socialPlatform: getField(prefix, "Which Social Platform is being used"),
+      notes: getNotes(),
     };
   }
 
   const reference  = valueAfter("Reference #");
-  const partner    = valueAfter("Media Partner");
+  // Partner field name varies: "Media Partner:" (Radio FM Media) vs "Client / Partner:" (AMB)
+  const partner    = valueAfter("Media Partner") || valueAfter("Client / Partner") || valueAfter("Client/Partner");
   const advertiser = valueAfter("Advertiser & Program Name");
   const submitted  = valueAfter("Submission Date");
+  // AMB-only: station identifier ("KWWL Waterloo") — not used for tracker fields,
+  // but worth grabbing for the Note 2 context line.
+  const station    = valueAfter("Station and City");
 
   // ── Service detection ──
-  // Each entry: { test: <label>, key, platform, split? }
-  // split: when true → creates DSP + secondary campaign each with half budget/impr
+  // Each entry: { label, key, platform, split? }
+  //   split:    when set → creates DSP + secondary campaign each with half budget/impr
+  //             (used for Mobile-ID-Integration-style services)
+  //   socialSplit: when true → service has separate Static/Video budgets and creates
+  //                two campaigns (FB for static, FBV for video), only if non-zero data
   const serviceDefs = [
+    // ── Radio FM Media format ─────────────────────────────────────
     { label: "Mobile ID Integration: FB/IG", key: "mobile_id_fbig", split: "FB" },
     { label: "Mobile ID Integration: SC",    key: "mobile_id_sc",   split: "SP" },
     { label: "Mobile In-App",                key: "mobile_in_app",  platform: "DSP" },
     { label: "Display",                      key: "display",        platform: "DSP" },
     { label: "FB/IG",                        key: "fbig",           platform: "FB" },
     { label: "Snapchat",                     key: "snapchat",       platform: "SP" },
-    { label: "Reach (Channel) CTV",          key: "ctv",            platform: "CTV" },
+    { label: "Reach (Channel) CTV",          key: "ctv_rch",        platform: "CTV" },
     { label: "Digital Audio",                key: "digital_audio",  platform: "TDA" },
     { label: "Search",                       key: "search",         platform: "SEM" },
     { label: "Video",                        key: "video",          platform: "FBV" },
     { label: "Native",                       key: "native",         platform: "DSP" },
-    { label: "LinkedIn",                     key: "linkedin",       platform: "DSP" }, // no LI platform — defaults to DSP, user can edit
+    { label: "LinkedIn",                     key: "linkedin",       platform: "DSP" },
     { label: "IP",                           key: "ip",             platform: "DSP" },
     { label: "Email Marketing",              key: "email",          platform: "EMAIL" },
+    // ── Allen Media Broadcasting format ──────────────────────────
+    // Social Media: separate Static & Video budgets → FB and/or FBV campaigns
+    { label: "Social Media",                 key: "social_media",   socialSplit: true },
+    // Mobile-to-Social services: half DSP + half FB (similar to Mobile ID Integration: FB/IG)
+    { label: "Mobile to Social",             key: "mob_to_social",       split: "FB" },
+    { label: "Device Integration to Social", key: "device_int_to_social", split: "FB" },
+    // Programmatic display
+    { label: "Mobile Targeting",             key: "mobile_targeting",  platform: "DSP" },
+    { label: "Targeted Display",             key: "targeted_display",  platform: "TD" },   // TradeDesk Display
+    // Audio
+    { label: "Broad Digital Audio",          key: "broad_audio",       platform: "TDA" },
+    { label: "Premium Digital Audio",        key: "premium_audio",     platform: "TDA" },
+    // Video preroll
+    { label: "Instream PreRoll",             key: "instream_preroll",  platform: "TDV" },  // TradeDesk Video
+    { label: "YouTube Trueview",             key: "yt_trueview",       platform: "YT" },
+    // CTV variants — every flavor maps to CTV platform; user can change if needed
+    { label: "Channel Select CTV",           key: "ctv_channel",     platform: "CTV" },
+    { label: "General Audience CTV",         key: "ctv_general",     platform: "CTV" },
+    { label: "Premium Audience CTV",         key: "ctv_premium",     platform: "CTV" },
+    { label: "Netflix CTV",                  key: "ctv_netflix",     platform: "CTV" },
+    { label: "Hulu CTV",                     key: "ctv_hulu",        platform: "CTV" },
+    { label: "Amazon Prime CTV",             key: "ctv_amazon_prime",platform: "CTV" },
+    { label: "Amazon RON CTV",               key: "ctv_amazon_ron",  platform: "CTV" },
+    { label: "Disney CTV",                   key: "ctv_disney",      platform: "CTV" },
+    // Performance CTV: splits into CTV + OTT (half budget each) per Austin's biz rule
+    { label: "Performance CTV",              key: "ctv_perf",        splitPair: ["CTV", "OTT"] },
+    { label: "Peacock CTV",                  key: "ctv_peacock",     platform: "CTV" },
+    { label: "Specialty Peacock CTV",        key: "ctv_peacock_sp",  platform: "CTV" },
+    { label: "ESPN+ CTV",                    key: "ctv_espn",        platform: "CTV" },
+    { label: "HBO MAX CTV",                  key: "ctv_hbo",         platform: "CTV" },
+    { label: "CTV Sports Package",           key: "ctv_sports",      platform: "CTV" },
+    { label: "MLB Live In Game Sports Package", key: "ctv_mlb",      platform: "CTV" },
+    // AMB extras
+    { label: "SEM",                          key: "amb_sem",         platform: "SEM" },
+    { label: "TikTok",                       key: "amb_tiktok",      platform: "TT" },
   ];
 
   const services = serviceDefs
@@ -474,10 +554,12 @@ function parseIOPdf(text) {
       label: sd.label,
       platform: sd.platform,
       split: sd.split,
+      splitPair: sd.splitPair,
+      socialSplit: sd.socialSplit,
       details: extractServiceBlock(sd.label),
     }));
 
-  return { reference, partner, advertiser, submitted, services, rawText: text };
+  return { reference, partner, advertiser, submitted, station, services, rawText: text };
 }
 
 // Build draft campaign objects from parsed IO data.
@@ -513,21 +595,99 @@ function buildDraftsFromIO(io) {
   }
 
   const advertiser = (io.advertiser || "Unnamed").trim();
+  // Compose partner string. AMB-style IOs have BOTH "Client / Partner" (umbrella, e.g.
+  // "Allen Media Broadcasting") AND a separate "Station and City" (e.g. "KWWL Waterloo").
+  // Match Austin's existing partner convention by appending the station: "AMB - KWWL Waterloo".
+  // Radio FM-style IOs lack station, so partner is just `io.partner`.
+  const ioPartner = io.partner
+    ? (io.station ? `${io.partner} - ${io.station}` : io.partner)
+    : (io.station || "");
 
   io.services.forEach(svc => {
     const d = svc.details;
     const startDate = parseDate(d.startDate);
     const endDate = parseDate(d.endDate);
+    const months = monthsBetween(startDate, endDate);
+
+    // ── Social Media static/video split (AMB format) ──
+    if (svc.socialSplit) {
+      const staticImpr   = parseNum(d.staticImpr);
+      const videoImpr    = parseNum(d.videoImpr);
+      const staticBudget = parseNum(d.staticBudget);
+      const videoBudget  = parseNum(d.videoBudget);
+      const staticCpm    = parseNum(d.staticCpm);
+      const videoCpm     = parseNum(d.videoCpm);
+      if (staticImpr <= 0 && videoImpr <= 0 && staticBudget <= 0 && videoBudget <= 0) return;
+      const socialPlat = (d.socialPlatform || "").toLowerCase();
+      const isTikTok = /tiktok/i.test(socialPlat);
+      const staticPlat = isTikTok ? "TT"  : "FB";
+      const videoPlat  = isTikTok ? "TT"  : "FBV";
+      const baseNote2Header = `Auto-imported from IO #${io.reference || "?"}. ${svc.label}${d.socialPlatform?` (${d.socialPlatform})`:""}.`;
+      if (staticImpr > 0 || staticBudget > 0) {
+        const monthlyImpr = Math.round(staticImpr / months);
+        drafts.push({
+          mediaPartner: ioPartner,
+          campaignName: `${advertiser} - ${staticPlat} Static`,
+          platform: staticPlat,
+          startDate, endDate,
+          status: "off",
+          goal: staticImpr > 0 ? String(staticImpr) : "",
+          contractRate: staticCpm ? String(staticCpm) : "",
+          dealType: staticCpm ? "CPM" : "",
+          contractValue: staticBudget.toFixed(2),
+          note1: monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "",
+          note2: `${baseNote2Header} Static: ${staticImpr.toLocaleString()} impr · $${staticBudget.toFixed(2)} budget${staticCpm>0?` · $${staticCpm.toFixed(2)} CPM`:""}.${d.notes ? " " + d.notes : ""}`.trim(),
+        });
+      }
+      if (videoImpr > 0 || videoBudget > 0) {
+        const monthlyImpr = Math.round(videoImpr / months);
+        drafts.push({
+          mediaPartner: ioPartner,
+          campaignName: `${advertiser} - ${videoPlat}`,
+          platform: videoPlat,
+          startDate, endDate,
+          status: "off",
+          goal: videoImpr > 0 ? String(videoImpr) : "",
+          contractRate: videoCpm ? String(videoCpm) : "",
+          dealType: videoCpm ? "CPM" : "",
+          contractValue: videoBudget.toFixed(2),
+          note1: monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "",
+          note2: `${baseNote2Header} Video: ${videoImpr.toLocaleString()} impr · $${videoBudget.toFixed(2)} budget${videoCpm>0?` · $${videoCpm.toFixed(2)} CPM`:""}.${d.notes ? " " + d.notes : ""}`.trim(),
+        });
+      }
+      return;
+    }
+
     const totalImpr = parseNum(d.impressions);
     const cpm = parseNum(d.cpm);
     const totalBudget = parseNum(d.budget);
-    const months = monthsBetween(startDate, endDate);
 
     // Skip blocks with no budget/impressions — likely the IO has the field but it's $0
     if (totalImpr <= 0 && totalBudget <= 0) return;
 
     const baseNote2 = `Auto-imported from IO #${io.reference || "?"}. ${svc.label}. Total: ${totalImpr.toLocaleString()} impr · $${totalBudget.toFixed(2)} budget${cpm>0?` · $${cpm.toFixed(2)} CPM`:""}.${d.notes ? " " + d.notes : ""}`.trim();
 
+    if (svc.splitPair) {
+      // Arbitrary 50/50 split between two platforms (e.g. Performance CTV → CTV + OTT).
+      const [platA, platB] = svc.splitPair;
+      const halfImpr = Math.round(totalImpr / 2);
+      const halfBudget = totalBudget / 2;
+      const monthlyImpr = Math.round(halfImpr / months);
+      const note1 = monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "";
+      const common = {
+        mediaPartner: ioPartner,
+        startDate, endDate,
+        status: "off",
+        goal: halfImpr > 0 ? String(halfImpr) : "",
+        contractRate: cpm ? String(cpm) : "",
+        dealType: cpm ? "CPM" : "",
+        note1, note2: baseNote2,
+        contractValue: halfBudget.toFixed(2),
+      };
+      drafts.push({ ...common, campaignName: `${advertiser} - ${platA}`, platform: platA });
+      drafts.push({ ...common, campaignName: `${advertiser} - ${platB}`, platform: platB });
+      return;
+    }
     if (svc.split) {
       // Mobile ID Integration: split half to DSP, half to other platform (FB or SP)
       const halfImpr = Math.round(totalImpr / 2);
@@ -535,9 +695,10 @@ function buildDraftsFromIO(io) {
       const monthlyImpr = Math.round(halfImpr / months);
       const note1 = monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "";
       const common = {
-        mediaPartner: io.partner || "",
+        mediaPartner: ioPartner,
         startDate, endDate,
         status: "off",
+        goal: halfImpr > 0 ? String(halfImpr) : "",
         contractRate: cpm ? String(cpm) : "",
         dealType: cpm ? "CPM" : "",
         note1, note2: baseNote2,
@@ -549,11 +710,12 @@ function buildDraftsFromIO(io) {
       const platform = svc.platform || "DSP";
       const monthlyImpr = Math.round(totalImpr / months);
       drafts.push({
-        mediaPartner: io.partner || "",
+        mediaPartner: ioPartner,
         campaignName: `${advertiser} - ${platform}`,
         platform,
         startDate, endDate,
         status: "off",
+        goal: totalImpr > 0 ? String(totalImpr) : "",
         contractRate: cpm ? String(cpm) : "",
         dealType: cpm ? "CPM" : "",
         contractValue: totalBudget.toFixed(2),
@@ -1613,7 +1775,7 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
   );
 }
 
-function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[] }) {
+function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null }) {
   const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",clientWebsite:"",
     // Report data fields
     demoAge:"",       // JSON: [{label:"18-24",pct:32},{label:"25-34",pct:28}...]
@@ -1688,9 +1850,28 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
       <div onClick={e=>e.stopPropagation()} style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 30px 80px rgba(0,0,0,.15)":"0 30px 80px rgba(0,0,0,.9)",borderRadius:12,width:"min(1260px,96vw)",maxHeight:"95vh",display:"flex",flexDirection:"column"}}>
 
         {/* ── Sticky header ── */}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 28px 14px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,flexShrink:0}}>
-          <h2 style={{margin:0,color:_lm?"#0f172a":"#edf4ff",fontSize:15,fontWeight:700}}>{isNew?"Add Campaign":"Edit Campaign"}</h2>
-          <button onClick={onClose} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",cursor:"pointer",fontSize:22,lineHeight:1,padding:0}}>×</button>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 28px 14px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,flexShrink:0,gap:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",minWidth:0}}>
+            <h2 style={{margin:0,color:_lm?"#0f172a":"#edf4ff",fontSize:15,fontWeight:700}}>{isNew?"Add Campaign":"Edit Campaign"}</h2>
+            {/* IO draft queue indicator — only when the modal is being used to walk
+                through PDF-parsed drafts. Shows "Draft 1 of 3 · IO #16617480". */}
+            {draftQueueInfo && (
+              <span style={{display:"inline-flex",alignItems:"center",gap:8,fontSize:11,fontWeight:700,color:_lm?"#92400e":"#fbbf24",background:_lm?"#fef3c7":"#1a1208",border:`1px solid ${_lm?"#f59e0b":"#f59e0b40"}`,borderRadius:6,padding:"3px 10px"}}>
+                📄 Draft {draftQueueInfo.index} of {draftQueueInfo.total}{draftQueueInfo.reference?` · IO #${draftQueueInfo.reference}`:""}
+              </span>
+            )}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+            {/* When in draft-queue mode, expose a "Skip" button so the user can
+                discard the current draft without saving and advance to the next. */}
+            {onSkipDraft && (
+              <button onClick={onSkipDraft}
+                style={{background:"none",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:6,padding:"5px 11px",color:_lm?"#64748b":"#7a9bbf",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                Skip draft →
+              </button>
+            )}
+            <button onClick={onClose} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",cursor:"pointer",fontSize:22,lineHeight:1,padding:0}}>×</button>
+          </div>
         </div>
 
         {/* ── Scrollable body — two column layout ── */}
@@ -12059,7 +12240,9 @@ export default function App() {
         setPdfProcessing(false);
         return;
       }
-      setPdfMeta({ reference: io.reference, partner: io.partner, advertiser: io.advertiser, submitted: io.submitted, fileName: file.name });
+      // _initialCount stays constant as drafts are popped so the "Draft 2 of 3"
+      // indicator counts up correctly through the queue.
+      setPdfMeta({ reference: io.reference, partner: io.partner, advertiser: io.advertiser, submitted: io.submitted, fileName: file.name, _initialCount: drafts.length });
       setPdfDrafts(drafts);
     } catch (e) {
       console.error("PDF parse failed:", e);
@@ -13647,16 +13830,51 @@ export default function App() {
       {showAdd    && <Modal isNew onSave={n=>{ setCampaigns(cs=>[...cs,n]); addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null}); setShowAdd(false); }} onClose={()=>setShowAdd(false)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
       {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} focusCampaignId={typeof showReminderModal==="number"?showReminderModal:null} onClose={()=>setShowReminderModal(null)} onNavigate={(campId)=>{ setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; }); setSearch(""); setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },200); }}/>}
       {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
-      {/* ── IO PDF review modal — shown after dropping a PDF and parsing drafts ── */}
-      {pdfDrafts && <IODraftReviewModal
-        drafts={pdfDrafts}
-        meta={pdfMeta}
-        lightMode={lightMode}
-        existingPartners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}
-        onApprove={(draft)=>{ approveDraft(draft); setPdfDrafts(ds=>ds.filter(d=>d!==draft)); }}
-        onApproveAll={(draftsList)=>{ draftsList.forEach(approveDraft); setPdfDrafts(null); setPdfMeta(null); }}
-        onClose={()=>{ setPdfDrafts(null); setPdfMeta(null); }}
-      />}
+      {/* ── IO PDF draft queue — opens the regular Add Campaign Modal for each draft ──
+          When a PDF is dropped and drafts are parsed, pdfDrafts is set to an array
+          of pending drafts. We walk through them one at a time: the FIRST draft
+          opens in the standard Add Campaign modal pre-filled with the parsed data.
+          Saving advances to the next; "Skip draft" discards the current and advances. */}
+      {pdfDrafts && pdfDrafts.length > 0 && (() => {
+        const draftIndex = (pdfMeta?._initialCount || pdfDrafts.length) - pdfDrafts.length + 1;
+        const total = pdfMeta?._initialCount || pdfDrafts.length;
+        const current = pdfDrafts[0];
+        return (
+          <Modal
+            isNew
+            campaign={current}
+            partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}
+            reminders={reminders}
+            setReminders={setReminders}
+            campaigns={campaigns}
+            draftQueueInfo={{ index: draftIndex, total, reference: pdfMeta?.reference }}
+            onSkipDraft={()=>{
+              // Drop just the current draft and move on
+              setPdfDrafts(ds => {
+                const next = ds.slice(1);
+                if (next.length === 0) { setPdfMeta(null); return null; }
+                return next;
+              });
+            }}
+            onSave={n => {
+              // Use the same campaign-add logic the regular + Add Campaign uses
+              setCampaigns(cs => [...cs, n]);
+              addLog({ type:"created", campaignName:n.campaignName, partner:n.mediaPartner, platform:n.platform, detail:`Added from IO #${pdfMeta?.reference||""}`, campaignId:n.id, prevSnapshot:null });
+              setPdfDrafts(ds => {
+                const next = ds.slice(1);
+                if (next.length === 0) { setPdfMeta(null); return null; }
+                return next;
+              });
+            }}
+            onClose={()=>{
+              // Closing the modal without saving cancels the WHOLE remaining queue
+              // (user pressing × is the bail-out — Skip is the per-draft action).
+              setPdfDrafts(null);
+              setPdfMeta(null);
+            }}
+          />
+        );
+      })()}
       {pdfError && !pdfDrafts && (
         <div onClick={()=>setPdfError("")} style={{position:"fixed",bottom:20,right:20,background:lightMode?"#fee2e2":"#1a0808",border:`1px solid ${lightMode?"#ef4444":"#ef444466"}`,color:lightMode?"#991b1b":"#fca5a5",borderRadius:8,padding:"12px 16px",maxWidth:400,zIndex:9998,cursor:"pointer",boxShadow:"0 4px 16px rgba(0,0,0,.3)"}}>
           <div style={{fontSize:12,fontWeight:700,marginBottom:4}}>📄 PDF Import Failed</div>
