@@ -4788,21 +4788,50 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const pBorder = (col) => col + "40";   // badge border
   const sBg     = (col) => col + "18";   // status pill background
   const sBorder = (col) => col + "40";   // status pill border
-  // Light-mode yellow swap: #fde047 → #fff200 (more vivid against white) only when rendering.
-  // Data/logic always stores #fde047; lmC remaps at render time only.
-  const lmC = (c) => lightMode && c === "#fde047" ? "#fff200" : c;
-  // In light mode: vivid color becomes the BACKGROUND with dark text (high contrast pop).
-  // In dark mode: vivid color stays as TEXT on faint tinted background (current look).
-  // vBadge light-mode: solid vivid fill with luminance-based text — same electric look as dark mode,
-  // but inverted: vivid COLOR as the background chip with dark/white text for maximum contrast.
+  // ── Light-mode color remap ────────────────────────────────────────────
+  // The dark-mode palette uses bright/neon colors that glow against navy
+  // backgrounds. In light mode those same colors look childish and "rainbowy"
+  // on white. This map translates each dark-mode value into the Tailwind 600-700
+  // equivalent (proper text-on-white contrast) without changing dark-mode at all.
+  // All callers use `lmC(color)`; in dark mode it's a no-op pass-through.
+  const LM_COLOR_MAP = {
+    // Yellows / amber — the worst offender. Was #fff200 (fluorescent), now a
+    // proper dark amber that's actually readable on white surfaces.
+    "#fde047": "#a16207",  // yellow-400 → yellow-700
+    "#fff200": "#a16207",
+    "#fbbf24": "#b45309",  // amber-400 → amber-700
+    "#f59e0b": "#b45309",  // amber-500 → amber-700
+    // Greens — neon mints become emerald-600
+    "#00d48a": "#059669",
+    "#00e5a0": "#059669",
+    "#00e19e": "#059669",
+    "#00c896": "#059669",
+    "#00ffb3": "#059669",
+    "#34d399": "#059669",
+    // Reds — softer crimson
+    "#ef4444": "#dc2626",
+    // Oranges — burnt orange instead of neon
+    "#f97316": "#c2410c",
+    // Blues / cyans — proper inkblot blues instead of electric
+    "#38bdf8": "#0284c7",
+    "#7ec8ff": "#2563eb",
+    "#3B8FFF": "#2563eb",
+    "#7dd3fc": "#1e3a8a",  // sky-300 → navy (blue-900) — impressions in pacing tab
+    "#a3bffa": "#4338ca",
+    // Pinks / purples / fuchsia — muted boutique tones
+    "#a78bfa": "#6d28d9",
+    "#f472b6": "#be185d",
+    "#fda4af": "#be185d",
+    "#e879f9": "#a21caf",
+  };
+  const lmC = (c) => lightMode ? (LM_COLOR_MAP[c] || c) : c;
+  // vBadge: match dark mode's visual rhythm in BOTH modes — soft tinted background
+  // with saturated color as text and thin border. This is the Linear / Vercel /
+  // Stripe pattern — clean, professional, NOT rainbowy. Previously light mode
+  // used vivid solid fills which read as garish on white.
   const vBadge = (c) => {
     const vc = lmC(c);
-    if (lightMode) {
-      const r=parseInt(vc.slice(1,3),16)/255, g=parseInt(vc.slice(3,5),16)/255, b=parseInt(vc.slice(5,7),16)/255;
-      const txt = (0.299*r+0.587*g+0.114*b) > 0.45 ? "#0a1a0a" : "#ffffff";
-      return {color:txt, background:vc, border:"none"};
-    }
-    return {color:vc, background:sBg(vc), border:"1px solid "+sBorder(vc)};
+    return { color: vc, background: vc + (lightMode ? "12" : "18"), border: "1px solid " + vc + (lightMode ? "33" : "40") };
   };
   // Explicit structural colors for clean light mode (container counter-filter cancels global invert,
   // so all CSS colors render as-is — we supply the right value for each mode explicitly).
@@ -5444,7 +5473,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <div title={metricKind==="views" ? "Views delivered this period (MTD)" : metricKind==="spend" ? "Spend delivered this period (MTD)" : "Impressions delivered this period (MTD)"}>
         {primaryFmt
           ? <div style={{display:"flex",alignItems:"baseline",gap:3}}>
-              <span style={{fontSize:12,fontWeight:800,color:primaryColor,letterSpacing:"-0.01em"}}>{primaryFmt}</span>
+              <span style={{fontSize:12,fontWeight:800,color:lmC(primaryColor),letterSpacing:"-0.01em"}}>{primaryFmt}</span>
               <span style={{fontSize:9,color:lmTxtD}}>{primaryLabel}</span>
             </div>
           : noActivity
@@ -5565,23 +5594,29 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                     <div style={{fontSize:11,color:lightMode?"#334155":"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={b.name}>{b.name}</div>
                     <div style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",marginTop:1}}>{pctOfTotal.toFixed(0)}% of total impr{isQuiet?" · ⚠ low / not running":""}</div>
                   </div>
-                  {/* MTD column */}
+                  {/* MTD column — every cell is a fixed slot so columns stay aligned
+                      across lines. Empty values render as "—" instead of being skipped
+                      (which would cause the row to lose alignment). */}
                   <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,paddingRight:hasPrior?10:0,borderRight:hasPrior?`1px solid ${lightMode?"#e2e8f0":"#1a2744"}`:"none"}}>
                     <span style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",fontWeight:700,textTransform:"uppercase"}}>MTD</span>
                     <span style={{fontSize:11,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:700,fontVariantNumeric:"tabular-nums",minWidth:70,textAlign:"right"}}>{parseInt(b.impressions||0).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400,fontSize:9}}> impr</span></span>
-                    {b.clicks>0&&<span style={{fontSize:11,color:"#a3bffa",fontWeight:600,minWidth:45,textAlign:"right"}}>{parseInt(b.clicks).toLocaleString()} clk</span>}
-                    {b.ctr>0&&<span style={{fontSize:11,color:"#00ffb3",fontWeight:600,minWidth:48,textAlign:"right"}}>{b.ctr.toFixed(2)}%</span>}
-                    {b.spend>0&&<span style={{fontSize:11,color:"#f472b6",fontWeight:600,minWidth:50,textAlign:"right"}}>${Math.round(b.spend).toLocaleString()}</span>}
+                    <span style={{fontSize:11,color:b.clicks>0?"#a3bffa":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{b.clicks>0?`${parseInt(b.clicks).toLocaleString()} clk`:"—"}</span>
+                    <span style={{fontSize:11,color:b.ctr>0?"#00ffb3":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{b.ctr>0?`${b.ctr.toFixed(2)}%`:"—"}</span>
+                    <span style={{fontSize:11,color:b.spend>0?"#f472b6":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{b.spend>0?`$${Math.round(b.spend).toLocaleString()}`:"—"}</span>
                   </div>
-                  {/* YESTERDAY column — appears only when prior breakdown exists */}
+                  {/* YESTERDAY column — fixed slots same as MTD so values line up
+                      vertically across all ad set rows. Renders "—" when there's no
+                      delta or no prior data instead of hiding the cell. */}
                   {hasPrior&&(
                     <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
                       <span style={{fontSize:9,color:yestColor,fontWeight:700,textTransform:"uppercase"}}>Yest</span>
-                      {yestImpr!=null
-                        ? <span style={{fontSize:11,color:yestColor,fontWeight:700,fontVariantNumeric:"tabular-nums",minWidth:70,textAlign:"right"}}>{yestImpr.toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400,fontSize:9}}> impr</span></span>
-                        : <span style={{fontSize:11,color:lmTxtD,minWidth:70,textAlign:"right"}}>—</span>}
-                      {yestClk!=null&&yestClk>0&&<span style={{fontSize:11,color:"#a3bffa",fontWeight:600,minWidth:45,textAlign:"right"}}>{yestClk.toLocaleString()} clk</span>}
-                      {yestSpend!=null&&yestSpend>0&&<span style={{fontSize:11,color:"#f472b6",fontWeight:600,minWidth:50,textAlign:"right"}}>${Math.round(yestSpend).toLocaleString()}</span>}
+                      <span style={{fontSize:11,color:yestImpr!=null?yestColor:lmTxtD,fontWeight:700,fontVariantNumeric:"tabular-nums",minWidth:70,textAlign:"right"}}>
+                        {yestImpr!=null
+                          ? <>{yestImpr.toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400,fontSize:9}}> impr</span></>
+                          : "—"}
+                      </span>
+                      <span style={{fontSize:11,color:(yestClk!=null&&yestClk>0)?"#a3bffa":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{(yestClk!=null&&yestClk>0)?`${yestClk.toLocaleString()} clk`:"—"}</span>
+                      <span style={{fontSize:11,color:(yestSpend!=null&&yestSpend>0)?"#f472b6":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{(yestSpend!=null&&yestSpend>0)?`$${Math.round(yestSpend).toLocaleString()}`:"—"}</span>
                       {yestImpr===0&&<span style={{fontSize:9,color:lightMode?"#dc2626":"#ef4444",fontWeight:700,background:lightMode?"#fee2e2":"#3a0010",padding:"1px 5px",borderRadius:3}}>NOT RUNNING</span>}
                     </div>
                   )}
@@ -5609,7 +5644,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return <div style={{marginBottom:viewMode==="table"?2:18}}>
       <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:open?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
         <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",
-          ...(lightMode ? (()=>{const vc=lmC(color),r=parseInt(vc.slice(1,3),16),g=parseInt(vc.slice(3,5),16),b=parseInt(vc.slice(5,7),16),h2=n=>Math.round(n).toString(16).padStart(2,"0"),darkBg="#"+h2(r*0.12)+h2(g*0.12)+h2(b*0.12);return{color:vc,background:darkBg,padding:"2px 8px",borderRadius:4};})() : {color})
+          ...(lightMode
+            ? {color: lmC(color), background: lmC(color)+"14", border: "1px solid "+lmC(color)+"33", padding:"2px 8px", borderRadius:4}
+            : {color})
         }}>{label} ({items.length})</span>
         <span style={{color:lmTxtD,fontSize:10,display:"inline-block",transform:open?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
       </div>
@@ -8979,12 +9016,21 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
     }
     return true;
   });
-  // Active non-SEM campaigns that have no CPM rate set yet — shown as a nudge in the header
-  const missingRates = campaigns.filter(c =>
-    c.status === "active" &&
-    c.platform !== "SEM" &&
-    !parseFloat(c.contractRate)
-  );
+  // Active non-SEM campaigns that have no CPM rate set yet — shown as a nudge in the header.
+  // Mirror the same date filter that `withContract` uses (exclude campaigns that ended
+  // before the active month) so the count matches what's actually being calculated in
+  // the dashboard. An archived campaign that ran during this month STILL counts —
+  // setting a CPM retroactively would correct its revenue calc.
+  const missingRates = campaigns.filter(c => {
+    if (c.status !== "active") return false;
+    if (c.platform === "SEM") return false;
+    if (parseFloat(c.contractRate)) return false;
+    if (c.endDate) {
+      const endMo = c.endDate.slice(0, 7); // "YYYY-MM"
+      if (endMo < activeMonth) return false; // ended before the viewed month — no longer relevant
+    }
+    return true;
+  });
   const partners = ["all", ...new Set(withContract.map(c=>c.mediaPartner))].sort();
   const filtered  = filterPartner==="all" ? withContract : withContract.filter(c=>c.mediaPartner===filterPartner);
 
@@ -9003,15 +9049,30 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
     const spread = revenueMapForCampaign(c);
     Object.entries(spread).forEach(([mo, rev]) => {
       if (!monthTotals[mo]) return;
-      monthTotals[mo].revenue += rev;
+      // For the current month, CPM campaigns: use ACTUAL delivered impressions × CPM
+      // instead of goal × CPM, so underdelivering campaigns don't inflate the bar graph
+      // and KPI tiles. This mirrors the same adjustment the per-campaign rows builder
+      // makes below — keeps the bar graph, KPI tiles, and Export P&L numbers in sync.
+      let adjRev = rev;
+      if (mo === thisMonth && rev > 0 && c.platform !== "SEM") {
+        const rate = parseFloat(c.contractRate);
+        const effectiveDt = c.platform === "YT" ? (c.dealType||"") : "CPM";
+        if (rate > 0 && effectiveDt === "CPM") {
+          const actualImpr = getActualMtdImpressions(c);
+          if (actualImpr != null && actualImpr > 0) {
+            adjRev = (actualImpr / 1000) * rate;
+          }
+        }
+      }
+      monthTotals[mo].revenue += adjRev;
       const s = spendForMonth(c, mo);
       if (s != null) {
         // Trackable for THIS month — counts toward profit
-        monthTotals[mo].revenueWithSpend += rev;
+        monthTotals[mo].revenueWithSpend += adjRev;
         monthTotals[mo].spend += s;
-      } else if (rev > 0) {
+      } else if (adjRev > 0) {
         // Revenue but no spend data for this month — pending
-        monthTotals[mo].pendingRev += rev;
+        monthTotals[mo].pendingRev += adjRev;
         monthTotals[mo].pendingCount += 1;
       }
     });
@@ -9185,9 +9246,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                 <div style={{fontSize:12,fontWeight:700,color:_lm?"#b91c1c":"#fca5a5"}}>{losersThisFocus.length} losing money in {focusLabelShort}</div>
                 <div style={{fontSize:10,color:_lm?"#64748b":"#9ca3af",marginTop:2}}>Combined: {$f(losersThisFocus.reduce((s,r)=>s+r.focusCell.profit,0))}</div>
               </div>
-              <button onClick={()=>setSortKey("loss")}
+              <button onClick={()=>{
+                setSortKey("loss");
+                // Scroll to the Campaign Breakdown so the user can actually see the
+                // re-sorted list (otherwise it just looks like the button does nothing).
+                setTimeout(()=>document.getElementById("campaign-breakdown")?.scrollIntoView({behavior:"smooth",block:"start"}),50);
+              }}
                 style={{background:_lm?"#fca5a522":"#ef444422",border:`1px solid ${_lm?"#ef4444":"#ef444466"}`,color:_lm?"#b91c1c":"#fca5a5",borderRadius:6,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-                Sort →
+                Show losers →
               </button>
             </div>
           )}
@@ -9198,9 +9264,12 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                 <div style={{fontSize:12,fontWeight:700,color:_lm?"#92400e":"#fcd34d"}}>{pendingThisFocus.length} awaiting spend entry</div>
                 <div style={{fontSize:10,color:_lm?"#64748b":"#9ca3af",marginTop:2}}>Untracked revenue: {$f(pendingThisFocus.reduce((s,r)=>s+r.focusCell.rev,0))}</div>
               </div>
-              <button onClick={()=>setSortKey("pending")}
+              <button onClick={()=>{
+                setSortKey("pending");
+                setTimeout(()=>document.getElementById("campaign-breakdown")?.scrollIntoView({behavior:"smooth",block:"start"}),50);
+              }}
                 style={{background:_lm?"#fef3c7":"#f59e0b22",border:`1px solid ${_lm?"#f59e0b":"#f59e0b66"}`,color:_lm?"#92400e":"#fcd34d",borderRadius:6,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-                Sort →
+                Show pending →
               </button>
             </div>
           )}
@@ -9429,7 +9498,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
           <div style={{fontSize:11,marginTop:5}}>Edit a campaign and fill in the Contract Value field to start tracking.</div>
         </div>
       ):(
-        <div style={{...card,padding:"14px 16px",marginBottom:16}}>
+        <div id="campaign-breakdown" style={{...card,padding:"14px 16px",marginBottom:16,scrollMarginTop:80}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
             <div style={{...labelStyle}}>Campaign Breakdown — {focusLabelShort}</div>
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
@@ -9622,7 +9691,33 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                   <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:2}}>{lock?`Locked ${lock.lockedAt}`:"Live data — lock the month to freeze"} · {reportRows.length} campaigns</div>
                 </div>
                 <div style={{display:"flex",gap:8}}>
-                  <button onClick={()=>window.print()} style={{background:_lm?"#f0fdf9":"#162236",border:`1px solid ${_lm?"#00c896":"#334155"}`,borderRadius:7,padding:"7px 14px",color:_lm?"#059669":"#7dd3fc",fontSize:12,fontWeight:700,cursor:"pointer"}}>🖨 Print / Save PDF</button>
+                  {/* Print to PDF — opens a clean blank window with just the report content
+                      and triggers print there. Mirrors the Reports tab exportPDF pattern.
+                      Avoids printing the live modal + underlying app (which caused 3 duplicate
+                      pages with the previous window.print() call). */}
+                  <button onClick={()=>{
+                    const reportEl = document.getElementById(printId);
+                    if (!reportEl) return;
+                    const reportHtml = reportEl.outerHTML;
+                    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+<title>P&L Report — ${focusLabel}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fff;color:#0f172a;font-size:13px;padding:24px}
+@media print{@page{margin:.45in;size:letter}body{-webkit-print-color-adjust:exact;print-color-adjust:exact;padding:0}}
+h1{font-size:18px;font-weight:800;margin-bottom:14px;color:#0f172a}
+.meta{font-size:11px;color:#64748b;margin-bottom:14px}
+</style></head><body>
+<h1>📊 P&L Report — ${focusLabel}</h1>
+<div class="meta">${lock?`Locked ${lock.lockedAt}`:"Live data"} · ${reportRows.length} campaigns · Generated ${new Date().toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"})}</div>
+${reportHtml}
+<script>window.onload=()=>setTimeout(()=>window.print(),350)</script>
+</body></html>`;
+                    const w = window.open("","_blank","width=1000,height=800");
+                    if (!w) { alert("Pop-up blocked — please allow pop-ups for this site to export the PDF."); return; }
+                    w.document.write(html);
+                    w.document.close();
+                  }} style={{background:_lm?"#f0fdf9":"#162236",border:`1px solid ${_lm?"#00c896":"#334155"}`,borderRadius:7,padding:"7px 14px",color:_lm?"#059669":"#7dd3fc",fontSize:12,fontWeight:700,cursor:"pointer"}}>🖨 Print / Save PDF</button>
                   <button onClick={()=>setShowPLReport(false)} style={{background:"none",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"7px 12px",color:_lm?"#475569":"#4d6e8a",fontSize:12,cursor:"pointer"}}>✕ Close</button>
                 </div>
               </div>
