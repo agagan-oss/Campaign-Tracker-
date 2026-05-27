@@ -5069,6 +5069,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // Two-step click pattern (matches the existing per-row Clear Metrics button).
   // Format: `${campaignId}|${lineName}`
   const [pendingClearKey, setPendingClearKey] = useState(null);
+  // offBannerOpen: whether the "off campaigns with data" banner is expanded
+  // to show the full list with per-row activate buttons.
+  const [offBannerOpen, setOffBannerOpen] = useState(false);
   // Light-mode badge helpers
   const pBg     = (col) => col + "22";   // badge background
   const pBorder = (col) => col + "40";   // badge border
@@ -5527,12 +5530,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           const src = c[field];
           if (!src) continue;
           for (const key of ['mtd','last30','yesterday']) {
-            if (src[key]?.breakdown?.length >= 2) { snap = src[key]; snapField = field; snapKey = key; break; }
+            // Show the breakdown dropdown even for single-line campaigns so the
+            // user can verify the right data was mapped + has the same Move/Clear
+            // controls as multi-line campaigns.
+            if (src[key]?.breakdown?.length >= 1) { snap = src[key]; snapField = field; snapKey = key; break; }
           }
           if (snap) break;
         }
         const breakdown = snap?.breakdown;
-        if (!breakdown || breakdown.length < 2) return null;
+        if (!breakdown || breakdown.length < 1) return null;
         // Build a lookup of yesterday's MTD per line (by name) so we can diff for "yesterday delivered per line"
         const priorBd = snap?.priorBreakdown || null;
         const priorByName = {};
@@ -5657,7 +5663,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         const src = c[field];
         if (!src) continue;
         for (const key of ['mtd','last30','yesterday']) {
-          if (src[key]?.breakdown?.length >= 2) return { snap: src[key], snapField: field, snapKey: key };
+          // Single-line breakdowns also show — see PacingCard comment for rationale.
+          if (src[key]?.breakdown?.length >= 1) return { snap: src[key], snapField: field, snapKey: key };
         }
       }
       return null;
@@ -5933,7 +5940,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       return (
         <div style={{background:lightMode?"#f8fafc":"#050b14",borderBottom:"1px solid "+lmBrdR,borderLeft:"3px solid "+col,padding:"6px 16px 10px 42px"}}>
           <div style={{fontSize:9,color:lightMode?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5}}>
-            Line breakdown — {sorted.length} ad set{sorted.length!==1?"s":""} rolled up into this campaign
+            Line breakdown — {sorted.length === 1 ? "1 ad set mapped to this campaign" : `${sorted.length} ad sets rolled up into this campaign`}
             {hasPrior&&<span style={{color:lightMode?"#3b82f6":"#7ec8ff",marginLeft:6,textTransform:"none",letterSpacing:0}}>· yesterday delivery vs {rowPriorDate}</span>}
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
@@ -6068,23 +6075,73 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <div style={{fontSize:11,color:lmTxtS}}>{allActive.length} active · {withGoal.length} with goals{anyFilter?" · filtered":""}</div>
     </div>
 
-    {/* "Off" campaigns with recent data — discoverable activate notice ── */}
+    {/* "Off" campaigns with recent data — click to expand into a list of
+        candidates with per-row activate buttons (so the user can review each
+        before activating — not all of them belong in Pacing). */}
     {offWithData.length > 0 && (
-      <div style={{background:lightMode?"#fffbeb":"#1a1208",border:`1px solid ${lightMode?"#fcd34d":"#f59e0b40"}`,borderRadius:9,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-        <span style={{fontSize:14}}>⏸</span>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:12,fontWeight:700,color:lightMode?"#92400e":"#fcd34d"}}>
-            {offWithData.length} "off" campaign{offWithData.length!==1?"s":""} {offWithData.length===1?"has":"have"} data but won't show in pacing
+      <div style={{background:lightMode?"#fffbeb":"#1a1208",border:`1px solid ${lightMode?"#fcd34d":"#f59e0b40"}`,borderRadius:9,marginBottom:12,overflow:"hidden"}}>
+        {/* Header row — clickable to toggle expand */}
+        <div onClick={()=>setOffBannerOpen(v=>!v)}
+          style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
+          <span style={{fontSize:14}}>⏸</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:12,fontWeight:700,color:lightMode?"#92400e":"#fcd34d"}}>
+              {offWithData.length} "off" campaign{offWithData.length!==1?"s":""} {offWithData.length===1?"has":"have"} data but won't show in pacing
+            </div>
+            {!offBannerOpen && (
+              <div style={{fontSize:10,color:lmTxtS,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                {offWithData.slice(0,4).map(c=>c.campaignName.trim()).join(" · ")}
+                {offWithData.length>4&&` · +${offWithData.length-4} more`}
+              </div>
+            )}
           </div>
-          <div style={{fontSize:10,color:lmTxtS,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-            {offWithData.slice(0,4).map(c=>c.campaignName.trim()).join(" · ")}
-            {offWithData.length>4&&` · +${offWithData.length-4} more`}
-          </div>
+          <span style={{fontSize:11,fontWeight:700,color:lightMode?"#92400e":"#fcd34d",whiteSpace:"nowrap"}}>
+            {offBannerOpen ? "Hide list ▴" : "Review list ▾"}
+          </span>
         </div>
-        <button onClick={()=>offWithData.forEach(c=>onActivate(c.id))}
-          style={{background:lightMode?"#fef3c7":"#f59e0b22",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b66"}`,color:lightMode?"#92400e":"#fcd34d",borderRadius:6,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
-          Activate all →
-        </button>
+
+        {/* Expanded list — per-campaign activate buttons */}
+        {offBannerOpen && (
+          <div style={{borderTop:`1px solid ${lightMode?"#fcd34d":"#f59e0b40"}`,maxHeight:320,overflowY:"auto"}}>
+            {offWithData.map(c => {
+              const impr = parseInt(c.impressions) || 0;
+              const lastSync = c.lastChecked || "—";
+              const dr = daysRemaining(c);
+              return (
+                <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",borderBottom:`1px solid ${lightMode?"#fef3c7":"#1f1810"}`}}>
+                  <span style={{...vBadge(PLT_COLORS[c.platform]||PLT_COLORS.default),borderRadius:3,padding:"1px 6px",fontSize:10,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12,fontWeight:600,color:lightMode?"#0f172a":"#d8eaf8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
+                    <div style={{fontSize:10,color:lmTxtS,marginTop:1}}>
+                      {c.mediaPartner}
+                      {impr > 0 && <span> · {impr.toLocaleString()} impr</span>}
+                      {lastSync !== "—" && <span> · synced {lastSync}</span>}
+                      {dr !== null && dr >= 0 && <span> · {dr === 0 ? "ends today" : `${dr}d left`}</span>}
+                      {c.endDate && dr !== null && dr < 0 && <span style={{color:lightMode?"#dc2626":"#fca5a5"}}> · ended {c.endDate}</span>}
+                    </div>
+                  </div>
+                  <button onClick={()=>onEdit(c)} title="Open campaign details"
+                    style={{background:"none",border:`1px solid ${lightMode?"#cbd5e1":"#334155"}`,borderRadius:5,color:lightMode?"#475569":"#7a9bbf",fontSize:10,padding:"4px 9px",cursor:"pointer",fontWeight:600,whiteSpace:"nowrap",flexShrink:0}}>
+                    Edit
+                  </button>
+                  <button onClick={()=>onActivate(c.id)} title="Flip status to active"
+                    style={{background:lightMode?"#059669":"#002e24",border:`1px solid ${lightMode?"#059669":"#00c89660"}`,borderRadius:5,color:lightMode?"#ffffff":"#00d48a",fontSize:10,padding:"4px 9px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>
+                    ✓ Activate
+                  </button>
+                </div>
+              );
+            })}
+            {/* Footer: bulk activate as secondary action */}
+            {offWithData.length > 1 && (
+              <div style={{padding:"8px 14px",display:"flex",justifyContent:"flex-end",background:lightMode?"#fffbeb":"#1a1208"}}>
+                <button onClick={()=>{ offWithData.forEach(c=>onActivate(c.id)); setOffBannerOpen(false); }}
+                  style={{background:"none",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b66"}`,color:lightMode?"#92400e":"#fcd34d",borderRadius:5,padding:"4px 11px",fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                  Activate all {offWithData.length} →
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     )}
 
@@ -8758,7 +8815,9 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         cpm:         computedCpm||null,
         vcr:         u.completionRate||null,
         updatedAt:   stamp,
-        breakdown:   u.breakdown && u.breakdown.length >= 2 ? u.breakdown : null,
+        // Save breakdown even when only 1 line was mapped — lets the user verify
+        // the data via the dropdown and use Move/Clear if it's the wrong campaign.
+        breakdown:   u.breakdown && u.breakdown.length >= 1 ? u.breakdown : null,
         priorBreakdown,
         priorBreakdownDate,
       };
