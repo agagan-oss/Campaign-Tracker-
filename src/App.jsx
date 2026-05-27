@@ -5690,7 +5690,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return <div style={{background:lmBg,border:"1px solid "+(pacing?col+"40":lmBrd),borderRadius:9,padding:"13px 16px",marginBottom:7}}>
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:2}}>
-        <span style={{fontSize:12,fontWeight:700,color:lmTxt}}>{c.campaignName.trim()}</span>
+        <span style={{fontSize:13,fontWeight:700,color:lmTxt}}>{c.campaignName.trim()}</span>
         <span style={{...vBadge(pCol),borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span>
         {pacing&&<span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 6px"}}>{pacing.label}</span>}
         {/* Goal-hit / overserve badges — use pctRaw (unclamped) so we can detect
@@ -6027,7 +6027,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
       {/* Campaign + partner */}
       <div style={{minWidth:0}}>
-        <div style={{fontSize:12,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:6}}>
+        <div style={{fontSize:13,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:6}}>
           {rowBreakdown&&(
             <button onClick={()=>setRowBreakdownOpen(v=>!v)}
               title={`${rowBreakdown.length} CSV lines mapped to this campaign — click to expand`}
