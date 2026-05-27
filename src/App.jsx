@@ -5008,14 +5008,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   });
 
   // ── Yesterday's delivery helper ─────────────────────────────────────────
-  // Returns the impressions/views/spend delivered yesterday by diffing today's
-  // MTD against the most recent prior-day MTD from the check-in log. This is
-  // the "how much actually ran yesterday?" number — what you compare to
-  // Need/Day to decide if you need to add/remove budget.
+  // Returns the impressions/views/spend delivered yesterday. Two strategies,
+  // in priority order:
+  //   1) Breakdown delta — if the source has both breakdown + priorBreakdown
+  //      (different days), sum the per-line deltas. This is the most accurate
+  //      number because it diffs same-day snapshots per ad line.
+  //   2) checkInLog diff — fallback when no breakdown exists. Diffs today's
+  //      MTD impressions against the most recent prior-day log entry.
   //
   // Returns { delivered, neededPerDay, pctOfNeeded, color, status, baseDate, baseImpr, todayImpr } or null
   function computeYesterdayDelivery(c, monthlyGoal) {
-    if (!c.checkInLog) return null;
     const metricKind = pacingMetricFor(c.platform);
     // Today's MTD value (uses snapshot if present, else c.impressions)
     const todayDisp = resolveMetrics(c, "mtd");
@@ -5024,20 +5026,56 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       : metricKind === "spend"
         ? (parseFloat(todayDisp.spend || c.spend) || 0)
         : (parseInt(todayDisp.impressions || c.impressions) || 0);
-    // Walk the log for a prior-day entry. The log only stores impressions, not
-    // views/spend — so for YT/SEM, we can only confidently report yesterday
-    // delivery for impression-based platforms. For others, we fall back to
-    // impr-based comparison.
-    const logLines = c.checkInLog.split("\n").filter(Boolean);
-    const parsed = logLines.map(parseLogLine).filter(Boolean);
-    if (!parsed.length) return null;
-    // Prefer the most recent prior-day entry; for impression metric the log impr is correct
-    const priorEntry = parsed.find(e => e.dateStr !== today && e.impr > 0);
-    if (!priorEntry) return null;
-    // For non-impression platforms, log-based diff would mix metrics. Skip for now.
-    if (metricKind !== "impressions") return null;
-    const delivered = todayMtd - priorEntry.impr;
-    if (delivered < 0) return null; // negative = data weirdness (impr reset, etc.)
+
+    let delivered = null;
+    let baseDate = null;
+    let baseImpr = null;
+
+    // ── Strategy 1: Sum breakdown line deltas (most accurate) ───────────
+    // Scan all 5 snapshot sources for breakdown + priorBreakdown pair.
+    const sources = [c.metaSnapshots, c.ttdSnapshots, c.dspSnapshots, c.googleSnapshots, c.snapSnapshots];
+    for (const src of sources) {
+      const mtd = src?.mtd;
+      if (!mtd?.breakdown || !mtd?.priorBreakdown) continue;
+      // Build prior-line lookup by name
+      const priorByName = {};
+      mtd.priorBreakdown.forEach(p => { if (p?.name) priorByName[p.name] = p; });
+      // Sum per-line yesterday delta
+      let sumDelivered = 0, priorTotal = 0;
+      mtd.breakdown.forEach(b => {
+        const prior = priorByName[b.name];
+        if (!prior) return; // line is new — no comparison available, skip
+        const lineDelta = (b.impressions||0) - (prior.impressions||0);
+        if (lineDelta > 0) sumDelivered += lineDelta;
+        priorTotal += (prior.impressions||0);
+      });
+      delivered = sumDelivered;
+      baseDate = mtd.priorBreakdownDate;
+      baseImpr = priorTotal;
+      break;
+    }
+
+    // ── Strategy 2: checkInLog fallback (impression platforms only) ─────
+    if (delivered === null) {
+      if (!c.checkInLog) return null;
+      if (metricKind !== "impressions") return null; // log stores impr only — YT views / SEM spend can't fall back
+      const logLines = c.checkInLog.split("\n").filter(Boolean);
+      const parsed = logLines.map(parseLogLine).filter(Boolean);
+      if (!parsed.length) return null;
+      // CRITICAL: Sort DESC by date so we pick the MOST RECENT prior-day entry.
+      // (The log itself is appended oldest-first via applyMapping, so a plain
+      // .find() would otherwise return the OLDEST prior entry — meaning yesterday's
+      // delta would actually be multi-day cumulative growth, hugely inflated.)
+      const sortedParsed = [...parsed].sort((a, b) => b.dateStr.localeCompare(a.dateStr));
+      const priorEntry = sortedParsed.find(e => e.dateStr !== today && e.impr > 0);
+      if (!priorEntry) return null;
+      const diff = todayMtd - priorEntry.impr;
+      if (diff < 0) return null; // negative = data weirdness (impr reset, etc.)
+      delivered = diff;
+      baseDate = priorEntry.dateStr;
+      baseImpr = priorEntry.impr;
+    }
+
     // Compute needed/day so we can compare
     const dimDate = new Date(); const dim = new Date(dimDate.getFullYear(), dimDate.getMonth()+1, 0).getDate();
     const dom = dimDate.getDate();
@@ -5053,7 +5091,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     else if (pctOfNeeded >= 100) { color = "#00d48a"; status = "on pace"; }
     else if (pctOfNeeded >= 75)  { color = "#f59e0b"; status = "slightly behind"; }
     else                          { color = "#ef4444"; status = "needs push"; }
-    return { delivered, neededPerDay, pctOfNeeded, color, status, baseDate: priorEntry.dateStr, baseImpr: priorEntry.impr, todayImpr: todayMtd };
+    return { delivered, neededPerDay, pctOfNeeded, color, status, baseDate, baseImpr, todayImpr: todayMtd };
   }
 
   function KpiBox({c,disp}){
@@ -8090,9 +8128,12 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         completionRate: u.completionRate>0?String(parseFloat(u.completionRate.toFixed(2))):c.completionRate,
         frequency: u.freqCount>0?String(parseFloat((u.frequency/u.freqCount).toFixed(2))):c.frequency,
         lastChecked:stamp,
-        // checkInLog: auto-populated from daily CSV drops — keep last 30 entries only
+        // checkInLog: auto-populated from daily CSV drops — keep last 30 entries.
+        // Log is appended OLDEST-FIRST (existing + new line). slice(-30) keeps the
+        // MOST RECENT 30 — using slice(0,30) would keep the oldest 30 and lose new
+        // entries once we hit 30 syncs, causing yesterday-delta to use stale baselines.
         checkInLog: ((c.checkInLog?c.checkInLog+"\n":"")+histLine)
-          .split("\n").filter(Boolean).slice(0,30).join("\n"),
+          .split("\n").filter(Boolean).slice(-30).join("\n"),
         // lastCheckInImpr: MTD impressions as of the most recent check-in
         // Used to detect dead campaigns: if next check-in shows same/lower number, campaign went dark
         lastCheckInImpr: String(u.impressions||0),
