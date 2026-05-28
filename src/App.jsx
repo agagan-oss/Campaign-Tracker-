@@ -400,16 +400,32 @@ function parseIOPdf(text) {
   // the service prefix and the subfield label is optional:
   //  - Radio FM: "Mobile ID Integration: FB/IG Start Date: 06/01/2026"  (colon is inside the prefix)
   //  - AMB:      "Social Media: Start Date: 06/01/2026"                  (colon separates prefix from subfield)
-  // Regex allows ":" between prefix and label OR within label, with whitespace tolerance.
+  // ALSO handles labels that WRAP across two lines in the PDF (e.g.
+  //   line 1: "Social Media: Gross Dollar($) Budget to"
+  //   line 2: "CTVBuyer - Static:"
+  //   line 3: "3200.04"
+  // by trying the regex against line[i] AND line[i] + " " + line[i+1].
   function getField(prefix, label) {
     const re = new RegExp("^" + escapeRe(prefix) + "\\s*:?\\s*" + escapeRe(label) + "\\b", "i");
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
+      // Try single-line match first
       const m = l.match(re);
       if (m) {
         const rest = l.slice(m[0].length).replace(/^[\s:()\#$-]+/, "").trim();
         if (looksLikeValue(rest)) return rest;
         return lines[i+1] || null;
+      }
+      // Try wrapped-label match: current line + next line joined.
+      // The label might span 2 lines in the PDF; value is on line+2.
+      if (i + 1 < lines.length) {
+        const joined = l + " " + lines[i+1];
+        const m2 = joined.match(re);
+        if (m2) {
+          const rest = joined.slice(m2[0].length).replace(/^[\s:()\#$-]+/, "").trim();
+          if (looksLikeValue(rest)) return rest;
+          return lines[i+2] || null;
+        }
       }
     }
     return null;
@@ -1775,7 +1791,7 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
   );
 }
 
-function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null }) {
+function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null, onDiscardAllDrafts=null }) {
   const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",clientWebsite:"",
     // Report data fields
     demoAge:"",       // JSON: [{label:"18-24",pct:32},{label:"25-34",pct:28}...]
@@ -1862,14 +1878,23 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             )}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-            {/* When in draft-queue mode, expose a "Skip" button so the user can
-                discard the current draft without saving and advance to the next. */}
+            {/* When in draft-queue mode, expose two actions:
+                - Skip: drop just this draft, advance to next
+                - Discard all: drop the entire queue (with confirm-by-click pattern)
+                Closing via × just HIDES the modal — drafts stay saved for later. */}
             {onSkipDraft && (
               <button onClick={onSkipDraft}
                 style={{background:"none",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:6,padding:"5px 11px",color:_lm?"#64748b":"#7a9bbf",fontSize:11,fontWeight:600,cursor:"pointer"}}>
                 Skip draft →
               </button>
             )}
+            {onDiscardAllDrafts && (
+              <button onClick={()=>{ if(confirm(`Discard all ${draftQueueInfo?.total||""} drafts from this IO? This cannot be undone.`)) onDiscardAllDrafts(); }}
+                style={{background:"none",border:`1px solid ${_lm?"#fca5a5":"#7f1d1d"}`,borderRadius:6,padding:"5px 11px",color:_lm?"#dc2626":"#fca5a5",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                Discard all
+              </button>
+            )}
+            {draftQueueInfo && <span style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",fontStyle:"italic"}}>× hides for later</span>}
             <button onClick={onClose} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",cursor:"pointer",fontSize:22,lineHeight:1,padding:0}}>×</button>
           </div>
         </div>
@@ -5436,8 +5461,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   // Apply search + filters
   const q = search.trim().toLowerCase();
-  const updatedTodayCount = allRows.filter(({c})=>c.lastChecked===todayStr).length;
-  const notUpdatedCount   = allRows.filter(({c})=>c.lastChecked!==todayStr).length;
+  // Updated/Not-Updated counts include OFF campaigns too — off campaigns still
+  // show in the Pacing tab (Off Campaigns section) so the user wants visibility
+  // into their sync status alongside active ones.
+  const updatedTodayCount = campaigns.filter(c=>c.lastChecked===todayStr).length;
+  const notUpdatedCount   = campaigns.filter(c=>c.lastChecked!==todayStr).length;
   const filtered = allRows.filter(({c})=>{
     if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
@@ -8816,11 +8844,19 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         if(accEntry && campaigns.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
       }
     }
-    // For Facebook TapClicks XLSX format: primary key is Account Name (same stability
-    // argument as Google — ad sets change names but the Account stays constant)
+    // For Facebook TapClicks XLSX format: use a COMPOUND key (account + ad-set name)
+    // so each row maps uniquely, even when multiple ad sets share the same account
+    // but should route to different tracker campaigns. Fall back to acc-only key for
+    // backward compat with mappings saved before this change.
     if(source==="Facebook/Meta" && row && row["Account"]){
       const accName = getFBAccountName(row);
+      const fbCampSub = (row["Campaign"]||"").toString().trim();
       if(accName){
+        // 1. Compound (acc + campaign) — authoritative
+        const compoundKey = `Facebook/Meta||acc:${accName.toLowerCase()}||camp:${fbCampSub.toLowerCase()}`;
+        const compoundEntry = savedMappings[compoundKey];
+        if(compoundEntry && campaigns.find(c=>String(c.id)===String(compoundEntry.campId))) return compoundEntry.campId;
+        // 2. Acc-only fallback — older saves used this format
         const accKey = `Facebook/Meta||acc:${accName.toLowerCase()}`;
         const accEntry = savedMappings[accKey];
         if(accEntry && campaigns.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
@@ -8853,10 +8889,17 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         next[makeGoogleNameKey(accountName)]={...payload,accountName};
       }
       if(source==="Facebook/Meta" && accountName){
-        // TapClicks Facebook XLSX format — Account field is the stable client identifier.
-        // Same pattern as Google: future drops with the same Account → auto-match without
-        // needing to remember per-line ad set names.
-        next[`Facebook/Meta||acc:${accountName.toLowerCase()}`]={...payload,accountName};
+        // TapClicks Facebook XLSX format. Write BOTH keys:
+        //  - Compound (acc + camp): authoritative, unique per row even when
+        //    multiple ad sets in the same account route to different tracker campaigns
+        //  - Acc-only: convenient fallback for the 1-campaign-per-account case
+        // The lookup tries compound first, then falls through to acc-only.
+        // csvName for FB is "{Account} · {Campaign}" — split out the campaign sub-name.
+        const fbCampSub = csvName.includes(" · ") ? csvName.split(" · ").slice(1).join(" · ") : "";
+        if (fbCampSub) {
+          next[`Facebook/Meta||acc:${accountName.toLowerCase()}||camp:${fbCampSub.toLowerCase()}`] = {...payload, accountName, fbCampSub};
+        }
+        next[`Facebook/Meta||acc:${accountName.toLowerCase()}`] = {...payload, accountName};
       }
       // Always also save by campaign name as a fallback key (used by non-TTD/Google sources
       // and as legacy fallback for older TTD saves that lacked the compound key).
@@ -8986,6 +9029,35 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
           return;
         }
         setSavedMsg(`Filtered ${before.toLocaleString()} FB rows → ${rows.length} rows for _${userInitials}`);
+      }
+    }
+
+    // ── Google Ads (TapClicks company-wide export): same rep filter as FB ──
+    // The Google export has an "Account Name" column with rep-suffix pattern
+    // (e.g. "COM-Envista Credit Union_LR", "ALL-Pearl Hawaii FCU_AG"). Filter
+    // out other reps' rows so Austin only sees his own ~10 campaigns instead
+    // of 60+ company-wide.
+    if(source==="Google" && rows.length > 0 && rows[0]["Account Name"] !== undefined){
+      const sampleAccounts = rows.slice(0, 5).map(r => (r["Account Name"]||"").toString());
+      const looksLikeCompanyWide = sampleAccounts.some(a => /_[A-Za-z]{2,3}\s*$/.test(a));
+      if (looksLikeCompanyWide) {
+        if(!userInitials){
+          setShowInitialsPrompt(true);
+          setFileError("Please set your rep initials so we can filter this company-wide Google file to just your campaigns.");
+          return;
+        }
+        const before = rows.length;
+        const initialsLower = userInitials.toLowerCase();
+        rows = rows.filter(row => {
+          const acc = (row["Account Name"]||"").toString().trim();
+          const m = acc.match(/_([A-Za-z]{2,3})\s*$/);
+          return m && m[1].toLowerCase() === initialsLower;
+        });
+        if(!rows.length){
+          setFileError(`No Google rows found for initials _${userInitials}. The file had ${before.toLocaleString()} rows total but none matched your initials. Check your initials in settings or verify the file contains your accounts.`);
+          return;
+        }
+        setSavedMsg(`Filtered ${before.toLocaleString()} Google rows → ${rows.length} rows for _${userInitials}`);
       }
     }
 
@@ -9221,14 +9293,16 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
     }));
     // Save per-name memory (persists across future file drops even if file contents change)
     // For TradeDesk: also save the advertiser name so lookup is stable regardless of campaign name changes.
+    // NOTE: We save EVERY mapping in the apply set, regardless of original auto-match
+    // confidence. The user reviewed each row before clicking Apply (and explicitly
+    // confirmed low-confidence ones via the "Apply Anyway" prompt) — that's an
+    // implicit endorsement of the mapping. Filtering by conf here was hiding mappings
+    // the user had clearly accepted, so next-drop auto-match was missing them.
     const entries=Object.entries(mapping)
       .filter(([idxStr,campId])=>{
         const idx=parseInt(idxStr);
         if(!campId || isNaN(idx) || !fileRows[idx]) return false;
-        // Only save high-confidence matches to memory — low-confidence auto-matches may be wrong
-        // and we don't want them poisoning future sessions with bad pairings.
-        const conf = matchConf[idx];
-        return conf === undefined || conf >= 0.7;
+        return true;
       })
       .map(([idxStr,campId])=>{
         const row=fileRows[parseInt(idxStr)];
@@ -10914,6 +10988,122 @@ ${reportHtml}
 const CONFIG_KEY = "campaign-tracker-platform-config";
 
 // ─── Platform Config Tab ───────────────────────────────────────────────────
+// ─── PrefixPartnerSettings ────────────────────────────────────────────────
+// Editable lookup: maps CSV/IO prefix codes (e.g. "CMW") to human-readable
+// partner names (e.g. "Carter Media Works"). Used by Add Campaign / IO PDF
+// flow to auto-suggest the Media Partner field when a known prefix appears.
+function PrefixPartnerSettings({ partnerPrefixes, setPartnerPrefixes, lightMode }) {
+  const _lm = lightMode;
+  const [newPrefix, setNewPrefix] = useState("");
+  const [newPartner, setNewPartner] = useState("");
+  const [editingKey, setEditingKey] = useState(null);
+  const [editValue, setEditValue] = useState("");
+  const entries = Object.entries(partnerPrefixes).sort(([a], [b]) => a.localeCompare(b));
+
+  function addMapping() {
+    const p = newPrefix.trim().toUpperCase();
+    const n = newPartner.trim();
+    if (!p || !n) return;
+    setPartnerPrefixes(map => ({ ...map, [p]: n }));
+    setNewPrefix(""); setNewPartner("");
+  }
+  function saveEdit(key) {
+    const v = editValue.trim();
+    if (!v) return;
+    setPartnerPrefixes(map => ({ ...map, [key]: v }));
+    setEditingKey(null); setEditValue("");
+  }
+  function deleteMapping(key) {
+    setPartnerPrefixes(map => { const next = {...map}; delete next[key]; return next; });
+  }
+
+  return (
+    <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:10,padding:"16px 20px",marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+        <span style={{fontSize:14,fontWeight:800,color:_lm?"#0f172a":"#edf4ff"}}>🏷 Partner Prefix Mappings</span>
+        <span style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",background:_lm?"#f1f5f9":"#0a1320",padding:"2px 7px",borderRadius:10,fontWeight:600}}>{entries.length} mapped</span>
+      </div>
+      <div style={{fontSize:12,color:_lm?"#64748b":"#7a9bbf",marginBottom:14,lineHeight:1.5}}>
+        When CSV rows or IO PDFs reference an account like <span style={{fontFamily:"monospace",color:_lm?"#0f172a":"#d8eaf8",background:_lm?"#f1f5f9":"#0a1628",padding:"1px 5px",borderRadius:3}}>CMW-Client Name_AG</span>,
+        the leading <strong>CMW</strong> prefix maps to the partner name <strong>Carter Media Works</strong>. Add your other partner codes here so the
+        system can suggest the right Media Partner when adding new campaigns.
+      </div>
+
+      {/* Add new mapping */}
+      <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"flex-end"}}>
+        <div style={{flexShrink:0,width:100}}>
+          <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Prefix Code</div>
+          <input value={newPrefix} onChange={e=>setNewPrefix(e.target.value.toUpperCase())} placeholder="CMW"
+            onKeyDown={e=>{if(e.key==="Enter")addMapping();}}
+            style={{width:"100%",background:_lm?"#f8fafc":"#0a1628",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none",fontFamily:"monospace",fontWeight:700,letterSpacing:".05em"}}/>
+        </div>
+        <div style={{flex:1}}>
+          <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Partner Name</div>
+          <input value={newPartner} onChange={e=>setNewPartner(e.target.value)} placeholder="Carter Media Works"
+            onKeyDown={e=>{if(e.key==="Enter")addMapping();}}
+            style={{width:"100%",background:_lm?"#f8fafc":"#0a1628",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+        </div>
+        <button onClick={addMapping} disabled={!newPrefix.trim()||!newPartner.trim()}
+          style={{background:newPrefix.trim()&&newPartner.trim()?(_lm?"#059669":"#002e24"):(_lm?"#e2e8f0":"#1a2744"),border:`1px solid ${newPrefix.trim()&&newPartner.trim()?(_lm?"#059669":"#00c89660"):(_lm?"#cbd5e1":"#1e293b")}`,borderRadius:6,padding:"7px 16px",color:newPrefix.trim()&&newPartner.trim()?(_lm?"#ffffff":"#00d48a"):(_lm?"#94a3b8":"#3d5a72"),fontSize:12,fontWeight:700,cursor:newPrefix.trim()&&newPartner.trim()?"pointer":"default"}}>
+          + Add
+        </button>
+      </div>
+
+      {/* Existing mappings list */}
+      {entries.length === 0 ? (
+        <div style={{padding:"20px 0",textAlign:"center",fontSize:12,color:_lm?"#94a3b8":"#4d6e8a",fontStyle:"italic"}}>
+          No prefix mappings yet. Add one above to get started.
+        </div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          {entries.map(([prefix, partner]) => (
+            <div key={prefix} style={{display:"flex",alignItems:"center",gap:10,background:_lm?"#f8fafc":"#0a1628",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:6,padding:"8px 12px"}}>
+              <span style={{fontFamily:"monospace",fontSize:13,fontWeight:700,color:_lm?"#059669":"#00d48a",background:_lm?"#d1fae5":"#002e24",border:`1px solid ${_lm?"#10b981":"#00c89660"}`,borderRadius:4,padding:"2px 9px",letterSpacing:".05em",minWidth:60,textAlign:"center"}}>
+                {prefix}
+              </span>
+              <span style={{color:_lm?"#94a3b8":"#4d6e8a",fontSize:13}}>→</span>
+              {editingKey === prefix ? (
+                <input autoFocus value={editValue} onChange={e=>setEditValue(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==="Enter") saveEdit(prefix); if(e.key==="Escape"){setEditingKey(null);setEditValue("");} }}
+                  style={{flex:1,background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#0ea5e9":"#3b82f6"}`,borderRadius:5,padding:"5px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+              ) : (
+                <span style={{flex:1,fontSize:13,color:_lm?"#0f172a":"#d8eaf8",fontWeight:500}}>{partner}</span>
+              )}
+              <div style={{display:"flex",gap:5,flexShrink:0}}>
+                {editingKey === prefix ? (
+                  <>
+                    <button onClick={()=>saveEdit(prefix)}
+                      style={{background:_lm?"#059669":"#002e24",border:`1px solid ${_lm?"#059669":"#00c89660"}`,borderRadius:5,padding:"4px 10px",color:_lm?"#ffffff":"#00d48a",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                      ✓ Save
+                    </button>
+                    <button onClick={()=>{setEditingKey(null);setEditValue("");}}
+                      style={{background:"none",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:5,padding:"4px 10px",color:_lm?"#64748b":"#7a9bbf",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={()=>{setEditingKey(prefix);setEditValue(partner);}}
+                      title="Edit partner name"
+                      style={{background:"none",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:5,padding:"4px 9px",color:_lm?"#475569":"#7a9bbf",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                      Edit
+                    </button>
+                    <button onClick={()=>deleteMapping(prefix)}
+                      title="Delete mapping"
+                      style={{background:"none",border:`1px solid ${_lm?"#fca5a5":"#7f1d1d"}`,borderRadius:5,padding:"4px 9px",color:_lm?"#dc2626":"#fca5a5",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                      ✕
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, ttdSyncStatus=null, ttdSyncInfo=null, dspSyncStatus=null, dspSyncInfo=null, googleSyncStatus=null, googleSyncInfo=null, snapSyncStatus=null, snapSyncInfo=null }) {
   const [cfg, setCfg] = useState(()=>{
     try { const s=localStorage.getItem(CONFIG_KEY); return s?JSON.parse(s):{}; } catch { return {}; }
@@ -12236,10 +12426,30 @@ export default function App() {
   // pdfDrafts: array of { ...campaign fields } pending user approval
   // pdfMeta:   info about the source PDF (reference #, advertiser, partner)
   // pdfError / pdfProcessing: feedback while parsing
-  const [pdfDrafts, setPdfDrafts] = useState(null);
-  const [pdfMeta, setPdfMeta] = useState(null);
+  // Both pdfDrafts + pdfMeta are PERSISTED to localStorage so that accidentally
+  // clicking outside the draft modal doesn't lose hours of parsing work. The
+  // user can come back later via the "📄 N drafts pending" chip in the header.
+  const [pdfDrafts, setPdfDrafts] = useState(() => {
+    try { const s = localStorage.getItem("zeus-pdf-drafts"); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+  const [pdfMeta, setPdfMeta] = useState(() => {
+    try { const s = localStorage.getItem("zeus-pdf-meta"); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+  const [pdfQueueOpen, setPdfQueueOpen] = useState(false); // whether the draft modal is currently shown
   const [pdfError, setPdfError] = useState("");
   const [pdfProcessing, setPdfProcessing] = useState(false);
+  useEffect(() => {
+    try {
+      if (pdfDrafts && pdfDrafts.length) localStorage.setItem("zeus-pdf-drafts", JSON.stringify(pdfDrafts));
+      else localStorage.removeItem("zeus-pdf-drafts");
+    } catch {}
+  }, [pdfDrafts]);
+  useEffect(() => {
+    try {
+      if (pdfMeta) localStorage.setItem("zeus-pdf-meta", JSON.stringify(pdfMeta));
+      else localStorage.removeItem("zeus-pdf-meta");
+    } catch {}
+  }, [pdfMeta]);
 
   async function handleIOPdfDrop(file) {
     if (!file) return;
@@ -12267,6 +12477,7 @@ export default function App() {
       // indicator counts up correctly through the queue.
       setPdfMeta({ reference: io.reference, partner: io.partner, advertiser: io.advertiser, submitted: io.submitted, fileName: file.name, _initialCount: drafts.length });
       setPdfDrafts(drafts);
+      setPdfQueueOpen(true); // open the queue modal immediately
     } catch (e) {
       console.error("PDF parse failed:", e);
       setPdfError(`Couldn't parse PDF: ${e.message || e}`);
@@ -12521,6 +12732,21 @@ export default function App() {
     }).length
   ,[campaigns,dateRange.preset]);
   const [activityLog, setActivityLog] = useState(()=>{ try { const s=localStorage.getItem(ACTIVITY_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
+  // Partner-prefix lookup. Maps CSV prefix codes (e.g. "CMW") to human partner names
+  // (e.g. "Carter Media Works"). Used when adding new campaigns: if a CSV row's
+  // account starts with a known prefix, the system suggests the partner name.
+  // Managed via the Config tab → Partner Prefix Mappings card.
+  const [partnerPrefixes, setPartnerPrefixes] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("campaign-tracker-partner-prefixes") || "null");
+      // First-time setup: seed with the explicit mapping Austin just gave me
+      if (!stored || Object.keys(stored).length === 0) return { "CMW": "Carter Media Works" };
+      return stored;
+    } catch { return { "CMW": "Carter Media Works" }; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("campaign-tracker-partner-prefixes", JSON.stringify(partnerPrefixes)); } catch {}
+  }, [partnerPrefixes]);
   const [archive, setArchive] = useState(()=>{ try { const s=localStorage.getItem(ARCHIVE_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
   const [metaSyncStatus, setMetaSyncStatus] = useState(null);
   const [metaSyncInfo,   setMetaSyncInfo]   = useState(null);
@@ -13131,6 +13357,16 @@ export default function App() {
               <input type="file" accept=".pdf,application/pdf" style={{display:"none"}} disabled={pdfProcessing}
                 onChange={e=>{ handleIOPdfDrop(e.target.files[0]); e.target.value=""; }}/>
             </label>
+            {/* Pending IO drafts chip — appears when user closed the modal without
+                finishing the queue. One click reopens the next draft for review. */}
+            {pdfDrafts && pdfDrafts.length > 0 && !pdfQueueOpen && (
+              <button onClick={()=>setPdfQueueOpen(true)}
+                title={`${pdfDrafts.length} IO draft${pdfDrafts.length>1?"s":""} saved for later — click to resume reviewing`}
+                style={{background:lightMode?"#fef9c3":"#2a1a00",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b80"}`,borderRadius:7,padding:"6px 11px",color:lightMode?"#92400e":"#fbbf24",fontWeight:700,fontSize:12,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>
+                📄 {pdfDrafts.length} draft{pdfDrafts.length>1?"s":""} pending
+                <span style={{fontSize:10,opacity:.8}}>· resume →</span>
+              </button>
+            )}
             <button onClick={doExport} style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ JSON</button>
             <button onClick={doExportCSV} style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ CSV</button>
             <label style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>
@@ -13189,13 +13425,16 @@ export default function App() {
             onSetReminder={(r)=>{ setReminders(prev=>[...prev,r]); }}
           />
         ) : activeTab==="config" ? (
-          <PlatformConfig campaigns={campaigns}
-            metaSyncStatus={metaSyncStatus}   metaSyncInfo={metaSyncInfo}
-            ttdSyncStatus={ttdSyncStatus}     ttdSyncInfo={ttdSyncInfo}
-            dspSyncStatus={dspSyncStatus}     dspSyncInfo={dspSyncInfo}
-            googleSyncStatus={googleSyncStatus} googleSyncInfo={googleSyncInfo}
-            snapSyncStatus={snapSyncStatus}   snapSyncInfo={snapSyncInfo}
-          />
+          <>
+            <PrefixPartnerSettings partnerPrefixes={partnerPrefixes} setPartnerPrefixes={setPartnerPrefixes} lightMode={lightMode}/>
+            <PlatformConfig campaigns={campaigns}
+              metaSyncStatus={metaSyncStatus}   metaSyncInfo={metaSyncInfo}
+              ttdSyncStatus={ttdSyncStatus}     ttdSyncInfo={ttdSyncInfo}
+              dspSyncStatus={dspSyncStatus}     dspSyncInfo={dspSyncInfo}
+              googleSyncStatus={googleSyncStatus} googleSyncInfo={googleSyncInfo}
+              snapSyncStatus={snapSyncStatus}   snapSyncInfo={snapSyncInfo}
+            />
+          </>
         ) : activeTab==="activity" ? (
           <ActivityLog log={activityLog} campaigns={campaigns} onUndo={handleUndo} onClear={async()=>{ if(await confirm({title:"Clear activity log?",message:"This cannot be undone.",confirmLabel:"Clear",danger:true})){ setActivityLog([]); try{localStorage.removeItem(ACTIVITY_KEY);}catch(e){} }}} />
         ) : activeTab==="pacing" ? (
@@ -13867,7 +14106,7 @@ export default function App() {
           of pending drafts. We walk through them one at a time: the FIRST draft
           opens in the standard Add Campaign modal pre-filled with the parsed data.
           Saving advances to the next; "Skip draft" discards the current and advances. */}
-      {pdfDrafts && pdfDrafts.length > 0 && (() => {
+      {pdfDrafts && pdfDrafts.length > 0 && pdfQueueOpen && (() => {
         const draftIndex = (pdfMeta?._initialCount || pdfDrafts.length) - pdfDrafts.length + 1;
         const total = pdfMeta?._initialCount || pdfDrafts.length;
         const current = pdfDrafts[0];
@@ -13884,7 +14123,7 @@ export default function App() {
               // Drop just the current draft and move on
               setPdfDrafts(ds => {
                 const next = ds.slice(1);
-                if (next.length === 0) { setPdfMeta(null); return null; }
+                if (next.length === 0) { setPdfMeta(null); setPdfQueueOpen(false); return null; }
                 return next;
               });
             }}
@@ -13894,15 +14133,20 @@ export default function App() {
               addLog({ type:"created", campaignName:n.campaignName, partner:n.mediaPartner, platform:n.platform, detail:`Added from IO #${pdfMeta?.reference||""}`, campaignId:n.id, prevSnapshot:null });
               setPdfDrafts(ds => {
                 const next = ds.slice(1);
-                if (next.length === 0) { setPdfMeta(null); return null; }
+                if (next.length === 0) { setPdfMeta(null); setPdfQueueOpen(false); return null; }
                 return next;
               });
             }}
             onClose={()=>{
-              // Closing the modal without saving cancels the WHOLE remaining queue
-              // (user pressing × is the bail-out — Skip is the per-draft action).
+              // ×/click-outside just HIDES the modal — drafts stay persisted in localStorage.
+              // The "📄 N drafts pending" chip in the header reopens them later. To actually
+              // discard, the user clicks "Discard all" inside the modal (see Modal header).
+              setPdfQueueOpen(false);
+            }}
+            onDiscardAllDrafts={()=>{
               setPdfDrafts(null);
               setPdfMeta(null);
+              setPdfQueueOpen(false);
             }}
           />
         );
