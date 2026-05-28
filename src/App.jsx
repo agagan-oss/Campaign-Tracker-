@@ -5271,7 +5271,7 @@ function PacingDateBar({ range, setRange, lightMode=false }) {
 }
 
 // ─── Pacing Dashboard ─────────────────────────────────────────────────────
-function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{}, onActivate=()=>{}, onReassignLine=()=>{}, onClearLine=()=>{} }) {
+function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{}, onActivate=()=>{}, onSetStatus=()=>{}, onReassignLine=()=>{}, onClearLine=()=>{} }) {
   // ── Reassign-line modal state ──
   // When the user clicks the ↪ icon on a breakdown line, we open a search modal
   // that lets them move that line's data to a different campaign without redoing QCI.
@@ -5713,7 +5713,21 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         {dr!==null&&<span style={{fontSize:10,fontWeight:700,...vBadge(drc),borderRadius:4,padding:"1px 6px",marginLeft:2}}>
           {dr<=0?"Ended":dr===1?"Last day":dr+"d left"}
         </span>}
-        <button onClick={()=>onEdit(c)} style={{marginLeft:"auto",background:lightMode?"#e2e8f0":"#162236",border:"1px solid "+(lightMode?"#94a3b8":"#334155"),borderRadius:5,color:lightMode?"#334155":lmTxtM,fontSize:11,padding:"3px 8px",cursor:"pointer",fontWeight:600,flexShrink:0}}>Edit</button>
+        {/* Quick status toggle — flip active↔off without opening the Edit modal.
+            Useful after seeing a ✓ Goal Hit badge: one click to pause the campaign. */}
+        {c.status === "active" && (
+          <button onClick={()=>onSetStatus(c.id, "off")} title="Pause campaign (set status to off)"
+            style={{marginLeft:"auto",background:lightMode?"#fef3c7":"#1a1208",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b60"}`,borderRadius:5,color:lightMode?"#92400e":"#fbbf24",fontSize:11,padding:"3px 8px",cursor:"pointer",fontWeight:700,flexShrink:0}}>
+            ⏸ Pause
+          </button>
+        )}
+        {c.status === "off" && (
+          <button onClick={()=>onSetStatus(c.id, "active")} title="Activate campaign"
+            style={{marginLeft:"auto",background:lightMode?"#d1fae5":"#002e24",border:`1px solid ${lightMode?"#10b981":"#00c89660"}`,borderRadius:5,color:lightMode?"#059669":"#00d48a",fontSize:11,padding:"3px 8px",cursor:"pointer",fontWeight:700,flexShrink:0}}>
+            ▶ Activate
+          </button>
+        )}
+        <button onClick={()=>onEdit(c)} style={{marginLeft:c.status==="active"||c.status==="off"?0:"auto",background:lightMode?"#e2e8f0":"#162236",border:"1px solid "+(lightMode?"#94a3b8":"#334155"),borderRadius:5,color:lightMode?"#334155":lmTxtM,fontSize:11,padding:"3px 8px",cursor:"pointer",fontWeight:600,flexShrink:0}}>Edit</button>
       </div>
       <div style={{fontSize:11,color:lmTxtS,marginBottom:6}}>{c.mediaPartner}</div>
 
@@ -6193,8 +6207,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
-      {/* Edit + Clear */}
-      <div style={{display:"flex",flexDirection:"row",gap:6,alignItems:"center"}}>
+      {/* Edit + Clear + status toggle */}
+      <div style={{display:"flex",flexDirection:"row",gap:4,alignItems:"center"}}>
+        {/* Quick pause/activate without opening the modal */}
+        {c.status === "active" && (
+          <button onClick={()=>onSetStatus(c.id, "off")} title="Pause campaign (set to off)"
+            style={{background:lightMode?"#fef3c7":"#1a1208",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b60"}`,borderRadius:4,color:lightMode?"#92400e":"#fbbf24",fontSize:11,padding:"2px 5px",cursor:"pointer",lineHeight:1,fontWeight:700}}>⏸</button>
+        )}
+        {c.status === "off" && (
+          <button onClick={()=>onSetStatus(c.id, "active")} title="Activate campaign"
+            style={{background:lightMode?"#d1fae5":"#002e24",border:`1px solid ${lightMode?"#10b981":"#00c89660"}`,borderRadius:4,color:lightMode?"#059669":"#00d48a",fontSize:11,padding:"2px 5px",cursor:"pointer",lineHeight:1,fontWeight:700}}>▶</button>
+        )}
         <button onClick={()=>onEdit(c)} title="Edit campaign" style={{background:lightMode?"#e2e8f0":"none",border:lightMode?"1px solid #94a3b8":"none",borderRadius:4,color:lightMode?"#334155":"#7a9bbf",fontSize:12,padding:"2px 5px",cursor:"pointer",lineHeight:1}}>✎</button>
         {clearPendingId===c.id
           ? <button onClick={()=>{ onClearMetrics(c.id); setClearPendingId(null); }} title="Confirm clear"
@@ -13178,6 +13201,11 @@ export default function App() {
         ) : activeTab==="pacing" ? (
           <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} lightMode={lightMode}
             onActivate={(id)=>setCampaigns(cs=>cs.map(c=>c.id===id?{...c,status:"active"}:c))}
+            onSetStatus={(id, status) => {
+              setCampaigns(cs => cs.map(c => c.id === id ? { ...c, status } : c));
+              const camp = campaigns.find(c => c.id === id);
+              if (camp) addLog({ type: "edited", campaignName: camp.campaignName, partner: camp.mediaPartner, platform: camp.platform, detail: `Status changed → ${status}`, campaignId: id, prevSnapshot: null });
+            }}
             onReassignLine={(target, toCampaignId) => reassignBreakdownLine(target, toCampaignId)}
             onClearLine={(target) => clearBreakdownLine(target)}
             onEdit={(camp)=>setEditTarget(camp)}
@@ -13189,7 +13217,7 @@ export default function App() {
                   impressions:"", clicks:"", ctr:"", cpm:"", spend:"",
                   reach:"", frequency:"", videoViews:"", completionRate:"",
                   checkInLog:"", lastCheckInImpr:"",
-                  goalHit: false, closeToGoal: false, goalHitDismissed: false,
+                  goalHit: false, closeToGoal: false, goalHitDismissed: false, closeToGoalDismissed: false,
                 };
                 // Clear MTD snapshot data from each platform source, preserve config keys
                 if(c.ttdSnapshots)    cleared.ttdSnapshots    = {...c.ttdSnapshots,    mtd:undefined};
@@ -13390,9 +13418,9 @@ export default function App() {
             </div>
           ))}
           <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
-            {campaigns.some(c=>c.goalHit||c.closeToGoal||c.goalHitDismissed) && (
+            {campaigns.some(c=>c.goalHit||c.closeToGoal||c.goalHitDismissed||c.closeToGoalDismissed) && (
               <button
-                onClick={async()=>{ if(await confirm({title:"Reset all goal badges?",message:"Clears 🎯 Goal Hit and ⏳ Close to Goal from all campaigns. Monthly Flight ★ and Reminders 🔔 are not affected.",confirmLabel:"Reset"})) setCampaigns(cs=>cs.map(c=>({...c,goalHit:false,closeToGoal:false,goalHitDismissed:false}))); }}
+                onClick={async()=>{ if(await confirm({title:"Reset all goal badges?",message:"Clears 🎯 Goal Hit and ⏳ Close to Goal from all campaigns. Monthly Flight ★ and Reminders 🔔 are not affected.",confirmLabel:"Reset"})) setCampaigns(cs=>cs.map(c=>({...c,goalHit:false,closeToGoal:false,goalHitDismissed:false,closeToGoalDismissed:false}))); }}
                 title="Clear all Goal Hit and Close to Goal badges — use at the start of a new month"
                 style={{background:lightMode?"#f1f5f9":"#0e1a2e",border:`1px solid ${lightMode?"#cbd5e1":"#334155"}`,borderRadius:7,padding:"7px 13px",color:lightMode?"#475569":"#4d6e8a",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}
               >↺ Reset Goals</button>
@@ -13626,12 +13654,14 @@ export default function App() {
                                     const autoGoalHit=pacing&&pacing.pct>=1;
                                     const autoClose=pacing&&pacing.pct>=0.8&&pacing.pct<1;
                                     const showGoalHit=(autoGoalHit||c.goalHit)&&!c.goalHitDismissed;
-                                    const showClose=!showGoalHit&&(autoClose||c.closeToGoal);
+                                    // Match Goal Hit's dismissal pattern: respect the user's
+                                    // dismissal flag so they can manually turn off auto-tagged badges.
+                                    const showClose=!showGoalHit&&(autoClose||c.closeToGoal)&&!c.closeToGoalDismissed;
                                     const fmtPacVal=(v)=>pacing?.unit==="$"?"$"+Math.round(v).toLocaleString():v.toLocaleString()+(pacing?.unit?" "+pacing.unit:"");
                                     const tip=pacing?`${fmtPacVal(pacing.delivered)} / ${fmtPacVal(pacing.goal)} (${(pacing.pct*100).toFixed(0)}%)`:"Manual";
                                     return (<>
                                       {showGoalHit&&<button onClick={()=>updateCampaign({...c,goalHit:false,goalHitDismissed:true,closeToGoal:false})} title={`🎯 Goal hit! ${tip} — click to dismiss`} style={{background:"#00c89620",border:"1px solid #00c89660",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#00e5a0",fontWeight:700,cursor:"pointer"}}>🎯 Goal Hit</button>}
-                                      {showClose&&<button onClick={()=>updateCampaign({...c,closeToGoal:!c.closeToGoal,goalHit:false})} title={`⏳ Close to goal! ${tip}`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>⏳ Close</button>}
+                                      {showClose&&<button onClick={()=>updateCampaign({...c,closeToGoal:false,closeToGoalDismissed:true,goalHit:false})} title={`⏳ Close to goal! ${tip} — click to dismiss`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>⏳ Close</button>}
                                     </>);
                                   })()}
                                   {campReminders.length>0 && <button onClick={()=>setShowReminderModal(c.id)} style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>🔔 {campReminders.length}</button>}
@@ -13720,7 +13750,9 @@ export default function App() {
                               const autoGoalHit = pacing&&pacing.pct>=1;
                               const autoCloseToGoal = pacing&&pacing.pct>=0.8&&pacing.pct<1;
                               const showGoalHit = (autoGoalHit||c.goalHit)&&!c.goalHitDismissed;
-                              const showCloseToGoal = !showGoalHit&&(autoCloseToGoal||c.closeToGoal);
+                              // closeToGoalDismissed lets the user manually turn off the
+                              // auto-applied ⏳ Close badge (mirrors goalHitDismissed pattern).
+                              const showCloseToGoal = !showGoalHit&&(autoCloseToGoal||c.closeToGoal)&&!c.closeToGoalDismissed;
                               const fmtPV=(v)=>pacing?.unit==="$"?"$"+Math.round(v).toLocaleString():v.toLocaleString()+(pacing?.unit?" "+pacing.unit:"");
                               const tip = pacing?`${fmtPV(pacing.delivered)} / ${fmtPV(pacing.goal)} (${(pacing.pct*100).toFixed(0)}%)`:"Manual";
                               return (<>
@@ -13729,8 +13761,8 @@ export default function App() {
                                   : <button onClick={()=>updateCampaign({...c,goalHit:true,goalHitDismissed:false,closeToGoal:false})} title="Mark goal as hit" style={{background:"none",border:"none",padding:"1px 2px",fontSize:10,color:"#1e3048",fontWeight:700,flexShrink:0,cursor:"pointer",opacity:0}} className="star-toggle">🎯</button>
                                 }
                                 {showCloseToGoal
-                                  ? <button onClick={()=>updateCampaign({...c,closeToGoal:!c.closeToGoal,goalHit:false})} title={`⏳ Close to goal! ${tip} — click to unpin`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,flexShrink:0,cursor:"pointer"}}>⏳ Close</button>
-                                  : !showGoalHit&&<button onClick={()=>updateCampaign({...c,closeToGoal:true,goalHit:false})} title="Mark as close to goal" style={{background:"none",border:"none",padding:"1px 2px",fontSize:10,color:"#1e3048",fontWeight:700,flexShrink:0,cursor:"pointer",opacity:0}} className="star-toggle">⏳</button>
+                                  ? <button onClick={()=>updateCampaign({...c,closeToGoal:false,closeToGoalDismissed:true,goalHit:false})} title={`⏳ Close to goal! ${tip} — click to dismiss`} style={{background:"#f59e0b18",border:"1px solid #f59e0b50",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,flexShrink:0,cursor:"pointer"}}>⏳ Close</button>
+                                  : !showGoalHit&&<button onClick={()=>updateCampaign({...c,closeToGoal:true,closeToGoalDismissed:false,goalHit:false})} title="Mark as close to goal" style={{background:"none",border:"none",padding:"1px 2px",fontSize:10,color:"#1e3048",fontWeight:700,flexShrink:0,cursor:"pointer",opacity:0}} className="star-toggle">⏳</button>
                                 }
                               </>);
                             })()}
