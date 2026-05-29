@@ -51,6 +51,40 @@ const PLT_COLORS = (()=>{const c=loadCustomPlatforms();return{...PLT_COLORS_DEFA
 // without a lightMode prop (StatusBadge, PlatformTag, RowActions) can read it.
 let _lm = false;
 
+// Light-mode color remap: the saturated/neon hexes that read well on dark backgrounds
+// become garish on white. Map each to a readable, darker equivalent (Tailwind 600-700
+// range) so light mode looks crisp and editorial instead of "fruity". Dark mode never
+// uses this — it passes colors through untouched.
+const LM_REMAP = {
+  // greens / mints → emerald-600
+  "#00d48a":"#059669","#00e5a0":"#059669","#00e19e":"#059669","#00c896":"#059669",
+  "#00ffb3":"#059669","#34d399":"#059669","#6effd8":"#059669","#10b981":"#059669",
+  "#00e5c0":"#0d9488",
+  // yellows / ambers → amber-700
+  "#fde047":"#a16207","#fff200":"#a16207","#fbbf24":"#b45309","#f59e0b":"#b45309","#fcd34d":"#a16207",
+  // reds → red-600
+  "#ef4444":"#dc2626","#fca5a5":"#dc2626",
+  // oranges → burnt orange
+  "#f97316":"#c2410c",
+  // blues / cyans → editorial blue
+  "#38bdf8":"#0284c7","#7ec8ff":"#2563eb","#3B8FFF":"#2563eb","#7dd3fc":"#0284c7",
+  "#a3bffa":"#4338ca","#a8c4e0":"#475569",
+  // purples / pinks / fuchsia → muted boutique tones
+  "#a78bfa":"#6d28d9","#a855f7":"#7c3aed","#f472b6":"#be185d","#fda4af":"#be185d",
+  "#e879f9":"#a21caf","#e1306c":"#be185d",
+  // greys / steels → slate
+  "#94a3b8":"#475569","#6b7280":"#4b5563","#7a9bbf":"#475569","#4d6e8a":"#475569","#003a5c":"#0c4a6e",
+};
+// Remap a single color for the active mode.
+const lmCol = (c) => (_lm && typeof c === "string") ? (LM_REMAP[c.toLowerCase()] || LM_REMAP[c] || c) : c;
+// Soft-tint badge style (Linear / Stripe pattern): faint tinted fill + saturated text +
+// hairline border. Works in both modes; reads as clean, not loud. Used for status/platform
+// chips so light mode matches dark mode's restraint.
+function lmBadge(c) {
+  const vc = lmCol(c);
+  return { background: vc + (_lm ? "14" : "18"), color: vc, border: "1px solid " + vc + (_lm ? "38" : "40") };
+}
+
 function getToday() { return new Date().toISOString().split("T")[0]; }
 function fmt(d) { return d.toISOString().split("T")[0]; }
 function getDaysLeft(endDate) {
@@ -500,6 +534,11 @@ function parseIOPdf(text) {
       videoBudget:  tryFields(prefix, "Gross Dollar($) Budget to CTVBuyer - Video",  "Gross Dollar Budget to CTVBuyer - Video"),
       // Which platform the user picked (for Social Media: "Meta", "TikTok", etc.)
       socialPlatform: getField(prefix, "Which Social Platform is being used"),
+      // SEM-specific: management fee is on TOP of the media spend, and the
+      // client's total contract = budget + fee. We parse the fee separately so
+      // buildDraftsFromIO can add it into contractValue for accurate revenue.
+      managementFee: tryFields(prefix, "Recrue Media Management Fee", "Management Fee"),
+      mediaSpend:    tryFields(prefix, "Media Spend"),
       notes: getNotes(),
     };
   }
@@ -686,11 +725,15 @@ function buildDraftsFromIO(io) {
     const totalImpr = parseNum(d.impressions);
     const cpm = parseNum(d.cpm);
     const totalBudget = parseNum(d.budget);
+    const managementFee = parseNum(d.managementFee);
+    const mediaSpend = parseNum(d.mediaSpend);
 
     // Skip blocks with no budget/impressions — likely the IO has the field but it's $0
     if (totalImpr <= 0 && totalBudget <= 0) return;
 
-    const baseNote2 = `Auto-imported from IO #${io.reference || "?"}. ${svc.label}. Total: ${totalImpr.toLocaleString()} impr · $${totalBudget.toFixed(2)} budget${cpm>0?` · $${cpm.toFixed(2)} CPM`:""}.${d.notes ? " " + d.notes : ""}`.trim();
+    const feeNote = managementFee > 0 ? ` · management fee $${managementFee.toFixed(2)}` : "";
+    const spendNote = mediaSpend > 0 ? ` · media spend $${mediaSpend.toFixed(2)}` : "";
+    const baseNote2 = `Auto-imported from IO #${io.reference || "?"}. ${svc.label}. Total: ${totalImpr.toLocaleString()} impr · $${totalBudget.toFixed(2)} budget${feeNote}${spendNote}${cpm>0?` · $${cpm.toFixed(2)} CPM`:""}.${d.notes ? " " + d.notes : ""}`.trim();
 
     if (svc.splitPair) {
       // Arbitrary 50/50 split between two platforms (e.g. Performance CTV → CTV + OTT).
@@ -744,6 +787,10 @@ function buildDraftsFromIO(io) {
         contractRate: cpm ? String(cpm) : "",
         dealType: cpm ? "CPM" : "",
         contractValue: totalBudget.toFixed(2),
+        // Management fee is a separate field — only relevant for SEM. The Edit
+        // modal shows the input ONLY when platform === "SEM" but we set it here
+        // for any platform if the IO included it (won't display elsewhere).
+        managementFee: managementFee > 0 ? managementFee.toFixed(2) : "",
         note1: monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "",
         note2: baseNote2,
       });
@@ -1279,18 +1326,16 @@ function DarkCheckbox({ checked, onChange, indeterminate=false }) {
 function StatusBadge({ status }) {
   const c = STATUS_CFG[status||""]||STATUS_CFG[""];
   if (_lm) {
-    // Light mode: solid vivid fill with dark text — filled, electric, readable
-    return <span style={{background:c.color,color:"#0a1a0a",border:"none",borderRadius:4,padding:"2px 9px",fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{c.label}</span>;
+    // Light mode: soft tinted fill + saturated readable text + hairline border (crisp, not loud)
+    return <span style={{...lmBadge(c.color),borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{c.label}</span>;
   }
   return <span style={{background:c.bg,color:c.color,border:`1px solid ${c.color}40`,borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:600,letterSpacing:"0.05em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{c.label}</span>;
 }
 function PlatformTag({ p }) {
   const col = PLT_COLORS[p]||PLT_COLORS.default;
   if (_lm) {
-    // Solid fill — compute luminance to pick dark vs white text
-    const r=parseInt(col.slice(1,3),16)/255,g=parseInt(col.slice(3,5),16)/255,b=parseInt(col.slice(5,7),16)/255;
-    const txt = (0.299*r+0.587*g+0.114*b) > 0.45 ? "#0a1a0a" : "#ffffff";
-    return <span style={{background:col,color:txt,border:"none",borderRadius:3,padding:"1px 7px",fontSize:11,fontWeight:700,letterSpacing:"0.08em"}}>{p}</span>;
+    // Soft tinted fill + readable saturated text (matches StatusBadge / dark-mode rhythm)
+    return <span style={{...lmBadge(col),borderRadius:3,padding:"1px 7px",fontSize:11,fontWeight:700,letterSpacing:"0.08em"}}>{p}</span>;
   }
   return <span style={{background:col+"22",color:col,border:`1px solid ${col}55`,borderRadius:3,padding:"1px 7px",fontSize:11,fontWeight:700,letterSpacing:"0.08em"}}>{p}</span>;
 }
@@ -1800,8 +1845,8 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
   );
 }
 
-function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null, onDiscardAllDrafts=null, onPrevDraft=null, onNextDraft=null, onValuesChange=null }) {
-  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",clientWebsite:"",
+function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null, onDiscardAllDrafts=null, onPrevDraft=null, onNextDraft=null, onValuesChange=null, onSaveDraft=null, onDiscardDraft=null }) {
+  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",managementFee:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",clientWebsite:"",
     // Report data fields
     demoAge:"",       // JSON: [{label:"18-24",pct:32},{label:"25-34",pct:28}...]
     demoGender:"",    // JSON: [{label:"Female",pct:62},{label:"Male",pct:38}]
@@ -1818,6 +1863,8 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   // 3 seconds executes; otherwise auto-reverts so a stray click doesn't lock.
   const [discardThisPending, setDiscardThisPending] = useState(false);
   const [discardAllPending, setDiscardAllPending] = useState(false);
+  // Two-step confirm for discarding an in-progress Add Campaign draft.
+  const [discardDraftPending, setDiscardDraftPending] = useState(false);
   // Auto-save edits on every keystroke via onValuesChange. The parent decides
   // what "save" means:
   //  - IO draft queue: writes back to pdfDrafts[currentIdx]
@@ -2031,6 +2078,23 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                   <input type="number" value={f.contractValue||""} onChange={e=>set("contractValue",e.target.value)} placeholder="e.g. 15000" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
                 </div>
               </div>
+              {/* SEM-only: Management Fee — added on top of contract value for revenue.
+                  IOs don't always include it so it's manually entered. When spend
+                  exceeds budget, the fee gets eaten into (profit = total − spend). */}
+              {f.platform==="SEM" && (
+                <div style={{marginBottom:12}}>
+                  <label style={{display:"block",fontSize:10,color:"#a855f7",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                    🧾 Management Fee <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(on top of contract value)</span>
+                  </label>
+                  <div style={{display:"flex",alignItems:"center",background:_lm?"#f8fafc":"#162236",border:`1px solid ${f.managementFee?(_lm?"#a855f7":"#a855f760"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,overflow:"hidden"}}>
+                    <span style={{padding:"7px 10px",color:"#a855f7",fontWeight:700,fontSize:13,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
+                    <input type="number" step="0.01" value={f.managementFee||""} onChange={e=>set("managementFee",e.target.value)} placeholder="e.g. 750" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
+                  </div>
+                  <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:4,fontStyle:"italic"}}>
+                    Revenue tab will show total = Contract Value + Management Fee. If actual spend exceeds Contract Value, profit eats into the fee.
+                  </div>
+                </div>
+              )}
               {/* Deal Type + Contract Rate — drives monthly revenue calculation */}
               {f.platform!=="SEM" && (
                 <div style={{marginBottom:12}}>
@@ -2253,7 +2317,24 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             </div>
           )}
           <button onClick={submit} style={{flex:1,background:"#00e19e",border:"none",borderRadius:7,padding:"11px 0",color:"#0a1a0a",fontWeight:700,fontSize:14,cursor:"pointer"}}>{isNew?"Add Campaign":"Save Changes"}</button>
-          <button onClick={onClose} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"11px 0",color:_lm?"#475569":"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>Cancel</button>
+          {/* Add Campaign (not the IO draft queue) gets explicit draft controls:
+              "Save as Draft" closes but keeps the in-progress work; "Discard" clears
+              it after a two-step confirm so a stray click can't wipe your work. */}
+          {isNew && onSaveDraft && !draftQueueInfo ? (
+            <>
+              <button onClick={()=>onSaveDraft(f)}
+                title="Close and keep this as a draft — finish it later from the Resume draft button"
+                style={{flex:1,background:_lm?"#d1fae5":"#002e24",border:`1px solid ${_lm?"#10b981":"#00c89660"}`,borderRadius:7,padding:"11px 0",color:_lm?"#059669":"#00d48a",fontWeight:700,fontSize:14,cursor:"pointer"}}>💾 Save as Draft</button>
+              <button onClick={()=>{
+                  if (discardDraftPending) { setDiscardDraftPending(false); if(onDiscardDraft) onDiscardDraft(); }
+                  else { setDiscardDraftPending(true); setTimeout(()=>setDiscardDraftPending(p=>p===true?false:p),3000); }
+                }}
+                title="Throw away this draft and close"
+                style={{flex:1,background:discardDraftPending?(_lm?"#dc2626":"#3a0010"):(_lm?"#f1f5f9":"#162236"),border:`1px solid ${discardDraftPending?"#ef4444":(_lm?"#e2e8f0":"#334155")}`,borderRadius:7,padding:"11px 0",color:discardDraftPending?(_lm?"#ffffff":"#ef4444"):(_lm?"#475569":"#7a9bbf"),fontWeight:discardDraftPending?800:600,fontSize:14,cursor:"pointer"}}>{discardDraftPending?"Sure? Discard":"✕ Discard"}</button>
+            </>
+          ) : (
+            <button onClick={onClose} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"11px 0",color:_lm?"#475569":"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>Cancel</button>
+          )}
         </div>
 
       </div>
@@ -6892,7 +6973,13 @@ function ReassignLineModal({ target, campaigns, lightMode, onCancel, onConfirm }
 // Helper: given a campaign with contractValue + startDate + endDate,
 // spread revenue evenly across each calendar month it is active.
 function spreadRevenue(c) {
-  const contract = parseFloat(c.contractValue);
+  // For SEM (and any other platform with a separate management fee), total
+  // revenue = contractValue + managementFee. The fee is what Recrue earns on top
+  // of the client's media budget — spread it evenly across flight months too so
+  // each month shows the full revenue Recrue is entitled to.
+  const baseContract = parseFloat(c.contractValue) || 0;
+  const fee = parseFloat(c.managementFee) || 0;
+  const contract = baseContract + fee;
   if (!contract || !c.startDate || !c.endDate) return {};
   const start = new Date(c.startDate + "T00:00:00");
   const end   = new Date(c.endDate   + "T00:00:00");
@@ -10308,6 +10395,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
       const lc = monthLocks[mo].campaigns?.find(r => String(r.id) === String(c.id));
       return lc ? lc.spend : null;
     }
+    // Future months haven't happened — never pro-rate current spend forward.
+    // Their revenue stays "pending" (forecast), not fake trackable profit.
+    if (mo > thisMonth) return null;
     if (!hasSpendData(c)) return null;
     const totalSpend = getLifetimeSpend(c);
     if (totalSpend <= 0 || !c.startDate || !c.endDate) return null;
@@ -10329,15 +10419,16 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
 
   // Include campaigns that have either a legacy contract value OR a rate-based monthly revenue setup
   // By default, exclude campaigns that ended before the active month (they're done — no need to clutter)
-  const withContract = campaigns.filter(c => {
-    const hasRevenue = parseFloat(c.contractValue) > 0 || (c.dealType && parseFloat(c.contractRate) > 0);
-    if (!hasRevenue) return false;
-    if (!showEnded && c.endDate) {
-      const endMo = c.endDate.slice(0, 7); // "YYYY-MM"
-      if (endMo < activeMonth) return false; // ended before the viewed month
-    }
-    return true;
-  });
+  // Revenue-bearing campaigns. Deliberately NOT filtered by the focused month — the
+  // 12-month chart, all-time totals, and KPI tiles must stay stable as you click between
+  // months. (Previously this excluded campaigns that ended before the focused month, which
+  // silently reshaped every number on the page when navigating.) The "ended before this
+  // month" / showEnded filter is now applied ONLY to the per-month breakdown table below
+  // (see dateVisibleRows). revenueMapForCampaign already assigns $0 to months a campaign
+  // wasn't active, so including everything here keeps each month's bar correct.
+  const withContract = campaigns.filter(c =>
+    parseFloat(c.contractValue) > 0 || (c.dealType && parseFloat(c.contractRate) > 0)
+  );
   // Active non-SEM campaigns that have no CPM rate set yet — shown as a nudge in the header.
   // Mirror the same date filter that `withContract` uses (exclude campaigns that ended
   // before the active month) so the count matches what's actually being calculated in
@@ -10416,6 +10507,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
   };
   const profitColor = p => p>0?"#00d48a":p<0?"#ef4444":"#4d6e8a";
   const marginColor = m => m>=30?"#00d48a":m>=15?"#f59e0b":"#ef4444";
+  // Pending (forecast revenue, no spend yet) is drawn GREEN like profit — because it IS
+  // forecast profit — but with a dashed/hollow bar so it's clearly not booked yet. This
+  // avoids the old amber pending bars colliding with the amber Spend color.
+  const pendingChartColor = "#00d48a";
 
   // Focused-month KPIs (only count trackable revenue in profit)
   const fmTotals = monthTotals[activeMonth] || {revenue:0,spend:0,revenueWithSpend:0,pendingRev:0,pendingCount:0};
@@ -10496,6 +10591,15 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
     return 0;
   });
 
+  // Per-month breakdown table visibility: hide campaigns that ended before the focused
+  // month (unless "Show ended" is on). This is the ONLY place the focused-month date
+  // filter is applied — the chart and totals above stay stable regardless of focus.
+  const dateVisibleRows = sortedRows.filter(r => {
+    if (showEnded) return true;
+    if (r.c.endDate && r.c.endDate.slice(0, 7) < activeMonth) return false;
+    return true;
+  });
+
   // Losers and pending in focus month
   const losersThisFocus  = rows.filter(r => r.focusCell.profit != null && r.focusCell.profit < 0 && r.focusCell.rev > 0);
   const pendingThisFocus = rows.filter(r => r.focusCell.pending);
@@ -10514,7 +10618,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
   const focusActiveCampaigns = filtered.filter(c => (spreadRevenue(c)[activeMonth] || 0) > 0);
   let focusSyncedCount = 0, focusProratedCount = 0, focusPendingCount = 0;
   focusActiveCampaigns.forEach(c => {
-    if (!hasSpendData(c)) { focusPendingCount++; return; }
+    // Mirror spendForMonth exactly: future months resolve to null spend, so those
+    // campaigns are pending (not "pro-rated") — keeps the subtitle honest.
+    const s = spendForMonth(c, activeMonth);
+    if (s == null) { focusPendingCount++; return; }
     const actual = getActualMtdSpend(c);
     if (activeMonth === thisMonth && actual != null && actual > 0) {
       focusSyncedCount++;
@@ -10725,7 +10832,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
           <div style={{display:"flex",gap:16,fontSize:11,color:_lm?"#64748b":"#7a9bbf",alignItems:"center"}}>
             <span><span style={{display:"inline-block",width:10,height:10,background:"#00d48a",borderRadius:2,marginRight:6,verticalAlign:"middle"}}/>Profit</span>
             <span><span style={{display:"inline-block",width:10,height:10,background:"#ef4444",borderRadius:2,marginRight:6,verticalAlign:"middle"}}/>Loss</span>
-            <span style={{color:"#f59e0b"}}><span style={{display:"inline-block",width:10,height:10,background:"#f59e0b",borderRadius:2,marginRight:6,verticalAlign:"middle"}}/>Pending</span>
+            <span style={{color:pendingChartColor}}><span style={{display:"inline-block",width:10,height:10,background:pendingChartColor+"33",border:`1.5px dashed ${pendingChartColor}`,borderRadius:2,marginRight:6,verticalAlign:"middle",boxSizing:"border-box"}}/>Pending</span>
           </div>
         </div>
         {(() => {
@@ -10755,7 +10862,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                     <div key={mo} onClick={()=>setFocusMonth(mo===thisMonth?null:mo)}
                       style={{flex:"1 0 56px",cursor:"pointer",borderRadius:6,background:isFocus?(_lm?"#f0fdf9":"#1a274455"):"transparent",display:"flex",flexDirection:"column",padding:"0 4px"}}>
                       {/* Value above bar */}
-                      <div style={{height:20,display:"flex",alignItems:"flex-end",justifyContent:"center",fontSize:11,fontWeight:600,color:hasPending?"#f59e0b":pColor}}>
+                      <div style={{height:20,display:"flex",alignItems:"flex-end",justifyContent:"center",fontSize:11,fontWeight:600,color:hasPending?pendingChartColor:pColor}}>
                         {hasTrackable && profit > 0 ? "+"+$fk(profit) : hasPending ? $fk(t.pendingRev) : ""}
                       </div>
                       {/* Positive bar zone */}
@@ -10766,7 +10873,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                         )}
                         {pendingH > 0 && (
                           <div title={`${label} '${yr} revenue (pending spend): ${$f(t.pendingRev)}`}
-                            style={{width:"100%",maxWidth:42,height:pendingH,background:isFocus?"#f59e0b":"#f59e0b88",borderRadius:"4px 4px 0 0",border:"1px dashed #f59e0bcc",borderBottom:"none",boxSizing:"border-box"}}/>
+                            style={{width:"100%",maxWidth:42,height:pendingH,background:isFocus?pendingChartColor+"40":pendingChartColor+"26",borderRadius:"4px 4px 0 0",border:`1.5px dashed ${pendingChartColor}`,borderBottom:"none",boxSizing:"border-box"}}/>
                         )}
                       </div>
                       {/* Zero baseline */}
@@ -10797,6 +10904,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
       </div>
 
       {/* ── All-time totals ───────────────────────────────────── */}
+      <div style={{...labelStyle,marginBottom:8}}>All-Time · Every Month (not {focusLabelShort})</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:18}}>
         {[
           {label:"Total Contract", val:$fc(totRev),    color:"#7a9bbf", sub:`${filtered.length} flights`},
@@ -10813,11 +10921,20 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
       </div>
 
       {/* ── Campaign breakdown — focused month ───────────────── */}
-      {sortedRows.length===0?(
+      {dateVisibleRows.length===0?(
         <div style={{textAlign:"center",padding:"40px 0",color:_lm?"#64748b":"#3d5a72"}}>
           <div style={{fontSize:28,marginBottom:8}}>💰</div>
-          <div style={{fontSize:13}}>No campaigns with contract values yet.</div>
-          <div style={{fontSize:11,marginTop:5}}>Edit a campaign and fill in the Contract Value field to start tracking.</div>
+          {sortedRows.length===0?(
+            <>
+              <div style={{fontSize:13}}>No campaigns with contract values yet.</div>
+              <div style={{fontSize:11,marginTop:5}}>Edit a campaign and fill in the Contract Value field to start tracking.</div>
+            </>
+          ):(
+            <>
+              <div style={{fontSize:13}}>No campaigns active in {focusLabelShort}.</div>
+              <div style={{fontSize:11,marginTop:5}}>Turn on "Show ended" to include campaigns that ended before this month.</div>
+            </>
+          )}
         </div>
       ):(
         <div id="campaign-breakdown" style={{...card,padding:"14px 16px",marginBottom:16,scrollMarginTop:80}}>
@@ -10860,7 +10977,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
             <span style={{textAlign:"right"}}>Lifetime</span>
           </div>
           {/* Rows */}
-          {sortedRows.map((r,idx)=>{
+          {dateVisibleRows.map((r,idx)=>{
             const isOpen = expandedRow===r.c.id;
             const profCol = r.focusCell.profit!=null ? profitColor(r.focusCell.profit) : "#3d5a72";
             const margCol = r.focusMargin!=null ? marginColor(r.focusMargin) : "#3d5a72";
@@ -12827,6 +12944,11 @@ export default function App() {
     }
   }
   const [showAdd, setShowAdd]     = useState(false);
+  // Whether an unfinished Add Campaign draft is sitting in localStorage. Drives the
+  // "Resume draft" chip in the toolbar so a click-out doesn't silently strand work.
+  // A draft "counts" once it has a name or partner typed in.
+  const addDraftMeaningful = (s) => { try { const d = typeof s==="string"?JSON.parse(s):s; return !!(d && (String(d.campaignName||"").trim() || String(d.mediaPartner||"").trim())); } catch { return false; } };
+  const [hasAddDraft, setHasAddDraft] = useState(()=>{ try { return addDraftMeaningful(localStorage.getItem("campaign-tracker-add-draft")); } catch { return false; } });
   const [showExportReminder, setShowExportReminder] = useState(false);
   const [showReminderModal, setShowReminderModal]   = useState(null); // null=closed, true=open all, number=open focused on campaign
   const [renewTarget, setRenewTarget]               = useState(null);
@@ -13486,6 +13608,18 @@ export default function App() {
             </button>
             <button onClick={()=>{ setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today}))); addLog({type:"checked",campaignName:"All campaigns",partner:"",platform:"",detail:`Bulk marked all checked on ${today}`}); }} style={{background:lightMode?"#00c896":"#002e24",border:lightMode?"none":"1px solid #3b82f640",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#00e5a0",fontWeight:700,fontSize:13,cursor:"pointer"}}>✓ Mark All Checked</button>
             <button onClick={()=>setShowAdd(true)} style={{background:lightMode?"#059669":"#00200f",border:lightMode?"none":"1px solid #22c55e40",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#00d48a",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Add Campaign</button>
+            {/* Resume draft chip — appears when an unfinished Add Campaign draft is
+                stashed (e.g. you clicked out). One click reopens it; the × discards. */}
+            {hasAddDraft && !showAdd && (
+              <button onClick={()=>setShowAdd(true)}
+                title="You have an unfinished campaign saved as a draft — click to resume"
+                style={{background:lightMode?"#d1fae5":"#002e24",border:`1px solid ${lightMode?"#10b981":"#00c89660"}`,borderRadius:7,padding:"6px 11px",color:lightMode?"#059669":"#00d48a",fontWeight:700,fontSize:13,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}>
+                📝 Resume draft
+                <span onClick={(e)=>{ e.stopPropagation(); try{ localStorage.removeItem("campaign-tracker-add-draft"); }catch{} setHasAddDraft(false); }}
+                  title="Discard this draft"
+                  style={{fontSize:14,lineHeight:1,opacity:0.7,cursor:"pointer"}}>×</span>
+              </button>
+            )}
             {/* 📄 IO PDF — drag-and-drop zone OR click to pick. Either way auto-extracts
                 advertiser, dates, impressions, CPM, budget from a Universal IO PDF and
                 creates draft campaigns for review. Mobile ID Integration services split
@@ -13801,8 +13935,8 @@ export default function App() {
         {/* Stats */}
         <div style={{display:"flex",gap:9,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
           {[{label:"Total",val:stats.total,color:"#7a9bbf"},{label:"Active",val:stats.active,color:"#00d48a"},{label:"Ahead",val:stats.ahead,color:"#f97316"},{label:"Behind",val:stats.behind,color:"#f59e0b"},{label:"Close to Goal",val:stats.closeToGoal,color:"#00e5c0"},{label:"Off",val:stats.off,color:"#ef4444"},{label:"≤14d End",val:stats.soon,color:"#f87171"},{label:"★ Monthly",val:stats.monthlyFlights,color:"#00e5c0"}].map(s=>(
-            <div key={s.label} style={{background:lightMode?"#ffffff":"#0e1a2e",border:lightMode?`1px solid ${s.color}60`:`1px solid ${s.color}30`,borderRadius:8,padding:"9px 15px",minWidth:75,boxShadow:lightMode?"0 1px 3px rgba(0,0,0,0.08)":"none"}}>
-              <div style={{fontSize:22,fontWeight:800,color:s.color,lineHeight:1,letterSpacing:"-0.02em"}}>{s.val}</div>
+            <div key={s.label} style={{background:lightMode?"#ffffff":"#0e1a2e",border:lightMode?"1px solid #e2e8f0":`1px solid ${s.color}30`,borderRadius:8,padding:"9px 15px",minWidth:75,boxShadow:lightMode?"0 1px 2px rgba(15,23,42,0.06)":"none"}}>
+              <div style={{fontSize:22,fontWeight:800,color:lightMode?lmCol(s.color):s.color,lineHeight:1,letterSpacing:"-0.02em"}}>{s.val}</div>
               <div style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a",marginTop:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>{s.label}</div>
             </div>
           ))}
@@ -14198,10 +14332,10 @@ export default function App() {
                         <TD><PlatformTag p={c.platform}/></TD>
                         <TD>
                           <select value={c.status||""} onChange={e=>updateCampaign({...c,status:e.target.value})} style={{
-                            background:lightMode?(STATUS_CFG[c.status||""]?.color||"#059669"):(STATUS_CFG[c.status||""]?.bg||"#0e1a2e"),
-                            border:lightMode?"none":`1px solid ${STATUS_CFG[c.status||""]?.color||"#1e293b"}40`,
+                            background:lightMode?(lmCol(STATUS_CFG[c.status||""]?.color||"#059669")+"14"):(STATUS_CFG[c.status||""]?.bg||"#0e1a2e"),
+                            border:`1px solid ${lightMode?(lmCol(STATUS_CFG[c.status||""]?.color||"#475569")+"38"):(STATUS_CFG[c.status||""]?.color||"#1e293b")+"40"}`,
                             borderRadius:5,
-                            color:lightMode?"#0a1a0a":(STATUS_CFG[c.status||""]?.color||"#4d6e8a"),
+                            color:lightMode?lmCol(STATUS_CFG[c.status||""]?.color||"#475569"):(STATUS_CFG[c.status||""]?.color||"#4d6e8a"),
                             fontSize:11,padding:"3px 8px",cursor:"pointer",fontWeight:700}}>
                             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
                           </select>
@@ -14261,14 +14395,17 @@ export default function App() {
       {showAdd    && <Modal
         isNew
         campaign={(()=>{ try{ const s=localStorage.getItem("campaign-tracker-add-draft"); return s?JSON.parse(s):null;}catch{return null;} })() || undefined}
-        onValuesChange={u => { try{ localStorage.setItem("campaign-tracker-add-draft", JSON.stringify(u)); }catch{} }}
+        onValuesChange={u => { try{ localStorage.setItem("campaign-tracker-add-draft", JSON.stringify(u)); }catch{} setHasAddDraft(addDraftMeaningful(u)); }}
         onSave={n=>{
           setCampaigns(cs=>[...cs,n]);
           addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null});
           try{ localStorage.removeItem("campaign-tracker-add-draft"); }catch{}
+          setHasAddDraft(false);
           setShowAdd(false);
         }}
-        onClose={()=>setShowAdd(false)}
+        onClose={()=>{ try{ setHasAddDraft(addDraftMeaningful(localStorage.getItem("campaign-tracker-add-draft"))); }catch{} setShowAdd(false); }}
+        onSaveDraft={()=>{ try{ setHasAddDraft(addDraftMeaningful(localStorage.getItem("campaign-tracker-add-draft"))); }catch{} setShowAdd(false); }}
+        onDiscardDraft={()=>{ try{ localStorage.removeItem("campaign-tracker-add-draft"); }catch{} setHasAddDraft(false); setShowAdd(false); }}
         partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
       {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} focusCampaignId={typeof showReminderModal==="number"?showReminderModal:null} onClose={()=>setShowReminderModal(null)} onNavigate={(campId)=>{ setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; }); setSearch(""); setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },200); }}/>}
       {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
