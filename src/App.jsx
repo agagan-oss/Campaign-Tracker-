@@ -13811,7 +13811,18 @@ export default function App() {
             try{ localStorage.setItem("campaign-tracker-zeus-prompt", prompt); }catch{}
           }}/>
         ) : activeTab==="revenue" ? (
-          <RevenueDashboard campaigns={[...campaigns,...archive]} onEdit={(camp)=>setEditTarget(camp)} onLock={(month, lockObj)=>{
+          <RevenueDashboard campaigns={(()=>{
+            // Merge active + archived campaigns for the revenue view, but de-duplicate by
+            // id so a record that exists in BOTH lists (e.g. archived without being removed
+            // from active) is only counted ONCE. The active copy wins when ids collide.
+            const seen=new Set(); const merged=[];
+            for(const c of [...campaigns,...archive]){
+              const k = c && c.id!=null ? c.id : c;
+              if(seen.has(k)) continue;
+              seen.add(k); merged.push(c);
+            }
+            return merged;
+          })()} onEdit={(camp)=>setEditTarget(camp)} onLock={(month, lockObj)=>{
             // Activity log entry — permanent record of the lock event
             addLog({ type:"lock", campaignName:`${lockObj.label} — Final Lock`, partner:"", platform:"",
               detail:`${lockObj.campaigns.length} campaigns · $${lockObj.totalSpend.toFixed(2)} spend · $${lockObj.totalRevenue.toFixed(2)} revenue · $${lockObj.totalProfit.toFixed(2)} profit`,
