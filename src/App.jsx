@@ -22,13 +22,14 @@ function loadCustomPlatforms() { try{const s=localStorage.getItem(CUSTOM_PLATFOR
 function saveCustomPlatforms(d){try{localStorage.setItem(CUSTOM_PLATFORMS_KEY,JSON.stringify(d))}catch(e){}}
 // ALL_PLATFORMS stays as a live array that includes custom additions
 const ALL_PLATFORMS = (()=>{const c=loadCustomPlatforms();return[...ALL_PLATFORMS_DEFAULT,...c.platforms.filter(p=>!ALL_PLATFORMS_DEFAULT.includes(p))];})();
+// Reminder types, in dropdown display order. "Other" is the default (first item)
+// per Austin's preference — he uses creative swaps, budget checks, and other most.
+// Removed Report Due and Campaign Ending — they weren't being used.
 const REMINDER_TYPES = [
-  { value:"ad-swap",      label:"🔄 Ad Swap",         color:"#f472b6" },
-  { value:"budget-check", label:"💰 Budget Check",    color:"#f97316" },
-  { value:"creative",     label:"🎨 Creative Update", color:"#a855f7" },
-  { value:"report",       label:"📊 Report Due",      color:"#7dd3fc" },
-  { value:"end-soon",     label:"⏱ Campaign Ending", color:"#f59e0b" },
   { value:"other",        label:"📌 Other",           color:"#00d48a" },
+  { value:"ad-swap",      label:"🔄 Ad Swap",         color:"#f472b6" },
+  { value:"creative",     label:"🎨 Creative Update", color:"#a855f7" },
+  { value:"budget-check", label:"💰 Budget Check",    color:"#f97316" },
 ];
 const STATUS_CFG = {
   "active":        { label:"Active",        color:"#00d48a", bg:"#00200f" },
@@ -36,7 +37,7 @@ const STATUS_CFG = {
   "pacing-behind": { label:"Pacing Behind", color:"#fde047", bg:"#151a00" },
   "off":           { label:"Off",           color:"#ef4444", bg:"#1a0808" },
   "close-to-goal": { label:"Close to Goal", color:"#00e5c0", bg:"#00201a" },
-  "":              { label:"Unknown",       color:"#a855f7", bg:"#071420" },
+  "":              { label:"Pending",       color:"#a855f7", bg:"#071420" },
 };
 const PLT_COLORS_DEFAULT = {
   SEM:"#b91c1c", TD:"#00ffb3", TDV:"#00d48a", TDA:"#a78bfa",
@@ -833,7 +834,7 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
               {/* Reminder chips — compact single-line with campaign name */}
               <div style={{display:"flex",flexDirection:"column",gap:2,flex:1}}>
                 {dayRems.slice(0,3).map(r => {
-                  const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
+                  const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[0];
                   const camp = campaigns.find(c=>c.id===r.campaignId);
                   return (
                     <div key={r.id} title={[rt.label, camp?.campaignName?.trim(), r.note].filter(Boolean).join(' · ')}
@@ -901,7 +902,7 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
             {selRems.length===0
               ? <div style={{fontSize:12,color:_lm?"#94a3b8":"#3d5a72",textAlign:"center",padding:"12px 0"}}>No reminders — click + Add to create one</div>
               : selRems.map(r => {
-                  const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
+                  const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[0];
                   const camp = campaigns.find(c=>c.id===r.campaignId);
                   const isEditing = editingCalReminder === r.id;
                   const calIS = {background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
@@ -980,7 +981,7 @@ function useBackdropClose(onClose) {
 }
 
 function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampaignId=null, onNavigate=null }) {
-  const blank = { id:null, type:"ad-swap", campaignId:"", note:"", date:"", repeat:"none", dismissed:false };
+  const blank = { id:null, type:"other", campaignId:"", note:"", date:"", repeat:"none", dismissed:false };
   const [form, setForm] = useState(blank);
   const [view, setView] = useState("list");
   const sf = (k,v) => setForm(p=>({...p,[k]:v}));
@@ -1004,7 +1005,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     const camp = campaigns.find(c=>c.id===r.campaignId);
-    const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
+    const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[0];
     return (r.note||"").toLowerCase().includes(q)
       || rt.label.toLowerCase().includes(q)
       || (camp&&camp.campaignName.toLowerCase().includes(q))
@@ -1018,7 +1019,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
   const iS = { width:"100%", background:_lm?"#f8fafc":"#162236", border:`1px solid ${_lm?"#e2e8f0":"#334155"}`, borderRadius:6, padding:"7px 10px", color:_lm?"#0f172a":"#d8eaf8", fontSize:13, boxSizing:"border-box", fontFamily:"inherit" };
 
   const ReminderCard = ({ r, showEdit=true }) => {
-    const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
+    const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[0];
     const camp = campaigns.find(c=>c.id===r.campaignId);
     const dLeft = getDaysLeft(r.date);
     const isPast = r.date<today;
@@ -1210,7 +1211,7 @@ function ReminderAlertBanner({ reminders, onOpen, onDismissAll }) {
             {todayDue.length>0 && `${todayDue.length} due today`}
           </div>
           <div style={{color:_lm?"#92400e":"#92400e",fontSize:11,marginTop:1}}>
-            {due.slice(0,2).map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5]; return <span key={r.id} style={{marginRight:10}}>{rt.label}{r.note?` — ${r.note.slice(0,40)}${r.note.length>40?"…":""}`:""}</span>; })}
+            {due.slice(0,2).map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[0]; return <span key={r.id} style={{marginRight:10}}>{rt.label}{r.note?` — ${r.note.slice(0,40)}${r.note.length>40?"…":""}`:""}</span>; })}
             {due.length>2 && <span style={{color:"#78350f"}}>+{due.length-2} more…</span>}
           </div>
         </div>
@@ -1397,7 +1398,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
   const [historyDraft, setHistoryDraft] = useState(c.history||"");
   const [showAddReminder, setShowAddReminder] = useState(false);
   const [newEntry, setNewEntry] = useState("");
-  const [newReminder, setNewReminder] = useState({type:"ad-swap",note:"",date:"",repeat:"none"});
+  const [newReminder, setNewReminder] = useState({type:"other",note:"",date:"",repeat:"none"});
   const [editingReminderId, setEditingReminderId] = useState(null);
   const [editReminderDraft, setEditReminderDraft] = useState({});
   function startEditReminder(r) { setEditingReminderId(r.id); setEditReminderDraft({type:r.type,date:r.date,note:r.note||"",repeat:r.repeat||"none"}); }
@@ -1427,7 +1428,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
               </button>
               {/* Existing reminders inline */}
               {!showAddReminder&&reminders.filter(r=>!r.dismissed&&r.campaignId===c.id).map(r=>{
-                const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
+                const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[0];
                 const isPast=r.date<=getToday();
                 return (
                   <div key={r.id} style={{display:"flex",alignItems:"center",gap:5,background:isPast?(_lm?"#fee2e2":"#1a0808"):(_lm?"#eff6ff":"#0a1628"),border:`1px solid ${isPast?"#ef444430":rt.color+"30"}`,borderRadius:5,padding:"2px 8px"}}>
@@ -1451,12 +1452,12 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                   <div style={{flexShrink:0,minWidth:130}}>
                     <DatePicker value={newReminder.date} onChange={v=>setNewReminder(p=>({...p,date:v}))}/>
                   </div>
-                  <button onClick={()=>{ if(!newReminder.date) return; setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); setShowAddReminder(false); }}
+                  <button onClick={()=>{ if(!newReminder.date) return; setReminders(prev=>[...prev,{...newReminder,id:Date.now(),campaignId:c.id,dismissed:false}]); setNewReminder({type:"other",note:"",date:"",repeat:"none"}); setShowAddReminder(false); }}
                     disabled={!newReminder.date}
                     style={{background:newReminder.date?"#f59e0b":"#162236",border:"none",borderRadius:5,padding:"6px 14px",color:newReminder.date?"#000":"#3d5a72",fontSize:11,fontWeight:700,cursor:newReminder.date?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
                     Save
                   </button>
-                  <button onClick={()=>{ setShowAddReminder(false); setNewReminder({type:"ad-swap",note:"",date:"",repeat:"none"}); }}
+                  <button onClick={()=>{ setShowAddReminder(false); setNewReminder({type:"other",note:"",date:"",repeat:"none"}); }}
                     style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px 10px",color:_lm?"#475569":"#7a9bbf",fontSize:11,cursor:"pointer",flexShrink:0}}>
                     Cancel
                   </button>
@@ -1809,7 +1810,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     geoData:"",       // JSON: [{label:"West Virginia",pct:45},{label:"Ohio",pct:22}...]
   };
   const [f, setF] = useState(campaign?{...campaign}:blank);
-  const blankR = { type:"ad-swap", note:"", date:"", repeat:"none" };
+  const blankR = { type:"other", note:"", date:"", repeat:"none" };
   const [newReminder, setNewReminder] = useState(blankR);
   const [showAddReminder, setShowAddReminder] = useState(false);
   // Two-step confirm state for discard actions in the IO draft queue.
@@ -1817,15 +1818,23 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   // 3 seconds executes; otherwise auto-reverts so a stray click doesn't lock.
   const [discardThisPending, setDiscardThisPending] = useState(false);
   const [discardAllPending, setDiscardAllPending] = useState(false);
-  // Auto-save edits back to the draft queue on every change. When the user
-  // navigates prev/next or closes the modal, their in-progress edits are
-  // already in the queue — coming back to this draft shows them intact.
-  // Skipped on the very first render (no need to write back the initial value).
+  // Auto-save edits on every keystroke via onValuesChange. The parent decides
+  // what "save" means:
+  //  - IO draft queue: writes back to pdfDrafts[currentIdx]
+  //  - Edit Campaign: commits straight to the live campaign
+  //  - Add Campaign: persists a draft to localStorage for crash/close recovery
+  // Skipped on the very first render so opening the modal doesn't trigger a no-op save.
   const didFirstRender = useRef(false);
+  const initialFRef = useRef(campaign ? {...campaign} : null);
   useEffect(() => {
     if (!onValuesChange) return;
     if (!didFirstRender.current) { didFirstRender.current = true; return; }
     onValuesChange(f);
+  }, [f]);
+  // Track whether form has been edited since open (for showing the "edits saved" badge)
+  const [hasEdited, setHasEdited] = useState(false);
+  useEffect(() => {
+    if (didFirstRender.current && onValuesChange) setHasEdited(true);
   }, [f]);
   const [pendingReminders, setPendingReminders] = useState([]); // reminders added before campaign has an ID
   const [editingReminderId, setEditingReminderId] = useState(null); // id of reminder currently being edited inline
@@ -1862,7 +1871,20 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     setEditingReminderId(null);
   }
   function cancelEditReminder() { setEditingReminderId(null); }
-  const set = (k,v) => setF(p=>({...p,[k]:v}));
+  const set = (k,v) => setF(p => {
+    const next = {...p, [k]: v};
+    // Smart default: when a NEW campaign's start/end dates are filled in, auto-derive
+    // the status — future start = "off" (not running yet), in-flight = "active",
+    // ended = "off". Only fires when status hasn't been manually customized away
+    // from the default "active", and only for new campaigns (isNew).
+    if (isNew && (k === "startDate" || k === "endDate") && (p.status === "active" || p.status === "" || p.status === "off")) {
+      const today = getToday();
+      if (next.startDate && next.startDate > today)        next.status = "off";    // hasn't launched yet
+      else if (next.endDate && next.endDate < today)       next.status = "off";    // ended already
+      else if (next.startDate && next.startDate <= today)  next.status = "active"; // currently running
+    }
+    return next;
+  });
   const iS = {width:"100%",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box"};
   const row = (key,label,type="text") => (
     <div style={{marginBottom:12}}>
@@ -1892,6 +1914,23 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 28px 14px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,flexShrink:0,gap:12}}>
           <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",minWidth:0}}>
             <h2 style={{margin:0,color:_lm?"#0f172a":"#edf4ff",fontSize:15,fontWeight:700}}>{isNew?"Add Campaign":"Edit Campaign"}</h2>
+            {/* Auto-save indicator + Revert. Shown when onValuesChange is wired
+                AND user has edited at least one field. Click Revert to restore
+                the modal's original values (and roll back the auto-saved campaign). */}
+            {onValuesChange && hasEdited && !draftQueueInfo && (
+              <>
+                <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,fontWeight:700,color:_lm?"#059669":"#00d48a",background:_lm?"#d1fae5":"#002e24",border:`1px solid ${_lm?"#10b981":"#00c89660"}`,borderRadius:6,padding:"3px 9px"}}>
+                  ✓ Auto-saved
+                </span>
+                {initialFRef.current && (
+                  <button onClick={()=>{ setF(initialFRef.current); if(onValuesChange) onValuesChange(initialFRef.current); setHasEdited(false); }}
+                    title="Restore the values from when you opened this modal"
+                    style={{background:"none",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:6,padding:"3px 9px",color:_lm?"#64748b":"#7a9bbf",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                    ↶ Revert
+                  </button>
+                )}
+              </>
+            )}
             {/* IO draft queue indicator — only when the modal is being used to walk
                 through PDF-parsed drafts. Shows "Draft 1 of 3 · IO #16617480" with
                 prev/next chevrons so the user can browse without saving each one. */}
@@ -2131,7 +2170,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 {campaignReminders.length>0 && (
                   <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
                     {campaignReminders.map(r=>{
-                      const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[5];
+                      const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[0];
                       const isEditing = editingReminderId===r.id;
                       if (isEditing) {
                         // Inline edit form
@@ -5460,13 +5499,25 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
+  // Filter/sort state persists to localStorage so opening the app tomorrow
+  // restores yesterday's view. Stored as a single JSON object under "pacing-filter-state".
+  const PACING_FILTER_KEY = "pacing-filter-state";
+  const _persisted = (()=>{ try{ return JSON.parse(localStorage.getItem(PACING_FILTER_KEY) || "{}"); } catch { return {}; } })();
   const [showNoGoal,     setShowNoGoal]     = useState(false);
-  const [search,         setSearch]         = useState("");
-  const [fPartner,       setFPartner]       = useState("all");
-  const [fPlatforms,     setFPlatforms]     = useState(new Set());
-  const [sortKey,        setSortKey]        = useState("pacing"); // pacing | name | partner | platform
+  const [search,         setSearch]         = useState(_persisted.search || "");
+  const [fPartner,       setFPartner]       = useState(_persisted.fPartner || "all");
+  const [fPlatforms,     setFPlatforms]     = useState(new Set(_persisted.fPlatforms || []));
+  const [sortKey,        setSortKey]        = useState(_persisted.sortKey || "pacing"); // pacing | name | partner | platform
   const [clearPendingId, setClearPendingId] = useState(null); // campaign id awaiting clear confirm
-  const [todayFilter,    setTodayFilter]    = useState("all"); // "all" | "today" | "not-today"
+  const [todayFilter,    setTodayFilter]    = useState(_persisted.todayFilter || "all"); // "all" | "today" | "not-today"
+  // Save on any filter change. Set is serialized as array.
+  useEffect(() => {
+    try {
+      localStorage.setItem(PACING_FILTER_KEY, JSON.stringify({
+        search, fPartner, fPlatforms: [...fPlatforms], sortKey, todayFilter,
+      }));
+    } catch {}
+  }, [search, fPartner, fPlatforms, sortKey, todayFilter]);
   const todayStr = getToday(); // YYYY-MM-DD — matches c.lastChecked format
   const viewMode = "table"; // table-only — card view removed
 
@@ -6191,10 +6242,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         return (
         <div>
           {monthlyGoal
-            ? <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}}>
+            ? <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}} title={`Exact goal: ${monthlyGoal.toLocaleString()}`}>
                 {metricKind==="spend"
                   ? "$"+(monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"k":monthlyGoal.toFixed(0))
-                  : monthlyGoal>=1000000?(monthlyGoal/1000000).toFixed(2)+"M":monthlyGoal>=1000?(monthlyGoal/1000).toFixed(0)+"K":String(monthlyGoal)}
+                  // Use one decimal place (not zero) so a goal like 41,667 displays
+                  // as "41.7K" not "42K". Matches the precision of the Delivered column
+                  // so users can directly compare "41.8K delivered vs 41.7K goal".
+                  : monthlyGoal>=1000000?(monthlyGoal/1000000).toFixed(2)+"M":monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"K":String(monthlyGoal)}
               </span>
             : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
           {moRev!=null&&<div style={{fontSize:9,fontWeight:700,color:lightMode?"#059669":"#00e19e",marginTop:1}}>
@@ -9333,12 +9387,15 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         completionRate: u.completionRate>0?String(parseFloat(u.completionRate.toFixed(2))):c.completionRate,
         frequency: u.freqCount>0?String(parseFloat((u.frequency/u.freqCount).toFixed(2))):c.frequency,
         lastChecked:stamp,
-        // checkInLog: auto-populated from daily CSV drops — keep last 30 entries.
-        // Log is appended OLDEST-FIRST (existing + new line). slice(-30) keeps the
-        // MOST RECENT 30 — using slice(0,30) would keep the oldest 30 and lose new
-        // entries once we hit 30 syncs, causing yesterday-delta to use stale baselines.
+        // checkInLog: auto-populated from daily CSV drops — keep last 3 entries.
+        // Log is appended OLDEST-FIRST (existing + new line). slice(-3) keeps the
+        // MOST RECENT 3 entries, which is all that's functionally needed:
+        //  - today's entry (just written)
+        //  - yesterday's entry (for yest-delta diff fallback)
+        //  - day-before-yesterday as buffer in case yesterday's sync was missed
+        // The other 27 historical entries were dead weight — we never read them.
         checkInLog: ((c.checkInLog?c.checkInLog+"\n":"")+histLine)
-          .split("\n").filter(Boolean).slice(-30).join("\n"),
+          .split("\n").filter(Boolean).slice(-3).join("\n"),
         // lastCheckInImpr: MTD impressions as of the most recent check-in
         // Used to detect dead campaigns: if next check-in shows same/lower number, campaign went dark
         lastCheckInImpr: String(u.impressions||0),
@@ -10158,14 +10215,27 @@ function ReportVault({ onAnalyzeWithZeus }) {
 
 
 function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
-  const [filterPartner, setFilterPartner]   = useState("all");
+  // Revenue tab filter/sort state persists to localStorage so the view sticks
+  // across sessions. Same pattern as Pacing/Campaigns tabs. focusMonth is
+  // intentionally NOT persisted — it's typically the current month and would be
+  // confusing if it "remembered" last month after the month rolls over.
+  const REVENUE_FILTER_KEY = "revenue-filter-state";
+  const _revPersisted = (()=>{ try{ return JSON.parse(localStorage.getItem(REVENUE_FILTER_KEY) || "{}"); } catch { return {}; } })();
+  const [filterPartner, setFilterPartner]   = useState(_revPersisted.filterPartner || "all");
   const [expandedRow, setExpandedRow]       = useState(null);
-  const [sortKey, setSortKey]               = useState("profit"); // "profit" | "loss" | "contract" | "name" | "pending"
-  const [focusMonth, setFocusMonth]         = useState(null); // YYYY-MM, null = current
-  const [cellMode, setCellMode]             = useState("dollar"); // "dollar" | "margin"
+  const [sortKey, setSortKey]               = useState(_revPersisted.sortKey || "profit"); // "profit" | "loss" | "contract" | "name" | "pending"
+  const [focusMonth, setFocusMonth]         = useState(null); // YYYY-MM, null = current (NOT persisted — see comment above)
+  const [cellMode, setCellMode]             = useState(_revPersisted.cellMode || "dollar"); // "dollar" | "margin"
   const [monthLocks, setMonthLocks]         = useState(() => { try { return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); } catch { return {}; } });
   const [showPLReport, setShowPLReport]     = useState(false);
-  const [showEnded, setShowEnded]           = useState(false); // show campaigns that ended before active month
+  const [showEnded, setShowEnded]           = useState(_revPersisted.showEnded || false); // show campaigns that ended before active month
+  useEffect(() => {
+    try {
+      localStorage.setItem(REVENUE_FILTER_KEY, JSON.stringify({
+        filterPartner, sortKey, cellMode, showEnded,
+      }));
+    } catch {}
+  }, [filterPartner, sortKey, cellMode, showEnded]);
   const now = new Date();
   // Use local-time formatting — toISOString() converts to UTC and can roll back a month for US timezones
   const moStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
@@ -12471,12 +12541,17 @@ export default function App() {
 
   const [campaigns, setCampaigns] = useState(()=>{ try { const s=localStorage.getItem(STORAGE_KEY); return s?JSON.parse(s):initialCampaigns; } catch { return initialCampaigns; } });
   const [reminders, setReminders] = useState(()=>{ try { const s=localStorage.getItem(REMINDERS_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
-  const [search, setSearch]       = useState("");
-  const [fStatus, setFStatus]     = useState("all");
-  const [fPlatforms, setFPlatforms] = useState(new Set());
-  const [fMonthly, setFMonthly]   = useState(false);
-  const [sortKey, setSortKey]     = useState("endDate");
-  const [sortDir, setSortDir]     = useState("asc");
+  // Campaigns tab filter/sort state persists to localStorage so the view sticks
+  // across sessions. Same pattern as the Pacing tab — single JSON object keyed
+  // under "campaigns-filter-state". Set is serialized as array.
+  const CAMPAIGNS_FILTER_KEY = "campaigns-filter-state";
+  const _campPersisted = (()=>{ try{ return JSON.parse(localStorage.getItem(CAMPAIGNS_FILTER_KEY) || "{}"); } catch { return {}; } })();
+  const [search, setSearch]       = useState(_campPersisted.search || "");
+  const [fStatus, setFStatus]     = useState(_campPersisted.fStatus || "all");
+  const [fPlatforms, setFPlatforms] = useState(new Set(_campPersisted.fPlatforms || []));
+  const [fMonthly, setFMonthly]   = useState(_campPersisted.fMonthly || false);
+  const [sortKey, setSortKey]     = useState(_campPersisted.sortKey || "endDate");
+  const [sortDir, setSortDir]     = useState(_campPersisted.sortDir || "asc");
   const [editTarget, setEditTarget] = useState(null);
   // ── IO PDF import state ─────────────────────────────────────────────────
   // pdfDrafts: array of { ...campaign fields } pending user approval
@@ -12757,14 +12832,23 @@ export default function App() {
   const [renewTarget, setRenewTarget]               = useState(null);
   const [saved, setSaved]         = useState(false);
   const [expanded, setExpanded]   = useState(new Set());
-  const [groupByClient, setGroupByClient]       = useState(false);
-  const [fGoalHit, setFGoalHit]                 = useState(false);
-  const [fCloseToGoal, setFCloseToGoal]         = useState(false);
-  const [fExcludeGoalHit, setFExcludeGoalHit]   = useState(false);
-  const [fRecentDays, setFRecentDays]           = useState(0);   // 0 = off, else show added within N days
-  const [fNote2, setFNote2]                     = useState(false); // show only campaigns with Note 2 filled
-  const [fHasData, setFHasData]                 = useState("all"); // all | yes | no — filter by whether campaign has metrics
-  const [fNoRetargeting, setFNoRetargeting]     = useState(false); // show only campaigns without retargeting
+  const [groupByClient, setGroupByClient]       = useState(_campPersisted.groupByClient || false);
+  const [fGoalHit, setFGoalHit]                 = useState(_campPersisted.fGoalHit || false);
+  const [fCloseToGoal, setFCloseToGoal]         = useState(_campPersisted.fCloseToGoal || false);
+  const [fExcludeGoalHit, setFExcludeGoalHit]   = useState(_campPersisted.fExcludeGoalHit || false);
+  const [fRecentDays, setFRecentDays]           = useState(_campPersisted.fRecentDays || 0);   // 0 = off, else show added within N days
+  const [fNote2, setFNote2]                     = useState(_campPersisted.fNote2 || false); // show only campaigns with Note 2 filled
+  const [fHasData, setFHasData]                 = useState(_campPersisted.fHasData || "all"); // all | yes | no — filter by whether campaign has metrics
+  const [fNoRetargeting, setFNoRetargeting]     = useState(_campPersisted.fNoRetargeting || false); // show only campaigns without retargeting
+  // Save all Campaigns tab filters on change. Single effect → one localStorage write per render.
+  useEffect(() => {
+    try {
+      localStorage.setItem(CAMPAIGNS_FILTER_KEY, JSON.stringify({
+        search, fStatus, fPlatforms: [...fPlatforms], fMonthly, sortKey, sortDir,
+        groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fNote2, fHasData, fNoRetargeting,
+      }));
+    } catch {}
+  }, [search, fStatus, fPlatforms, fMonthly, sortKey, sortDir, groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fNote2, fHasData, fNoRetargeting]);
   const [showDailyGoal, setShowDailyGoal]       = useState(false);
   const [showPacingBar, setShowPacingBar]       = useState(false);
   const [quickCheckIn, setQuickCheckIn]         = useState(false);
@@ -13089,6 +13173,14 @@ export default function App() {
       if(sortKey==="reminder"){
         const getNext = c => { const rs=reminders.filter(r=>!r.dismissed&&r.campaignId===c.id).map(r=>r.date).sort(); return rs[0]||""; };
         const va=getNext(a),vb=getNext(b); return va<vb?-1:va>vb?1:0;
+      }
+      // Status sort: custom priority so active/off appear first instead of
+      // alphabetical (which would put "" = Pending first since "" < "active").
+      if(sortKey==="status"){
+        const order = {"active":1, "off":2, "pacing-behind":3, "pacing-ahead":4, "close-to-goal":5, "":6};
+        const va = order[a.status||""] ?? 7;
+        const vb = order[b.status||""] ?? 7;
+        return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
       }
       let va=a[sortKey]||"",vb=b[sortKey]||"";
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
@@ -14155,8 +14247,29 @@ export default function App() {
       </>
       )}
 
-      {editTarget && <Modal campaign={editTarget} onSave={u=>{ updateCampaign(u); setEditTarget(null); }} onClose={()=>setEditTarget(null)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()} reminders={reminders} setReminders={setReminders} campaigns={campaigns}/>}
-      {showAdd    && <Modal isNew onSave={n=>{ setCampaigns(cs=>[...cs,n]); addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null}); setShowAdd(false); }} onClose={()=>setShowAdd(false)} partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
+      {/* Edit Campaign: auto-save every keystroke via onValuesChange so closing
+          the × button keeps changes. Explicit Save also closes the modal. */}
+      {editTarget && <Modal
+        campaign={editTarget}
+        onValuesChange={u => updateCampaign({...editTarget, ...u})}
+        onSave={u=>{ updateCampaign(u); setEditTarget(null); }}
+        onClose={()=>setEditTarget(null)}
+        partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}
+        reminders={reminders} setReminders={setReminders} campaigns={campaigns}/>}
+      {/* Add Campaign: persist the in-progress draft to localStorage on every
+          keystroke so × close doesn't lose work. On reopen, pre-fill from the stash. */}
+      {showAdd    && <Modal
+        isNew
+        campaign={(()=>{ try{ const s=localStorage.getItem("campaign-tracker-add-draft"); return s?JSON.parse(s):null;}catch{return null;} })() || undefined}
+        onValuesChange={u => { try{ localStorage.setItem("campaign-tracker-add-draft", JSON.stringify(u)); }catch{} }}
+        onSave={n=>{
+          setCampaigns(cs=>[...cs,n]);
+          addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null});
+          try{ localStorage.removeItem("campaign-tracker-add-draft"); }catch{}
+          setShowAdd(false);
+        }}
+        onClose={()=>setShowAdd(false)}
+        partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
       {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} focusCampaignId={typeof showReminderModal==="number"?showReminderModal:null} onClose={()=>setShowReminderModal(null)} onNavigate={(campId)=>{ setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; }); setSearch(""); setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },200); }}/>}
       {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
       {/* ── IO PDF draft queue — opens the regular Add Campaign Modal for each draft ──
