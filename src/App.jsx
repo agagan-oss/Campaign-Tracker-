@@ -10600,12 +10600,30 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
   // Sort
   const sortedRows = [...rows].sort((a,b)=>{
     if (sortKey==="profit") {
-      const ap = a.focusCell.profit ?? -Infinity, bp = b.focusCell.profit ?? -Infinity;
-      return bp - ap;
+      // Campaigns with a REALIZED focus-month profit always rank above pending ones.
+      const ap = a.focusCell.profit, bp = b.focusCell.profit;
+      if (ap != null && bp != null) { if (ap !== bp) return bp - ap; }
+      else if (ap != null) return -1;
+      else if (bp != null) return 1;
+      // Both pending in the focused month (no spend entered there yet). Fall back to
+      // lifetime profit so campaigns that have actually earned money still float up...
+      const al = a.lifetimeProfit, bl = b.lifetimeProfit;
+      if (al != null && bl != null) { if (al !== bl) return bl - al; }
+      else if (al != null) return -1;
+      else if (bl != null) return 1;
+      // ...and if there's no spend anywhere either, fall back to projected revenue.
+      return (b.focusCell.rev||0) - (a.focusCell.rev||0);
     }
     if (sortKey==="loss") {
-      const ap = a.focusCell.profit ?? Infinity, bp = b.focusCell.profit ?? Infinity;
-      return ap - bp;
+      const ap = a.focusCell.profit, bp = b.focusCell.profit;
+      if (ap != null && bp != null) { if (ap !== bp) return ap - bp; }
+      else if (ap != null) return -1; // realized number ranks above pending
+      else if (bp != null) return 1;
+      const al = a.lifetimeProfit, bl = b.lifetimeProfit;
+      if (al != null && bl != null) { if (al !== bl) return al - bl; }
+      else if (al != null) return -1;
+      else if (bl != null) return 1;
+      return (b.focusCell.rev||0) - (a.focusCell.rev||0);
     }
     if (sortKey==="pending") {
       // Sort by whether THIS MONTH is pending (no spend entered), not lifetime trackable
