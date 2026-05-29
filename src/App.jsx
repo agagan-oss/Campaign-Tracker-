@@ -539,6 +539,9 @@ function parseIOPdf(text) {
       // buildDraftsFromIO can add it into contractValue for accurate revenue.
       managementFee: tryFields(prefix, "Recrue Media Management Fee", "Management Fee"),
       mediaSpend:    tryFields(prefix, "Media Spend"),
+      // Data/device integration flag (CTV products). Value looks like
+      // "Yes (additional $2.50 CPM - $21.50 CPM)" — the higher CPM is the billed rate.
+      integration:   tryFields(prefix, "Integrating Data or Devices", "Integrating Data or Devices?"),
       notes: getNotes(),
     };
   }
@@ -592,7 +595,7 @@ function parseIOPdf(text) {
     // CTV variants — every flavor maps to CTV platform; user can change if needed
     { label: "Channel Select CTV",           key: "ctv_channel",     platform: "CTV" },
     { label: "General Audience CTV",         key: "ctv_general",     platform: "GCTV" }, // dedicated platform per Austin's tracker convention
-    { label: "Premium Audience CTV",         key: "ctv_premium",     platform: "CTV" },
+    { label: "Premium Audience CTV",         key: "ctv_premium",     platform: "PCTV" }, // dedicated platform per Austin's tracker convention
     { label: "Netflix CTV",                  key: "ctv_netflix",     platform: "CTV" },
     { label: "Hulu CTV",                     key: "ctv_hulu",        platform: "CTV" },
     { label: "Amazon Prime CTV",             key: "ctv_amazon_prime",platform: "CTV" },
@@ -731,9 +734,33 @@ function buildDraftsFromIO(io) {
     // Skip blocks with no budget/impressions — likely the IO has the field but it's $0
     if (totalImpr <= 0 && totalBudget <= 0) return;
 
+    // ── Data/device integration uplift (CTV) ──
+    // When the IO turns on data/device integration it bills at a higher CPM, e.g.
+    // "Yes (additional $2.50 CPM - $21.50 CPM)". We bill at that integrated CPM but
+    // KEEP the IO's dollar budget fixed (it's the committed spend) and recompute the
+    // impression goal down to match — so revenue (goal × CPM) still equals the
+    // contracted dollars. Only the simple single-platform branch below uses these.
+    let effectiveCpm = cpm;
+    let effectiveImpr = totalImpr;
+    let integrationNote = "";
+    {
+      const integ = (d.integration || "").trim();
+      if (/^yes\b/i.test(integ)) {
+        const cpms = [...integ.matchAll(/\$?\s*([\d.]+)\s*CPM/gi)].map(m=>parseFloat(m[1])).filter(n=>n>0);
+        const integratedCpm = cpms.length ? Math.max(...cpms) : 0;
+        if (integratedCpm > cpm) {
+          effectiveCpm = integratedCpm;
+          if (totalBudget > 0) effectiveImpr = Math.round(totalBudget / integratedCpm * 1000);
+          integrationNote = ` · DATA INTEGRATION: billed @ $${integratedCpm.toFixed(2)} CPM (base $${cpm.toFixed(2)}); goal adjusted from ${totalImpr.toLocaleString()} to ${effectiveImpr.toLocaleString()} to hold the $${totalBudget.toFixed(2)} budget`;
+        } else {
+          integrationNote = ` · DATA INTEGRATION enabled (review CPM)`;
+        }
+      }
+    }
+
     const feeNote = managementFee > 0 ? ` · management fee $${managementFee.toFixed(2)}` : "";
     const spendNote = mediaSpend > 0 ? ` · media spend $${mediaSpend.toFixed(2)}` : "";
-    const baseNote2 = `Auto-imported from IO #${io.reference || "?"}. ${svc.label}. Total: ${totalImpr.toLocaleString()} impr · $${totalBudget.toFixed(2)} budget${feeNote}${spendNote}${cpm>0?` · $${cpm.toFixed(2)} CPM`:""}.${d.notes ? " " + d.notes : ""}`.trim();
+    const baseNote2 = `Auto-imported from IO #${io.reference || "?"}. ${svc.label}. Total: ${totalImpr.toLocaleString()} impr · $${totalBudget.toFixed(2)} budget${feeNote}${spendNote}${cpm>0?` · $${cpm.toFixed(2)} CPM`:""}${integrationNote}.${d.notes ? " " + d.notes : ""}`.trim();
 
     if (svc.splitPair) {
       // Arbitrary 50/50 split between two platforms (e.g. Performance CTV → CTV + OTT).
@@ -776,16 +803,17 @@ function buildDraftsFromIO(io) {
       drafts.push({ ...common, campaignName: `${advertiser} - ${svc.split}`, platform: svc.split });
     } else {
       const platform = svc.platform || "DSP";
-      const monthlyImpr = Math.round(totalImpr / months);
+      // effectiveCpm/effectiveImpr already fold in any data-integration uplift.
+      const monthlyImpr = Math.round(effectiveImpr / months);
       drafts.push({
         mediaPartner: ioPartner,
         campaignName: `${advertiser} - ${platform}`,
         platform,
         startDate, endDate,
         status: "off",
-        goal: totalImpr > 0 ? String(totalImpr) : "",
-        contractRate: cpm ? String(cpm) : "",
-        dealType: cpm ? "CPM" : "",
+        goal: effectiveImpr > 0 ? String(effectiveImpr) : "",
+        contractRate: effectiveCpm ? String(effectiveCpm) : "",
+        dealType: effectiveCpm ? "CPM" : "",
         contractValue: totalBudget.toFixed(2),
         // Management fee is a separate field — only relevant for SEM. The Edit
         // modal shows the input ONLY when platform === "SEM" but we set it here
