@@ -6280,15 +6280,45 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       : npd >= 1000 ? (npd/1000).toFixed(0)+"K" : String(npd);
     const npdCol = paceGap === null ? "#3d5a72" : paceGap < 0 ? "#ef4444" : "#f97316";
 
+    // Weekly impressions + clicks for the combo chart in the expanded dropdown.
+    // Derived from Quick Check-in history (metricSeries), current month only —
+    // the series is MTD-cumulative and resets each month, so we diff consecutive
+    // readings (idx 0 is the month-to-date baseline) and bucket by Monday week.
+    const weekly = (()=>{
+      const series = Array.isArray(c.metricSeries) ? c.metricSeries : [];
+      if(series.length < 1) return [];
+      const parseD = s => { const [m,d,y]=String(s).split("/").map(Number); return new Date(y,m-1,d); };
+      const monday = dt => { const x=new Date(dt); const dow=x.getDay(); x.setDate(x.getDate()-((dow+6)%7)); x.setHours(0,0,0,0); return x; };
+      const rd = series.map(e=>({d:parseD(e.d), i:+e.i||0, ck:+e.c||0, s:+e.s||0, vv:+e.vv||0}))
+        .filter(e=>e.d.getMonth()===now.getMonth() && e.d.getFullYear()===now.getFullYear())
+        .sort((a,b)=>a.d-b.d);
+      if(!rd.length) return [];
+      const deltas=[]; let pi=0, pc=0, ps=0, pvv=0;
+      rd.forEach((e,idx)=>{
+        const di  = idx===0 ? e.i  : (e.i>=pi   ? e.i-pi   : e.i);
+        const dc  = idx===0 ? e.ck : (e.ck>=pc  ? e.ck-pc  : e.ck);
+        const ds  = idx===0 ? e.s  : (e.s>=ps   ? e.s-ps   : e.s);
+        const dvv = idx===0 ? e.vv : (e.vv>=pvv ? e.vv-pvv : e.vv);
+        deltas.push({d:e.d, i:di, c:dc, s:ds, vv:dvv}); pi=e.i; pc=e.ck; ps=e.s; pvv=e.vv;
+      });
+      const bk=new Map();
+      deltas.forEach(({d,i,c,s,vv})=>{ const k=monday(d).getTime(); const o=bk.get(k)||{i:0,c:0,s:0,vv:0}; o.i+=i; o.c+=c; o.s+=s; o.vv+=vv; bk.set(k,o); });
+      return [...bk.entries()].sort((a,b)=>a[0]-b[0]).map(([k,o])=>({k, i:o.i, c:o.c, s:o.s, vv:o.vv}));
+    })();
+    const hasWeekly = weekly.length > 0 && weekly.some(w=>w.i>0 || w.c>0 || w.s>0 || w.vv>0);
+    const canExpand = !!rowBreakdown || hasWeekly;
+
     return <React.Fragment>
-    <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 16px",borderBottom:rowBreakdown&&rowBreakdownOpen?"none":"1px solid "+lmBrdR,alignItems:"center",background:lmBg,borderLeft:"3px solid "+col}}>
+    <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 16px",borderBottom:canExpand&&rowBreakdownOpen?"none":"1px solid "+lmBrdR,alignItems:"center",background:lmBg,borderLeft:"3px solid "+col}}>
 
       {/* Campaign + partner */}
       <div style={{minWidth:0}}>
         <div style={{fontSize:13,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:6}}>
-          {rowBreakdown&&(
+          {canExpand&&(
             <button onClick={()=>setRowBreakdownOpen(v=>!v)}
-              title={`${rowBreakdown.length} CSV lines mapped to this campaign — click to expand`}
+              title={rowBreakdown
+                ? `${rowBreakdown.length} CSV lines mapped${hasWeekly?" · weekly trend":""} — click to expand`
+                : "Weekly impressions vs. clicks trend — click to expand"}
               style={{background:"none",border:"none",padding:0,cursor:"pointer",color:lightMode?"#3b82f6":"#7ec8ff",fontSize:10,fontWeight:700,flexShrink:0,display:"inline-block",transform:rowBreakdownOpen?"rotate(90deg)":"rotate(0deg)",transition:"transform .15s"}}>▸</button>
           )}
           <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</span>
@@ -6473,6 +6503,108 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               style={{background:lightMode?"#f1f5f9":"none",border:lightMode?"1px solid #cbd5e1":"none",borderRadius:4,color:lightMode?"#94a3b8":"#3d5a72",fontSize:13,padding:"2px 5px",cursor:"pointer",lineHeight:1}}>✕</button>}
       </div>
     </div>
+    {/* Weekly delivery-vs-clicks combo chart — shown in the expanded dropdown.
+        Bars = weekly delivery of the campaign's pacing metric (impressions, or
+        spend for SEM / views for YT), color-coded by how that week tracked vs the
+        expected weekly pace; line = weekly clicks (right axis). Built from Quick
+        Check-in history, current month only. Sparse until check-ins accumulate. */}
+    {rowBreakdownOpen&&hasWeekly&&(()=>{
+      const n=weekly.length;
+      // Bar metric follows the row's pacing metric. Views aren't always retained in
+      // older history, so YT falls back to impressions when no view data exists yet.
+      let barField, barLabel;
+      if(metricKind==="spend"){ barField="s"; barLabel="Spend"; }
+      else if(metricKind==="views"){ const hasVV=weekly.some(w=>w.vv>0); barField=hasVV?"vv":"i"; barLabel=hasVV?"Views":"Impressions"; }
+      else { barField="i"; barLabel="Impressions"; }
+      const isMoney=barField==="s";
+      const val=w=>w[barField]||0;
+      const barMax=Math.max(...weekly.map(val),1);
+      const clkMax=Math.max(...weekly.map(w=>w.c),1);
+      const lineColor=lightMode?"#0f172a":"#fbbf24";
+      const grid=lightMode?"#e2e8f0":"#1a2744";
+      const neutralBar=lightMode?"#1d4ed8":"#3b82f6";
+      const fmtK=v=> isMoney
+        ? (v>=1000?"$"+(v/1000).toFixed(1)+"k":"$"+Math.round(v))
+        : (v>=1000000?(v/1000000).toFixed(1)+"M":v>=1000?(v/1000).toFixed(1)+"K":String(Math.round(v)));
+      const fmtFull=v=> isMoney ? "$"+Math.round(v).toLocaleString() : Math.round(v).toLocaleString();
+      const lab=k=>new Date(k).toLocaleDateString("en-US",{month:"short",day:"2-digit"});
+      const pts=weekly.map((w,i)=>`${((i+0.5)/n*100).toFixed(2)},${(6+(1-w.c/clkMax)*88).toFixed(2)}`).join(" ");
+      // Per-week pace color: compare that week's delivery to its expected share of
+      // the monthly goal (expected = goal/day × days that week covers, capped at
+      // today so the current partial week isn't unfairly flagged behind).
+      const dayMs=86400000;
+      const mStart=new Date(now.getFullYear(),now.getMonth(),1);
+      const mEnd=new Date(now.getFullYear(),now.getMonth()+1,0);
+      const today0=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+      const perDay=monthlyGoal>0 ? monthlyGoal/dim : 0;
+      const C_GREEN=lmC("#00d48a"), C_YELLOW=lmC("#fbbf24"), C_ORANGE=lmC("#f97316"), C_RED=lmC("#ef4444");
+      const weekColor=w=>{
+        if(!perDay) return neutralBar;          // no goal → can't judge pace
+        const ws=new Date(w.k), we=new Date(w.k); we.setDate(we.getDate()+6);
+        const s=new Date(Math.max(ws,mStart)), e=new Date(Math.min(we,mEnd,today0));
+        const days=Math.floor((e-s)/dayMs)+1;
+        if(days<=0) return neutralBar;
+        const expected=perDay*days;
+        if(expected<=0) return neutralBar;
+        const r=val(w)/expected;
+        if(r>=1.10) return C_ORANGE;            // ahead 10%+ (overdelivering)
+        if(r>=0.90) return C_GREEN;             // on pace (±10%)
+        if(r>=0.70) return C_YELLOW;            // behind 10–30%
+        return C_RED;                            // behind 30%+ — serious trouble
+      };
+      const paceKey=[{c:C_GREEN,l:"On pace"},{c:C_YELLOW,l:"Behind"},{c:C_ORANGE,l:"Ahead"},{c:C_RED,l:"Trouble"}];
+      return (
+        <div style={{background:lightMode?"#f8fafc":"#050b14",borderBottom:rowBreakdown?"none":"1px solid "+lmBrdR,borderLeft:"3px solid "+col,padding:"10px 16px 10px 42px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
+            <span style={{fontSize:9,color:lightMode?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Weekly {barLabel.toLowerCase()} vs. clicks · this month</span>
+            <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+              {perDay>0&&paceKey.map(p=>(
+                <span key={p.l} style={{display:"flex",alignItems:"center",gap:4,fontSize:9,color:lmTxtS}}><span style={{width:9,height:9,borderRadius:2,background:p.c,display:"inline-block"}}/>{p.l}</span>
+              ))}
+              <span style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:lmTxtS}}><span style={{width:14,height:2,background:lineColor,display:"inline-block"}}/>Clicks</span>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            {/* left axis (bar metric) */}
+            <div style={{display:"flex",flexDirection:"column",justifyContent:"space-between",fontSize:8,fontWeight:700,height:150,textAlign:"right",minWidth:32}}>
+              <span style={{color:lmTxtM}}>{fmtK(barMax)}</span><span style={{color:lmTxtD,fontSize:7,textTransform:"uppercase",letterSpacing:"0.04em"}}>{barLabel}</span><span style={{color:lmTxtD}}>0</span>
+            </div>
+            {/* plot area */}
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{position:"relative",height:150,borderBottom:"1px solid "+grid,borderLeft:"1px solid "+grid}}>
+                {/* metric bars — color = weekly pace */}
+                <div style={{position:"absolute",inset:0,display:"flex",alignItems:"flex-end",gap:0}}>
+                  {weekly.map(w=>(
+                    <div key={w.k} title={`${lab(w.k)} — ${fmtFull(val(w))} ${barLabel.toLowerCase()} · ${w.c.toLocaleString()} clicks`}
+                      style={{flex:1,display:"flex",justifyContent:"center",alignItems:"flex-end",height:"100%"}}>
+                      <div style={{width:"58%",background:weekColor(w),borderRadius:"2px 2px 0 0",height:`${Math.max(1,(val(w)/barMax)*88)}%`}}/>
+                    </div>
+                  ))}
+                </div>
+                {/* clicks line */}
+                <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{position:"absolute",inset:0,width:"100%",height:"100%",overflow:"visible",pointerEvents:"none"}}>
+                  <polyline points={pts} fill="none" stroke={lineColor} strokeWidth={2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round"/>
+                </svg>
+                {/* clicks dots */}
+                {weekly.map((w,i)=>(
+                  <div key={w.k} title={`${lab(w.k)} — ${w.c.toLocaleString()} clicks`}
+                    style={{position:"absolute",left:`${(i+0.5)/n*100}%`,top:`${6+(1-w.c/clkMax)*88}%`,transform:"translate(-50%,-50%)",width:7,height:7,borderRadius:"50%",background:lineColor,border:`1px solid ${lightMode?"#ffffff":"#050b14"}`}}/>
+                ))}
+              </div>
+              {/* x-axis week labels */}
+              <div style={{display:"flex",gap:0,marginTop:3}}>
+                {weekly.map(w=>(<div key={w.k} style={{flex:1,textAlign:"center",fontSize:8,color:lmTxtD,whiteSpace:"nowrap"}}>{lab(w.k)}</div>))}
+              </div>
+            </div>
+            {/* right axis (clicks) */}
+            <div style={{display:"flex",flexDirection:"column",justifyContent:"space-between",fontSize:8,fontWeight:700,height:150,minWidth:30,textAlign:"left"}}>
+              <span style={{color:lineColor}}>{fmtK(clkMax)}</span><span style={{color:lmTxtD,fontSize:7,textTransform:"uppercase",letterSpacing:"0.04em"}}>Clicks</span><span style={{color:lmTxtD}}>0</span>
+            </div>
+          </div>
+        </div>
+      );
+    })()}
+
     {/* Expanded per-line breakdown — full-width row beneath the campaign row.
         Shows BOTH MTD totals AND a separate "yesterday delivered" column per line
         (today MTD − prior-day MTD), so you can see e.g. retargeting spent $0 yesterday. */}
@@ -7604,7 +7736,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
 
   const [sections, setSections] = useState({
-    kpis:true, impChart:true, ctrChart:true, table:true,
+    kpis:true, impChart:true, weeklyChart:true, ctrChart:true, table:true,
     budget:true, creatives:true, demographics:true, devices:true, geo:true,
   });
   const [sectionNotes, setSectionNotes] = useState({});
@@ -7668,6 +7800,57 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   const totals = useMemo(()=>rows.reduce((a,r)=>({impressions:a.impressions+r.m.impressions,clicks:a.clicks+r.m.clicks,spend:a.spend+r.m.spend,reach:a.reach+r.m.reach,videoViews:a.videoViews+r.m.videoViews,contractValue:a.contractValue+r.m.contractValue}),{impressions:0,clicks:0,spend:0,reach:0,videoViews:0,contractValue:0}),[rows]);
   const overallCTR=totals.clicks>0&&totals.impressions>0?(totals.clicks/totals.impressions*100).toFixed(2)+"%":"—";
   const overallCPM=totals.impressions>0&&totals.spend>0?"$"+(totals.spend/totals.impressions*1000).toFixed(2):"—";
+
+  // ── Weekly performance (derived from retained check-in history) ──────────────
+  // metricSeries holds MONTH-TO-DATE cumulative readings at each check-in date. To show
+  // "how pacing moved through the month" we diff consecutive readings into per-interval
+  // delivery, then bucket those deltas into calendar weeks (Mon-start). MTD resets each
+  // month, so when a reading is the first of its month (or the number drops, = reset) we
+  // treat the reading itself as that interval's delivery. More frequent check-ins → finer
+  // resolution; sparse check-ins still give a reasonable weekly shape.
+  function parseStamp(s){ // "MM/DD/YYYY" → Date (local midnight) or null
+    if(!s||typeof s!=="string") return null;
+    const m=s.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if(!m) return null;
+    const d=new Date(parseInt(m[3]),parseInt(m[1])-1,parseInt(m[2]));
+    return isNaN(d)?null:d;
+  }
+  function weekStart(d){ // Monday of the week containing d
+    const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+    const dow=x.getDay(); // 0=Sun..6=Sat
+    x.setDate(x.getDate()-((dow+6)%7));
+    return x;
+  }
+  function isoOf(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+  function weeklyForCampaign(c){
+    const raw=(Array.isArray(c.metricSeries)?c.metricSeries:[])
+      .map(e=>({date:parseStamp(e.d), i:parseInt(e.i)||0, c:parseInt(e.c)||0}))
+      .filter(e=>e.date)
+      .sort((a,b)=>a.date-b.date);
+    if(!raw.length) return [];
+    // consecutive deltas (handle month reset)
+    const deltas=[]; let prev=null;
+    for(const e of raw){
+      let di,dc;
+      const sameMonth = prev && prev.date.getFullYear()===e.date.getFullYear() && prev.date.getMonth()===e.date.getMonth();
+      if(sameMonth && e.i>=prev.i){ di=e.i-prev.i; dc=e.c-prev.c; }
+      else { di=e.i; dc=e.c; } // first reading of a month, or a reset
+      deltas.push({date:e.date, di:Math.max(0,di), dc:Math.max(0,dc)});
+      prev=e;
+    }
+    // bucket by Monday week-start, respecting the report date range
+    const buckets=new Map();
+    for(const d of deltas){
+      const iso=isoOf(d.date);
+      if(dr.start && iso<dr.start) continue;
+      if(dr.end && iso>dr.end) continue;
+      const ws=isoOf(weekStart(d.date));
+      const b=buckets.get(ws)||{i:0,c:0};
+      b.i+=d.di; b.c+=d.dc; buckets.set(ws,b);
+    }
+    return [...buckets.entries()].sort((a,b)=>a[0]<b[0]?-1:1)
+      .map(([ws,b])=>({weekStart:ws, impressions:b.i, clicks:b.c}));
+  }
 
   // ── Auto-populate identity from selected campaigns ──────────────────────────
   useEffect(()=>{
@@ -8074,7 +8257,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
               <div>
                 <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:5}}>Sections</label>
                 <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                  {[{k:"kpis",l:"KPIs"},{k:"impChart",l:"Impr."},{k:"ctrChart",l:"CTR"},{k:"table",l:"Table"},{k:"budget",l:"Budget"},{k:"creatives",l:"Creatives"},{k:"demographics",l:"Demo"},{k:"devices",l:"Devices"},{k:"geo",l:"Geo"}].map(({k,l})=>(
+                  {[{k:"kpis",l:"KPIs"},{k:"impChart",l:"Impr."},{k:"weeklyChart",l:"Weekly"},{k:"ctrChart",l:"CTR"},{k:"table",l:"Table"},{k:"budget",l:"Budget"},{k:"creatives",l:"Creatives"},{k:"demographics",l:"Demo"},{k:"devices",l:"Devices"},{k:"geo",l:"Geo"}].map(({k,l})=>(
                     <button key={k} onClick={()=>setSections(p=>({...p,[k]:!p[k]}))}
                       style={{background:sections[k]?(_lm?"#f0fdf9":"#002e24"):(_lm?"#f8fafc":"#0e1a2e"),border:`1px solid ${sections[k]?(_lm?"#00c896":"#00c89650"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:4,padding:"3px 8px",color:sections[k]?(_lm?"#059669":"#00e5a0"):(_lm?"#94a3b8":"#3d5a72"),fontSize:10,fontWeight:sections[k]?700:400,cursor:"pointer"}}>
                       {l}
@@ -8290,8 +8473,8 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                 );
               })()}
 
-              {/* Impressions chart */}
-              {sections.impChart&&rows.some(r=>r.m.impressions>0)&&(()=>{
+              {/* Impressions chart — only useful for comparing 2+ tactics; a single bar looks odd */}
+              {sections.impChart&&rows.filter(r=>r.m.impressions>0).length>1&&(()=>{
                 const cr=rows.filter(r=>r.m.impressions>0);
                 const mx=Math.max(...cr.map(r=>r.m.impressions),1);
                 return (
@@ -8320,6 +8503,63 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                       </div>
                     </div>
                     <SectionNote skey="impChart"/>
+                  </div>
+                );
+              })()}
+
+              {/* Weekly performance per tactic — week-by-week impressions + clicks */}
+              {sections.weeklyChart&&rows.length>0&&(()=>{
+                const perTactic=rows.map(r=>({r, weeks:weeklyForCampaign(r)}));
+                const anyData=perTactic.some(t=>t.weeks.length>0);
+                const fmtWk=ws=>{ const [y,m,d]=ws.split("-"); return `${parseInt(m)}/${parseInt(d)}`; };
+                return (
+                  <div style={{marginBottom:22}}>
+                    <SectionHeader title="Weekly Performance by Tactic" skey="weeklyChart"/>
+                    {!anyData ? (
+                      <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"16px",fontSize:11,color:"#888",fontStyle:"italic"}}>
+                        No weekly history yet. This chart fills in automatically as Quick Check-in CSVs are recorded over the report period — each check-in adds a data point, and weeks are built by comparing consecutive readings.
+                      </div>
+                    ) : (
+                      <div style={{display:"flex",flexDirection:"column",gap:18}}>
+                        {perTactic.map(({r,weeks})=>{
+                          const pc=platCol(r.platform);
+                          const impMax=Math.max(...weeks.map(w=>w.impressions),1);
+                          const clkMax=Math.max(...weeks.map(w=>w.clicks),1);
+                          const many=weeks.length>14;
+                          return (
+                            <div key={r.id} style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px 16px 12px",breakInside:"avoid"}}>
+                              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+                                <div style={{fontSize:12,fontWeight:800,color:"#1a1a2e",display:"flex",alignItems:"center",gap:7}}>
+                                  <span style={{width:9,height:9,borderRadius:2,background:pc,display:"inline-block"}}/>
+                                  {r.campaignName.trim()} <span style={{color:pc,fontWeight:600}}>({r.platform})</span>
+                                </div>
+                                <div style={{display:"flex",gap:14,alignItems:"center"}}>
+                                  <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:10,height:10,borderRadius:2,background:pc}}/><span style={{fontSize:9,color:"#666"}}>Impressions</span></div>
+                                  <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:10,height:10,borderRadius:2,background:"#1a1a2e"}}/><span style={{fontSize:9,color:"#666"}}>Clicks</span></div>
+                                </div>
+                              </div>
+                              {weeks.length===0 ? (
+                                <div style={{fontSize:10,color:"#aaa",fontStyle:"italic",paddingBottom:6}}>No check-in data recorded in this period yet.</div>
+                              ) : (
+                                <div style={{display:"flex",alignItems:"flex-end",gap:many?5:8,height:170}}>
+                                  {weeks.map(w=>(
+                                    <div key={w.weekStart} style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
+                                      <div style={{fontSize:8.5,color:pc,fontWeight:700,lineHeight:1,textAlign:"center",whiteSpace:"nowrap"}}>{fmtN(w.impressions)}</div>
+                                      <div style={{display:"flex",alignItems:"flex-end",gap:2,height:132,width:"100%"}}>
+                                        <div title={`${fmtN(w.impressions)} impr`} style={{flex:1,background:pc,borderRadius:"3px 3px 0 0",height:`${Math.max(3,(w.impressions/impMax)*128)}px`}}/>
+                                        <div title={`${w.clicks} clicks`} style={{flex:1,background:"#1a1a2e",borderRadius:"3px 3px 0 0",height:`${Math.max(3,(w.clicks/clkMax)*128)}px`}}/>
+                                      </div>
+                                      <div style={{fontSize:8.5,color:"#999",whiteSpace:"nowrap"}}>{fmtWk(w.weekStart)}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <SectionNote skey="weeklyChart"/>
                   </div>
                 );
               })()}
@@ -9511,6 +9751,19 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         // The other 27 historical entries were dead weight — we never read them.
         checkInLog: ((c.checkInLog?c.checkInLog+"\n":"")+histLine)
           .split("\n").filter(Boolean).slice(-3).join("\n"),
+        // metricSeries: RETAINED full history of check-in readings — this is what powers
+        // the weekly performance chart in Reports. Each entry is the MTD (month-to-date)
+        // cumulative reading at that check-in: { d: "MM/DD/YYYY", i: impressions, c: clicks,
+        // s: spend, v: VCR }. Weekly delivery is derived later by diffing consecutive
+        // readings (this reading − prior reading), so we keep every distinct date.
+        // Dedupe by date (latest same-day check-in wins) and cap to 500 entries (~16
+        // months of daily drops) to bound localStorage growth.
+        metricSeries: (()=>{
+          const prev = Array.isArray(c.metricSeries) ? c.metricSeries : [];
+          const entry = { d: stamp, i: u.impressions||0, c: u.clicks||0, s: u.spend||0, v: u.completionRate||0, vv: u.videoViews||0 };
+          const next = [...prev.filter(e=>e && e.d!==stamp), entry];
+          return next.slice(-500);
+        })(),
         // lastCheckInImpr: MTD impressions as of the most recent check-in
         // Used to detect dead campaigns: if next check-in shows same/lower number, campaign went dark
         lastCheckInImpr: String(u.impressions||0),
