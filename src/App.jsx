@@ -5682,6 +5682,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // into their sync status alongside active ones.
   const updatedTodayCount = campaigns.filter(c=>c.lastChecked===todayStr).length;
   const notUpdatedCount   = campaigns.filter(c=>c.lastChecked!==todayStr).length;
+  // Most recent check-in date across all campaigns (ISO sorts lexicographically),
+  // shown as a "Last update" chip in mm/dd/yyyy.
+  const lastUpdateISO = campaigns.reduce((mx,c)=>(c.lastChecked && c.lastChecked>mx ? c.lastChecked : mx), "");
+  const lastUpdateDisp = lastUpdateISO && /^\d{4}-\d{2}-\d{2}$/.test(lastUpdateISO)
+    ? (()=>{ const [y,m,d]=lastUpdateISO.split("-"); return `${m}/${d}/${y}`; })()
+    : (lastUpdateISO || "—");
   const filtered = allRows.filter(({c})=>{
     if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
@@ -6190,7 +6196,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       (rowSnap?.priorBreakdown||[]).forEach(p => { if (p?.name) m[p.name] = p; });
       return m;
     })();
-    const rowPriorDate = rowSnap?.priorBreakdownDate || null;
+    const rowPriorDateRaw = rowSnap?.priorBreakdownDate || null;
+    // priorBreakdownDate is stored ISO (YYYY-MM-DD via getToday()); show it mm/dd/yyyy.
+    const rowPriorDate = rowPriorDateRaw && /^\d{4}-\d{2}-\d{2}$/.test(rowPriorDateRaw)
+      ? (()=>{ const [y,m,d]=rowPriorDateRaw.split("-"); return `${m}/${d}/${y}`; })()
+      : rowPriorDateRaw;
     const col=pacing?.color??"#3d5a72", pCol=PLT_COLORS[c.platform]||PLT_COLORS.default;
     const dr=daysRemaining(c), drc=daysRemainingColor(dr);
     const kpi=PLT_KPI[c.platform];
@@ -6609,8 +6619,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         Shows BOTH MTD totals AND a separate "yesterday delivered" column per line
         (today MTD − prior-day MTD), so you can see e.g. retargeting spent $0 yesterday. */}
     {rowBreakdown&&rowBreakdownOpen&&(()=>{
-      const sorted = [...rowBreakdown].sort((a,b)=>(b.impressions||0)-(a.impressions||0));
-      const totalImpr = sorted.reduce((s,b)=>s+(b.impressions||0),0);
+      // YouTube campaigns lead with VIEWS (their primary KPI); everything else
+      // leads with impressions. Falls back to impressions if no view data exists yet.
+      const useViews = metricKind === "views" && rowBreakdown.some(b=>(b.videoViews||0)>0);
+      const leadVal = b => (useViews ? (b.videoViews||0) : (b.impressions||0));
+      const leadLabel = useViews ? "views" : "impr";
+      const sorted = [...rowBreakdown].sort((a,b)=>leadVal(b)-leadVal(a));
+      const totalLead = sorted.reduce((s,b)=>s+leadVal(b),0);
       const hasPrior = Object.keys(rowPriorByName).length > 0;
       return (
         <div style={{background:lightMode?"#f8fafc":"#050b14",borderBottom:"1px solid "+lmBrdR,borderLeft:"3px solid "+col,padding:"6px 16px 10px 42px"}}>
@@ -6620,25 +6635,26 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
             {sorted.map(b=>{
-              const pctOfTotal = totalImpr>0 ? (b.impressions/totalImpr)*100 : 0;
-              const isQuiet = b.impressions === 0 || pctOfTotal < 5;
+              const bLead = leadVal(b);
+              const pctOfTotal = totalLead>0 ? (bLead/totalLead)*100 : 0;
+              const isQuiet = bLead === 0 || pctOfTotal < 5;
               const prior = rowPriorByName[b.name];
-              const yestImpr  = prior ? Math.max(0, (b.impressions||0) - (prior.impressions||0)) : null;
+              const yestLead  = prior ? Math.max(0, bLead - (useViews ? (prior.videoViews||0) : (prior.impressions||0))) : null;
               const yestSpend = prior ? Math.max(0, (b.spend||0)       - (prior.spend||0))       : null;
               const yestClk   = prior ? Math.max(0, (b.clicks||0)      - (prior.clicks||0))      : null;
-              const yestColor = yestImpr === 0 ? (lightMode?"#dc2626":"#ef4444") : (lightMode?"#059669":"#00d48a");
+              const yestColor = yestLead === 0 ? (lightMode?"#dc2626":"#ef4444") : (lightMode?"#059669":"#00d48a");
               return (
                 <div key={b.id} style={{display:"flex",alignItems:"center",gap:10,background:lightMode?"#ffffff":"#0a1320",border:`1px solid ${isQuiet?(lightMode?"#fca5a5":"#7f1d1d"):(lightMode?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"6px 10px"}}>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:11,color:lightMode?"#334155":"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={b.name}>{b.name}</div>
-                    <div style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",marginTop:1}}>{pctOfTotal.toFixed(0)}% of total impr{isQuiet?" · ⚠ low / not running":""}</div>
+                    <div style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",marginTop:1}}>{pctOfTotal.toFixed(0)}% of total {leadLabel}{isQuiet?" · ⚠ low / not running":""}</div>
                   </div>
                   {/* MTD column — every cell is a fixed slot so columns stay aligned
                       across lines. Empty values render as "—" instead of being skipped
                       (which would cause the row to lose alignment). */}
                   <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,paddingRight:hasPrior?10:0,borderRight:hasPrior?`1px solid ${lightMode?"#e2e8f0":"#1a2744"}`:"none"}}>
                     <span style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",fontWeight:700,textTransform:"uppercase"}}>MTD</span>
-                    <span style={{fontSize:11,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:700,fontVariantNumeric:"tabular-nums",minWidth:70,textAlign:"right"}}>{parseInt(b.impressions||0).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400,fontSize:9}}> impr</span></span>
+                    <span style={{fontSize:11,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:700,fontVariantNumeric:"tabular-nums",minWidth:70,textAlign:"right"}}>{parseInt(bLead||0).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400,fontSize:9}}> {leadLabel}</span></span>
                     <span style={{fontSize:11,color:b.clicks>0?"#a3bffa":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{b.clicks>0?`${parseInt(b.clicks).toLocaleString()} clk`:"—"}</span>
                     <span style={{fontSize:11,color:b.ctr>0?"#00ffb3":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{b.ctr>0?`${b.ctr.toFixed(2)}%`:"—"}</span>
                     <span style={{fontSize:11,color:b.spend>0?"#f472b6":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{b.spend>0?`$${Math.round(b.spend).toLocaleString()}`:"—"}</span>
@@ -6649,14 +6665,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                   {hasPrior&&(
                     <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
                       <span style={{fontSize:9,color:yestColor,fontWeight:700,textTransform:"uppercase"}}>Yest</span>
-                      <span style={{fontSize:11,color:yestImpr!=null?yestColor:lmTxtD,fontWeight:700,fontVariantNumeric:"tabular-nums",minWidth:70,textAlign:"right"}}>
-                        {yestImpr!=null
-                          ? <>{yestImpr.toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400,fontSize:9}}> impr</span></>
+                      <span style={{fontSize:11,color:yestLead!=null?yestColor:lmTxtD,fontWeight:700,fontVariantNumeric:"tabular-nums",minWidth:70,textAlign:"right"}}>
+                        {yestLead!=null
+                          ? <>{yestLead.toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400,fontSize:9}}> {leadLabel}</span></>
                           : "—"}
                       </span>
                       <span style={{fontSize:11,color:(yestClk!=null&&yestClk>0)?"#a3bffa":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{(yestClk!=null&&yestClk>0)?`${yestClk.toLocaleString()} clk`:"—"}</span>
                       <span style={{fontSize:11,color:(yestSpend!=null&&yestSpend>0)?"#f472b6":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{(yestSpend!=null&&yestSpend>0)?`$${Math.round(yestSpend).toLocaleString()}`:"—"}</span>
-                      {yestImpr===0&&<span style={{fontSize:9,color:lightMode?"#dc2626":"#ef4444",fontWeight:700,background:lightMode?"#fee2e2":"#3a0010",padding:"1px 5px",borderRadius:3}}>NOT RUNNING</span>}
+                      {yestLead===0&&<span style={{fontSize:9,color:lightMode?"#dc2626":"#ef4444",fontWeight:700,background:lightMode?"#fee2e2":"#3a0010",padding:"1px 5px",borderRadius:3}}>NOT RUNNING</span>}
                     </div>
                   )}
                   {/* Reassign button — opens search modal to move this line to another campaign.
@@ -6831,6 +6847,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           style={{background:todayFilter==="not-today"?(lightMode?"#fff7ed":"#1a0e00"):lmBgInp,padding:"5px 10px",color:todayFilter==="not-today"?"#f97316":lmTxtS,fontSize:11,fontWeight:todayFilter==="not-today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none"}}>
           ✕ Not Updated{notUpdatedCount>0?` (${notUpdatedCount})`:""}
         </button>
+      </div>
+      {/* Last update — read-only chip showing the most recent check-in date,
+          with the date itself in electric blue. */}
+      <div title="Most recent check-in date across all campaigns"
+        style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:7,border:"1px solid "+lmBrd,background:lmBgInp,fontSize:11,whiteSpace:"nowrap",flexShrink:0}}>
+        <span style={{color:lmTxtS}}>Last update</span>
+        <span style={{color:lightMode?"#2563eb":"#38bdf8",fontWeight:700}}>{lastUpdateDisp}</span>
       </div>
       <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
         <span style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
@@ -8979,7 +9002,9 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       clicks         = parseInt(clean(row["Clicks"]||row["clicks"]))||0;
       spend          = parseFloat(clean(row["Cost"]||row["Spend"]||row["cost"]||row["spend"]))||0;
       cpm            = parseFloat(clean(row["Avg. CPM"]||row["CPM"]||row["cpm"]))||0;
-      videoViews     = parseInt(clean(row["Views"]||row["Video views"]||row["Video Views"]||row["views"]))||0;
+      // Google/YouTube exports name the views column differently depending on report:
+      // TapClicks → "Views"; Google Ads native TrueView report → "TrueView Video Views".
+      videoViews     = parseInt(clean(row["TrueView Video Views"]||row["Trueview Video Views"]||row["TrueView Views"]||row["Video Views"]||row["Video views"]||row["Views"]||row["views"]))||0;
       reach          = parseInt(clean(row["Reach"]||row["reach"]))||0;
       // View rate / VCR — TapClicks may store as decimal (0.45) or percent (45.0)
       const vrRaw    = parseFloat(clean(row["Video played to: 100%"]||row["View rate"]||row["VCR"]||row["vcr"]))||0;
