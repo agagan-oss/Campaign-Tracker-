@@ -10202,7 +10202,13 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                 const ttdAdvName = fileSource==="TradeDesk" ? getTTDAdvertiserName(row) : "";
                 const ttdClientName = fileSource==="TradeDesk" ? getTTDClientName(ttdAdvName) : "";
                 const displayName = fileSource==="TradeDesk" ? (ttdClientName || name) : name;
-                const assigned=mapping[i]||"";
+                const assignedId=mapping[i]||"";
+                // Resolve the mapping to a real campaign (active or recently-archived). A remembered
+                // match can point to a campaign that's since been deleted or archived past the 31-day
+                // window — that id no longer resolves, the data has nowhere to land, so we treat the
+                // row as UNMATCHED (orange) instead of falsely showing it green/mapped.
+                const assignedCamp=assignedId?assignPool.find(x=>String(x.id)===String(assignedId)):null;
+                const assigned=assignedCamp?assignedId:"";
                 const isUnmatched=!assigned;
                 const computedCtr=m.impressions>0&&m.clicks>0?m.clicks/m.impressions*100:0;
                 const isPickMode = !!leftPickCampId;
@@ -10294,7 +10300,14 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                         // If smart filter found good candidates, show them; otherwise show full pool
                         // This ensures campaigns like Landrum HR always have options even with no keyword match
                         const hasSmartMatch = smartFiltered.length > 0;
-                        const displayList = (showingAll || !hasSmartMatch) ? pool : smartFiltered;
+                        let displayList = (showingAll || !hasSmartMatch) ? pool : smartFiltered;
+                        // Always surface the currently-assigned campaign as a selectable option, even
+                        // when the smart filter or search would otherwise hide it (e.g. a remembered
+                        // match to an archived campaign). Without this the <select> can't display the
+                        // selection and falls back to the placeholder, making a mapped row look unassigned.
+                        if (assignedCamp && !displayList.some(c=>String(c.id)===String(assignedCamp.id))) {
+                          displayList = [assignedCamp, ...displayList];
+                        }
                         const isFiltered = hasSmartMatch && displayList.length < pool.length;
 
                         return (
