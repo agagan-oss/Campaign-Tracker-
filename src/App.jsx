@@ -5861,20 +5861,31 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       baseImpr = priorEntry.impr;
     }
 
-    // Compute needed/day so we can compare
+    // Compute the daily delivery bar to grade yesterday against.
     const dimDate = new Date(); const dim = new Date(dimDate.getFullYear(), dimDate.getMonth()+1, 0).getDate();
     const dom = dimDate.getDate();
     const dr = daysRemaining(c);
     const daysLeftMonth = dim - dom;
     const daysLeft = (dr !== null && dr >= 0 && dr < daysLeftMonth) ? dr : daysLeftMonth;
     const remaining = Math.max(0, (monthlyGoal||0) - todayMtd);
-    const neededPerDay = daysLeft > 0 && monthlyGoal > 0 ? Math.round(remaining / daysLeft) : 0;
+    const goalHit = monthlyGoal > 0 && todayMtd >= monthlyGoal;
+    // Primary bar = catch-up pace (remaining ÷ days left). That goes to 0 on the LAST day of
+    // the month and the instant a goal is hit — which is exactly why the column went flat blue
+    // for everyone at month-end / goal-hit (every row fell into "no target"). So when the
+    // catch-up bar isn't usable, fall back to the even monthly pace (goal ÷ days in month),
+    // which is always defined — keeping the column meaningfully color-coded every day.
+    const catchUpPerDay = daysLeft > 0 && monthlyGoal > 0 ? Math.round(remaining / daysLeft) : 0;
+    const evenDailyPace = monthlyGoal > 0 ? Math.round(monthlyGoal / dim) : 0;
+    const neededPerDay = catchUpPerDay > 0 ? catchUpPerDay : evenDailyPace;
     const pctOfNeeded = neededPerDay > 0 ? (delivered / neededPerDay) * 100 : null;
-    // Status color: green if hit needed/day, yellow if 75-99%, red if <75%
+    // Status color: green once the monthly goal is hit (campaign is done — a light delivery day
+    // is expected, don't flag it red); otherwise grade yesterday vs the daily bar: green ≥100%,
+    // amber 75-99%, red <75% (a 0-delivery day on a campaign still chasing goal = went dark → red).
     let color = "#4d6e8a", status = "—";
-    if (pctOfNeeded === null) { color = "#4d6e8a"; status = "no target"; }
-    else if (pctOfNeeded >= 100) { color = "#00d48a"; status = "on pace"; }
-    else if (pctOfNeeded >= 75)  { color = "#f59e0b"; status = "slightly behind"; }
+    if (goalHit)                  { color = "#00d48a"; status = "goal hit"; }
+    else if (pctOfNeeded === null){ color = "#4d6e8a"; status = "no target"; }
+    else if (pctOfNeeded >= 100)  { color = "#00d48a"; status = "on pace"; }
+    else if (pctOfNeeded >= 75)   { color = "#f59e0b"; status = "slightly behind"; }
     else                          { color = "#ef4444"; status = "needs push"; }
     return { delivered, neededPerDay, pctOfNeeded, color, status, baseDate, baseImpr, todayImpr: todayMtd };
   }
