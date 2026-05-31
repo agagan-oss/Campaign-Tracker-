@@ -10,6 +10,8 @@ const CSV_MAPPINGS_KEY = "campaign-tracker-csv-mappings";
 const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 const VAULT_KEY = "campaign-tracker-report-vault"; // [{id, savedAt, client, title, dateRange, brandColor, totals, campaigns, notes}]
 const MONTH_LOCK_KEY = "campaign-tracker-month-locks"; // {"2026-05":{lockedAt,label,totalRevenue,totalSpend,totalProfit,margin,campaigns:[]}}
+const MONTH_RESET_KEY = "campaign-tracker-last-month-reset"; // "YYYY-MM" of the last new-month metrics reset handled
+const MONTHLY_BACKUP_KEY = "campaign-tracker-monthly-backups"; // {"YYYY-MM":{savedAt, campaigns:[...closing snapshot]}}
 const ARCHIVE_DAYS = 5;
 const MAX_LOG_ENTRIES = 500;
 
@@ -5730,24 +5732,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   };
   withGoal.sort(sortFn);
   noGoalRows.sort(sortFn);
-  // Off campaigns: prioritize ones with actual data at top (most useful to see
-  // first — these are the "hit goal then paused" campaigns the user wants to
-  // glance at). Campaigns with no impressions go to the bottom.
-  offFiltered.sort((a, b) => {
-    const aImpr = parseInt(a.disp?.impressions || a.c.impressions) || 0;
-    const bImpr = parseInt(b.disp?.impressions || b.c.impressions) || 0;
-    const aHasData = aImpr > 0 ? 1 : 0;
-    const bHasData = bImpr > 0 ? 1 : 0;
-    if (aHasData !== bHasData) return bHasData - aHasData; // data first
-    // Within "has data": sort by pacing % desc so highest-delivering shows top
-    if (aHasData === 1) {
-      const aRatio = a.pacing?.pct ?? 0;
-      const bRatio = b.pacing?.pct ?? 0;
-      return bRatio - aRatio;
-    }
-    // No-data fallback: alpha by name
-    return a.c.campaignName.localeCompare(b.c.campaignName);
-  });
+  // Off campaigns use the SAME comparator as the active list so they order by
+  // pacing status (Behind → On Track → Ahead) and follow the sort dropdown —
+  // surfacing behind/paused campaigns at the top just like the active section,
+  // instead of burying them under the highest-delivering ones.
+  offFiltered.sort(sortFn);
   const behind  = withGoal.filter(r=>r.pacing?.label==="Behind");
   const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
   const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
@@ -7828,10 +7817,61 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
   // ── Metrics ────────────────────────────────────────────────────────────────
   function getM(c){ return{impressions:parseInt(c.impressions)||0,clicks:parseInt(c.clicks)||0,ctr:parseFloat(c.ctr)||0,cpm:parseFloat(c.cpm)||0,spend:parseFloat(c.spend)||0,reach:parseInt(c.reach)||0,completionRate:parseFloat(c.completionRate)||0,videoViews:parseInt(c.videoViews)||0,contractValue:parseFloat(c.contractValue)||0}; }
+  // Reconstruct actual delivery WITHIN the report's date range from the retained check-in
+  // history (metricSeries). Uses the same reset-aware diffing as the weekly chart, then SUMS
+  // the per-interval deltas inside [dr.start, dr.end] — so the summary totals reconcile with
+  // the bars. Returns null when this campaign has no usable history in range (caller then
+  // falls back to its live current numbers). This is what lets a CLOSED-month or multi-month
+  // report stay accurate even after the new-month reset zeroes the live fields.
+  function seriesTotalsInRange(c){
+    const raw=(Array.isArray(c.metricSeries)?c.metricSeries:[])
+      .map(e=>({date:parseStamp(e.d), i:parseInt(e.i)||0, c:parseInt(e.c)||0, s:parseFloat(e.s)||0, vv:parseInt(e.vv)||0, v:parseFloat(e.v)||0}))
+      .filter(e=>e.date)
+      .sort((a,b)=>a.date-b.date);
+    if(!raw.length) return null;
+    const deltas=[]; let prev=null;
+    for(const e of raw){
+      const sameMonth = prev && prev.date.getFullYear()===e.date.getFullYear() && prev.date.getMonth()===e.date.getMonth();
+      let di,dc,ds,dvv;
+      if(sameMonth && e.i>=prev.i){ di=e.i-prev.i; dc=e.c-prev.c; ds=e.s-prev.s; dvv=e.vv-prev.vv; }
+      else { di=e.i; dc=e.c; ds=e.s; dvv=e.vv; } // first reading of a month, or a reset
+      deltas.push({date:e.date, di:Math.max(0,di), dc:Math.max(0,dc), ds:Math.max(0,ds), dvv:Math.max(0,dvv), v:e.v});
+      prev=e;
+    }
+    let i=0,cl=0,s=0,vv=0,vcr=0,any=false;
+    for(const d of deltas){
+      const iso=isoOf(d.date);
+      if(dr.start && iso<dr.start) continue;
+      if(dr.end && iso>dr.end) continue;
+      i+=d.di; cl+=d.dc; s+=d.ds; vv+=d.dvv; if(d.v) vcr=d.v; any=true; // VCR is a rate → keep last reading in range
+    }
+    if(!any) return null;
+    return {impressions:i, clicks:cl, spend:s, videoViews:vv, completionRate:vcr};
+  }
+  // Pull report numbers from history (not the live fields) whenever the chosen range is
+  // entirely in the PAST — i.e. a closed month or a custom range that ends before this month
+  // began. Current-month and lifetime reports keep reading the live tracker numbers.
+  const useHistory = useMemo(()=>{
+    const cur=getToday().slice(0,7);
+    if(reportType==="monthly") return reportMonth < cur;
+    if(reportType==="custom")  return !!(dr.end && dr.end < `${cur}-01`);
+    return false;
+  },[reportType,reportMonth,dr]);
   const rows = useMemo(()=>selectedCamps.map(c=>{
     const overrides = csvOverrides[c.id]||{};
-    return {...c, ...overrides, m:getM(c)};
-  }),[selectedCamps, csvOverrides]);
+    let m = getM(c);
+    if(useHistory){
+      const h = seriesTotalsInRange(c);
+      if(h){
+        const impressions=h.impressions, clicks=h.clicks, spend=h.spend;
+        m = {...m, impressions, clicks, spend, videoViews:h.videoViews,
+          completionRate:h.completionRate||m.completionRate,
+          ctr: impressions>0 ? +(clicks/impressions*100).toFixed(2) : 0,
+          cpm: impressions>0 ? +(spend/impressions*1000).toFixed(2) : 0 };
+      }
+    }
+    return {...c, ...overrides, m};
+  }),[selectedCamps, csvOverrides, useHistory, dr]);
   const totals = useMemo(()=>rows.reduce((a,r)=>({impressions:a.impressions+r.m.impressions,clicks:a.clicks+r.m.clicks,spend:a.spend+r.m.spend,reach:a.reach+r.m.reach,videoViews:a.videoViews+r.m.videoViews,contractValue:a.contractValue+r.m.contractValue}),{impressions:0,clicks:0,spend:0,reach:0,videoViews:0,contractValue:0}),[rows]);
   const overallCTR=totals.clicks>0&&totals.impressions>0?(totals.clicks/totals.impressions*100).toFixed(2)+"%":"—";
   const overallCPM=totals.impressions>0&&totals.spend>0?"$"+(totals.spend/totals.impressions*1000).toFixed(2):"—";
@@ -13320,6 +13360,7 @@ export default function App() {
   const addDraftMeaningful = (s) => { try { const d = typeof s==="string"?JSON.parse(s):s; return !!(d && (String(d.campaignName||"").trim() || String(d.mediaPartner||"").trim())); } catch { return false; } };
   const [hasAddDraft, setHasAddDraft] = useState(()=>{ try { return addDraftMeaningful(localStorage.getItem("campaign-tracker-add-draft")); } catch { return false; } });
   const [showExportReminder, setShowExportReminder] = useState(false);
+  const [showMonthReset, setShowMonthReset]         = useState(false);
   const [showReminderModal, setShowReminderModal]   = useState(null); // null=closed, true=open all, number=open focused on campaign
   const [renewTarget, setRenewTarget]               = useState(null);
   const [saved, setSaved]         = useState(false);
@@ -13583,6 +13624,21 @@ export default function App() {
   useEffect(()=>{ try { localStorage.setItem(REMINDERS_KEY,JSON.stringify(reminders)); } catch(e){console.error(e);} },[reminders]);
   useEffect(()=>{ try { localStorage.setItem(ARCHIVE_KEY,JSON.stringify(archive)); } catch(e){console.error(e);} },[archive]);
   useEffect(()=>{ const last=localStorage.getItem(EXPORT_KEY); if(!last){setShowExportReminder(true);return;} if((Date.now()-parseInt(last))/(1000*60*60*24)>=3) setShowExportReminder(true); },[]);
+  // New-month detection: if the calendar month has advanced past the last reset we
+  // handled, surface a one-click banner to clear last month's metrics. Never fires on
+  // the first-ever load (we just record the current month), and only nags when there's
+  // actually data to clear.
+  useEffect(()=>{
+    const curMonth = (()=>{ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`; })();
+    let stored=null;
+    try { stored = localStorage.getItem(MONTH_RESET_KEY); } catch {}
+    if(!stored){ try{ localStorage.setItem(MONTH_RESET_KEY, curMonth); }catch{} return; }
+    if(stored < curMonth){
+      const hasData = campaigns.some(c=>(parseInt(c.impressions)||0)>0 || (parseFloat(c.spend)||0)>0);
+      if(hasData) setShowMonthReset(true);
+      else { try{ localStorage.setItem(MONTH_RESET_KEY, curMonth); }catch{} }
+    }
+  },[]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // One-time cleanup: clear closeToGoal on any campaign that also has goalHit set
   useEffect(()=>{
@@ -13800,6 +13856,52 @@ export default function App() {
     setShowBulkEdit(false);
     setSelectedIds(new Set());
     setBulkDraft({ note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
+  }
+
+  // One-click new-month reset (triggered by the "New month detected" banner): backs up
+  // last month's closing numbers, then clears metrics + goal badges on ALL active
+  // campaigns so the month starts clean. Archived campaigns and each campaign's history
+  // series (metricSeries) are left intact, so Reports/Revenue history survives the reset.
+  async function handleMonthlyReset() {
+    const curMonth = (()=>{ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`; })();
+    let prevMonth = curMonth;
+    try { prevMonth = localStorage.getItem(MONTH_RESET_KEY) || curMonth; } catch {}
+    const dataCount = campaigns.filter(c=>(parseInt(c.impressions)||0)>0 || (parseFloat(c.spend)||0)>0).length;
+    if(!await confirm({
+      title:"Start a new month?",
+      message:`Saves a backup of last month's closing numbers, then zeroes impressions, clicks, spend, etc. on all ${campaigns.length} active campaigns (${dataCount} have data) so you start clean. Goal badges clear too. Archived campaigns and your full history stay intact.`,
+      confirmLabel:"Back up & clear",
+    })) return;
+    // 1) Backup closing numbers, keyed by the month being closed out (last ~12 kept).
+    try {
+      const backups = JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}");
+      backups[prevMonth] = {
+        savedAt: getToday(),
+        campaigns: campaigns.map(c=>({ id:c.id, campaignName:c.campaignName, platform:c.platform, mediaPartner:c.mediaPartner,
+          impressions:c.impressions, clicks:c.clicks, ctr:c.ctr, cpm:c.cpm, spend:c.spend,
+          videoViews:c.videoViews, completionRate:c.completionRate, frequency:c.frequency, note1:c.note1 })),
+      };
+      const keys = Object.keys(backups).sort();
+      while(keys.length>12){ delete backups[keys.shift()]; }
+      localStorage.setItem(MONTHLY_BACKUP_KEY, JSON.stringify(backups));
+    } catch(e){
+      console.error("Monthly backup failed — reset aborted to avoid data loss:", e);
+      await confirm({title:"Backup failed — nothing cleared",message:"Couldn't save the backup, so no metrics were cleared. Export your data manually (↓ JSON), then use Bulk edit → Clear Metrics.",confirmLabel:"OK"});
+      return;
+    }
+    // 2) Clear metrics + goal flags on every active campaign. metricSeries is preserved.
+    const stamp = getToday();
+    setCampaigns(cs=>cs.map(c=>({ ...c,
+      impressions:"", ctr:"", cpm:"", spend:"", clicks:"", reach:"", frequency:"", videoViews:"", completionRate:"", conversions:"",
+      checkInLog:"", lastCheckInImpr:"",
+      metaSnapshots:undefined, ttdSnapshots:undefined, dspSnapshots:undefined, googleSnapshots:undefined, snapSnapshots:undefined,
+      goalHit:false, closeToGoal:false, goalHitDismissed:false, closeToGoalDismissed:false,
+      lastChecked:stamp,
+    })));
+    addLog({ type:"edited", campaignName:"All campaigns", partner:"", platform:"",
+      detail:`New month reset — metrics cleared for ${campaigns.length} campaigns (closing numbers for ${prevMonth} backed up)`, prevSnapshot:null, campaignId:null });
+    try { localStorage.setItem(MONTH_RESET_KEY, curMonth); } catch {}
+    setShowMonthReset(false);
   }
 
   async function handleRestore(c) {
@@ -14063,6 +14165,22 @@ export default function App() {
             ))}
           </div>
         </div>
+
+        {showMonthReset && (
+          <div style={{background:lightMode?"#eff6ff":"#0a1626",border:`1px solid ${lightMode?"#3b82f6":"#3b82f660"}`,borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:18}}>🗓️</span>
+              <div>
+                <div style={{color:lightMode?"#1d4ed8":"#7ec8ff",fontWeight:700,fontSize:13}}>New month detected — ready to reset?</div>
+                <div style={{color:lightMode?"#1e40af":"#5b89b8",fontSize:11,marginTop:1}}>I'll back up last month's closing numbers, then clear metrics &amp; goal badges so this month starts at zero. Archived campaigns and your history stay intact.</div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={handleMonthlyReset} style={{background:lightMode?"#2563eb":"#1d4ed8",border:"none",borderRadius:7,padding:"7px 16px",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>Back up &amp; clear</button>
+              <button onClick={()=>{ try{ const n=new Date(); localStorage.setItem(MONTH_RESET_KEY, `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`); }catch{} setShowMonthReset(false); }} style={{background:"none",border:`1px solid ${lightMode?"#93c5fd":"#3b82f660"}`,borderRadius:7,padding:"7px 12px",color:lightMode?"#1d4ed8":"#7ec8ff",fontWeight:600,fontSize:12,cursor:"pointer"}}>I'll do it manually</button>
+            </div>
+          </div>
+        )}
 
         {activeTab==="archive" ? (
           <CampaignArchive archive={archive} onRestore={handleRestore} onClear={()=>setArchive([])}/>
