@@ -6165,10 +6165,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return cpm <= warnAt ? "#00d48a" : cpm <= badAt ? "#fde047" : "#ef4444";
   };
 
-  // grid columns: name | platform | status | pacing bar | goal | impr/views | gap | need/day | yest | CTR/VCR | Clicks | CPM | spend | reach | freq | edit
+  // grid columns: name | platform | status | pacing bar | goal | impr/views | gap | need/day | yest | CTR/VCR | Clicks | CPM | spend | freq | edit
   // Bumped name min from 200→280px so multi-line ad-set names don't get truncated
   // (e.g. "Shining Star Christian Schools - Device Targeting (FBV)" needs the room)
-  const GRID = "minmax(280px,1.4fr) 72px 82px 240px 80px 100px 84px 84px 84px 90px 68px 76px 76px 68px 62px 60px";
+  const GRID = "minmax(280px,1.4fr) 72px 82px 240px 80px 100px 84px 84px 84px 90px 68px 76px 76px 62px 60px";
 
   function TableRow({c,disp,pacing,monthlyGoal}){
     const [rowBreakdownOpen, setRowBreakdownOpen] = useState(false);
@@ -6299,21 +6299,40 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       if(series.length < 1) return [];
       const parseD = s => { const [m,d,y]=String(s).split("/").map(Number); return new Date(y,m-1,d); };
       const monday = dt => { const x=new Date(dt); const dow=x.getDay(); x.setDate(x.getDate()-((dow+6)%7)); x.setHours(0,0,0,0); return x; };
+      const DAY = 86400000;
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const rd = series.map(e=>({d:parseD(e.d), i:+e.i||0, ck:+e.c||0, s:+e.s||0, vv:+e.vv||0}))
         .filter(e=>e.d.getMonth()===now.getMonth() && e.d.getFullYear()===now.getFullYear())
         .sort((a,b)=>a.d-b.d);
       if(!rd.length) return [];
-      const deltas=[]; let pi=0, pc=0, ps=0, pvv=0;
-      rd.forEach((e,idx)=>{
-        const di  = idx===0 ? e.i  : (e.i>=pi   ? e.i-pi   : e.i);
-        const dc  = idx===0 ? e.ck : (e.ck>=pc  ? e.ck-pc  : e.ck);
-        const ds  = idx===0 ? e.s  : (e.s>=ps   ? e.s-ps   : e.s);
-        const dvv = idx===0 ? e.vv : (e.vv>=pvv ? e.vv-pvv : e.vv);
-        deltas.push({d:e.d, i:di, c:dc, s:ds, vv:dvv}); pi=e.i; pc=e.ck; ps=e.s; pvv=e.vv;
-      });
       const bk=new Map();
-      deltas.forEach(({d,i,c,s,vv})=>{ const k=monday(d).getTime(); const o=bk.get(k)||{i:0,c:0,s:0,vv:0}; o.i+=i; o.c+=c; o.s+=s; o.vv+=vv; bk.set(k,o); });
-      return [...bk.entries()].sort((a,b)=>a[0]-b[0]).map(([k,o])=>({k, i:o.i, c:o.c, s:o.s, vv:o.vv}));
+      // Spread each reading's delivery evenly across the calendar days it covers, then
+      // bucket each day into its Monday–Sunday week. This way a multi-day gap (weekend,
+      // day off) splits its delivery across the weeks it actually spans, instead of
+      // dumping the whole catch-up amount into the week of the next drop. Even daily
+      // split — assumes steady pace between drops (budgets rarely change on days off).
+      const spread = (start, end, i, c, s, vv) => {
+        const n = Math.max(1, Math.round((end - start)/DAY) + 1);
+        const fi=i/n, fc=c/n, fs=s/n, fvv=vv/n;
+        for(let t=0;t<n;t++){ const k=monday(new Date(start.getTime()+t*DAY)).getTime();
+          const o=bk.get(k)||{i:0,c:0,s:0,vv:0}; o.i+=fi; o.c+=fc; o.s+=fs; o.vv+=fvv; bk.set(k,o); }
+      };
+      let pi=0, pc=0, ps=0, pvv=0, pd=null;
+      rd.forEach((e,idx)=>{
+        const reset = !(e.i>=pi); // cumulative dropped — treat reading as fresh (new month edge / data reset)
+        const fresh = idx===0 || reset;
+        const di  = fresh ? e.i  : e.i-pi;
+        const dc  = fresh ? e.ck : e.ck-pc;
+        const ds  = fresh ? e.s  : e.s-ps;
+        const dvv = fresh ? e.vv : e.vv-pvv;
+        // First reading spreads from the 1st of the month → its date (the MTD value
+        // covers the whole month-to-date). A reset attributes to its single day to
+        // avoid double-counting earlier days. Normal gaps span (prev day +1) → this day.
+        const start = idx===0 ? new Date(monthStart) : reset ? new Date(e.d) : new Date(pd.getTime()+DAY);
+        spread(start, e.d, di, dc, ds, dvv);
+        pi=e.i; pc=e.ck; ps=e.s; pvv=e.vv; pd=e.d;
+      });
+      return [...bk.entries()].sort((a,b)=>a[0]-b[0]).map(([k,o])=>({k, i:Math.round(o.i), c:Math.round(o.c), s:Math.round(o.s*100)/100, vv:Math.round(o.vv)}));
     })();
     const hasWeekly = weekly.length > 0 && weekly.some(w=>w.i>0 || w.c>0 || w.s>0 || w.vv>0);
     const canExpand = !!rowBreakdown || hasWeekly;
@@ -6477,13 +6496,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <div>
         {spend > 0
           ? <span style={{fontSize:11,color:lmTxtM}}>${spend >= 1000 ? (spend/1000).toFixed(1)+"k" : spend.toFixed(0)}</span>
-          : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
-      </div>
-
-      {/* Reach */}
-      <div>
-        {reach > 0
-          ? <span style={{fontSize:11,color:lmTxtM}}>{reach >= 1000000 ? (reach/1000000).toFixed(1)+"M" : reach >= 1000 ? (reach/1000).toFixed(0)+"k" : reach}</span>
           : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
@@ -6705,7 +6717,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   function TableHeader(){
     return <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"6px 16px",borderBottom:"1px solid "+(lightMode?"#e2e8f0":"#1a2744"),marginBottom:2}}>
-      {["Campaign","Platform","Status","Mo. Pacing","Goal","Impr / Views","Gap","Need/Day","Yest","CTR / VCR","Clicks","CPM","Spend","Reach","Freq",""].map((h,i)=>(
+      {["Campaign","Platform","Status","Mo. Pacing","Goal","Impr / Views","Gap","Need/Day","Yest","CTR / VCR","Clicks","CPM","Spend","Freq",""].map((h,i)=>(
         <div key={i} style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
       ))}
     </div>;
@@ -8818,10 +8830,22 @@ function InitialsPrompt({ current, onSave, onClose }){
   );
 }
 
-function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
+function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampaigns, onClose }) {
   // Always use ALL campaigns as the matching pool — never restrict by the dashboard's current platform/search filter
   // For CSV mapping: include ALL campaigns regardless of status (off/paused/pending campaigns still need data imports)
   const activeCamps = campaigns;
+  // Recently-archived campaigns (archived within the past ~31 days) can still receive ONE
+  // final data import so their closing impressions/spend land in the Revenue tab. They're
+  // tagged "(archived)" in the assign dropdown and routed back to the archive list on Apply.
+  // Auto-match intentionally ignores these — the user picks them manually via "show all".
+  const recentlyArchived = React.useMemo(()=>{
+    const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate()-31);
+    const cutoffStr = cutoff.toISOString().slice(0,10);
+    return (archive||[]).filter(a=>a.archivedDate && String(a.archivedDate)>=cutoffStr);
+  },[archive]);
+  const archivedIds = React.useMemo(()=>new Set(recentlyArchived.map(a=>String(a.id))),[recentlyArchived]);
+  // Pool used ONLY by the assign dropdown — active campaigns plus recently-archived ones.
+  const assignPool = React.useMemo(()=>[...activeCamps, ...recentlyArchived],[activeCamps,recentlyArchived]);
 
   const [qciSearch,    setQciSearch]    = React.useState("");
   const [qciPlatforms, setQciPlatforms] = React.useState(new Set()); // empty = all platforms
@@ -9701,8 +9725,10 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         vcr: m.completionRate,
       });
     });
-    setCampaigns(cs=>cs.map(c=>{
-      const u=updates[c.id]||updates[String(c.id)]; if(!u) return c;
+    // Build the updated campaign object from a base campaign `c` and its aggregated update `u`.
+    // Shared by both the active-campaign map and the recently-archived map below, so a final
+    // import lands identically whether the target is live or already archived.
+    const buildUpdated = (c, u) => {
       // Recompute CTR from aggregated clicks/impressions; stored as raw ratio (0.003531 = 0.353%)
       const computedCtr = u.impressions > 0 && u.clicks > 0 ? (u.clicks / u.impressions) : 0;
       // Compute CPM from aggregated spend + impressions (avoids picking one row's CPM arbitrarily)
@@ -9796,7 +9822,14 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
         lastQciSource: fileSource,
         lastQciDate: stamp,
       };
-    }));
+    };
+    // Apply to live campaigns. Archived ids won't match here (ids are unique to one list).
+    setCampaigns(cs=>cs.map(c=>{ const u=updates[c.id]||updates[String(c.id)]; return u?buildUpdated(c,u):c; }));
+    // Apply to recently-archived campaigns too — keeps them archived but records their final
+    // numbers so the Revenue tab reflects the closing impressions/spend.
+    if (typeof setArchive === "function" && Object.keys(updates).some(id=>archivedIds.has(String(id)))) {
+      setArchive(as=>as.map(c=>{ const u=updates[c.id]||updates[String(c.id)]; return u?buildUpdated(c,u):c; }));
+    }
     // Save per-name memory (persists across future file drops even if file contents change)
     // For TradeDesk: also save the advertiser name so lookup is stable regardless of campaign name changes.
     // NOTE: We save EVERY mapping in the apply set, regardless of original auto-match
@@ -9813,7 +9846,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
       .map(([idxStr,campId])=>{
         const row=fileRows[parseInt(idxStr)];
         const csvName=getCampName(row,fileSource);
-        const campName=campaigns.find(c=>String(c.id)===String(campId))?.campaignName||"";
+        const campName=assignPool.find(c=>String(c.id)===String(campId))?.campaignName||"";
         const advertiserName = fileSource==="TradeDesk" ? getTTDAdvertiserName(row) : undefined;
         // For Google AND Facebook (TapClicks format), save the Account field as a stable key
         // so future file drops match by account name even if campaign names change.
@@ -10231,7 +10264,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
 
                         // Respect the user's left-panel platform + search filters in the assign dropdown.
                         // "show all" bypasses these to reveal every campaign.
-                        const qciPool = showingAll ? activeCamps : activeCamps.filter(c => {
+                        const qciPool = showingAll ? assignPool : assignPool.filter(c => {
                           if (qciPlatforms.size > 0 && !qciPlatforms.has(c.platform)) return false;
                           if (qciSearch) {
                             const q = qciSearch.toLowerCase();
@@ -10279,7 +10312,7 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                               style={{background:assigned?(_lm?"#f0fdf9":"#002e24"):isUnmatched?(_lm?"#fffbeb":"#1a0e00"):(_lm?"#f8fafc":"#0e1a2e"),border:`1px solid ${assigned?(_lm?"#00c896":"#00c89640"):isUnmatched?"#f59e0b40":(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:5,padding:"3px 7px",color:assigned?(_lm?"#059669":"#00e5a0"):isUnmatched?"#f59e0b":(_lm?"#64748b":"#4d6e8a"),fontSize:10,outline:"none",cursor:"pointer",width:"100%"}}>
                               <option value="">— assign to campaign —</option>
                               {displayList.map(c=>(
-                                <option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}</option>
+                                <option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}{archivedIds.has(String(c.id))?" · (archived)":""}</option>
                               ))}
                             </select>
                           </div>
@@ -10287,8 +10320,8 @@ function QuickCheckInPanel({ campaigns, filtered, setCampaigns, onClose }) {
                       })()}
                     </div>
                     {assigned&&(()=>{
-                      const c=activeCamps.find(x=>String(x.id)===String(assigned));
-                      return c?<div style={{fontSize:9,color:_lm?"#059669":"#00e5a0",paddingLeft:10,paddingBottom:4}}>→ {c.campaignName.trim()} ({c.platform} · {c.mediaPartner})</div>:null;
+                      const c=assignPool.find(x=>String(x.id)===String(assigned));
+                      return c?<div style={{fontSize:9,color:_lm?"#059669":"#00e5a0",paddingLeft:10,paddingBottom:4}}>→ {c.campaignName.trim()} ({c.platform} · {c.mediaPartner}){archivedIds.has(String(c.id))?<span style={{color:"#f59e0b"}}> · archived</span>:null}</div>:null;
                     })()}
                   </div>
                 );
@@ -14388,6 +14421,8 @@ export default function App() {
         {quickCheckIn&&(
           <QuickCheckInPanel
             campaigns={campaigns}
+            archive={archive}
+            setArchive={setArchive}
             filtered={filtered}
             setCampaigns={setCampaigns}
             onClose={()=>setQuickCheckIn(false)}
