@@ -6162,7 +6162,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // grid columns: name | platform | status | pacing bar | goal | impr/views | gap | need/day | yest | CTR/VCR | Clicks | CPM | spend | freq | edit
   // Bumped name min from 200→280px so multi-line ad-set names don't get truncated
   // (e.g. "Shining Star Christian Schools - Device Targeting (FBV)" needs the room)
-  const GRID = "minmax(280px,1.4fr) 72px 82px 240px 80px 100px 84px 84px 84px 90px 68px 76px 76px 62px 60px";
+  const GRID = "minmax(280px,1.4fr) 72px 82px 240px 80px 100px 84px 84px 84px 90px 68px 76px 76px 76px 62px 60px";
 
   function TableRow({c,disp,pacing,monthlyGoal}){
     const [rowBreakdownOpen, setRowBreakdownOpen] = useState(false);
@@ -6398,27 +6398,19 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         </>:<div style={{fontSize:10,color:lmTxtD}}>—</div>}
       </div>
 
-      {/* Monthly Goal + Revenue/mo */}
-      {(()=>{
-        const moRev = calcMonthlyRevenue(c);
-        return (
-        <div>
-          {monthlyGoal
-            ? <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}} title={`Exact goal: ${monthlyGoal.toLocaleString()}`}>
-                {metricKind==="spend"
-                  ? "$"+(monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"k":monthlyGoal.toFixed(0))
-                  // Use one decimal place (not zero) so a goal like 41,667 displays
-                  // as "41.7K" not "42K". Matches the precision of the Delivered column
-                  // so users can directly compare "41.8K delivered vs 41.7K goal".
-                  : monthlyGoal>=1000000?(monthlyGoal/1000000).toFixed(2)+"M":monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"K":String(monthlyGoal)}
-              </span>
-            : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
-          {moRev!=null&&<div style={{fontSize:9,fontWeight:700,color:lightMode?"#059669":"#00e19e",marginTop:1}}>
-            ${moRev>=1000?(moRev/1000).toFixed(1)+"k":moRev.toLocaleString("en-US",{maximumFractionDigits:0})}/mo
-          </div>}
-        </div>
-        );
-      })()}
+      {/* Monthly Goal — impressions / views / spend goal, standalone (budget moved to its own column) */}
+      <div>
+        {monthlyGoal
+          ? <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}} title={`Exact goal: ${monthlyGoal.toLocaleString()}`}>
+              {metricKind==="spend"
+                ? "$"+(monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"k":monthlyGoal.toFixed(0))
+                // Use one decimal place (not zero) so a goal like 41,667 displays
+                // as "41.7K" not "42K". Matches the precision of the Delivered column
+                // so users can directly compare "41.8K delivered vs 41.7K goal".
+                : monthlyGoal>=1000000?(monthlyGoal/1000000).toFixed(2)+"M":monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"K":String(monthlyGoal)}
+            </span>
+          : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
+      </div>
 
       {/* Primary delivery metric — Views (YT), Spend (SEM), or Impressions */}
       <div title={metricKind==="views" ? "Views delivered this period (MTD)" : metricKind==="spend" ? "Spend delivered this period (MTD)" : "Impressions delivered this period (MTD)"}>
@@ -6455,10 +6447,18 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         if (!yest) return <div><span style={{fontSize:11,color:lmTxtD}}>—</span></div>;
         const fmtY = yest.delivered >= 1000 ? (yest.delivered/1000).toFixed(1)+"K" : String(yest.delivered);
         const pctTxt = yest.pctOfNeeded != null ? `${yest.pctOfNeeded.toFixed(0)}%` : "";
+        // When the monthly goal is already hit there's no "needed/day", so yest.color is a
+        // dim gray that buries real delivery. Use a readable neutral blue for that case, and
+        // render the value as a tinted chip (matching the app's KPI-badge style) so the column
+        // stands out at a glance in both modes.
+        const baseCol = yest.pctOfNeeded == null ? (lightMode ? "#0284c7" : "#7aa7ff") : lmC(yest.color);
+        const chip = { color: baseCol, background: baseCol + (lightMode ? "14" : "22"), border: "1px solid " + baseCol + (lightMode ? "33" : "45") };
         return (
           <div title={`Yesterday: ${yest.delivered.toLocaleString()} impr · Needed/day: ${yest.neededPerDay.toLocaleString()} · ${yest.status} (baseline ${yest.baseDate} → ${today})`}>
-            <span style={{fontSize:11,fontWeight:700,color:yest.color}}>{fmtY}</span>
-            {pctTxt&&<span style={{fontSize:9,color:yest.color,marginLeft:3,fontWeight:600}}>{pctTxt}</span>}
+            <span style={{display:"inline-flex",alignItems:"baseline",gap:3,fontSize:11,fontWeight:800,borderRadius:5,padding:"2px 7px",...chip}}>
+              {fmtY}
+              {pctTxt&&<span style={{fontSize:9,fontWeight:700,opacity:.8}}>{pctTxt}</span>}
+            </span>
           </div>
         );
       })()}
@@ -6492,6 +6492,20 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           ? <span style={{fontSize:11,color:lmTxtM}}>${spend >= 1000 ? (spend/1000).toFixed(1)+"k" : spend.toFixed(0)}</span>
           : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
+
+      {/* Budget — monthly budget / revenue for this campaign (moved out of the Goal column) */}
+      {(()=>{
+        const moRev = calcMonthlyRevenue(c);
+        return (
+          <div title="Monthly budget / revenue for this campaign">
+            {moRev!=null
+              ? <span style={{fontSize:11,fontWeight:700,color:lightMode?"#059669":"#00e19e"}}>
+                  ${moRev>=1000?(moRev/1000).toFixed(1)+"k":moRev.toLocaleString("en-US",{maximumFractionDigits:0})}
+                </span>
+              : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
+          </div>
+        );
+      })()}
 
       {/* Frequency — color-coded: ≤2 green, ≤3.5 yellow, >3.5 red */}
       <div title="Frequency: avg times a user saw this ad">
@@ -6711,7 +6725,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   function TableHeader(){
     return <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"6px 16px",borderBottom:"1px solid "+(lightMode?"#e2e8f0":"#1a2744"),marginBottom:2}}>
-      {["Campaign","Platform","Status","Mo. Pacing","Goal","Impr / Views","Gap","Need/Day","Yest","CTR / VCR","Clicks","CPM","Spend","Freq",""].map((h,i)=>(
+      {["Campaign","Platform","Status","Mo. Pacing","Goal","Impr / Views","Gap","Need/Day","Yest","CTR / VCR","Clicks","CPM","Spend","Budget","Freq",""].map((h,i)=>(
         <div key={i} style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
       ))}
     </div>;
