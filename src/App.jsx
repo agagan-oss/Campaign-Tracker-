@@ -5732,11 +5732,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   };
   withGoal.sort(sortFn);
   noGoalRows.sort(sortFn);
-  // Off campaigns use the SAME comparator as the active list so they order by
-  // pacing status (Behind → On Track → Ahead) and follow the sort dropdown —
-  // surfacing behind/paused campaigns at the top just like the active section,
-  // instead of burying them under the highest-delivering ones.
-  offFiltered.sort(sortFn);
+  // Off campaigns: surface the ones that actually have delivery numbers FIRST, then the
+  // "No impr"/no-data ones below. Within each of those two groups we still use the SAME
+  // comparator as the active list, so they order by pacing status (Behind → On Track →
+  // Ahead) and follow the sort dropdown. This keeps paused/ended campaigns that carry real
+  // metrics (useful for reference/closeout) at the top instead of being buried under empty rows.
+  const offHasMetrics = r => (parseInt(r.disp?.impressions)||0) > 0 || (parseFloat(r.disp?.spend)||0) > 0;
+  offFiltered.sort((a,b)=>{
+    const am = offHasMetrics(a) ? 0 : 1, bm = offHasMetrics(b) ? 0 : 1;
+    return am!==bm ? am-bm : sortFn(a,b);
+  });
   const behind  = withGoal.filter(r=>r.pacing?.label==="Behind");
   const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
   const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
