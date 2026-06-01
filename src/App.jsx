@@ -15,6 +15,18 @@ const MONTHLY_BACKUP_KEY = "campaign-tracker-monthly-backups"; // {"YYYY-MM":{sa
 const ARCHIVE_DAYS = 5;
 const MAX_LOG_ENTRIES = 500;
 
+// ── Storage usage helpers ────────────────────────────────────────────────────
+// Browsers cap localStorage at roughly 5 MB per site. We surface usage in Config and warn
+// loudly if a save ever fails (instead of failing silently), so a full store can't quietly
+// lose a check-in.
+const STORAGE_LIMIT_BYTES = 5 * 1024 * 1024; // ~5 MB typical per-origin cap
+function getStorageBytes() {
+  let total = 0;
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); const v = localStorage.getItem(k) || ""; total += (k.length + v.length) * 2; } } catch {}
+  return total; // UTF-16 → 2 bytes/char
+}
+function fmtBytes(b) { return b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.round(b / 1024) + " KB"; }
+
 const initialCampaigns = [{"mediaPartner":"WVR","campaignName":"Harry Green CDJR","platform":"FB","goal":"750K (7/1/25 - 12/31/25)","endDate":"2026-06-30","note1":"125K/Mo","note2":"","lastChecked":"2026-03-02","id":1769125165003,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Compass TK","campaignName":"Farm Bureau Financial-Jim Waters","platform":"TD","goal":"1.58M (8/11/25 - 7/31/26)","endDate":"2026-07-31","note1":"131.6K/Mo","note2":"","lastChecked":"2026-03-02","id":1769125792921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Saginaw","campaignName":"Great Lakes Pace","platform":"FB","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-25","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209400165,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Palm Springs","campaignName":"Carpet Empire Plus","platform":"FB","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-31","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209535972,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Palm Springs","campaignName":"Carpet Empire Plus","platform":"DSP","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-31","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209663140,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"TD","goal":"143K (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"12K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214676416,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"FB","goal":"1.08M (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"90K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214678888,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"DSP","goal":"1.08M (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"90K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214712742,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Britestar Milwaukee Middle School","platform":"TD","goal":"100K Monthly","endDate":"2026-03-31","note1":"100K Monthly","note2":"","lastChecked":"2026-03-02","id":1769214781502,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"TD","goal":"40K Feb/March","endDate":"2026-03-31","note1":"40K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439021921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"FB","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439025194,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"FBV","goal":"20K Feb/March","endDate":"2026-03-31","note1":"20K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439086411,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"DSP","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439117040,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"SEM","goal":"Need New Budget for February","endDate":"2026-01-31","note1":"Need New Budget for February","note2":"","lastChecked":"2026-03-02","id":1769439141224,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"TD","goal":"40K Feb/March","endDate":"2026-03-31","note1":"40K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439175821,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"FB","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439200352,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"FBV","goal":"20K Feb/March","endDate":"2026-03-31","note1":"20K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439219988,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"DSP","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439236958,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"SEM","goal":"Need New Budget for February","endDate":"2026-01-31","note1":"Need New Budget for February","note2":"","lastChecked":"2026-03-02","id":1769439252985,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Noyes Development","platform":"TD","goal":"14.5K/Mo","endDate":"2026-03-31","note1":"14.5K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439379921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"TD","goal":"500K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"97K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439513145,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"CTV","goal":"291K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"66K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439528551,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"OTT","goal":"207K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"47K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439581123,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"EMAIL","goal":"5 Emails","endDate":"2026-03-31","note1":"1/Mo","note2":"","lastChecked":"2026-03-02","id":1769440542802,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"FB","goal":"283K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"41K/Mo (15-20% Oregon)","note2":"","lastChecked":"2026-03-02","id":1769440737136,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities ","platform":"FBV","goal":"175K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","id":1772483657607,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"DSP","goal":"460K (11/3/25 - 5/31/26) ","endDate":"2026-05-31","note1":"67K/Mo (15-20% Oregon)","note2":"","lastChecked":"2026-03-02","id":1772483749345,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"TD","goal":"70K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"10K/Mo","note2":"","lastChecked":"2026-03-02","id":1772483792126,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities Audio","platform":"TD","goal":"296K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"59.5K/Mo","note2":"","lastChecked":"2026-03-02","id":1772483819653,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America","platform":"FB","goal":"900K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"180K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484331559},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America","platform":"DSP","goal":"1.275M (11/4/25 - 3/31/26) ","endDate":"2026-03-31","status":"active","note1":"255K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484347656},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America ","platform":"SP","goal":"375K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"75K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484372498},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America  ","platform":"CTV","goal":"435K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"87K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484401165},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America ","platform":"OTT","goal":"298K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"60K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484418938},{"mediaPartner":"WVR","campaignName":"Concord University","platform":"FB","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484485079},{"mediaPartner":"WVR","campaignName":"Concord University ","platform":"SP","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484490232},{"mediaPartner":"WVR","campaignName":"Concord University ","platform":"DSP","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484503162},{"mediaPartner":"Enchanting Media","campaignName":"Waterview Casino","platform":"FB","goal":"95K March","endDate":"2026-03-31","status":"active","note1":"95K March ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484624626},{"mediaPartner":"Enchanting Media","campaignName":"Waterview Casino","platform":"DSP","goal":"95K March","endDate":"2026-03-31","status":"active","note1":"95K March ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484630475},{"mediaPartner":"Alpha Moberly","campaignName":"Right Rate Roofing","platform":"SEM","goal":"5,400 (12/4/25 - 7/30/26) ","endDate":"2026-07-31","status":"active","note1":"$900/Mo ","note2":" $1,564 March ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484709093},{"mediaPartner":"Compass","campaignName":"Bolz Chiro","platform":"FB","goal":"400K (1/1/26 - 4/30/26)","endDate":"2026-03-31","status":"active","note1":"100K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484763564},{"mediaPartner":"Compass","campaignName":"Brownstone","platform":"DSP","goal":"229K (12/12/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"58K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484790999},{"mediaPartner":"Compass","campaignName":"Brownstone ","platform":"FB","goal":"80K (12/12/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"20K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484798543},{"mediaPartner":"Compass","campaignName":"Brownstone  ","platform":"FBV","goal":"148K (12/12/25 - 3/31/26) ","endDate":"2026-03-31","status":"active","note1":"37K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484823373},{"mediaPartner":"Alpha Moberly","campaignName":"Specs Quincy","platform":"FB","goal":"300K (1/1/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484872046},{"mediaPartner":"Alpha Moberly","campaignName":"Specs Quincy","platform":"DSP","goal":"300K (1/1/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484887059},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Pearl Hawaii Federal Credit Union","platform":"SEM","goal":"$35,091 Media Spend (1/13/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"$2,925/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484925304},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Pearl Hawaii Federal Credit Union ","platform":"CTV","goal":"375K (1/14/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"31,250/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484928999},{"mediaPartner":"Alpha Moberly","campaignName":"Prairieland FS","platform":"DSP","goal":"445K (1/16/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"37.5K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484986463},{"mediaPartner":"Alpha Moberly","campaignName":"Prairieland FS ","platform":"FB","goal":"445K (1/16/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"40.5K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485011820},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Holo HIIT","platform":"FBV","goal":"63K (1/16/26 - 3/31/26)","endDate":"2026-03-31","status":"off","note1":"","note2":"FB Access ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485059494},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Holo HIIT ","platform":"FBV","goal":"63K (1/16/26 - 3/31/26)","endDate":"2026-03-31","status":"off","note1":"30K Feb/March","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485067041},{"mediaPartner":"Alpha Moberly","campaignName":"Culligan of Hanibal","platform":"DSP","goal":"758K (1/22/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485129272},{"mediaPartner":"Alpha Moberly","campaignName":"Quincy Catholic Elementary School","platform":"FB","goal":"125K (2/1/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"100K 2/1 - 4/30 (25K December)","note2":"FB Access/Creatives ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485194758},{"mediaPartner":"Alpha Moberly","campaignName":"Quincy Catholic Elementary School ","platform":"DSP","goal":"125K (2/1/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"100K 2/1 - 4/30 (25K December)","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485211288},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Leavitt Yamane & Soldner","platform":"DSP","goal":"1.025M (2/9/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"93.5K/Mo ","note2":"Streaming Orders/Mo","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485298961},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Leavitt Yamane & Soldner","platform":"FB","goal":"1.025M (2/9/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"93.5K/Mo ","note2":"FB Access","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485347220},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Aloha Sugarcane Juices","platform":"TD","goal":"172K (2/16/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"58K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485429793},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio)","platform":"DSP","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485804286},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio) ","platform":"FB","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485820512},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio) ","platform":"SP","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485828817},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA)","platform":"DSP","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485842011},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA)","platform":"FB","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485880132},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA) ","platform":"SP","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485887909},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV)","platform":"DSP","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485904806},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD)","platform":"DSP","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772486056686},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD) ","platform":"FB","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486135542},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD)  ","platform":"SP","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486155939},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV) ","platform":"FB","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486026268},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV) ","platform":"SP","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486034400},{"mediaPartner":"Allen Media Broadcasting","campaignName":"King Windward Nissan ","platform":"TD","goal":"179K (2/20/26 - 3/15/26)","endDate":"2026-03-15","status":"active","note1":"","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486199815},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque","platform":"FB","goal":"20K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"10K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486231814},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"FBV","goal":"12K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"6K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486241660},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"FBV","goal":"35K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"18K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486264350},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"YT","goal":"6K Views (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"3K Views/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486294122},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque  ","platform":"TD","goal":"91K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"46K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772486311325}];
 
 const ALL_PLATFORMS_DEFAULT = ["FB","FBV","DSP","CTV","GCTV","OTT","OTTD","SP","SEM","TD","TDV","TDA","TT","IG","YT","EMAIL"];
@@ -213,6 +225,28 @@ function pacingMetricFor(platform) {
 // computeMonthlyPacing
 // Accepts EITHER the old two-arg form (impressions, note1) for back-compat,
 // OR the new three-arg form (campaign, disp, note1) which is platform-aware.
+// Pacing calendar anchor. Normally "right now". BUT if a new month has started and the
+// monthly reset hasn't been run yet (last month's metrics are still loaded), pacing is
+// anchored to the LAST DAY of that un-reset month. Otherwise, on day 1 of the new month the
+// math would treat a whole month's delivery as wildly "ahead" / "goal hit" (expected pace ≈ 0
+// while delivered is still last month's full total). This keeps the dashboard showing last
+// month's real standings until you click "Back up & clear" (or otherwise clear metrics), at
+// which point MONTH_RESET_KEY advances and the anchor returns to the live date automatically.
+function pacingNow() {
+  try {
+    const stored = localStorage.getItem(MONTH_RESET_KEY); // "YYYY-MM" of the last settled month
+    if (stored && /^\d{4}-\d{2}$/.test(stored)) {
+      const n = new Date();
+      const cur = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
+      if (stored < cur) {
+        const [y, m] = stored.split("-").map(Number);
+        return new Date(y, m, 0, 12, 0, 0); // day 0 of month index `m` = last day of the stored month
+      }
+    }
+  } catch {}
+  return new Date();
+}
+
 function computeMonthlyPacing(arg1, arg2, arg3) {
   let delivered, note1, metricKind = "impressions", unit = "";
   // Detect new-style (campaign object) vs old-style (number)
@@ -241,7 +275,7 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
   const goal = parseMonthlyGoal(note1);
   if (!goal || goal <= 0 || !delivered) return null;
 
-  const now = new Date();
+  const now = pacingNow();
   const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
   const dayOfMonth  = now.getDate();
   const timeElapsed = dayOfMonth / daysInMonth;
@@ -264,7 +298,7 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
 
 // Daily target breakdown — for morning check against yesterday's stats
 function computeDailyTarget(impressions, note1, startDate, endDate) {
-  const now = new Date(); now.setHours(0,0,0,0);
+  const now = pacingNow(); now.setHours(0,0,0,0);
   const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
   const dayOfMonth  = now.getDate();
   const daysLeft    = daysInMonth - dayOfMonth + 1; // include today
@@ -363,16 +397,23 @@ async function extractPdfText(file) {
   const buf = await file.arrayBuffer();
   const pdf = await lib.getDocument({data: buf}).promise;
   let text = "";
+  const uris = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
     text += content.items.map(item => item.str).join("\n") + "\n";
+    // Also collect embedded hyperlinks (PDF link annotations). The visible text often shows
+    // only a filename (e.g. the uploaded proposal) while the real clickable URL lives here.
+    try {
+      const annots = await page.getAnnotations();
+      annots.forEach(a => { const u = a && (a.url || a.unsafeUrl); if (u) uris.push(u); });
+    } catch {}
   }
-  return text;
+  return { text, uris };
 }
 
 // Parses Universal IO PDF text into structured data.
-function parseIOPdf(text) {
+function parseIOPdf(text, uris = []) {
   const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
 
   // Returns true if a string looks like a real value (not label residue).
@@ -454,7 +495,13 @@ function parseIOPdf(text) {
       if (m) {
         const rest = l.slice(m[0].length).replace(/^[\s:()\#$-]+/, "").trim();
         if (looksLikeValue(rest)) return rest;
-        return lines[i+1] || null;
+        // Value is on a following line. The label itself sometimes wraps — e.g.
+        //   "Gross Dollar($) Budget to" / "CTVBuyer:" / "300.00"
+        // where line+1 ("CTVBuyer:") is a label continuation, not the value. If line+1 is
+        // such a continuation (ends in a colon and isn't itself a value), skip to line+2.
+        let ni = i + 1;
+        if (lines[ni] && /:$/.test(lines[ni]) && !looksLikeValue(lines[ni])) ni = i + 2;
+        return lines[ni] || null;
       }
       // Try wrapped-label match: current line + next line joined.
       // The label might span 2 lines in the PDF; value is on line+2.
@@ -548,6 +595,42 @@ function parseIOPdf(text) {
     };
   }
 
+  // ── Client website + proposal/projection link ───────────────────────────────
+  // These appear per-tactic, prefixed with the tactic name, e.g.
+  //   "Instream PreRoll: Clients Website / URL  https://www.hoomaumarket.com/"
+  //   "Instream PreRoll: Proposal Upload (.ZIP, 50mb limit): Hoomau_Market_Projections.pdf (129 KB)"
+  // The website URL is printed in the visible text, but the proposal shows only a FILENAME —
+  // its real download URL lives in the PDF's link annotations (passed in as `uris`).
+  function findLabeled(labelRe, valueRe) {
+    for (let i = 0; i < lines.length; i++) {
+      const lm = lines[i].match(labelRe);
+      if (!lm) continue;
+      // strip parenthetical hints like "(.ZIP, 50mb limit)" / "(129 KB)" so they don't get matched as the value
+      const after = lines[i].slice(lm.index + lm[0].length).replace(/\([^)]*\)/g, " ");
+      let m = after.match(valueRe);
+      if (m) return m[0].trim();
+      // value may sit a few lines down (the label can wrap across lines in the PDF)
+      for (let j = 1; j <= 3 && i + j < lines.length; j++) {
+        m = lines[i + j].replace(/\([^)]*\)/g, " ").match(valueRe);
+        if (m) return m[0].trim();
+      }
+    }
+    return null;
+  }
+  const cleanUris = (uris || []).filter(u => typeof u === "string" && /^https?:\/\//i.test(u));
+  // Website: prefer the URL printed next to the label; else first non-form-host external link.
+  let clientWebsite = findLabeled(/Client'?s?\s*Website\s*\/?\s*URL/i, /https?:\/\/[^\s)]+|www\.[^\s)]+/i);
+  if (!clientWebsite) clientWebsite = cleanUris.find(u => !/formsite\.com|recruemedia|mailto:/i.test(u)) || null;
+  if (clientWebsite && /^www\./i.test(clientWebsite)) clientWebsite = "https://" + clientWebsite;
+  // Projection/proposal: read the filename from the text, then find the annotation URL that
+  // points at that file (the real clickable link). Fall back to any "files" download URL, then
+  // to the bare filename if the PDF carried no link annotation at all.
+  const projFile = findLabeled(/Proposal\s+Upload/i, /[\w.\-]+\.(?:pdf|zip|xlsx?|csv|docx?)\b/i);
+  let projectionUrl = null;
+  if (projFile) projectionUrl = cleanUris.find(u => u.toLowerCase().includes(projFile.toLowerCase()));
+  if (!projectionUrl) projectionUrl = cleanUris.find(u => /\/files\//i.test(u) && /\.(pdf|zip|xlsx?|csv|docx?)(\?|$)/i.test(u));
+  if (!projectionUrl && projFile) projectionUrl = projFile;
+
   const reference  = valueAfter("Reference #");
   // Partner field name varies: "Media Partner:" (Radio FM Media) vs "Client / Partner:" (AMB)
   const partner    = valueAfter("Media Partner") || valueAfter("Client / Partner") || valueAfter("Client/Partner");
@@ -628,7 +711,7 @@ function parseIOPdf(text) {
       details: extractServiceBlock(sd.label),
     }));
 
-  return { reference, partner, advertiser, submitted, station, services, rawText: text };
+  return { reference, partner, advertiser, submitted, station, services, clientWebsite, projectionUrl, rawText: text };
 }
 
 // Build draft campaign objects from parsed IO data.
@@ -729,9 +812,16 @@ function buildDraftsFromIO(io) {
 
     const totalImpr = parseNum(d.impressions);
     const cpm = parseNum(d.cpm);
-    const totalBudget = parseNum(d.budget);
+    let totalBudget = parseNum(d.budget);
     const managementFee = parseNum(d.managementFee);
     const mediaSpend = parseNum(d.mediaSpend);
+
+    // Cross-check the budget against CPM × impressions (budget = impressions ÷ 1000 × CPM).
+    // If the IO's budget field didn't parse (wrapped label, blank, etc.) but we have both
+    // impressions and CPM, derive it so the contract value is still populated.
+    const derivedBudget = (totalImpr > 0 && cpm > 0) ? (totalImpr / 1000 * cpm) : 0;
+    let budgetDerived = false;
+    if (totalBudget <= 0 && derivedBudget > 0) { totalBudget = derivedBudget; budgetDerived = true; }
 
     // Skip blocks with no budget/impressions — likely the IO has the field but it's $0
     if (totalImpr <= 0 && totalBudget <= 0) return;
@@ -762,7 +852,8 @@ function buildDraftsFromIO(io) {
 
     const feeNote = managementFee > 0 ? ` · management fee $${managementFee.toFixed(2)}` : "";
     const spendNote = mediaSpend > 0 ? ` · media spend $${mediaSpend.toFixed(2)}` : "";
-    const baseNote2 = `Auto-imported from IO #${io.reference || "?"}. ${svc.label}. Total: ${totalImpr.toLocaleString()} impr · $${totalBudget.toFixed(2)} budget${feeNote}${spendNote}${cpm>0?` · $${cpm.toFixed(2)} CPM`:""}${integrationNote}.${d.notes ? " " + d.notes : ""}`.trim();
+    const budgetNote = budgetDerived ? " (derived from impr × CPM)" : "";
+    const baseNote2 = `Auto-imported from IO #${io.reference || "?"}. ${svc.label}. Total: ${totalImpr.toLocaleString()} impr · $${totalBudget.toFixed(2)} budget${budgetNote}${feeNote}${spendNote}${cpm>0?` · $${cpm.toFixed(2)} CPM`:""}${integrationNote}.${d.notes ? " " + d.notes : ""}`.trim();
 
     if (svc.splitPair) {
       // Arbitrary 50/50 split between two platforms (e.g. Performance CTV → CTV + OTT).
@@ -826,6 +917,17 @@ function buildDraftsFromIO(io) {
       });
     }
   });
+
+  // Stamp the client website + proposal/projection link (captured once from the IO) onto every
+  // draft this IO produced, without clobbering anything a branch already set.
+  const ioSite = (io.clientWebsite || "").trim();
+  const ioProj = (io.projectionUrl || "").trim();
+  if (ioSite || ioProj) {
+    drafts.forEach(d => {
+      if (ioSite && !d.clientWebsite) d.clientWebsite = ioSite;
+      if (ioProj && !d.projectionUrl) d.projectionUrl = ioProj;
+    });
+  }
 
   return drafts;
 }
@@ -5724,7 +5826,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(sortKey==="impr")     return (parseInt(b.disp?.impressions)||0)-(parseInt(a.disp?.impressions)||0);
     if(sortKey==="gap"){
       // Sort by pace gap: how far behind/ahead in raw impressions (negative = behind)
-      const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
+      const now=pacingNow(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
       const gapA = a.monthlyGoal ? (parseInt(a.disp?.impressions)||0) - Math.round(a.monthlyGoal*(dom/dim)) : 0;
       const gapB = b.monthlyGoal ? (parseInt(b.disp?.impressions)||0) - Math.round(b.monthlyGoal*(dom/dim)) : 0;
       return gapA - gapB; // most behind first
@@ -5923,7 +6025,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     }
 
     // Compute the daily delivery bar to grade yesterday against.
-    const dimDate = new Date(); const dim = new Date(dimDate.getFullYear(), dimDate.getMonth()+1, 0).getDate();
+    const dimDate = pacingNow(); const dim = new Date(dimDate.getFullYear(), dimDate.getMonth()+1, 0).getDate();
     const dom = dimDate.getDate();
     const dr = daysRemaining(c);
     const daysLeftMonth = dim - dom;
@@ -6260,7 +6362,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   function TableRow({c,disp,pacing,monthlyGoal}){
     const [rowBreakdownOpen, setRowBreakdownOpen] = useState(false);
-    const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
+    const now=pacingNow(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
     const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null;
     // Resolve the per-line breakdown (if any) for the disclosure widget.
     // Also tracks WHICH snapshot field (metaSnapshots/ttdSnapshots/etc.) holds the
@@ -13356,8 +13458,8 @@ export default function App() {
     setPdfError("");
     setPdfProcessing(true);
     try {
-      const text = await extractPdfText(file);
-      const io = parseIOPdf(text);
+      const { text, uris } = await extractPdfText(file);
+      const io = parseIOPdf(text, uris);
       if (!io.services.length) {
         setPdfError(`No service blocks found in the PDF. Expected fields like "Mobile ID Integration: FB/IG Included? Yes" — found none.`);
         setPdfProcessing(false);
@@ -13601,6 +13703,7 @@ export default function App() {
   const [showReminderModal, setShowReminderModal]   = useState(null); // null=closed, true=open all, number=open focused on campaign
   const [renewTarget, setRenewTarget]               = useState(null);
   const [saved, setSaved]         = useState(false);
+  const [saveError, setSaveError] = useState(false); // true when a localStorage write failed (e.g. quota full)
   const [expanded, setExpanded]   = useState(new Set());
   const [groupByClient, setGroupByClient]       = useState(_campPersisted.groupByClient || false);
   const [fGoalHit, setFGoalHit]                 = useState(_campPersisted.fGoalHit || false);
@@ -13857,9 +13960,9 @@ export default function App() {
     }
   }
 
-  useEffect(()=>{ try { localStorage.setItem(STORAGE_KEY,JSON.stringify(campaigns)); setSaved(true); setTimeout(()=>setSaved(false),1400); } catch(e){console.error(e);} },[campaigns]);
+  useEffect(()=>{ try { localStorage.setItem(STORAGE_KEY,JSON.stringify(campaigns)); setSaved(true); setSaveError(false); setTimeout(()=>setSaved(false),1400); } catch(e){ console.error(e); setSaveError(true); } },[campaigns]);
   useEffect(()=>{ try { localStorage.setItem(REMINDERS_KEY,JSON.stringify(reminders)); } catch(e){console.error(e);} },[reminders]);
-  useEffect(()=>{ try { localStorage.setItem(ARCHIVE_KEY,JSON.stringify(archive)); } catch(e){console.error(e);} },[archive]);
+  useEffect(()=>{ try { localStorage.setItem(ARCHIVE_KEY,JSON.stringify(archive)); } catch(e){ console.error(e); setSaveError(true); } },[archive]);
   useEffect(()=>{ const last=localStorage.getItem(EXPORT_KEY); if(!last){setShowExportReminder(true);return;} if((Date.now()-parseInt(last))/(1000*60*60*24)>=3) setShowExportReminder(true); },[]);
   // New-month detection: if the calendar month has advanced past the last reset we
   // handled, surface a one-click banner to clear last month's metrics. Never fires on
@@ -14403,6 +14506,22 @@ export default function App() {
           </div>
         </div>
 
+        {saveError && (
+          <div style={{background:lightMode?"#fef2f2":"#2a0a0a",border:`1px solid ${lightMode?"#ef4444":"#ef444480"}`,borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:18}}>⚠️</span>
+              <div>
+                <div style={{color:lightMode?"#b91c1c":"#fca5a5",fontWeight:700,fontSize:13}}>Couldn't save — your latest changes aren't stored</div>
+                <div style={{color:lightMode?"#991b1b":"#f87171",fontSize:11,marginTop:1}}>Browser storage may be full. Export a backup now so nothing is lost, then free up space (archive or clear old data). Don't refresh until you've exported.</div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={doExport} style={{background:"#ef4444",border:"none",borderRadius:7,padding:"7px 16px",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>↓ Export now</button>
+              <button onClick={()=>setSaveError(false)} style={{background:"none",border:`1px solid ${lightMode?"#fca5a5":"#ef444460"}`,borderRadius:7,padding:"7px 12px",color:lightMode?"#b91c1c":"#fca5a5",fontWeight:600,fontSize:12,cursor:"pointer"}}>Dismiss</button>
+            </div>
+          </div>
+        )}
+
         {showMonthReset && (
           <div style={{background:lightMode?"#eff6ff":"#0a1626",border:`1px solid ${lightMode?"#3b82f6":"#3b82f660"}`,borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -14435,6 +14554,31 @@ export default function App() {
           />
         ) : activeTab==="config" ? (
           <>
+            {(()=>{
+              const used = getStorageBytes();
+              const pct = Math.min(100, used / STORAGE_LIMIT_BYTES * 100);
+              const barCol = pct < 60 ? "#00d48a" : pct < 85 ? (lightMode?"#b45309":"#f59e0b") : "#ef4444";
+              return (
+                <div style={{background:lightMode?"#ffffff":"#0c1625",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",marginBottom:8}}>
+                    <span style={{fontSize:13,fontWeight:800,color:lightMode?"#0f172a":"#edf4ff"}}>💾 Storage</span>
+                    <span style={{fontSize:12,fontWeight:700,color:barCol}}>{fmtBytes(used)} of ~5 MB used</span>
+                    <span style={{fontSize:11,color:lightMode?"#64748b":"#7a9bbf"}}>{pct.toFixed(pct<10?1:0)}%</span>
+                  </div>
+                  <div style={{background:lightMode?"#f1f5f9":"#07101c",borderRadius:5,height:9,overflow:"hidden",marginBottom:8}}>
+                    <div style={{background:barCol,height:"100%",width:Math.max(1.5,pct)+"%",borderRadius:5,transition:"width .2s"}}/>
+                  </div>
+                  <div style={{fontSize:11,color:lightMode?"#64748b":"#7a9bbf",lineHeight:1.5}}>
+                    Everything lives in this browser. Check-in history is capped at ~16 months per campaign, and the activity log and monthly backups are capped too — so this grows slowly. Export a JSON backup regularly (the ↓ JSON button up top); it's a file with no size limit and your safety net if storage is ever cleared.
+                  </div>
+                  {pct >= 85 && (
+                    <div style={{marginTop:8,fontSize:11,fontWeight:700,color:lightMode?"#b91c1c":"#fca5a5"}}>
+                      ⚠ Getting full — export a backup now and clear old data (archive finished campaigns, clear the activity log) to free space.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <PrefixPartnerSettings partnerPrefixes={partnerPrefixes} setPartnerPrefixes={setPartnerPrefixes} lightMode={lightMode}/>
             <PlatformConfig campaigns={campaigns}
               metaSyncStatus={metaSyncStatus}   metaSyncInfo={metaSyncInfo}
