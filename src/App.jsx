@@ -11152,7 +11152,7 @@ function ReportVault({ onAnalyzeWithZeus }) {
 }
 
 
-function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
+function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{} }) {
   // Revenue tab filter/sort state persists to localStorage so the view sticks
   // across sessions. Same pattern as Pacing/Campaigns tabs. focusMonth is
   // intentionally NOT persisted — it's typically the current month and would be
@@ -11174,6 +11174,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
   // survive the reset instead of vanishing.
   const monthlyBackups = useMemo(() => { try { return JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}"); } catch { return {}; } }, []);
   const [showPLReport, setShowPLReport]     = useState(false);
+  const [showRateFixer, setShowRateFixer]   = useState(false); // expand the "finish the rates" checklist
   const [showEnded, setShowEnded]           = useState(_revPersisted.showEnded || false); // show campaigns that ended before active month
   useEffect(() => {
     try {
@@ -11642,15 +11643,44 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
         </div>
       )}
 
-      {/* ── Missing rates nudge ──────────────────────────────── */}
+      {/* ── Finish the rates: actionable checklist so every revenue number is calculated, not estimated ── */}
       {missingRates.length>0&&(
-        <div style={{background:_lm?"#f8fafc":"#0a1320",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:9,padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
-          <span style={{fontSize:13}}>📊</span>
-          <div style={{flex:1}}>
-            <span style={{fontSize:12,fontWeight:600,color:_lm?"#475569":"#7a9bbf"}}>{missingRates.length} active campaign{missingRates.length!==1?"s":""} have no CPM rate set</span>
-            <span style={{fontSize:11,color:_lm?"#94a3b8":"#3d5a72",marginLeft:8}}>Edit each campaign → add CPM rate + monthly goal in Note 1 → revenue auto-calculates</span>
+        <div style={{background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:9,padding:"10px 16px",marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <span style={{fontSize:13}}>📊</span>
+            <div style={{flex:1,minWidth:0}}>
+              <span style={{fontSize:12,fontWeight:700,color:_lm?"#92400e":"#fcd34d"}}>{missingRates.length} campaign{missingRates.length!==1?"s":""} still have estimated revenue</span>
+              <span style={{fontSize:11,color:_lm?"#b45309":"#caa46a",marginLeft:8}}>Add a rate to each and its revenue becomes exact (calculated from goal × rate).</span>
+            </div>
+            <button onClick={()=>setShowRateFixer(v=>!v)}
+              style={{background:_lm?"#f59e0b":"#3a2800",border:`1px solid ${_lm?"#f59e0b":"#f59e0b60"}`,borderRadius:7,padding:"5px 13px",color:_lm?"#ffffff":"#fcd34d",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+              {showRateFixer?"Hide":"Finish the rates →"}
+            </button>
           </div>
-          <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",whiteSpace:"nowrap"}}>{missingRates.map(c=>c.campaignName.trim().split(" ")[0]).slice(0,3).join(", ")}{missingRates.length>3?` +${missingRates.length-3} more`:""}</span>
+          {showRateFixer&&(
+            <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:5,maxHeight:360,overflowY:"auto"}}>
+              {missingRates.map(c=>{
+                const isCPV = c.platform==="YT";
+                const goal = parseMonthlyGoal(c.note1);
+                return (
+                  <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:7}}>
+                    <span style={{...vBadge(PLT_COLORS[c.platform]||PLT_COLORS.default),borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+                    <span style={{fontSize:12,fontWeight:600,color:_lm?"#0f172a":"#d8eaf8",minWidth:150,flex:"0 1 auto",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={c.campaignName.trim()}>{c.campaignName.trim()}</span>
+                    <span style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",whiteSpace:"nowrap"}}>{c.mediaPartner}</span>
+                    <span style={{fontSize:10,color:goal?(_lm?"#64748b":"#7a9bbf"):"#ef4444",whiteSpace:"nowrap"}}>{goal?`${(goal>=1000?(goal/1000).toFixed(goal>=10000?0:1)+"K":goal)} ${isCPV?"views":"impr"}/mo`:"⚠ no goal in Note 1"}</span>
+                    <div style={{display:"flex",alignItems:"center",gap:5,marginLeft:"auto",flexShrink:0}}>
+                      <span style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf"}}>{isCPV?"CPV $":"CPM $"}</span>
+                      <input type="number" step="0.01" min="0" placeholder={isCPV?"0.08":"18.00"}
+                        onKeyDown={e=>{ if(e.key==="Enter"){ const v=parseFloat(e.target.value); if(v>0) onSetRate(c.id, v, isCPV?"CPV":"CPM"); } }}
+                        onBlur={e=>{ const v=parseFloat(e.target.value); if(v>0) onSetRate(c.id, v, isCPV?"CPV":"CPM"); }}
+                        style={{width:72,background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:5,padding:"4px 7px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,outline:"none"}}/>
+                    </div>
+                  </div>
+                );
+              })}
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",marginTop:2}}>Type a rate and press Enter (or click away). Revenue recalculates instantly. Campaigns marked "no goal" also need a monthly goal in Note 1 (edit the campaign).</div>
+            </div>
+          )}
         </div>
       )}
 
@@ -12056,6 +12086,21 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
         const totalProfit= totalRevWithSpend - totalSpend;
         const totalMargin= totalRevWithSpend>0?(totalProfit/totalRevWithSpend)*100:0;
         const pendingCount = reportRows.filter(r=>r.spend==null).length;
+        // By-partner rollup (tracked only, to match the profit math) — ranked by profit. Bosses
+        // think in clients, so this goes above the per-campaign detail.
+        const byPartner = (()=>{
+          const m = {};
+          reportRows.forEach(r=>{
+            const k = r.partner || "—";
+            if(!m[k]) m[k] = { partner:k, revenue:0, spend:0, count:0, tracked:0 };
+            const e = m[k]; e.count++;
+            if(r.spend!=null){ e.revenue += r.revenue; e.spend += r.spend; e.tracked++; }
+          });
+          return Object.values(m)
+            .filter(e=>e.tracked>0)
+            .map(e=>({ ...e, profit:e.revenue-e.spend, margin:e.revenue>0?((e.revenue-e.spend)/e.revenue*100):0 }))
+            .sort((a,b)=>b.profit-a.profit);
+        })();
         const printId = "pl-report-"+activeMonth;
         return (
           <div style={{position:"fixed",inset:0,background:"#000a",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
@@ -12114,7 +12159,39 @@ ${reportHtml}
                     </div>
                   ))}
                 </div>
+                {/* By-partner rollup */}
+                {byPartner.length>0 && (
+                  <div style={{marginBottom:18}}>
+                    <div style={{fontSize:11,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>By Partner</div>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{borderBottom:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+                          {["Partner","Campaigns","Revenue","Spend","Profit","Margin","% of Profit"].map(h=>(
+                            <th key={h} style={{padding:"6px 8px",textAlign:["Partner"].includes(h)?"left":"right",color:_lm?"#64748b":"#3d5a72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {byPartner.map((p,i)=>{
+                          const share = totalProfit>0 ? (p.profit/totalProfit*100) : null;
+                          return (
+                            <tr key={i} style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#0d1525"}`}}>
+                              <td style={{padding:"6px 8px",color:_lm?"#0f172a":"#d8eaf8",fontWeight:600,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.partner}</td>
+                              <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#475569":"#7a9bbf"}}>{p.tracked}{p.count>p.tracked?`/${p.count}`:""}</td>
+                              <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:600}}>${Math.round(p.revenue).toLocaleString()}</td>
+                              <td style={{padding:"6px 8px",textAlign:"right",color:"#f59e0b"}}>${Math.round(p.spend).toLocaleString()}</td>
+                              <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:p.profit>=0?"#00d48a":"#ef4444"}}>{(p.profit>=0?"+":"-")+"$"+Math.round(Math.abs(p.profit)).toLocaleString()}</td>
+                              <td style={{padding:"6px 8px",textAlign:"right",color:p.margin>=30?"#00d48a":p.margin>=15?"#f59e0b":"#ef4444"}}>{p.margin.toFixed(1)}%</td>
+                              <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#64748b":"#7a9bbf"}}>{share!=null?share.toFixed(0)+"%":"—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
                 {/* Campaign table */}
+                <div style={{fontSize:11,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>By Campaign</div>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead>
                     <tr style={{borderBottom:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
@@ -14888,6 +14965,11 @@ export default function App() {
               ].filter(Boolean).join(' | ');
               return { ...c, history: c.history?.trim() ? parts+'\n'+c.history : parts };
             }));
+          }}
+          onSetRate={(id, rate, dealType)=>{
+            setCampaigns(cs=>cs.map(c=>c.id===id?{...c, contractRate:String(rate), dealType: dealType || c.dealType || (c.platform==="YT"?"CPV":"CPM")}:c));
+            const camp = campaigns.find(c=>c.id===id);
+            if (camp) addLog({ type:"edited", campaignName:camp.campaignName, partner:camp.mediaPartner, platform:camp.platform, detail:`Set ${camp.platform==="YT"?"CPV":"CPM"} rate → $${rate}`, campaignId:id, prevSnapshot:null });
           }}/>
         ) : (<>
         <ReminderAlertBanner reminders={reminders} onOpen={()=>setShowReminderModal(true)} onDismissAll={()=>setReminders(prev=>prev.map(r=>r.date<=today?{...r,dismissed:true}:r))}/>
