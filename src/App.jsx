@@ -14141,7 +14141,10 @@ export default function App() {
       // Restore previous state of campaign (status, metrics, edited, checked)
       const actionLabel = { status:"status change", metrics:"metrics update", checked:"check-in", edited:"edit" }[entry.type] || "change";
       if (!await confirm({title:`Undo ${actionLabel} for "${label}"?`,message:"This restores the previous values.",confirmLabel:"Undo"})) return;
-      setCampaigns(cs => cs.map(c => c.id === entry.campaignId ? { ...entry.prevSnapshot } : c));
+      // Merge the saved snapshot OVER the current campaign — reverts the edited/metric fields while
+      // preserving anything not in the snapshot (e.g. check-in history). Works for both the new lean
+      // snapshots and any older full snapshots.
+      setCampaigns(cs => cs.map(c => c.id === entry.campaignId ? { ...c, ...entry.prevSnapshot } : c));
       setActivityLog(prev => {
         const next = prev.map(e => e.id === entry.id ? { ...e, undone: true } : e);
         try { localStorage.setItem(ACTIVITY_KEY, JSON.stringify(next)); } catch(e) {}
@@ -14298,7 +14301,11 @@ export default function App() {
   function updateCampaign(u, logEntry) {
     setCampaigns(cs => {
       const old = cs.find(c=>c.id===u.id);
-      const snap = old ? { ...old } : null;
+      // Lean undo snapshot: keep the editable fields, but DROP the heavy ones (check-in history,
+      // per-line snapshots, the check-in log). Those aren't what an edit/check-in changes, and
+      // cloning them into all 500 activity-log entries is what bloated storage to ~1.6 MB. Undo
+      // merges this over the live campaign, so history is preserved.
+      const snap = old ? (({ metricSeries, metaSnapshots, ttdSnapshots, dspSnapshots, googleSnapshots, snapSnapshots, checkInLog, ...rest }) => rest)(old) : null;
       if (old && logEntry) {
         addLog({ ...logEntry, campaignName: u.campaignName, partner: u.mediaPartner, platform: u.platform, prevSnapshot: snap, campaignId: u.id });
       } else if (old && !logEntry) {
@@ -14449,13 +14456,20 @@ export default function App() {
 
   const doExport = () => {
     try {
+      const _read = (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } };
       const payload = {
         campaigns,
         reminders,
         archive,
         activityLog,
+        // Revenue-critical data that lives in its own storage keys — include it so a JSON backup
+        // restores EVERYTHING (locked months, monthly closing backups, the month-close marker),
+        // not just campaigns. Previously these were left out, so locked revenue didn't travel.
+        monthLocks:     _read(MONTH_LOCK_KEY),
+        monthlyBackups: _read(MONTHLY_BACKUP_KEY),
+        monthResetKey:  (()=>{ try { return localStorage.getItem(MONTH_RESET_KEY); } catch { return null; } })(),
         exportDate: new Date().toISOString(),
-        exportVersion: 2,
+        exportVersion: 3,
       };
       const b=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
       const url=URL.createObjectURL(b); const a=document.createElement("a");
@@ -14513,6 +14527,10 @@ export default function App() {
           localStorage.setItem(ARCHIVE_KEY, JSON.stringify(archiveData));
           localStorage.setItem(REMINDERS_KEY, JSON.stringify(reminderData));
           if (logData.length > 0) localStorage.setItem(ACTIVITY_KEY, JSON.stringify(logData));
+          // Revenue data (v3 exports). Restore so locked months + monthly backups come back too.
+          if (p.monthLocks)     localStorage.setItem(MONTH_LOCK_KEY, JSON.stringify(p.monthLocks));
+          if (p.monthlyBackups) localStorage.setItem(MONTHLY_BACKUP_KEY, JSON.stringify(p.monthlyBackups));
+          if (p.monthResetKey)  localStorage.setItem(MONTH_RESET_KEY, p.monthResetKey);
         } catch(storageErr) {
           alert("❌ Import failed — could not write to storage (possibly full). No data was changed.\n\n" + storageErr.message);
           return;
@@ -14524,7 +14542,11 @@ export default function App() {
         setReminders(reminderData);
         if (logData.length > 0) setActivityLog(logData);
 
-        alert(`✅ Import successful!\n\n${summary}`);
+        const hadRevenue = !!(p.monthLocks || p.monthlyBackups);
+        alert(`✅ Import successful!\n\n${summary}${hadRevenue ? "\n\nReloading to apply revenue data (locked months & backups)…" : ""}`);
+        // Revenue locks/backups are read once on load, so reload to make sure everything —
+        // including pacing history and locked revenue — shows correctly.
+        setTimeout(() => { try { location.reload(); } catch {} }, 150);
       } catch(parseErr) {
         alert("❌ Couldn't read file — it may be corrupted or not a valid tracker export.\n\n" + parseErr.message);
       }
