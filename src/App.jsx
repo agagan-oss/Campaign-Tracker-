@@ -5518,6 +5518,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // campaigns) is expanded. Defaults OPEN — Austin wants to see them by default
   // since they're intentionally paused (hit goal, etc.) and the data is useful.
   const [showOffSection, setShowOffSection] = useState(true);
+  // showMoM: month-over-month compare. When on, each row shows last month's delivery at the
+  // SAME point in the month (pulled from retained check-in history) with a +/- delta, so a
+  // slipping campaign is visible before the client notices. Off by default to keep rows clean.
+  const [showMoM, setShowMoM] = useState(false);
   // Light-mode badge helpers
   const pBg     = (col) => col + "22";   // badge background
   const pBorder = (col) => col + "40";   // badge border
@@ -5763,6 +5767,24 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     try { localStorage.setItem(dismissedStallKey, JSON.stringify([...next])); } catch {}
   }
 
+  // Per-line "gone quiet" dismissals — same per-day-expiry pattern as campaign stalls.
+  const dismissedQuietKey = "campaign-tracker-dismissed-quiet-lines";
+  const [dismissedQuietLines, setDismissedQuietLines] = useState(()=>{
+    try { return new Set(JSON.parse(localStorage.getItem(dismissedQuietKey)||"[]")); } catch { return new Set(); }
+  });
+  function dismissQuietLine(id) {
+    const next = new Set(dismissedQuietLines);
+    next.add(`${id}|${today}`);
+    setDismissedQuietLines(next);
+    try { localStorage.setItem(dismissedQuietKey, JSON.stringify([...next])); } catch {}
+  }
+  // Find the snapshot holding per-line breakdown for a campaign (checks all 5 platform fields).
+  function findBreakdownSnap(c) {
+    const fields = ["metaSnapshots","ttdSnapshots","dspSnapshots","googleSnapshots","snapSnapshots"];
+    for (const f of fields) { const src = c[f]; if (!src) continue; for (const k of ['mtd','last30','yesterday']) { if (src[k]?.breakdown?.length >= 1) return src[k]; } }
+    return null;
+  }
+
   // Parse a check-in log line like "2026-05-23 | 41,045 impr | ..." → { dateStr, impr }
   // Logs are written by applyMapping using getToday() which returns YYYY-MM-DD
   function parseLogLine(line) {
@@ -5791,6 +5813,45 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // Flag if impressions haven't grown beyond the prior-day baseline
     return currentImpr > 0 && currentImpr <= priorDay.impr;
   });
+
+  // ── Line-level "gone quiet" detection ────────────────────────────────────────
+  // Catches a single ad line (e.g. a retargeting set) that stopped delivering even when the
+  // PARENT campaign is still growing — something the campaign-level stall check above can't
+  // see. Compares each line's current MTD impressions against its prior breakdown reading; if
+  // it hasn't grown (and the line had been running), it's flagged with the days-since-that-
+  // reading count. Campaigns already flagged as wholly stalled are skipped to avoid noise.
+  const quietLines = (() => {
+    const stallIds = new Set(noActivityRows.map(r => r.c.id));
+    const out = [];
+    filtered.forEach(({ c }) => {
+      if (c.status !== "active" && c.status !== "behind" && c.status !== "ahead") return;
+      if (stallIds.has(c.id)) return;
+      const snap = findBreakdownSnap(c);
+      if (!snap || !snap.breakdown || !snap.priorBreakdown) return;
+      const priorBy = {}; snap.priorBreakdown.forEach(p => { if (p?.name) priorBy[p.name] = p; });
+      const totalImpr = snap.breakdown.reduce((s, b) => s + (b.impressions || 0), 0);
+      // days elapsed since the prior breakdown reading
+      let daysFlat = null, sinceDisp = null;
+      if (snap.priorBreakdownDate && /^\d{4}-\d{2}-\d{2}$/.test(snap.priorBreakdownDate)) {
+        const [y, m, d] = snap.priorBreakdownDate.split("-").map(Number);
+        const prev = new Date(y, m - 1, d); prev.setHours(0,0,0,0);
+        const now = new Date(); now.setHours(0,0,0,0);
+        daysFlat = Math.round((now - prev) / 86400000);
+        sinceDisp = `${m}/${d}`;
+      }
+      snap.breakdown.forEach(b => {
+        const prior = priorBy[b.name]; if (!prior) return;
+        const priorImpr = prior.impressions || 0, curImpr = b.impressions || 0;
+        if (priorImpr < 500) return;          // wasn't meaningfully running before — ignore
+        if (curImpr - priorImpr > 0) return;  // still delivering
+        if (dismissedQuietLines.has(`${c.id}::${b.name}|${today}`)) return;
+        out.push({ c, lineName: b.name, curImpr, share: totalImpr > 0 ? (curImpr / totalImpr * 100) : 0, daysFlat, sinceDisp });
+      });
+    });
+    // Most days-flat first, then biggest share of the campaign
+    out.sort((a, b) => (b.daysFlat || 0) - (a.daysFlat || 0) || b.share - a.share);
+    return out;
+  })();
 
   // ── Yesterday's delivery helper ─────────────────────────────────────────
   // Returns the impressions/views/spend delivered yesterday. Two strategies,
@@ -5888,6 +5949,28 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     else if (pctOfNeeded >= 75)   { color = "#f59e0b"; status = "slightly behind"; }
     else                          { color = "#ef4444"; status = "needs push"; }
     return { delivered, neededPerDay, pctOfNeeded, color, status, baseDate, baseImpr, todayImpr: todayMtd };
+  }
+
+  // ── Month-over-month: last month's CLOSING reading ───────────────────────────
+  // Returns the prior month's final check-in (largest day-of-month in that month) from the
+  // retained history. Used to compare this month's rate metrics (CTR, CPM, VCR) against how
+  // last month finished. Returns {impressions,clicks,spend,vcr} or null when no history.
+  function lastMonthClose(c) {
+    const series = Array.isArray(c.metricSeries) ? c.metricSeries : [];
+    if (!series.length) return null;
+    const now = new Date();
+    const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lmMonth = lm.getMonth(), lmYear = lm.getFullYear();
+    let best = null;
+    for (const e of series) {
+      if (!e || !e.d) continue;
+      const m = String(e.d).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (!m) continue;
+      const mo = parseInt(m[1]) - 1, day = parseInt(m[2]), yr = parseInt(m[3]);
+      if (mo !== lmMonth || yr !== lmYear) continue;
+      if (!best || day > best.day) best = { day, impressions: parseInt(e.i) || 0, clicks: parseInt(e.c) || 0, spend: parseFloat(e.s) || 0, vcr: parseFloat(e.v) || 0 };
+    }
+    return best;
   }
 
   function KpiBox({c,disp}){
@@ -6775,6 +6858,55 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return impr > 0 || recent;
   });
 
+  // ── Month-over-month "notable movers" ────────────────────────────────────────
+  // When the compare toggle is on, scan the filtered campaigns for RATE metrics (CTR, CPM,
+  // VCR, Frequency) that swung notably vs last month, and surface only those — keeping the
+  // table itself clean. CTR/CPM/VCR come from the retained check-in history (work right away);
+  // Frequency isn't stored per check-in, so it comes from the monthly backup (kicks in once a
+  // month has been closed out via the reset). Guarded by a 1,000-impression floor so a couple
+  // of early-month clicks don't trip a false alarm.
+  const MOM_THRESH = 0.25; // 25%+ relative change = "notable"
+  const monthlyBackups = (() => { try { return JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY) || "{}"); } catch { return {}; } })();
+  const lastMonthInfo = (() => { const lm = new Date(); lm.setMonth(lm.getMonth() - 1); return { key: `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, "0")}`, label: lm.toLocaleDateString("en-US", { month: "long" }) }; })();
+  const momMovers = (() => {
+    if (!showMoM) return [];
+    const bk = monthlyBackups[lastMonthInfo.key];
+    const bkById = {}; if (bk && Array.isArray(bk.campaigns)) bk.campaigns.forEach(b => { bkById[b.id] = b; });
+    const out = [];
+    filtered.forEach(({ c, disp }) => {
+      const curImpr = parseInt(disp.impressions || c.impressions) || 0;
+      if (curImpr < 1000) return; // too little this month to judge a rate fairly
+      const curClicks = parseInt(disp.clicks || c.clicks) || 0;
+      const curSpend = parseFloat(disp.spend || c.spend) || 0;
+      const curCTR = parseFloat(disp.ctr) || (curImpr > 0 ? curClicks / curImpr * 100 : 0);
+      const curCPM = parseFloat(disp.cpm) || (curImpr > 0 ? curSpend / curImpr * 1000 : 0);
+      const curVCR = parseFloat(c.completionRate) || 0;
+      const curFreq = parseFloat(c.frequency) || 0;
+      const close = lastMonthClose(c);
+      const b = bkById[c.id];
+      const lmCTR = close && close.impressions > 0 ? close.clicks / close.impressions * 100 : (b ? parseFloat(b.ctr) : null);
+      const lmCPM = close && close.impressions > 0 ? close.spend / close.impressions * 1000 : (b ? parseFloat(b.cpm) : null);
+      const lmVCR = close ? close.vcr : (b ? parseFloat(b.completionRate) : null);
+      const lmFreq = b ? parseFloat(b.frequency) : null; // frequency only lives in the backup
+      const changes = [];
+      const add = (label, prev, cur, goodUp, fmt) => {
+        if (prev == null || !(prev > 0) || !(cur > 0)) return;
+        const rel = (cur - prev) / prev;
+        if (Math.abs(rel) < MOM_THRESH) return;
+        const up = cur >= prev;
+        changes.push({ label, prev, cur, rel, up, good: goodUp ? up : !up, fmt });
+      };
+      add("CTR", lmCTR, curCTR, true, v => v.toFixed(2) + "%");
+      add("Freq", lmFreq, curFreq, false, v => v.toFixed(1) + "x");
+      add("CPM", lmCPM, curCPM, false, v => "$" + v.toFixed(2));
+      add("VCR", lmVCR, curVCR, true, v => v.toFixed(0) + "%");
+      if (changes.length) out.push({ c, changes, maxRel: Math.max(...changes.map(ch => Math.abs(ch.rel))) });
+    });
+    out.sort((a, b) => b.maxRel - a.maxRel);
+    return out;
+  })();
+  const momHasAnyBackup = Object.keys(monthlyBackups).length > 0;
+
   return <div style={{color:lmTxt,maxWidth:1920,margin:"0 auto",background:lightMode?"#ffffff":"transparent",minHeight:lightMode?"100vh":"auto",padding:lightMode?"0 0 24px 0":"0"}}>
     {/* Header */}
     <div style={{marginBottom:14}}>
@@ -6886,6 +7018,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         <span style={{color:lmTxtS}}>Last update</span>
         <span style={{color:lightMode?"#2563eb":"#38bdf8",fontWeight:700}}>{lastUpdateDisp}</span>
       </div>
+      {/* Month-over-month compare toggle */}
+      <button onClick={()=>setShowMoM(v=>!v)} title="Show each campaign's delivery vs the same point last month, pulled from check-in history"
+        style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,fontSize:11,fontWeight:showMoM?700:400,
+          background:showMoM?(lightMode?"#eff6ff":"#0a1f33"):lmBgInp,
+          border:`1px solid ${showMoM?(lightMode?"#3b82f6":"#38bdf860"):lmBrd}`,
+          color:showMoM?(lightMode?"#1d4ed8":"#7ec8ff"):lmTxtS}}>
+        📅 vs Last Month
+      </button>
       <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
         <span style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
         {[["pacing","Pacing"],["gap","Gap"],["impr","Impr"],["days","Days"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
@@ -6911,6 +7051,73 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <span><span style={{color:lmC("#fde047"),fontWeight:700}}>●</span> Warn KPI</span>
       {noActivityRows.length>0&&<span style={{color:lmC("#fde047"),fontWeight:700,marginLeft:4}}>⏸ {noActivityRows.length} flat</span>}
     </div>
+
+    {/* ── Line-level "gone quiet" alert ── always on. Surfaces a single ad line that stopped
+        delivering even while its parent campaign keeps running (e.g. a retargeting set that
+        shut off). Dismissible per line for the day. */}
+    {quietLines.length>0 && (
+      <div style={{background:lightMode?"#fff7ed":"#1a0f00",border:`1px solid ${lightMode?"#fdba74":"#f9731640"}`,borderRadius:9,padding:"10px 14px",marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+          <span style={{fontSize:12,fontWeight:800,color:lightMode?"#c2410c":"#fb923c"}}>🔌 Lines Gone Quiet ({quietLines.length})</span>
+          <span style={{fontSize:10,color:lmTxtS}}>A line stopped delivering while its campaign keeps running — e.g. a retargeting set that shut off. Counts are since your last check-in for that campaign.</span>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {quietLines.map((q)=>(
+            <div key={q.c.id+"::"+q.lineName} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:lmBg,border:`1px solid ${lmBrdR}`,borderRadius:7}}>
+              <span style={{...vBadge(PLT_COLORS[q.c.platform]||PLT_COLORS.default),borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{q.c.platform}</span>
+              <span style={{fontSize:12,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200}} title={q.c.campaignName.trim()}>{q.c.campaignName.trim()}</span>
+              <span style={{fontSize:11,color:lmTxtS}}>→</span>
+              <span style={{fontSize:11,fontWeight:700,color:lightMode?"#c2410c":"#fb923c",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:240}} title={q.lineName}>{q.lineName}</span>
+              <span style={{fontSize:10,fontWeight:700,color:lightMode?"#dc2626":"#f87171",background:lightMode?"#fee2e2":"#3a0010",border:`1px solid ${lightMode?"#fca5a5":"#7f1d1d"}`,borderRadius:5,padding:"2px 7px",whiteSpace:"nowrap"}}>
+                0 new impr{q.daysFlat!=null&&q.daysFlat>=1?` · ${q.daysFlat} day${q.daysFlat!==1?"s":""} quiet`:""}{q.sinceDisp?` · since ${q.sinceDisp}`:""}
+              </span>
+              <span style={{fontSize:9,color:lmTxtD,whiteSpace:"nowrap"}}>{q.share.toFixed(0)}% of campaign</span>
+              <button onClick={()=>dismissQuietLine(`${q.c.id}::${q.lineName}`)} title="Dismiss for today"
+                style={{marginLeft:"auto",background:"none",border:`1px solid ${lmBrd}`,borderRadius:5,color:lmTxtM,fontSize:10,padding:"2px 8px",cursor:"pointer",flexShrink:0}}>Dismiss</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {/* ── Month-over-month "Notable movers" panel ── only when the compare toggle is on.
+        Surfaces campaigns whose CTR / Frequency / CPM / VCR swung 25%+ vs last month, so big
+        changes get noticed without adding numbers to the table rows. */}
+    {showMoM && (
+      <div style={{background:lightMode?"#f8fbff":"#0a1626",border:`1px solid ${lightMode?"#bfdbfe":"#1e3a5f"}`,borderRadius:10,padding:"12px 14px",marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:momMovers.length?10:0,flexWrap:"wrap"}}>
+          <span style={{fontSize:12,fontWeight:800,color:lightMode?"#1d4ed8":"#7ec8ff"}}>📅 Month-over-Month Watch</span>
+          <span style={{fontSize:10,color:lmTxtS}}>vs {lastMonthInfo.label} · CTR / Freq / CPM / VCR swings of 25%+</span>
+          {momMovers.length>0 && <span style={{fontSize:10,fontWeight:700,color:lightMode?"#b45309":"#fbbf24",marginLeft:"auto"}}>{momMovers.length} campaign{momMovers.length!==1?"s":""} moving</span>}
+        </div>
+        {momMovers.length===0
+          ? <div style={{fontSize:11,color:lmTxtS,marginTop:8}}>
+              No notable CTR / Freq / CPM / VCR swings vs {lastMonthInfo.label} (within 25%). {!momHasAnyBackup && <span style={{color:lmTxtD}}>Frequency comparisons start once you've closed a month with the new-month reset; CTR, CPM and VCR compare from check-in history.</span>}
+            </div>
+          : <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {momMovers.map(({c,changes})=>(
+                <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:lmBg,border:`1px solid ${lmBrdR}`,borderRadius:7}}>
+                  <span style={{...vBadge(PLT_COLORS[c.platform]||PLT_COLORS.default),borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+                  <span style={{fontSize:12,fontWeight:700,color:lmTxt,minWidth:160,flex:"0 1 auto",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={c.campaignName.trim()}>{c.campaignName.trim()}</span>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                    {changes.map((ch,i)=>{
+                      const col = ch.good ? (lightMode?"#059669":"#00d48a") : (lightMode?"#dc2626":"#f87171");
+                      return (
+                        <span key={i} title={`${ch.label}: ${ch.fmt(ch.prev)} last month → ${ch.fmt(ch.cur)} now (${ch.up?"+":""}${(ch.rel*100).toFixed(0)}%)`}
+                          style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:10,fontWeight:700,color:col,background:col+(lightMode?"14":"22"),border:`1px solid ${col}${lightMode?"33":"45"}`,borderRadius:5,padding:"2px 7px",whiteSpace:"nowrap"}}>
+                          <span style={{color:lmTxtS,fontWeight:600}}>{ch.label}</span>
+                          {ch.fmt(ch.prev)} <span style={{opacity:.7}}>→</span> {ch.fmt(ch.cur)}
+                          <span>{ch.up?"▲":"▼"}{Math.abs(ch.rel*100).toFixed(0)}%</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>}
+      </div>
+    )}
+
     <Section label="Behind"         color="#fde047" items={behind}/>
     <Section label="On Track"       color="#00d48a" items={onTrack}/>
     <Section label="Ahead"          color="#f97316" items={ahead}/>
