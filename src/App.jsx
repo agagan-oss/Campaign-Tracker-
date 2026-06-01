@@ -6992,13 +6992,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       if (curImpr < 1000) return; // too little this month to judge a rate fairly
       const curClicks = parseInt(disp.clicks || c.clicks) || 0;
       const curSpend = parseFloat(disp.spend || c.spend) || 0;
-      const curCTR = parseFloat(disp.ctr) || (curImpr > 0 ? curClicks / curImpr * 100 : 0);
+      // CTR is stored as a fraction (0.0092 = 0.92%); normalize to a percentage like the table.
+      const ctrPct = raw => raw > 1 ? raw : raw * 100;
+      const curCtrRaw = parseFloat(disp.ctr) || 0;
+      const curCTR = curCtrRaw > 0 ? ctrPct(curCtrRaw) : (curImpr > 0 ? curClicks / curImpr * 100 : 0);
       const curCPM = parseFloat(disp.cpm) || (curImpr > 0 ? curSpend / curImpr * 1000 : 0);
       const curVCR = parseFloat(c.completionRate) || 0;
       const curFreq = parseFloat(c.frequency) || 0;
       const close = lastMonthClose(c);
       const b = bkById[c.id];
-      const lmCTR = close && close.impressions > 0 ? close.clicks / close.impressions * 100 : (b ? parseFloat(b.ctr) : null);
+      const lmCTR = close && close.impressions > 0 ? close.clicks / close.impressions * 100 : (b ? ctrPct(parseFloat(b.ctr) || 0) : null);
       const lmCPM = close && close.impressions > 0 ? close.spend / close.impressions * 1000 : (b ? parseFloat(b.cpm) : null);
       const lmVCR = close ? close.vcr : (b ? parseFloat(b.completionRate) : null);
       const lmFreq = b ? parseFloat(b.frequency) : null; // frequency only lives in the backup
@@ -7038,11 +7041,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const lastMonthRows = (() => {
     if (!lastBackup) return [];
     const num = v => parseFloat(String(v == null ? "" : v).replace(/[,$\s%]/g, "")) || 0;
+    // CTR is stored as a fraction (0.0092 = 0.92%); normalize to a percentage the same way the
+    // pacing table does (values >1 are already a percentage, e.g. a directly-typed "1.5").
+    const ctrPct = raw => raw > 1 ? raw : raw * 100;
     return lastBackup.campaigns.map(b => {
       const metricKind = pacingMetricFor(b.platform);
       const delivered = metricKind === "views" ? num(b.videoViews) : metricKind === "spend" ? num(b.spend) : num(b.impressions);
       const goal = parseMonthlyGoal(b.note1);
-      return { b, metricKind, delivered, goal: goal || 0, pct: goal > 0 ? delivered / goal : null, ctr: num(b.ctr), cpm: num(b.cpm), spend: num(b.spend), freq: num(b.frequency) };
+      return { b, metricKind, delivered, goal: goal || 0, pct: goal > 0 ? delivered / goal : null, ctr: ctrPct(num(b.ctr)), cpm: num(b.cpm), spend: num(b.spend), freq: num(b.frequency) };
     }).filter(r => r.delivered > 0 || r.goal > 0)
       .sort((a, b) => b.delivered - a.delivered);
   })();
@@ -11158,7 +11164,15 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
   const [sortKey, setSortKey]               = useState(_revPersisted.sortKey || "profit"); // "profit" | "loss" | "contract" | "name" | "pending"
   const [focusMonth, setFocusMonth]         = useState(null); // YYYY-MM, null = current (NOT persisted — see comment above)
   const [cellMode, setCellMode]             = useState(_revPersisted.cellMode || "dollar"); // "dollar" | "margin"
+  // Fresh-start cutoff: real spend tracking began May 2026, so everything before it is hidden
+  // everywhere in Revenue (graph, month strip, per-month grid, totals). Fixed — pre-May data
+  // was projected/incomplete and threw the numbers off, so there's no toggle.
+  const dataStartMonth = "2026-05";
   const [monthLocks, setMonthLocks]         = useState(() => { try { return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); } catch { return {}; } });
+  // Closing snapshots saved at each new-month reset — the source of truth for a CLOSED month's
+  // actual spend/impressions, since the reset clears the live values. Lets past-month revenue
+  // survive the reset instead of vanishing.
+  const monthlyBackups = useMemo(() => { try { return JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}"); } catch { return {}; } }, []);
   const [showPLReport, setShowPLReport]     = useState(false);
   const [showEnded, setShowEnded]           = useState(_revPersisted.showEnded || false); // show campaigns that ended before active month
   useEffect(() => {
@@ -11182,7 +11196,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
     const campData = rows.map(r => ({
       id: r.c.id, name: r.c.campaignName.trim(), partner: r.c.mediaPartner, platform: r.c.platform,
       revenue: r.monthCells[month]?.rev || 0,
-      spend:   r.monthCells[month]?.spend ?? 0,
+      // Keep null = "no spend recorded" (pending). Do NOT coerce to $0 — that would flip a
+      // pending campaign into a "tracked, 100%-margin" one and make the headline revenue/profit
+      // JUMP the moment you lock. Locking must freeze what's shown, not change it.
+      spend:   r.monthCells[month]?.spend ?? null,
       profit:  r.monthCells[month]?.profit ?? null,
       // Live campaign metrics — frozen here so next CSV drop can't overwrite them
       impressions:    parseInt(r.c.impressions)||0,
@@ -11192,9 +11209,12 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
       reach:          parseInt(r.c.reach)||0,
       cpm:            parseFloat(r.c.cpm)||0,
       videoViews:     parseInt(r.c.videoViews)||0,
-    })).filter(r => r.revenue > 0 || r.spend > 0);
-    const totalRevenue = campData.reduce((s,r)=>s+r.revenue,0);
-    const totalSpend   = campData.reduce((s,r)=>s+r.spend,0);
+    })).filter(r => r.revenue > 0 || (r.spend != null && r.spend > 0));
+    // Summary totals count ONLY tracked campaigns (those with real spend) — exactly what the
+    // dashboard shows — so the numbers are identical before and after locking.
+    const tracked = campData.filter(r => r.spend != null && r.spend > 0);
+    const totalRevenue = tracked.reduce((s,r)=>s+r.revenue,0);
+    const totalSpend   = tracked.reduce((s,r)=>s+r.spend,0);
     const totalProfit  = totalRevenue - totalSpend;
     const lockObj = {
       lockedAt: getToday(), label: moDate(month).toLocaleDateString("en-US",{month:"long",year:"numeric"}),
@@ -11232,6 +11252,41 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
     if (actual != null && actual > 0) return actual;
     return getManualSpend(c);
   }
+  // A campaign's actual closing metrics for a month, from the new-month reset backup.
+  // This is the source of truth for CLOSED months — it survives the reset that clears the
+  // live spend/impressions, so past months stay accurate instead of going blank.
+  function backupMetrics(c, mo) {
+    const b = monthlyBackups[mo];
+    if (!b || !Array.isArray(b.campaigns)) return null;
+    return b.campaigns.find(r => String(r.id) === String(c.id)) || null;
+  }
+  // A CLOSED month's actual {impressions, spend} for a campaign. Two reset-proof sources, in
+  // order: (1) the explicit reset backup, (2) the retained check-in history (metricSeries) —
+  // the last reading in that month is the month's closing MTD. Either survives the new-month
+  // reset that clears the live fields, so past-month revenue/spend never silently vanishes.
+  function closedMonthMetrics(c, mo) {
+    const bm = backupMetrics(c, mo);
+    if (bm) return { impressions: parseInt(bm.impressions) || 0, spend: parseFloat(bm.spend) || 0 };
+    const series = Array.isArray(c.metricSeries) ? c.metricSeries : [];
+    let best = null;
+    for (const e of series) {
+      if (!e || !e.d) continue;
+      const m = String(e.d).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (!m) continue;
+      if (`${m[3]}-${m[1].padStart(2, "0")}` !== mo) continue;
+      const day = parseInt(m[2]);
+      if (!best || day > best.day) best = { day, impressions: parseInt(e.i) || 0, spend: parseFloat(e.s) || 0 };
+    }
+    return best ? { impressions: best.impressions, spend: best.spend } : null;
+  }
+  // Actual delivered impressions for a campaign in a month: live MTD for the current month,
+  // the closed-month actuals for a past month, else null (no actuals → fall back to projection).
+  function actualImprForMonth(c, mo) {
+    if (mo === thisMonth) return getActualMtdImpressions(c);
+    if (mo > thisMonth) return null;
+    const cm = closedMonthMetrics(c, mo);
+    return cm && cm.impressions > 0 ? cm.impressions : null;
+  }
   // Per-campaign per-month spend resolver — locked months take priority.
   // Returns null when no spend data exists for that month.
   function spendForMonth(c, mo) {
@@ -11239,6 +11294,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
     if (monthLocks[mo]) {
       const lc = monthLocks[mo].campaigns?.find(r => String(r.id) === String(c.id));
       return lc ? lc.spend : null;
+    }
+    // Closed month: use the actual spend from the backup or check-in history (reset-proof).
+    if (mo < thisMonth) {
+      const cm = closedMonthMetrics(c, mo);
+      if (cm && cm.spend > 0) return cm.spend;
     }
     // Future months haven't happened — never pro-rate current spend forward.
     // Their revenue stays "pending" (forecast), not fake trackable profit.
@@ -11293,10 +11353,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
   const filtered  = filterPartner==="all" ? withContract : withContract.filter(c=>c.mediaPartner===filterPartner);
 
   // 12-month window — use moStr() not toISOString() to avoid UTC timezone rollback
-  const months = [];
+  let months = [];
   for (let i=-6; i<=5; i++) {
     months.push(moStr(new Date(now.getFullYear(), now.getMonth()+i, 1)));
   }
+  // Apply the data-start cutoff — drop any month before it so pre-start (projected) data
+  // never appears in the graph, month strip, per-month grid, or totals.
+  if (dataStartMonth) months = months.filter(mo => mo >= dataStartMonth);
 
   // Aggregate per-month rollups
   // A campaign's revenue counts toward profit ONLY in months where we have real spend data for it.
@@ -11312,11 +11375,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
       // and KPI tiles. This mirrors the same adjustment the per-campaign rows builder
       // makes below — keeps the bar graph, KPI tiles, and Export P&L numbers in sync.
       let adjRev = rev;
-      if (mo === thisMonth && rev > 0 && c.platform !== "SEM") {
+      if (mo <= thisMonth && rev > 0 && c.platform !== "SEM") {
         const rate = parseFloat(c.contractRate);
         const effectiveDt = c.platform === "YT" ? (c.dealType||"") : "CPM";
         if (rate > 0 && effectiveDt === "CPM") {
-          const actualImpr = getActualMtdImpressions(c);
+          const actualImpr = actualImprForMonth(c, mo); // live MTD for this month, backup for closed months
           if (actualImpr != null && actualImpr > 0) {
             adjRev = (actualImpr / 1000) * rate;
           }
@@ -11336,9 +11399,12 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
     });
   });
 
-  // Y-axis scaling now driven by max profit/loss magnitude (NOT revenue) — keeps bars from squashing
-  const monthProfits = months.map(mo => monthTotals[mo].revenueWithSpend - monthTotals[mo].spend);
-  const maxAbsProfit = Math.max(...monthProfits.map(Math.abs), 1);
+  // Y-axis scaling — one shared scale across ALL bars so heights are proportional to the dollar
+  // value shown on each. A bar's value is its PROFIT when the month has spend (trackable), or its
+  // pending REVENUE when it doesn't yet. Previously profit and pending used different scales (and
+  // pending was clamped), which made a $5k and a $29k bar render at the same height.
+  const barMagnitude = mo => { const t = monthTotals[mo]; return t.revenueWithSpend > 0 ? Math.abs(t.revenueWithSpend - t.spend) : (t.pendingRev || 0); };
+  const maxAbsProfit = Math.max(...months.map(barMagnitude), 1);
 
   const $f = v => { const n=Math.round(v); return n===0?"$0":(n<0?"-$":"$")+Math.abs(n).toLocaleString(); };
   const $fc = v => v>0?"$"+Math.round(v).toLocaleString():(v<0?"-$"+Math.round(Math.abs(v)).toLocaleString():"—");
@@ -11380,19 +11446,22 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
     let windowRev=0, windowSpend=0, windowHasSpend=false;
     months.forEach(mo => {
       let rev = spread[mo] || 0;
-      // For the current month, CPM campaigns: use actual delivered impressions instead of goal
-      // so underdelivering campaigns don't show inflated revenue/profit
-      if (mo === thisMonth && rev > 0 && c.platform !== "SEM") {
+      // CPM campaigns: use ACTUAL delivered impressions × rate instead of goal × rate, so
+      // under/over-delivery is reflected. Current month uses live MTD; a closed month uses the
+      // reset backup (accurate & reset-proof). Future months keep the projection.
+      if (mo <= thisMonth && rev > 0 && c.platform !== "SEM") {
         const rate = parseFloat(c.contractRate);
         const effectiveDt = c.platform === "YT" ? (c.dealType||"") : "CPM";
         if (rate > 0 && effectiveDt === "CPM") {
-          const actualImpr = getActualMtdImpressions(c);
+          const actualImpr = actualImprForMonth(c, mo);
           if (actualImpr != null && actualImpr > 0) {
             rev = (actualImpr / 1000) * rate;
           }
         }
       }
-      const spn = trackable ? (spendForMonth(c, mo) || 0) : null;
+      // Spend: ask the resolver directly (it already returns null when there's no data, and
+      // pulls a closed month's actual spend from the backup even after live metrics are cleared).
+      const spn = spendForMonth(c, mo);
       monthCells[mo] = { rev, spend:spn, profit: spn==null?null:(rev-spn), pending: rev>0 && spn==null };
       windowRev += rev;
       if (spn != null) { windowSpend += spn; windowHasSpend = true; }
@@ -11467,14 +11536,19 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
   const losersThisFocus  = rows.filter(r => r.focusCell.profit != null && r.focusCell.profit < 0 && r.focusCell.rev > 0);
   const pendingThisFocus = rows.filter(r => r.focusCell.pending);
 
-  // All-time totals
-  const totRev   = filtered.reduce((s,c)=>s+(parseFloat(c.contractValue)||0),0);
-  const trackableCampaigns = filtered.filter(hasSpendData);
-  const totRevWithSpend = trackableCampaigns.reduce((s,c)=>s+(parseFloat(c.contractValue)||0),0);
-  const totSpend = trackableCampaigns.reduce((s,c)=>s+getLifetimeSpend(c),0);
+  // Window totals — respect the data-start cutoff by summing across the VISIBLE months
+  // (instead of lifetime contract value), so the headline numbers match the graph and never
+  // include pre-start projections.
+  const totRev   = months.reduce((s,mo)=>s+(monthTotals[mo]?.revenue||0),0);
+  const totRevWithSpend = months.reduce((s,mo)=>s+(monthTotals[mo]?.revenueWithSpend||0),0);
+  const totSpend = months.reduce((s,mo)=>s+(monthTotals[mo]?.spend||0),0);
   const totProfit= totRevWithSpend - totSpend;
   const totMargin= totRevWithSpend>0?(totProfit/totRevWithSpend)*100:0;
-  const totPendingCampaigns = filtered.length - trackableCampaigns.length;
+  // Counts (subtitles): campaigns with any tracked spend within the window vs pending.
+  const trackableCampaigns = filtered.filter(c => months.some(mo => spendForMonth(c, mo) != null));
+  const totPendingCampaigns = filtered.filter(c =>
+    !months.some(mo => spendForMonth(c, mo) != null) && months.some(mo => (revenueMapForCampaign(c)[mo]||0) > 0)
+  ).length;
 
   // Current-month data-source breakdown (informational only — for the Spend KPI subtitle)
   // Only counts campaigns that have revenue in the focus month
@@ -11668,7 +11742,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
           {[
-            {label:"Revenue (total)", val:$fc(fmRev), color:"#7a9bbf", sub: fmPendingRev>0?`${$fk(fmRevWithSpend)} tracked · ${$fk(fmPendingRev)} pending`:"all tracked"},
+            {label:"Revenue", val:$fc(fmRevWithSpend), color:"#7a9bbf", sub: fmPendingRev>0?`+ ${$fk(fmPendingRev)} pending (no spend yet)`:"campaigns with spend"},
             {label:"Spend",   val:$fc(fmSpend), color:"#f59e0b", sub: (() => {
               const parts = [];
               if (focusSyncedCount > 0) parts.push(`${focusSyncedCount} synced`);
@@ -11717,8 +11791,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
                   const yr = mo.slice(2,4);
                   const posH = hasTrackable && profit > 0 ? Math.max(6, Math.min(POS_H-4, (profit/maxAbsProfit)*POS_H)) : 0;
                   const negH = hasTrackable && profit < 0 ? Math.max(6, Math.min(NEG_H-4, (Math.abs(profit)/maxAbsProfit)*NEG_H)) : 0;
-                  // Pending bar: faint amber column up to half the positive zone
-                  const pendingH = hasPending ? Math.max(6, Math.min(POS_H-4, (t.pendingRev/maxAbsProfit)*POS_H*0.4)) : 0;
+                  // Pending bar: same shared scale as profit bars (so heights are comparable);
+                  // it stays visually distinct via the dashed/hollow style, not a shrunken height.
+                  const pendingH = hasPending ? Math.max(6, Math.min(POS_H-4, (t.pendingRev/maxAbsProfit)*POS_H)) : 0;
                   const pColor = profit>=0?"#00d48a":"#ef4444";
 
                   return (
@@ -11766,11 +11841,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{} }) {
         })()}
       </div>
 
-      {/* ── All-time totals ───────────────────────────────────── */}
-      <div style={{...labelStyle,marginBottom:8}}>All-Time · Every Month (not {focusLabelShort})</div>
+      {/* ── Window totals (respect the data-start cutoff) ───────── */}
+      <div style={{...labelStyle,marginBottom:8}}>{dataStartMonth ? `Since ${moDate(dataStartMonth).toLocaleDateString("en-US",{month:"long",year:"numeric"})}` : "All-Time"} · Every Month (not just {focusLabelShort})</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:18}}>
         {[
-          {label:"Total Contract", val:$fc(totRev),    color:"#7a9bbf", sub:`${filtered.length} flights`},
+          {label:"Revenue", val:$fc(totRevWithSpend), color:"#7a9bbf", sub:(totRev-totRevWithSpend)>0?`+ ${$fk(totRev-totRevWithSpend)} pending (no spend)`:`${months.length} mo · ${filtered.length} flights`},
           {label:"Tracked Spend",  val:$fc(totSpend),  color:"#f59e0b", sub:`${trackableCampaigns.length} of ${filtered.length} campaigns`},
           {label:"Total Profit",   val:totRevWithSpend>0?(totProfit>=0?"+":"")+$f(totProfit):"—", color:profitColor(totProfit), sub:"on tracked campaigns"},
           {label:"Avg Margin",     val:totRevWithSpend>0?totMargin.toFixed(1)+"%":"—", color:marginColor(totMargin), sub:"on tracked campaigns"},
