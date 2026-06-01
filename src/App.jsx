@@ -5624,6 +5624,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // SAME point in the month (pulled from retained check-in history) with a +/- delta, so a
   // slipping campaign is visible before the client notices. Off by default to keep rows clean.
   const [showMoM, setShowMoM] = useState(false);
+  // showLastMonth: opens a read-only recap of last month's FINAL numbers (delivered vs goal,
+  // CTR/CPM/spend/freq), sourced from the backup saved at the new-month reset.
+  const [showLastMonth, setShowLastMonth] = useState(false);
+  // showQuietLines: the "lines gone quiet" detail panel. Opened from a toolbar button (with a
+  // count badge) rather than auto-popping as a banner — surfaced only when the user asks.
+  const [showQuietLines, setShowQuietLines] = useState(false);
   // Light-mode badge helpers
   const pBg     = (col) => col + "22";   // badge background
   const pBorder = (col) => col + "40";   // badge border
@@ -7015,6 +7021,32 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   })();
   const momHasAnyBackup = Object.keys(monthlyBackups).length > 0;
 
+  // ── Last-month recap (read-only) ─────────────────────────────────────────────
+  // Pulls the most recent monthly backup (the closing snapshot saved at the new-month reset)
+  // and turns each campaign into a finished-month summary row: delivered vs goal + % hit, plus
+  // CTR/CPM/spend/frequency. This is how last month stays viewable after the metrics are cleared.
+  const lastBackup = (() => {
+    const keys = Object.keys(monthlyBackups).filter(k => /^\d{4}-\d{2}$/.test(k)).sort();
+    const key = keys[keys.length - 1];
+    if (!key) return null;
+    const b = monthlyBackups[key];
+    if (!b || !Array.isArray(b.campaigns)) return null;
+    const [y, m] = key.split("-").map(Number);
+    const label = new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    return { key, label, savedAt: b.savedAt, campaigns: b.campaigns };
+  })();
+  const lastMonthRows = (() => {
+    if (!lastBackup) return [];
+    const num = v => parseFloat(String(v == null ? "" : v).replace(/[,$\s%]/g, "")) || 0;
+    return lastBackup.campaigns.map(b => {
+      const metricKind = pacingMetricFor(b.platform);
+      const delivered = metricKind === "views" ? num(b.videoViews) : metricKind === "spend" ? num(b.spend) : num(b.impressions);
+      const goal = parseMonthlyGoal(b.note1);
+      return { b, metricKind, delivered, goal: goal || 0, pct: goal > 0 ? delivered / goal : null, ctr: num(b.ctr), cpm: num(b.cpm), spend: num(b.spend), freq: num(b.frequency) };
+    }).filter(r => r.delivered > 0 || r.goal > 0)
+      .sort((a, b) => b.delivered - a.delivered);
+  })();
+
   return <div style={{color:lmTxt,maxWidth:1920,margin:"0 auto",background:lightMode?"#ffffff":"transparent",minHeight:lightMode?"100vh":"auto",padding:lightMode?"0 0 24px 0":"0"}}>
     {/* Header */}
     <div style={{marginBottom:14}}>
@@ -7134,6 +7166,25 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           color:showMoM?(lightMode?"#1d4ed8":"#7ec8ff"):lmTxtS}}>
         📅 vs Last Month
       </button>
+      {/* Last-month recap toggle — only when a closing backup exists */}
+      {lastBackup && (
+        <button onClick={()=>setShowLastMonth(v=>!v)} title={`View ${lastBackup.label}'s final results (saved at the monthly reset)`}
+          style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,fontSize:11,fontWeight:showLastMonth?700:400,
+            background:showLastMonth?(lightMode?"#f5f3ff":"#1a1430"):lmBgInp,
+            border:`1px solid ${showLastMonth?(lightMode?"#8b5cf6":"#a78bfa60"):lmBrd}`,
+            color:showLastMonth?(lightMode?"#6d28d9":"#c4b5fd"):lmTxtS}}>
+          🗓️ Last Month
+        </button>
+      )}
+      {/* Lines gone quiet — opened on demand; count badge hints when there's something to see */}
+      <button onClick={()=>setShowQuietLines(v=>!v)} title="Show ad lines that have stopped delivering while their campaign keeps running"
+        style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,fontSize:11,fontWeight:showQuietLines?700:400,
+          background:showQuietLines?(lightMode?"#fff7ed":"#1a0f00"):lmBgInp,
+          border:`1px solid ${showQuietLines?(lightMode?"#fb923c":"#f9731680"):lmBrd}`,
+          color:showQuietLines?(lightMode?"#c2410c":"#fb923c"):lmTxtS}}>
+        🔌 Quiet Lines
+        {quietLines.length>0 && <span style={{background:lightMode?"#fed7aa":"#7c2d12",color:lightMode?"#9a3412":"#fdba74",borderRadius:9,padding:"0 6px",fontSize:10,fontWeight:800}}>{quietLines.length}</span>}
+      </button>
       <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
         <span style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
         {[["pacing","Pacing"],["gap","Gap"],["impr","Impr"],["days","Days"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
@@ -7160,12 +7211,62 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {noActivityRows.length>0&&<span style={{color:lmC("#fde047"),fontWeight:700,marginLeft:4}}>⏸ {noActivityRows.length} flat</span>}
     </div>
 
-    {/* ── Line-level "gone quiet" alert ── always on. Surfaces a single ad line that stopped
-        delivering even while its parent campaign keeps running (e.g. a retargeting set that
-        shut off). Dismissible per line for the day. */}
-    {quietLines.length>0 && (
+    {/* ── Last-month recap panel ── read-only finished-month summary, toggled from the toolbar. */}
+    {showLastMonth && lastBackup && (()=>{
+      const fmtMetric = (n, kind) => kind==="spend"
+        ? "$"+(n>=1000?(n/1000).toFixed(1)+"k":String(Math.round(n)))
+        : n>=1000000?(n/1000000).toFixed(2)+"M":n>=1000?(n/1000).toFixed(1)+"K":String(Math.round(n));
+      const LM_GRID = "minmax(200px,2fr) 168px 74px 74px 84px 60px";
+      const purple = lightMode?"#6d28d9":"#c4b5fd";
+      const hdrCol = lightMode?"#7c3aed":"#a78bfa";
+      return (
+      <div style={{background:lightMode?"#faf5ff":"#150f26",border:`1px solid ${lightMode?"#ddd6fe":"#4c1d95"}`,borderRadius:10,padding:"12px 14px",marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+          <span style={{fontSize:12,fontWeight:800,color:purple}}>🗓️ {lastBackup.label} — Final Results</span>
+          <span style={{fontSize:10,color:lmTxtS}}>{lastMonthRows.length} campaign{lastMonthRows.length!==1?"s":""} · snapshot saved {lastBackup.savedAt||"—"} when you closed the month</span>
+          <button onClick={()=>setShowLastMonth(false)} title="Hide" style={{marginLeft:"auto",background:"none",border:`1px solid ${lightMode?"#ddd6fe":"#4c1d95"}`,borderRadius:5,color:purple,fontSize:10,fontWeight:700,padding:"3px 10px",cursor:"pointer",flexShrink:0}}>Hide</button>
+        </div>
+        {lastMonthRows.length===0
+          ? <div style={{fontSize:11,color:lmTxtS}}>No campaign data in the {lastBackup.label} backup.</div>
+          : <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              <div style={{display:"grid",gridTemplateColumns:LM_GRID,gap:8,padding:"2px 10px"}}>
+                {["Campaign","Delivered / Goal","CTR","CPM","Spend","Freq"].map((h,i)=>(
+                  <div key={i} style={{fontSize:9,color:hdrCol,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,textAlign:i>=2?"right":"left"}}>{h}</div>
+                ))}
+              </div>
+              {lastMonthRows.map((r,idx)=>{
+                const pctTxt = r.pct!=null ? `${Math.round(r.pct*100)}%` : "—";
+                const pctCol = r.pct==null ? lmTxtD : r.pct>=1 ? (lightMode?"#059669":"#00d48a") : r.pct>=0.8 ? (lightMode?"#b45309":"#f59e0b") : (lightMode?"#dc2626":"#f87171");
+                const unit = r.metricKind==="views"?"views":r.metricKind==="spend"?"":"impr";
+                return (
+                  <div key={r.b.id||idx} style={{display:"grid",gridTemplateColumns:LM_GRID,gap:8,alignItems:"center",padding:"6px 10px",background:lmBg,border:`1px solid ${lmBrdR}`,borderRadius:7}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+                      <span style={{...vBadge(PLT_COLORS[r.b.platform]||PLT_COLORS.default),borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{r.b.platform}</span>
+                      <span style={{fontSize:12,fontWeight:600,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={r.b.campaignName}>{(r.b.campaignName||"").trim()}</span>
+                    </div>
+                    <div style={{fontSize:11,whiteSpace:"nowrap"}}>
+                      <span style={{fontWeight:800,color:lmTxt}}>{fmtMetric(r.delivered,r.metricKind)}</span>
+                      {r.goal>0 && <span style={{color:lmTxtD}}> / {fmtMetric(r.goal,r.metricKind)}{unit?` ${unit}`:""}</span>}
+                      {r.pct!=null && <span style={{marginLeft:6,fontWeight:700,color:pctCol}}>{pctTxt}</span>}
+                    </div>
+                    <div style={{fontSize:11,textAlign:"right",color:r.ctr>0?lmTxt:lmTxtD}}>{r.ctr>0?r.ctr.toFixed(2)+"%":"—"}</div>
+                    <div style={{fontSize:11,textAlign:"right",color:r.cpm>0?lmTxt:lmTxtD}}>{r.cpm>0?"$"+r.cpm.toFixed(2):"—"}</div>
+                    <div style={{fontSize:11,textAlign:"right",color:r.spend>0?lmTxt:lmTxtD}}>{r.spend>0?"$"+(r.spend>=1000?(r.spend/1000).toFixed(1)+"k":Math.round(r.spend)):"—"}</div>
+                    <div style={{fontSize:11,textAlign:"right",color:r.freq>0?lmTxt:lmTxtD}}>{r.freq>0?r.freq.toFixed(2)+"x":"—"}</div>
+                  </div>
+                );
+              })}
+            </div>}
+      </div>
+      );
+    })()}
+
+    {/* ── Line-level "gone quiet" panel ── opened from the toolbar toggle (does not auto-pop).
+        Surfaces a single ad line that stopped delivering even while its parent campaign keeps
+        running (e.g. a retargeting set that shut off). Dismissible per line for the day. */}
+    {showQuietLines && (
       <div style={{background:lightMode?"#fff7ed":"#1a0f00",border:`1px solid ${lightMode?"#fdba74":"#f9731640"}`,borderRadius:9,padding:"10px 14px",marginBottom:12}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:quietLines.length?8:0,flexWrap:"wrap"}}>
           <span style={{fontSize:12,fontWeight:800,color:lightMode?"#c2410c":"#fb923c"}}>🔌 Lines Gone Quiet ({quietLines.length})</span>
           <span style={{fontSize:10,color:lmTxtS}}>A line stopped delivering while its campaign keeps running — e.g. a retargeting set that shut off. Counts are since your last check-in for that campaign.</span>
           {quietLines.length>1 && (
@@ -7175,6 +7276,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             </button>
           )}
         </div>
+        {quietLines.length===0 && <div style={{fontSize:11,color:lmTxtS}}>No lines have gone quiet — every line is still delivering since its last check-in. (Dismissed alerts return tomorrow if a line is still dark.)</div>}
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
           {quietLines.map((q)=>(
             <div key={q.c.id+"::"+q.lineName} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:lmBg,border:`1px solid ${lmBrdR}`,borderRadius:7}}>
@@ -13711,7 +13813,8 @@ export default function App() {
   const addDraftMeaningful = (s) => { try { const d = typeof s==="string"?JSON.parse(s):s; return !!(d && (String(d.campaignName||"").trim() || String(d.mediaPartner||"").trim())); } catch { return false; } };
   const [hasAddDraft, setHasAddDraft] = useState(()=>{ try { return addDraftMeaningful(localStorage.getItem("campaign-tracker-add-draft")); } catch { return false; } });
   const [showExportReminder, setShowExportReminder] = useState(false);
-  const [showMonthReset, setShowMonthReset]         = useState(false);
+  const [showMonthReset, setShowMonthReset]         = useState(false); // banner open (user-initiated)
+  const [monthResetAvailable, setMonthResetAvailable] = useState(false); // a new month is detected & unreset — surfaces a button, not an auto-banner
   const [showReminderModal, setShowReminderModal]   = useState(null); // null=closed, true=open all, number=open focused on campaign
   const [renewTarget, setRenewTarget]               = useState(null);
   const [saved, setSaved]         = useState(false);
@@ -13987,7 +14090,8 @@ export default function App() {
     if(!stored){ try{ localStorage.setItem(MONTH_RESET_KEY, curMonth); }catch{} return; }
     if(stored < curMonth){
       const hasData = campaigns.some(c=>(parseInt(c.impressions)||0)>0 || (parseFloat(c.spend)||0)>0);
-      if(hasData) setShowMonthReset(true);
+      // Don't auto-open the banner — just mark a reset as available so a button can surface it.
+      if(hasData) setMonthResetAvailable(true);
       else { try{ localStorage.setItem(MONTH_RESET_KEY, curMonth); }catch{} }
     }
   },[]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -14254,6 +14358,7 @@ export default function App() {
       detail:`New month reset — metrics cleared for ${campaigns.length} campaigns (closing numbers for ${prevMonth} backed up)`, prevSnapshot:null, campaignId:null });
     try { localStorage.setItem(MONTH_RESET_KEY, curMonth); } catch {}
     setShowMonthReset(false);
+    setMonthResetAvailable(false);
   }
 
   async function handleRestore(c) {
@@ -14431,6 +14536,14 @@ export default function App() {
               {pendingReminders>0 && <span style={{background:"#ef4444",color:"#fff",borderRadius:10,padding:"0px 5px",fontSize:10,fontWeight:700,minWidth:16,textAlign:"center"}}>{pendingReminders}</span>}
             </button>
             <button onClick={()=>{ setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today}))); addLog({type:"checked",campaignName:"All campaigns",partner:"",platform:"",detail:`Bulk marked all checked on ${today}`}); }} style={{background:lightMode?"#00c896":"#002e24",border:lightMode?"none":"1px solid #3b82f640",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#00e5a0",fontWeight:700,fontSize:13,cursor:"pointer"}}>✓ Mark All Checked</button>
+            {/* New-month close-out — surfaces only when a new month is detected & last month
+                hasn't been cleared. A button you click (not an auto-banner). */}
+            {monthResetAvailable && !showMonthReset && (
+              <button onClick={()=>setShowMonthReset(true)} title="A new month has started — back up last month's numbers and clear metrics to start fresh"
+                style={{display:"flex",alignItems:"center",gap:6,background:lightMode?"#eff6ff":"#0a1626",border:`1px solid ${lightMode?"#3b82f6":"#3b82f680"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#1d4ed8":"#7ec8ff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                🗓️ Close out last month
+              </button>
+            )}
             <button onClick={()=>setShowAdd(true)} style={{background:lightMode?"#059669":"#00200f",border:lightMode?"none":"1px solid #22c55e40",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#00d48a",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Add Campaign</button>
             {/* Resume draft chip — appears when an unfinished Add Campaign draft is
                 stashed (e.g. you clicked out). One click reopens it; the × discards. */}
@@ -14545,7 +14658,9 @@ export default function App() {
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={handleMonthlyReset} style={{background:lightMode?"#2563eb":"#1d4ed8",border:"none",borderRadius:7,padding:"7px 16px",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>Back up &amp; clear</button>
-              <button onClick={()=>{ try{ const n=new Date(); localStorage.setItem(MONTH_RESET_KEY, `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`); }catch{} setShowMonthReset(false); }} style={{background:"none",border:`1px solid ${lightMode?"#93c5fd":"#3b82f660"}`,borderRadius:7,padding:"7px 12px",color:lightMode?"#1d4ed8":"#7ec8ff",fontWeight:600,fontSize:12,cursor:"pointer"}}>I'll do it manually</button>
+              <button onClick={()=>{ try{ const n=new Date(); localStorage.setItem(MONTH_RESET_KEY, `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`); }catch{} setShowMonthReset(false); setMonthResetAvailable(false); }} style={{background:"none",border:`1px solid ${lightMode?"#93c5fd":"#3b82f660"}`,borderRadius:7,padding:"7px 12px",color:lightMode?"#1d4ed8":"#7ec8ff",fontWeight:600,fontSize:12,cursor:"pointer"}}>I'll do it manually</button>
+              {/* Just close the panel — keeps the "Close out last month" button around so you can come back. */}
+              <button onClick={()=>setShowMonthReset(false)} style={{background:"none",border:`1px solid ${lightMode?"#cbd5e1":"#334155"}`,borderRadius:7,padding:"7px 12px",color:lightMode?"#64748b":"#7a9bbf",fontWeight:600,fontSize:12,cursor:"pointer"}}>Later</button>
             </div>
           </div>
         )}
