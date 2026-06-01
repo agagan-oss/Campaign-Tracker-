@@ -5880,6 +5880,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     setDismissedQuietLines(next);
     try { localStorage.setItem(dismissedQuietKey, JSON.stringify([...next])); } catch {}
   }
+  function dismissAllQuietLines(ids) {
+    const next = new Set(dismissedQuietLines);
+    ids.forEach(id => next.add(`${id}|${today}`));
+    setDismissedQuietLines(next);
+    try { localStorage.setItem(dismissedQuietKey, JSON.stringify([...next])); } catch {}
+  }
   // Find the snapshot holding per-line breakdown for a campaign (checks all 5 platform fields).
   function findBreakdownSnap(c) {
     const fields = ["metaSnapshots","ttdSnapshots","dspSnapshots","googleSnapshots","snapSnapshots"];
@@ -7162,6 +7168,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
           <span style={{fontSize:12,fontWeight:800,color:lightMode?"#c2410c":"#fb923c"}}>🔌 Lines Gone Quiet ({quietLines.length})</span>
           <span style={{fontSize:10,color:lmTxtS}}>A line stopped delivering while its campaign keeps running — e.g. a retargeting set that shut off. Counts are since your last check-in for that campaign.</span>
+          {quietLines.length>1 && (
+            <button onClick={()=>dismissAllQuietLines(quietLines.map(q=>`${q.c.id}::${q.lineName}`))} title="Dismiss all of these for today"
+              style={{marginLeft:"auto",background:"none",border:`1px solid ${lightMode?"#fdba74":"#f9731660"}`,borderRadius:5,color:lightMode?"#c2410c":"#fb923c",fontSize:10,fontWeight:700,padding:"3px 10px",cursor:"pointer",flexShrink:0}}>
+              Dismiss all ({quietLines.length})
+            </button>
+          )}
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
           {quietLines.map((q)=>(
