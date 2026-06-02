@@ -11477,7 +11477,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // reset that clears the live fields, so past-month revenue/spend never silently vanishes.
   function closedMonthMetrics(c, mo) {
     const bm = backupMetrics(c, mo);
-    if (bm) return { impressions: parseInt(bm.impressions) || 0, spend: parseFloat(bm.spend) || 0 };
+    if (bm) return { impressions: parseInt(bm.impressions) || 0, spend: parseFloat(bm.spend) || 0, views: parseInt(bm.videoViews) || 0 };
     const series = Array.isArray(c.metricSeries) ? c.metricSeries : [];
     let best = null;
     for (const e of series) {
@@ -11486,9 +11486,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       if (!m) continue;
       if (`${m[3]}-${m[1].padStart(2, "0")}` !== mo) continue;
       const day = parseInt(m[2]);
-      if (!best || day > best.day) best = { day, impressions: parseInt(e.i) || 0, spend: parseFloat(e.s) || 0 };
+      if (!best || day > best.day) best = { day, impressions: parseInt(e.i) || 0, spend: parseFloat(e.s) || 0, views: parseInt(e.vv) || 0 };
     }
-    return best ? { impressions: best.impressions, spend: best.spend } : null;
+    return best ? { impressions: best.impressions, spend: best.spend, views: best.views } : null;
   }
   // Actual delivered impressions for a campaign in a month: live MTD for the current month,
   // the closed-month actuals for a past month, else null (no actuals → fall back to projection).
@@ -11497,6 +11497,22 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     if (mo > thisMonth) return null;
     const cm = closedMonthMetrics(c, mo);
     return cm && cm.impressions > 0 ? cm.impressions : null;
+  }
+  // Actual MTD video VIEWS for a YouTube CPV campaign — synced google snapshot first, then the
+  // live videoViews field (which is itself the month-to-date value the user sees on the card).
+  function getActualMtdViews(c) {
+    const snap = c.googleSnapshots?.mtd?.video_views ?? c.googleSnapshots?.mtd?.videoViews;
+    if (snap != null) return parseInt(snap);
+    const manual = parseInt(c.videoViews);
+    return manual > 0 ? manual : null;
+  }
+  // Actual delivered VIEWS for a campaign in a month — the CPV counterpart to actualImprForMonth.
+  // Current month = live MTD; a closed month = reset-proof backup/check-in actuals; future = null.
+  function actualViewsForMonth(c, mo) {
+    if (mo === thisMonth) return getActualMtdViews(c);
+    if (mo > thisMonth) return null;
+    const cm = closedMonthMetrics(c, mo);
+    return cm && cm.views > 0 ? cm.views : null;
   }
   // Per-campaign per-month spend resolver — locked months take priority.
   // Returns null when no spend data exists for that month.
@@ -11594,6 +11610,17 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           if (actualImpr != null && actualImpr > 0) {
             adjRev = (actualImpr / 1000) * rate;
           }
+        } else if (rate > 0 && effectiveDt === "CPV") {
+          // YouTube per-view deals: bill on views actually DELIVERED so far (not the full-month
+          // goal), so a few days in shows a few days of earned revenue — not the whole month.
+          const actualViews = actualViewsForMonth(c, mo);
+          if (actualViews != null && actualViews > 0) {
+            adjRev = actualViews * rate;
+          } else if (spendForMonth(c, mo) != null) {
+            // Money spent this month but no views logged yet → nothing earned to book.
+            // (Without spend, keep the full-goal projection so it still shows as pending forecast.)
+            adjRev = 0;
+          }
         }
       }
       monthTotals[mo].revenue += adjRev;
@@ -11667,6 +11694,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           const actualImpr = actualImprForMonth(c, mo);
           if (actualImpr != null && actualImpr > 0) {
             rev = (actualImpr / 1000) * rate;
+          }
+        } else if (rate > 0 && effectiveDt === "CPV") {
+          // YouTube per-view deals: bill on views actually DELIVERED so far, not the full-month goal.
+          const actualViews = actualViewsForMonth(c, mo);
+          if (actualViews != null && actualViews > 0) {
+            rev = actualViews * rate;
+          } else if (spendForMonth(c, mo) != null) {
+            rev = 0; // spent but no views logged yet → nothing earned (keep goal only when pending/no-spend)
           }
         }
       }
@@ -11790,6 +11825,22 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     });
     if (!any) return null;
     return { projRev, projSpend: anySpend ? projSpend : null, projProfit: anySpend ? (projRev - projSpend) : null };
+  })();
+  // ── Goal-based "target" finish ──────────────────────────────────────────────
+  // Answers "where do I land if I HIT my monthly goals and stay on the current spend pace?"
+  // Revenue = each active campaign's full monthly goal × rate (the contracted target); spend =
+  // the same pace-projected spend used by the forecast above. Together: target revenue, but a
+  // realistic cost. This is stable from day 1 (unlike pace revenue, which is noisy early).
+  const monthGoalForecast = (() => {
+    if (activeMonth !== thisMonth) return null;
+    let goalRev = 0, any = false;
+    filtered.forEach(c => {
+      const m = revenueMapForCampaign(c)[thisMonth] || 0; // full-goal monthly revenue (pre actual-delivery adjustment)
+      if (m > 0) { goalRev += m; any = true; }
+    });
+    if (!any) return null;
+    const projSpend = monthForecast ? monthForecast.projSpend : null;
+    return { goalRev, projSpend, goalProfit: projSpend != null ? goalRev - projSpend : null };
   })();
   const quarterForecast = (() => {
     const q = Math.floor(now.getMonth() / 3);
@@ -12034,22 +12085,29 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       {showRevForecast && monthForecast && (
         <div style={{...card,padding:"14px 18px",marginBottom:14}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-            <div style={{...labelStyle,flex:1}}>📈 Projected at current pace</div>
+            <div style={{...labelStyle,flex:1}}>📈 Month-end projection</div>
             <button onClick={()=>setShowRevForecast(false)} style={{background:"none",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"3px 9px",color:_lm?"#64748b":"#4d6e8a",fontSize:10,cursor:"pointer"}}>Hide</button>
           </div>
-          <div style={{display:"flex",gap:22,flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:22,flexWrap:"wrap",alignItems:"flex-start"}}>
             <div>
-              <div style={{fontSize:9,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>{focusLabelShort} finish</div>
+              <div style={{fontSize:9,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>{focusLabelShort} · at current pace</div>
               <div style={{fontSize:20,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1}}>{$fc(monthForecast.projRev)}</div>
               {monthForecast.projProfit!=null && <div style={{fontSize:11,fontWeight:700,color:profitColor(monthForecast.projProfit),marginTop:3}}>{(monthForecast.projProfit>=0?"+":"")+$fk(monthForecast.projProfit)} profit</div>}
             </div>
-            <div>
+            {monthGoalForecast && (
+              <div style={{paddingLeft:22,borderLeft:`1px solid ${_lm?"#e2e8f0":"#1e3a52"}`}}>
+                <div style={{fontSize:9,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>{focusLabelShort} · if you hit goal</div>
+                <div style={{fontSize:20,fontWeight:800,color:_lm?"#0d9488":"#5eead4",lineHeight:1}}>{$fc(monthGoalForecast.goalRev)}</div>
+                {monthGoalForecast.goalProfit!=null && <div style={{fontSize:11,fontWeight:700,color:profitColor(monthGoalForecast.goalProfit),marginTop:3}}>{(monthGoalForecast.goalProfit>=0?"+":"")+$fk(monthGoalForecast.goalProfit)} profit</div>}
+              </div>
+            )}
+            <div style={{paddingLeft:22,borderLeft:`1px solid ${_lm?"#e2e8f0":"#1e3a52"}`}}>
               <div style={{fontSize:9,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>{quarterForecast.label}</div>
               <div style={{fontSize:20,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1}}>{$fc(quarterForecast.rev)}</div>
               {quarterForecast.profit!=null && <div style={{fontSize:11,fontWeight:700,color:profitColor(quarterForecast.profit),marginTop:3}}>{(quarterForecast.profit>=0?"+":"")+$fk(quarterForecast.profit)} profit</div>}
             </div>
           </div>
-          <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:8}}>This month extended to its flight end at the current daily pace; quarter = closed months + this forecast + projected.</div>
+          <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:8}}>At current pace = today's delivery & spend rate extended to each campaign's flight end. If you hit goal = full monthly goals × rate, with spend held at the current pace. Quarter = closed months + this month's pace forecast + projected.</div>
         </div>
       )}
 
@@ -12061,6 +12119,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             <span><span style={{display:"inline-block",width:10,height:10,background:"#00d48a",borderRadius:2,marginRight:6,verticalAlign:"middle"}}/>Profit</span>
             <span><span style={{display:"inline-block",width:10,height:10,background:"#ef4444",borderRadius:2,marginRight:6,verticalAlign:"middle"}}/>Loss</span>
             <span style={{color:pendingChartColor}}><span style={{display:"inline-block",width:10,height:10,background:pendingChartColor+"33",border:`1.5px dashed ${pendingChartColor}`,borderRadius:2,marginRight:6,verticalAlign:"middle",boxSizing:"border-box"}}/>Pending</span>
+            <span style={{color:_lm?"#0f766e":"#5eead4"}}><span style={{display:"inline-block",width:10,height:10,background:"transparent",border:"2px dotted #00d48a",borderRadius:2,marginRight:6,verticalAlign:"middle",boxSizing:"border-box"}}/>Pace target</span>
           </div>
         </div>
         {(() => {
@@ -12068,6 +12127,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           const POS_H = 200; // positive bar zone
           const NEG_H = 100; // negative bar zone
           const LABEL_H = 40; // month label zone with year + value
+          // Current-month "at current pace" projection (profit). Folded into the vertical scale so the
+          // dotted target bar never clips — and so the solid realized bar reads as a true % of target.
+          const projProfit = monthForecast && monthForecast.projProfit != null ? monthForecast.projProfit : null;
+          const chartMax = Math.max(maxAbsProfit, projProfit != null ? Math.abs(projProfit) : 0, 1);
           return (
             <div style={{overflowX:"auto",overflowY:"hidden"}}>
               <div style={{minWidth: months.length*64, display:"flex",gap:8,alignItems:"stretch"}}>
@@ -12080,23 +12143,49 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                   const hasPending = !hasTrackable && t.revenue > 0;
                   const label = moDate(mo).toLocaleDateString("en-US",{month:"short"});
                   const yr = mo.slice(2,4);
-                  const posH = hasTrackable && profit > 0 ? Math.max(6, Math.min(POS_H-4, (profit/maxAbsProfit)*POS_H)) : 0;
-                  const negH = hasTrackable && profit < 0 ? Math.max(6, Math.min(NEG_H-4, (Math.abs(profit)/maxAbsProfit)*NEG_H)) : 0;
+                  const posH = hasTrackable && profit > 0 ? Math.max(6, Math.min(POS_H-4, (profit/chartMax)*POS_H)) : 0;
+                  const negH = hasTrackable && profit < 0 ? Math.max(6, Math.min(NEG_H-4, (Math.abs(profit)/chartMax)*NEG_H)) : 0;
                   // Pending bar: same shared scale as profit bars (so heights are comparable);
                   // it stays visually distinct via the dashed/hollow style, not a shrunken height.
-                  const pendingH = hasPending ? Math.max(6, Math.min(POS_H-4, (t.pendingRev/maxAbsProfit)*POS_H)) : 0;
+                  const pendingH = hasPending ? Math.max(6, Math.min(POS_H-4, (t.pendingRev/chartMax)*POS_H)) : 0;
                   const pColor = profit>=0?"#00d48a":"#ef4444";
+                  // Dotted "at current pace" target for the live month — a ghost bar the solid realized
+                  // bar fills up into as the month delivers. Positive projection → grows up; negative → down.
+                  const projPos   = isCurr && projProfit != null && projProfit > 0;
+                  const projNeg   = isCurr && projProfit != null && projProfit < 0;
+                  const ghostPosH = projPos ? Math.max(6, Math.min(POS_H-4, (projProfit/chartMax)*POS_H)) : 0;
+                  const ghostNegH = projNeg ? Math.max(6, Math.min(NEG_H-4, (Math.abs(projProfit)/chartMax)*NEG_H)) : 0;
 
                   return (
                     <div key={mo} onClick={()=>setFocusMonth(mo===thisMonth?null:mo)}
                       style={{flex:"1 0 56px",cursor:"pointer",borderRadius:6,background:isFocus?(_lm?"#f0fdf9":"#1a274455"):"transparent",display:"flex",flexDirection:"column",padding:"0 4px"}}>
-                      {/* Value above bar */}
+                      {/* Value above bar (suppressed for the live month — labels sit on the lines inside the zone) */}
                       <div style={{height:20,display:"flex",alignItems:"flex-end",justifyContent:"center",fontSize:11,fontWeight:600,color:hasPending?pendingChartColor:pColor}}>
-                        {hasTrackable && profit > 0 ? "+"+$fk(profit) : hasPending ? $fk(t.pendingRev) : ""}
+                        {projPos ? "" : hasTrackable && profit > 0 ? "+"+$fk(profit) : hasPending ? $fk(t.pendingRev) : ""}
                       </div>
                       {/* Positive bar zone */}
-                      <div style={{height:POS_H,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-                        {posH > 0 && (
+                      <div style={{height:POS_H,display:"flex",alignItems:"flex-end",justifyContent:"center",position:"relative"}}>
+                        {/* Projected $ — pinned just ABOVE the dotted pace line. Actual $ pinned just BELOW the
+                            realized line once the bar is tall enough; while the bar is still a short sliver
+                            (early month) it flips ABOVE the bar so the zero baseline never cuts through it.
+                            Opposite sides of the lines means projected/actual never collide as they converge. */}
+                        {projPos && (
+                          <div style={{position:"absolute",left:0,right:0,bottom:Math.min(POS_H+4, ghostPosH+3),display:"flex",justifyContent:"center",fontSize:10,fontWeight:700,color:_lm?"#0d9488":"#34d399",zIndex:3,pointerEvents:"none",whiteSpace:"nowrap"}}>{(projProfit>=0?"+":"")+$fk(projProfit)}</div>
+                        )}
+                        {projPos && posH > 0 && (
+                          <div style={{position:"absolute",left:0,right:0,bottom: posH >= 16 ? posH - 13 : posH + 2,display:"flex",justifyContent:"center",fontSize:10,fontWeight:800,color:_lm?"#0066cc":"#00a3ff",zIndex:4,pointerEvents:"none",whiteSpace:"nowrap"}}>{(profit>=0?"+":"")+$fk(profit)}</div>
+                        )}
+                        {projPos ? (
+                          <div title={`${label} '${yr}: ${$f(profit)} earned so far → ${$f(projProfit)} projected at current pace`}
+                            style={{position:"relative",width:"100%",maxWidth:42,height:ghostPosH,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+                            {/* dotted "at current pace" target outline */}
+                            <div style={{position:"absolute",left:0,right:0,top:0,bottom:0,border:"2px dotted #00d48a",borderBottom:"none",borderRadius:"4px 4px 0 0",background:_lm?"#00d48a0d":"#00d48a12",boxSizing:"border-box"}}/>
+                            {/* realized profit, rising from the baseline to fill the target as the month delivers */}
+                            {posH > 0 && (
+                              <div style={{position:"relative",width:"100%",height:Math.min(posH,ghostPosH),background:isFocus?"#00d48a":"#00d48acc",borderRadius:posH>=ghostPosH-2?"4px 4px 0 0":"0",transition:"height 0.3s"}}/>
+                            )}
+                          </div>
+                        ) : posH > 0 && (
                           <div title={`${label} '${yr} profit: ${$f(profit)}`}
                             style={{width:"100%",maxWidth:42,height:posH,background:isFocus?"#00d48a":isCurr?"#00d48acc":"#00d48a99",borderRadius:"4px 4px 0 0",transition:"background 0.15s"}}/>
                         )}
@@ -12108,8 +12197,16 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       {/* Zero baseline */}
                       <div style={{height:2,background:_lm?"#cbd5e1":"#1a2744",margin:"0 -4px"}}/>
                       {/* Negative bar zone */}
-                      <div style={{height:NEG_H,display:"flex",alignItems:"flex-start",justifyContent:"center"}}>
-                        {negH > 0 && (
+                      <div style={{height:NEG_H,display:"flex",alignItems:"flex-start",justifyContent:"center",position:"relative"}}>
+                        {projNeg ? (
+                          <div title={`${label} '${yr}: ${$f(profit)} so far → ${$f(projProfit)} projected loss at current pace`}
+                            style={{position:"relative",width:"100%",maxWidth:42,height:ghostNegH,display:"flex",alignItems:"flex-start",justifyContent:"center"}}>
+                            <div style={{position:"absolute",left:0,right:0,top:0,bottom:0,border:"2px dotted #ef4444",borderTop:"none",borderRadius:"0 0 4px 4px",background:_lm?"#ef44440d":"#ef444412",boxSizing:"border-box"}}/>
+                            {negH > 0 && (
+                              <div style={{position:"relative",width:"100%",height:Math.min(negH,ghostNegH),background:isFocus?"#ef4444":"#ef4444cc",borderRadius:negH>=ghostNegH-2?"0 0 4px 4px":"0",transition:"height 0.3s"}}/>
+                            )}
+                          </div>
+                        ) : negH > 0 && (
                           <div title={`${label} '${yr} loss: ${$f(profit)}`}
                             style={{width:"100%",maxWidth:42,height:negH,background:isFocus?"#ef4444":isCurr?"#ef4444cc":"#ef444499",borderRadius:"0 0 4px 4px",transition:"background 0.15s"}}/>
                         )}
