@@ -179,11 +179,50 @@ function resolveMetrics(c, preset) {
 }
 
 
+// Parse a MULTI-PHASE goal schedule from note1 into { byMonth:{monthIdx:amount}, hasSchedule }.
+// Handles flights whose monthly goal changes partway through, e.g.
+//   "94K/Mo March/April/May 47K/Mo June" → Mar/Apr/May = 94,000 each · June = 47,000
+//   "38K/Mo March/April/May 19K June"    → Mar/Apr/May = 38,000 each · June = 19,000
+// Each amount token claims the month names that follow it (up to the next amount). The "/Mo"
+// (or "Monthly") marker means PER-MONTH; an amount followed by months WITHOUT "/Mo" is a TOTAL
+// for that span and is divided across them (so "40K Feb/March" = 20K each, matching the legacy
+// rule), while a single bare month ("95K March") is just that month's amount.
+function parseGoalSchedule(note1) {
+  const byMonth = {}; let hasSchedule = false;
+  if (!note1) return { byMonth, hasSchedule };
+  const s = String(note1).replace(/\([^)]*\)/g, " ").replace(/\$/g, " "); // drop "(15-20% Oregon)", "$"
+  const MIDX = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
+  const parseAmt = str => { const m = str.replace(/,/g,"").match(/([\d.]+)\s*([kmKM])?/); if(!m) return null; let n=parseFloat(m[1]); const u=(m[2]||"").toLowerCase(); if(u==="k")n*=1000; if(u==="m")n*=1e6; return isNaN(n)?null:Math.round(n); };
+  const toks = []; let m; const findRe = /\d[\d.,]*\s*[kmKM]?/g;
+  while ((m = findRe.exec(s))) toks.push({ amt: parseAmt(m[0]), start: m.index, end: m.index + m[0].length });
+  const monSrc = "(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*";
+  toks.forEach((t, i) => {
+    if (t.amt == null) return;
+    const segEnd = i + 1 < toks.length ? toks[i + 1].start : s.length;
+    const seg = s.slice(t.end, segEnd);
+    const months = []; let mm; const re = new RegExp(monSrc, "gi");
+    while ((mm = re.exec(seg))) { const idx = MIDX[mm[1].slice(0,3).toLowerCase()]; if (idx != null) months.push(idx); }
+    if (!months.length) return;
+    const perMonth = /^\s*(?:views?\s*)?\/?\s*mo\b/i.test(seg) || /^\s*monthly/i.test(seg);
+    const each = perMonth ? t.amt : Math.round(t.amt / months.length); // span total → divide
+    months.forEach(idx => { byMonth[idx] = each; hasSchedule = true; });
+  });
+  return { byMonth, hasSchedule };
+}
+
 // Parse monthly goal from note1: "125K/Mo", "100K Monthly", "72K/Mo", "41K/Mo (15-20% Oregon)"
-// "40K Feb/March" = total for 2 months = 20K/Mo, "95K March" = 95K this month
-// Returns number or null
-function parseMonthlyGoal(note1) {
+// "40K Feb/March" = total for 2 months = 20K/Mo, "95K March" = 95K this month.
+// Pass `targetMonthIdx` (0-11) to resolve a multi-phase schedule to that month's goal
+// (e.g. June → 47K for "94K/Mo Mar/Apr/May 47K/Mo June"); omit it for the legacy flat result.
+// Returns number or null.
+function parseMonthlyGoal(note1, targetMonthIdx) {
   if (!note1) return null;
+  // Month-aware: if note1 spells out per-month phases and we know which month we're resolving,
+  // return that month's amount.
+  if (targetMonthIdx != null) {
+    const sched = parseGoalSchedule(note1);
+    if (sched.hasSchedule && sched.byMonth[targetMonthIdx] != null) return sched.byMonth[targetMonthIdx];
+  }
   // Strip leading $ so SEM goals like "$900/Mo" and "$2,925/Mo" parse correctly
   const s = note1.trim().replace(/^\$/, "");
   function parseNum(str) {
@@ -272,13 +311,31 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
     unit = "impr";
   }
 
-  const goal = parseMonthlyGoal(note1);
+  const now = pacingNow();
+  // Resolve the goal for the month we're actually pacing (handles multi-phase note1 like
+  // "94K/Mo Mar/Apr/May 47K/Mo June" → uses 47K in June).
+  const goal = parseMonthlyGoal(note1, now.getMonth());
   if (!goal || goal <= 0 || !delivered) return null;
 
-  const now = pacingNow();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-  const dayOfMonth  = now.getDate();
-  const timeElapsed = dayOfMonth / daysInMonth;
+  const _y = now.getFullYear(), _mo = now.getMonth();
+  const today0   = new Date(_y, _mo, now.getDate());
+  let winStart   = new Date(_y, _mo, 1);          // first of the month
+  let winEnd     = new Date(_y, _mo + 1, 0);      // last day of the month
+  // Flight-aware pacing: clip the month window to the campaign's own start/end dates, so a
+  // campaign that ENDS (or starts) mid-month paces against the days it actually runs this month
+  // — not the full calendar month. A campaign spanning the whole month is unaffected (window ==
+  // month). Example: ends 6/19 → by 6/10 we expect 10/19 (53%) delivered, not 10/30 (33%).
+  if (looksLikeCampaign) {
+    const _pISO = s => (s && /^\d{4}-\d{2}-\d{2}/.test(s))
+      ? (()=>{ const [Y,M,D]=s.slice(0,10).split("-").map(Number); return new Date(Y, M-1, D); })() : null;
+    const cs = _pISO(arg1.startDate), ce = _pISO(arg1.endDate);
+    if (cs && cs > winStart) winStart = cs;
+    if (ce && ce < winEnd)   winEnd   = ce;
+  }
+  const _dayMs = 86400000;
+  const totalDays   = Math.max(1, Math.round((winEnd - winStart) / _dayMs) + 1);
+  const elapsedDays = Math.min(totalDays, Math.max(0, Math.round((today0 - winStart) / _dayMs) + 1));
+  const timeElapsed = Math.min(1, elapsedDays / totalDays);
   const expected    = Math.round(goal * timeElapsed);
   const pct         = delivered / goal;
 
@@ -303,7 +360,7 @@ function computeDailyTarget(impressions, note1, startDate, endDate) {
   const dayOfMonth  = now.getDate();
   const daysLeft    = daysInMonth - dayOfMonth + 1; // include today
 
-  const goal = parseMonthlyGoal(note1);
+  const goal = parseMonthlyGoal(note1, now.getMonth());
   const delivered = parseInt(impressions) || 0;
   if (!goal || goal <= 0) return null;
 
@@ -5833,8 +5890,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(sortKey==="gap"){
       // Sort by pace gap: how far behind/ahead in raw impressions (negative = behind)
       const now=pacingNow(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
-      const gapA = a.monthlyGoal ? (parseInt(a.disp?.impressions)||0) - Math.round(a.monthlyGoal*(dom/dim)) : 0;
-      const gapB = b.monthlyGoal ? (parseInt(b.disp?.impressions)||0) - Math.round(b.monthlyGoal*(dom/dim)) : 0;
+      const gapA = a.monthlyGoal ? (parseInt(a.disp?.impressions)||0) - (a.pacing?.expected ?? Math.round(a.monthlyGoal*(dom/dim))) : 0;
+      const gapB = b.monthlyGoal ? (parseInt(b.disp?.impressions)||0) - (b.pacing?.expected ?? Math.round(b.monthlyGoal*(dom/dim))) : 0;
       return gapA - gapB; // most behind first
     }
     if(sortKey==="days")     return (daysRemaining(a.c)??999)-(daysRemaining(b.c)??999);
@@ -6375,7 +6432,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   function TableRow({c,disp,pacing,monthlyGoal}){
     const [rowBreakdownOpen, setRowBreakdownOpen] = useState(false);
     const now=pacingNow(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
-    const exp=pacing?Math.round(monthlyGoal*(dom/dim)):null;
+    // Expected-by-now comes from the pacing calc, which is flight-aware (prorated to the
+    // campaign's end date for mid-month flights) — keeps the Gap column in sync with the bar.
+    const exp=pacing?(pacing.expected!=null?pacing.expected:Math.round(monthlyGoal*(dom/dim))):null;
     // Resolve the per-line breakdown (if any) for the disclosure widget.
     // Also tracks WHICH snapshot field (metaSnapshots/ttdSnapshots/etc.) holds the
     // breakdown so the reassign-line action knows where to read/write data.
@@ -7655,14 +7714,17 @@ function spreadRevenue(c) {
 // CPM:  (monthlyGoal impressions / 1000) × contractRate
 // CPV:  monthlyGoal views × contractRate   (YouTube only)
 // Flat: contractRate directly (no goal needed)
-function calcMonthlyRevenue(c) {
+// Monthly revenue for a rate-based campaign. Pass `monthIdx` (0-11) to use that month's goal
+// for a multi-phase flight (e.g. June → 47K for "94K/Mo Mar/Apr/May 47K/Mo June"); omit for the
+// flat/headline figure.
+function calcMonthlyRevenue(c, monthIdx) {
   if (!c || c.platform === "SEM") return null;
   const rate = parseFloat(c.contractRate);
   if (!rate || rate <= 0) return null;
   // Non-YT platforms always bill CPM; YT needs an explicit dealType
   const effectiveDt = c.platform === "YT" ? (c.dealType || "") : "CPM";
   if (!effectiveDt) return null;
-  const goal = parseMonthlyGoal(c.note1);
+  const goal = parseMonthlyGoal(c.note1, monthIdx);
   if (!goal || goal <= 0) return null;
   if (effectiveDt === "CPM") return (goal / 1000) * rate;
   if (effectiveDt === "CPV") return goal * rate;
@@ -7670,12 +7732,14 @@ function calcMonthlyRevenue(c) {
 }
 
 // Returns a { [YYYY-MM]: revenue } map for a campaign.
-// Prefers CPM/CPV rate-based monthly revenue (if contractRate is set).
-// Falls back to the legacy pro-rated contractValue spread for old-style campaigns.
+// Prefers CPM/CPV rate-based monthly revenue (if contractRate is set), computed PER MONTH so a
+// multi-phase flight bills the right amount in each month. Falls back to the legacy pro-rated
+// contractValue spread for old-style campaigns.
 function revenueMapForCampaign(c) {
-  const monthly = calcMonthlyRevenue(c);
-  if (monthly !== null) {
-    // Apply the flat monthly amount to each calendar month the campaign is active
+  // Rate-based: spread each calendar month the campaign is active using THAT month's goal.
+  const isRateBased = c && c.platform !== "SEM" && parseFloat(c.contractRate) > 0
+    && (c.platform === "YT" ? !!c.dealType : true);
+  if (isRateBased) {
     if (!c.startDate || !c.endDate) return {};
     const start = new Date(c.startDate + "T00:00:00");
     const end   = new Date(c.endDate   + "T00:00:00");
@@ -7684,8 +7748,9 @@ function revenueMapForCampaign(c) {
     let cur = new Date(start.getFullYear(), start.getMonth(), 1);
     const endMo = new Date(end.getFullYear(), end.getMonth(), 1);
     while (cur <= endMo) {
-      const mo = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`;
-      map[mo] = monthly;
+      const mo  = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`;
+      const rev = calcMonthlyRevenue(c, cur.getMonth());
+      if (rev != null) map[mo] = rev;
       cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1);
     }
     return map;
@@ -11464,15 +11529,19 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       // pulls a closed month's actual spend from the backup even after live metrics are cleared).
       const spn = spendForMonth(c, mo);
       monthCells[mo] = { rev, spend:spn, profit: spn==null?null:(rev-spn), pending: rev>0 && spn==null };
-      windowRev += rev;
-      if (spn != null) { windowSpend += spn; windowHasSpend = true; }
+      // Only count REALIZED months (actual spend recorded, and not in the future) toward earned
+      // totals — so projected/pending revenue never inflates profit.
+      if (spn != null && mo <= thisMonth) { windowRev += rev; windowSpend += spn; windowHasSpend = true; }
     });
     const contract = parseFloat(c.contractValue)||0;
     // Monthly revenue: use rate-based calc if available; fall back to contract value for lifetime view
     const monthlyRev = calcMonthlyRevenue(c);
     const totalSpend = getLifetimeSpend(c);
-    const lifetimeProfit = trackable ? (contract - totalSpend) : null;
-    const lifetimeMargin = trackable && contract>0 ? (lifetimeProfit/contract)*100 : null;
+    // EARNED profit to date = actual revenue delivered minus actual spend, across realized months.
+    // (Previously "contract value − spend", which counted the FULL contract's revenue against only
+    // the spend so far — making an underdelivering campaign look wildly profitable.)
+    const lifetimeProfit = windowHasSpend ? (windowRev - windowSpend) : null;
+    const lifetimeMargin = windowHasSpend && windowRev>0 ? (lifetimeProfit/windowRev)*100 : null;
     const focusCell = monthCells[activeMonth] || {rev:0,spend:null,profit:null,pending:false};
     const focusMargin = focusCell.profit!=null && focusCell.rev>0 ? (focusCell.profit/focusCell.rev)*100 : null;
     return {
@@ -11664,7 +11733,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                 const goal = parseMonthlyGoal(c.note1);
                 return (
                   <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:7}}>
-                    <span style={{...vBadge(PLT_COLORS[c.platform]||PLT_COLORS.default),borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+                    {(()=>{ const pc=PLT_COLORS[c.platform]||PLT_COLORS.default; return <span style={{background:pc+"22",color:pc,border:`1px solid ${pc}55`,borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>; })()}
                     <span style={{fontSize:12,fontWeight:600,color:_lm?"#0f172a":"#d8eaf8",minWidth:150,flex:"0 1 auto",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={c.campaignName.trim()}>{c.campaignName.trim()}</span>
                     <span style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",whiteSpace:"nowrap"}}>{c.mediaPartner}</span>
                     <span style={{fontSize:10,color:goal?(_lm?"#64748b":"#7a9bbf"):"#ef4444",whiteSpace:"nowrap"}}>{goal?`${(goal>=1000?(goal/1000).toFixed(goal>=10000?0:1)+"K":goal)} ${isCPV?"views":"impr"}/mo`:"⚠ no goal in Note 1"}</span>
@@ -12118,21 +12187,48 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       Avoids printing the live modal + underlying app (which caused 3 duplicate
                       pages with the previous window.print() call). */}
                   <button onClick={()=>{
-                    const reportEl = document.getElementById(printId);
-                    if (!reportEl) return;
-                    const reportHtml = reportEl.outerHTML;
-                    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-<title>P&L Report — ${focusLabel}</title>
+                    // Build the export as a clean LIGHT document from the data — independent of the
+                    // app's theme. (Previously it captured the on-screen modal's DOM, so in dark mode
+                    // the printout came out half dark / half light.) The on-screen modal is untouched.
+                    const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+                    const pcol = p => p>=0 ? "#059669" : "#dc2626";
+                    const mcol = m => m>=30?"#059669":m>=15?"#b45309":"#dc2626";
+                    const dol = n => "$"+Math.round(n).toLocaleString();
+                    const sgn = n => (n>=0?"+":"-")+"$"+Math.round(Math.abs(n)).toLocaleString();
+                    const partnerRows = byPartner.map(p=>{ const share=totalProfit>0?(p.profit/totalProfit*100):null; return `<tr><td>${esc(p.partner)}</td><td class="r">${p.count>p.tracked?p.tracked+"/"+p.count:p.tracked}</td><td class="r">${dol(p.revenue)}</td><td class="r">${dol(p.spend)}</td><td class="r" style="font-weight:700;color:${pcol(p.profit)}">${sgn(p.profit)}</td><td class="r" style="color:${mcol(p.margin)}">${p.margin.toFixed(1)}%</td><td class="r">${share!=null?Math.round(share)+"%":"—"}</td></tr>`; }).join("");
+                    const campRows = [...reportRows].sort((a,b)=>(b.profit||0)-(a.profit||0)).map(r=>{ const margin=r.revenue>0&&r.spend!=null?((r.profit||0)/r.revenue*100):null; return `<tr><td>${esc(r.name)}</td><td>${esc(r.partner)}</td><td>${esc(r.platform)}</td><td class="r">${dol(r.revenue)}</td><td class="r">${r.spend!=null?dol(r.spend):"pending"}</td><td class="r" style="font-weight:700;color:${r.profit==null?'#94a3b8':pcol(r.profit)}">${r.profit==null?"—":sgn(r.profit)}</td><td class="r" style="color:${margin==null?'#94a3b8':mcol(margin)}">${margin==null?"—":margin.toFixed(1)+"%"}</td></tr>`; }).join("");
+                    const totalsRow = `<tr class="tot"><td colspan="3">TOTAL${pendingCount>0?` (${pendingCount} pending excluded)`:""}</td><td class="r">${dol(totalRevWithSpend)}</td><td class="r">${dol(totalSpend)}</td><td class="r" style="color:${pcol(totalProfit)}">${sgn(totalProfit)}</td><td class="r" style="color:${totalRevWithSpend>0?mcol(totalMargin):'#94a3b8'}">${totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—"}</td></tr>`;
+                    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>P&L Report — ${esc(focusLabel)}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fff;color:#0f172a;font-size:13px;padding:24px}
 @media print{@page{margin:.45in;size:letter}body{-webkit-print-color-adjust:exact;print-color-adjust:exact;padding:0}}
-h1{font-size:18px;font-weight:800;margin-bottom:14px;color:#0f172a}
-.meta{font-size:11px;color:#64748b;margin-bottom:14px}
+h1{font-size:18px;font-weight:800;margin-bottom:4px}
+.meta{font-size:11px;color:#64748b;margin-bottom:16px}
+.kpis{display:flex;gap:10px;margin-bottom:20px}
+.kpi{flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px}
+.kl{font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;font-weight:700;margin-bottom:4px}
+.kv{font-size:22px;font-weight:800;line-height:1}
+.ks{font-size:9px;color:#94a3b8;margin-top:3px}
+h2{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin:18px 0 6px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{padding:6px 8px;text-align:left;color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:2px solid #e2e8f0}
+th.r,td.r{text-align:right}
+td{padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#0f172a}
+tr.tot td{border-top:2px solid #e2e8f0;font-weight:800;font-size:13px;background:#f0fdf9}
+.foot{margin-top:16px;font-size:10px;color:#64748b;display:flex;justify-content:space-between}
 </style></head><body>
-<h1>📊 P&L Report — ${focusLabel}</h1>
-<div class="meta">${lock?`Locked ${lock.lockedAt}`:"Live data"} · ${reportRows.length} campaigns · Generated ${new Date().toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"})}</div>
-${reportHtml}
+<h1>📊 P&L Report — ${esc(focusLabel)}</h1>
+<div class="meta">${lock?`🔒 Locked ${esc(lock.lockedAt)}`:"Live data (not locked)"} · ${reportRows.length} campaigns · Generated ${esc(new Date().toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"}))}</div>
+<div class="kpis">
+<div class="kpi"><div class="kl">Revenue (tracked)</div><div class="kv" style="color:#0ea5e9">${dol(totalRevWithSpend)}</div>${pendingCount>0?`<div class="ks">+ ${dol(totalRev-totalRevWithSpend)} pending</div>`:""}</div>
+<div class="kpi"><div class="kl">Platform Spend</div><div class="kv" style="color:#b45309">${dol(totalSpend)}</div></div>
+<div class="kpi"><div class="kl">Gross Profit</div><div class="kv" style="color:${pcol(totalProfit)}">${sgn(totalProfit)}</div>${pendingCount>0?`<div class="ks">${pendingCount} pending excluded</div>`:""}</div>
+<div class="kpi"><div class="kl">Margin</div><div class="kv" style="color:${totalRevWithSpend>0?mcol(totalMargin):'#94a3b8'}">${totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—"}</div></div>
+</div>
+${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th class="r">Campaigns</th><th class="r">Revenue</th><th class="r">Spend</th><th class="r">Profit</th><th class="r">Margin</th><th class="r">% of Profit</th></tr></thead><tbody>${partnerRows}</tbody></table>`:""}
+<h2>By Campaign</h2><table><thead><tr><th>Campaign</th><th>Partner</th><th>Plt</th><th class="r">Revenue</th><th class="r">Spend</th><th class="r">Profit</th><th class="r">Margin</th></tr></thead><tbody>${campRows}${totalsRow}</tbody></table>
+<div class="foot"><span>Recrue Media · ${esc(focusLabel)} P&L</span><span>Generated ${esc(new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}))}</span></div>
 <script>window.onload=()=>setTimeout(()=>window.print(),350)</script>
 </body></html>`;
                     const w = window.open("","_blank","width=1000,height=800");
