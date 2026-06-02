@@ -356,20 +356,29 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
 // Daily target breakdown — for morning check against yesterday's stats
 function computeDailyTarget(impressions, note1, startDate, endDate) {
   const now = pacingNow(); now.setHours(0,0,0,0);
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-  const dayOfMonth  = now.getDate();
-  const daysLeft    = daysInMonth - dayOfMonth + 1; // include today
+  const _y = now.getFullYear(), _mo = now.getMonth();
+  const _dayMs = 86400000;
+  // Flight-aware window: clip the current month to the campaign's start/end dates so the daily
+  // target reflects the days the campaign ACTUALLY runs this month (e.g. ends 6/19 → 19 days,
+  // not the full 30). A campaign spanning the whole month is unaffected.
+  const _pISO = s => (s && /^\d{4}-\d{2}-\d{2}/.test(s)) ? (()=>{ const [Y,M,D]=s.slice(0,10).split("-").map(Number); return new Date(Y, M-1, D); })() : null;
+  let winStart = new Date(_y, _mo, 1), winEnd = new Date(_y, _mo + 1, 0);
+  const _cs = _pISO(startDate), _ce = _pISO(endDate);
+  if (_cs && _cs > winStart) winStart = _cs;
+  if (_ce && _ce < winEnd)   winEnd   = _ce;
+  const windowDays = Math.max(1, Math.round((winEnd - winStart) / _dayMs) + 1);
+  const daysSoFar  = Math.max(0, Math.min(windowDays - 1, Math.round((now - winStart) / _dayMs))); // completed, excl today
+  const daysLeft   = Math.max(0, Math.min(windowDays, Math.round((winEnd - now) / _dayMs) + 1));    // remaining, incl today
 
-  const goal = parseMonthlyGoal(note1, now.getMonth());
+  const goal = parseMonthlyGoal(note1, _mo);
   const delivered = parseInt(impressions) || 0;
   if (!goal || goal <= 0) return null;
 
-  const dailyTarget   = Math.round(goal / daysInMonth);
+  const dailyTarget   = Math.round(goal / windowDays); // even pace across the flight days this month
   const remaining     = Math.max(0, goal - delivered);
   const neededPerDay  = daysLeft > 0 ? Math.round(remaining / daysLeft) : 0;
 
   // Estimated daily rate from what's been delivered so far this month
-  const daysSoFar     = dayOfMonth - 1; // days completed (not including today)
   const actualDailyRate = daysSoFar > 0 ? Math.round(delivered / daysSoFar) : null;
 
   // Status vs daily target
@@ -380,7 +389,7 @@ function computeDailyTarget(impressions, note1, startDate, endDate) {
   else if (actualDailyRate >= dailyTarget * 0.75) { status = "Slightly behind"; color = "#f59e0b"; }
   else { status = "Behind — needs push"; color = "#ef4444"; }
 
-  return { dailyTarget, neededPerDay, actualDailyRate, daysLeft, remaining, delivered, goal, status, color, daysInMonth, dayOfMonth };
+  return { dailyTarget, neededPerDay, actualDailyRate, daysLeft, remaining, delivered, goal, status, color, daysInMonth: windowDays, dayOfMonth: daysSoFar + 1 };
 }
 
 
@@ -5687,6 +5696,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // showQuietLines: the "lines gone quiet" detail panel. Opened from a toolbar button (with a
   // count badge) rather than auto-popping as a banner — surfaced only when the user asks.
   const [showQuietLines, setShowQuietLines] = useState(false);
+  // showForecast: when on, each row shows its PROJECTED end-of-month finish (% of goal) based on
+  // the current delivery pace over the remaining flight days. Off by default to keep rows clean.
+  const [showForecast, setShowForecast] = useState(false);
+  // showAnomalies: panel listing campaigns whose latest daily delivery is abnormal vs their own
+  // learned norm (a spike or sudden drop). Opened from a toolbar button with a count badge.
+  const [showAnomalies, setShowAnomalies] = useState(false);
   // Light-mode badge helpers
   const pBg     = (col) => col + "22";   // badge background
   const pBorder = (col) => col + "40";   // badge border
@@ -5955,6 +5970,35 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     for (const f of fields) { const src = c[f]; if (!src) continue; for (const k of ['mtd','last30','yesterday']) { if (src[k]?.breakdown?.length >= 1) return src[k]; } }
     return null;
   }
+  // ── Delivery anomaly detection (learns each campaign's own normal daily rate) ──────────────
+  // Derives per-day delivery from the retained check-in history (diff consecutive MTD readings,
+  // reset-aware, spread over the days between drops), learns the average of the prior days, and
+  // flags the latest day if it's a big spike or drop vs that learned norm. This is BEYOND simple
+  // pacing — it catches "delivering 3× its usual" or "suddenly stopped" regardless of goal.
+  function deliveryAnomaly(c) {
+    const series = (Array.isArray(c.metricSeries) ? c.metricSeries : [])
+      .map(e => { const m = String(e.d||"").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m ? { d: new Date(+m[3], +m[1]-1, +m[2]), i: parseInt(e.i)||0 } : null; })
+      .filter(Boolean).sort((a, b) => a.d - b.d);
+    if (series.length < 4) return null; // need a few readings to learn a norm
+    const daily = []; let prev = null;
+    for (const e of series) {
+      if (prev) {
+        const days = Math.max(1, Math.round((e.d - prev.d) / 86400000));
+        const delta = e.i - prev.i;
+        if (delta >= 0) daily.push(delta / days); // skip resets (cumulative dropped)
+      }
+      prev = e;
+    }
+    if (daily.length < 3) return null;
+    const latest = daily[daily.length - 1];
+    const prior = daily.slice(0, -1);
+    const avg = prior.reduce((s, v) => s + v, 0) / prior.length;
+    if (avg < 200) return null; // too small to judge meaningfully
+    const ratio = latest / avg;
+    if (ratio >= 2.5) return { type: "spike", ratio, latest: Math.round(latest), avg: Math.round(avg) };
+    if (ratio <= 0.4) return { type: "drop", ratio, latest: Math.round(latest), avg: Math.round(avg) };
+    return null;
+  }
 
   // Parse a check-in log line like "2026-05-23 | 41,045 impr | ..." → { dateStr, impr }
   // Logs are written by applyMapping using getToday() which returns YYYY-MM-DD
@@ -6021,6 +6065,19 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     });
     // Most days-flat first, then biggest share of the campaign
     out.sort((a, b) => (b.daysFlat || 0) - (a.daysFlat || 0) || b.share - a.share);
+    return out;
+  })();
+
+  // Delivery anomalies — campaigns whose latest daily delivery is a big spike/drop vs their own
+  // learned norm. Surfaced via a toolbar toggle (count badge), never auto-popped.
+  const deliveryAnomalies = (() => {
+    const out = [];
+    filtered.forEach(({ c }) => {
+      const a = deliveryAnomaly(c);
+      if (a) out.push({ c, ...a });
+    });
+    // biggest deviation first (spikes by ratio desc, drops by ratio asc → both = furthest from 1)
+    out.sort((x, y) => Math.abs(Math.log(y.ratio || 1)) - Math.abs(Math.log(x.ratio || 1)));
     return out;
   })();
 
@@ -6689,6 +6746,19 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           : noActivity
             ? <span style={{fontSize:11,fontWeight:700,color:"#ef4444"}}>—</span>
             : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
+        {/* Projected end-of-month finish (toggle) — current pace × remaining flight days */}
+        {showForecast && monthlyGoal>0 && (()=>{
+          const dt = computeDailyTarget(primaryRaw, c.note1, c.startDate, c.endDate);
+          if (!dt || dt.actualDailyRate == null) return <div style={{fontSize:9,color:lmTxtD,marginTop:2,whiteSpace:"nowrap"}}>proj —</div>;
+          const projected = dt.delivered + dt.actualDailyRate * dt.daysLeft;
+          const pctF = dt.goal>0 ? projected/dt.goal : null;
+          if (pctF==null) return null;
+          const col = pctF>=1 ? (lightMode?"#059669":"#00d48a") : pctF>=0.9 ? (lightMode?"#b45309":"#f59e0b") : (lightMode?"#dc2626":"#f87171");
+          return <div style={{fontSize:9,fontWeight:700,color:col,marginTop:2,whiteSpace:"nowrap"}}
+            title={`Projected finish at current pace: ${Math.round(projected).toLocaleString()} of ${dt.goal.toLocaleString()} (${Math.round(pctF*100)}% of goal) by the flight end`}>
+            proj {Math.round(pctF*100)}%
+          </div>;
+        })()}
       </div>
 
       {/* Pace gap — delivered vs expected right now */}
@@ -7250,6 +7320,23 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         🔌 Quiet Lines
         {quietLines.length>0 && <span style={{background:lightMode?"#fed7aa":"#7c2d12",color:lightMode?"#9a3412":"#fdba74",borderRadius:9,padding:"0 6px",fontSize:10,fontWeight:800}}>{quietLines.length}</span>}
       </button>
+      {/* Forecast — show each campaign's projected end-of-month finish at current pace */}
+      <button onClick={()=>setShowForecast(v=>!v)} title="Show each campaign's projected end-of-month finish (% of goal) at its current pace"
+        style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,fontSize:11,fontWeight:showForecast?700:400,
+          background:showForecast?(lightMode?"#eef2ff":"#0f1230"):lmBgInp,
+          border:`1px solid ${showForecast?(lightMode?"#6366f1":"#818cf860"):lmBrd}`,
+          color:showForecast?(lightMode?"#4338ca":"#a5b4fc"):lmTxtS}}>
+        📈 Forecast
+      </button>
+      {/* Anomaly watch — abnormal daily delivery vs each campaign's learned norm */}
+      <button onClick={()=>setShowAnomalies(v=>!v)} title="Campaigns delivering far above or below their own usual daily rate"
+        style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,fontSize:11,fontWeight:showAnomalies?700:400,
+          background:showAnomalies?(lightMode?"#fdf4ff":"#1f0f26"):lmBgInp,
+          border:`1px solid ${showAnomalies?(lightMode?"#d946ef":"#e879f960"):lmBrd}`,
+          color:showAnomalies?(lightMode?"#a21caf":"#e879f9"):lmTxtS}}>
+        🔍 Anomalies
+        {deliveryAnomalies.length>0 && <span style={{background:lightMode?"#f5d0fe":"#701a75",color:lightMode?"#86198f":"#f0abfc",borderRadius:9,padding:"0 6px",fontSize:10,fontWeight:800}}>{deliveryAnomalies.length}</span>}
+      </button>
       <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
         <span style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
         {[["pacing","Pacing"],["gap","Gap"],["impr","Impr"],["days","Days"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
@@ -7395,6 +7482,35 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                   </div>
                 </div>
               ))}
+            </div>}
+      </div>
+    )}
+
+    {/* ── Delivery anomaly panel ── opened from the toolbar toggle. */}
+    {showAnomalies && (
+      <div style={{background:lightMode?"#fdf4ff":"#1a0f20",border:`1px solid ${lightMode?"#f0abfc":"#a21caf55"}`,borderRadius:9,padding:"10px 14px",marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:deliveryAnomalies.length?8:0,flexWrap:"wrap"}}>
+          <span style={{fontSize:12,fontWeight:800,color:lightMode?"#a21caf":"#e879f9"}}>🔍 Delivery Anomalies ({deliveryAnomalies.length})</span>
+          <span style={{fontSize:10,color:lmTxtS}}>Campaigns delivering far above or below their own usual daily rate — learned from check-in history.</span>
+        </div>
+        {deliveryAnomalies.length===0
+          ? <div style={{fontSize:11,color:lmTxtS}}>No unusual delivery swings — every campaign is running near its normal daily pace. (Needs a few check-ins per campaign to learn a baseline.)</div>
+          : <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {deliveryAnomalies.map(a=>{
+                const isSpike=a.type==="spike";
+                const col=isSpike?(lightMode?"#7c3aed":"#c4b5fd"):(lightMode?"#dc2626":"#f87171");
+                return (
+                  <div key={a.c.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:lmBg,border:`1px solid ${lmBrdR}`,borderRadius:7}}>
+                    {(()=>{ const pc=PLT_COLORS[a.c.platform]||PLT_COLORS.default; return <span style={{...vBadge(pc),borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{a.c.platform}</span>; })()}
+                    <span style={{fontSize:12,fontWeight:700,color:lmTxt,minWidth:150,flex:"0 1 auto",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={a.c.campaignName.trim()}>{a.c.campaignName.trim()}</span>
+                    <span style={{fontSize:10,color:lmTxtS,whiteSpace:"nowrap"}}>{a.c.mediaPartner}</span>
+                    <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:col,background:col+(lightMode?"14":"22"),border:`1px solid ${col}${lightMode?"33":"45"}`,borderRadius:5,padding:"2px 8px",whiteSpace:"nowrap"}}
+                      title={`Latest day ≈ ${a.latest.toLocaleString()}/day vs usual ≈ ${a.avg.toLocaleString()}/day`}>
+                      {isSpike?"▲ spike":"▼ drop"} · {a.ratio>=1?a.ratio.toFixed(1)+"×":Math.round(a.ratio*100)+"%"} of usual
+                    </span>
+                  </div>
+                );
+              })}
             </div>}
       </div>
     )}
@@ -7714,6 +7830,34 @@ function spreadRevenue(c) {
 // CPM:  (monthlyGoal impressions / 1000) × contractRate
 // CPV:  monthlyGoal views × contractRate   (YouTube only)
 // Flat: contractRate directly (no goal needed)
+// ── Learned CPM/CPV rates by platform (tactic) ──────────────────────────────
+// Rates are kept consistent per tactic (e.g. FB ≈ $6, FBV ≈ $10 CPM). We LEARN the typical rate
+// for each platform from the user's own campaigns (the most-common rate already set), so the
+// suggestion adapts as more rates are entered. A tiny default map seeds the common tactics before
+// any history exists; learned values always win.
+const DEFAULT_RATE_BY_PLATFORM = { FB: 6, FBV: 10 };
+function learnRatesByPlatform(campaigns) {
+  const buckets = {};
+  (campaigns || []).forEach(c => {
+    const r = parseFloat(c.contractRate);
+    if (r > 0 && c.platform) (buckets[c.platform] = buckets[c.platform] || []).push(r);
+  });
+  const out = {};
+  for (const plat in buckets) {
+    const freq = {};
+    buckets[plat].forEach(r => { freq[r] = (freq[r] || 0) + 1; });
+    const best = Object.keys(freq).sort((a, b) => freq[b] - freq[a] || parseFloat(a) - parseFloat(b))[0];
+    out[plat] = { rate: parseFloat(best), learned: true, count: buckets[plat].length };
+  }
+  return out;
+}
+// Suggest a rate for a platform: learned-from-history first, else a seeded default, else null.
+function suggestRate(platform, learnedMap) {
+  if (learnedMap && learnedMap[platform]) return { rate: learnedMap[platform].rate, count: learnedMap[platform].count, learned: true };
+  if (DEFAULT_RATE_BY_PLATFORM[platform] != null) return { rate: DEFAULT_RATE_BY_PLATFORM[platform], learned: false };
+  return null;
+}
+
 // Monthly revenue for a rate-based campaign. Pass `monthIdx` (0-11) to use that month's goal
 // for a multi-phase flight (e.g. June → 47K for "94K/Mo Mar/Apr/May 47K/Mo June"); omit for the
 // flat/headline figure.
@@ -11240,6 +11384,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const monthlyBackups = useMemo(() => { try { return JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}"); } catch { return {}; } }, []);
   const [showPLReport, setShowPLReport]     = useState(false);
   const [showRateFixer, setShowRateFixer]   = useState(false); // expand the "finish the rates" checklist
+  const [showRevForecast, setShowRevForecast] = useState(false); // on-demand month/quarter $ forecast
   const [showEnded, setShowEnded]           = useState(_revPersisted.showEnded || false); // show campaigns that ended before active month
   useEffect(() => {
     try {
@@ -11602,10 +11747,6 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     return true;
   });
 
-  // Losers and pending in focus month
-  const losersThisFocus  = rows.filter(r => r.focusCell.profit != null && r.focusCell.profit < 0 && r.focusCell.rev > 0);
-  const pendingThisFocus = rows.filter(r => r.focusCell.pending);
-
   // Window totals — respect the data-start cutoff by summing across the VISIBLE months
   // (instead of lifetime contract value), so the headline numbers match the graph and never
   // include pre-start projections.
@@ -11619,6 +11760,53 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const totPendingCampaigns = filtered.filter(c =>
     !months.some(mo => spendForMonth(c, mo) != null) && months.some(mo => (revenueMapForCampaign(c)[mo]||0) > 0)
   ).length;
+
+  // ── Month + quarter $ forecast ──────────────────────────────────────────────
+  // Project the CURRENT month to month-end by extending each campaign's so-far delivery/spend at
+  // its current daily pace over the remaining flight days (flight-aware). The quarter sums closed
+  // months (actuals) + this month (forecast) + future months (projected revenue).
+  const monthForecast = (() => {
+    if (activeMonth !== thisMonth) return null;
+    let projRev = 0, projSpend = 0, any = false, anySpend = false;
+    rows.forEach(r => {
+      const cur = r.monthCells[thisMonth];
+      if (!cur || !(cur.rev > 0)) return;
+      const actualImpr = getActualMtdImpressions(r.c);
+      if (actualImpr != null && actualImpr > 0) {
+        // Has delivered something this month → cur.rev is actual-so-far; extend it to month-end at
+        // the current daily pace (flight-aware), capped at 4× so very-early-month noise can't blow up.
+        const dt = computeDailyTarget(actualImpr, r.c.note1, r.c.startDate, r.c.endDate);
+        const windowDays = dt ? dt.daysInMonth : 30;
+        const elapsed = dt ? Math.max(1, dt.dayOfMonth) : 1;
+        const scale = Math.min(4, Math.max(1, windowDays / elapsed));
+        projRev += cur.rev * scale;
+        if (cur.spend != null) { projSpend += cur.spend * scale; anySpend = true; }
+      } else {
+        // No delivery yet → cur.rev is already the full-month goal projection; use as-is (don't scale).
+        projRev += cur.rev;
+        if (cur.spend != null) { projSpend += cur.spend; anySpend = true; }
+      }
+      any = true;
+    });
+    if (!any) return null;
+    return { projRev, projSpend: anySpend ? projSpend : null, projProfit: anySpend ? (projRev - projSpend) : null };
+  })();
+  const quarterForecast = (() => {
+    const q = Math.floor(now.getMonth() / 3);
+    const qMonths = [0, 1, 2].map(i => moStr(new Date(now.getFullYear(), q * 3 + i, 1)))
+      .filter(mo => !dataStartMonth || mo >= dataStartMonth);
+    let rev = 0, profit = 0, hasProfit = false;
+    qMonths.forEach(mo => {
+      const t = monthTotals[mo];
+      if (mo < thisMonth) { if (t) { rev += t.revenueWithSpend; profit += (t.revenueWithSpend - t.spend); hasProfit = true; } }
+      else if (mo === thisMonth) {
+        if (monthForecast) { rev += monthForecast.projRev; if (monthForecast.projProfit != null) { profit += monthForecast.projProfit; hasProfit = true; } }
+        else if (t) { rev += t.revenueWithSpend; profit += (t.revenueWithSpend - t.spend); hasProfit = true; }
+      } else { if (t) rev += t.revenue; } // future months: projected revenue only
+    });
+    return { rev, profit: hasProfit ? profit : null, label: `Q${q + 1} ${now.getFullYear()}`, monthsInView: qMonths.length };
+  })();
+
 
   // Current-month data-source breakdown (informational only — for the Spend KPI subtitle)
   // Only counts campaigns that have revenue in the focus month
@@ -11672,45 +11860,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         </div>
       </div>
 
-      {/* ── Alert row: losses + pending ───────────────────────── */}
-      {(losersThisFocus.length>0 || pendingThisFocus.length>0) && (
-        <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
-          {losersThisFocus.length>0 && (
-            <div style={{flex:"1 1 240px",background:_lm?"#fee2e2":"#2a0d12",border:`1px solid ${_lm?"#ef4444":"#ef444455"}`,borderRadius:9,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
-              <span style={{fontSize:16}}>⚠️</span>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12,fontWeight:700,color:_lm?"#b91c1c":"#fca5a5"}}>{losersThisFocus.length} losing money in {focusLabelShort}</div>
-                <div style={{fontSize:10,color:_lm?"#64748b":"#9ca3af",marginTop:2}}>Combined: {$f(losersThisFocus.reduce((s,r)=>s+r.focusCell.profit,0))}</div>
-              </div>
-              <button onClick={()=>{
-                setSortKey("loss");
-                // Scroll to the Campaign Breakdown so the user can actually see the
-                // re-sorted list (otherwise it just looks like the button does nothing).
-                setTimeout(()=>document.getElementById("campaign-breakdown")?.scrollIntoView({behavior:"smooth",block:"start"}),50);
-              }}
-                style={{background:_lm?"#fca5a522":"#ef444422",border:`1px solid ${_lm?"#ef4444":"#ef444466"}`,color:_lm?"#b91c1c":"#fca5a5",borderRadius:6,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-                Show losers →
-              </button>
-            </div>
-          )}
-          {pendingThisFocus.length>0 && (
-            <div style={{flex:"1 1 240px",background:_lm?"#fffbeb":"#2a1f0a",border:`1px solid ${_lm?"#f59e0b":"#f59e0b55"}`,borderRadius:9,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
-              <span style={{fontSize:16}}>⏳</span>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12,fontWeight:700,color:_lm?"#92400e":"#fcd34d"}}>{pendingThisFocus.length} awaiting spend entry</div>
-                <div style={{fontSize:10,color:_lm?"#64748b":"#9ca3af",marginTop:2}}>Untracked revenue: {$f(pendingThisFocus.reduce((s,r)=>s+r.focusCell.rev,0))}</div>
-              </div>
-              <button onClick={()=>{
-                setSortKey("pending");
-                setTimeout(()=>document.getElementById("campaign-breakdown")?.scrollIntoView({behavior:"smooth",block:"start"}),50);
-              }}
-                style={{background:_lm?"#fef3c7":"#f59e0b22",border:`1px solid ${_lm?"#f59e0b":"#f59e0b66"}`,color:_lm?"#92400e":"#fcd34d",borderRadius:6,padding:"5px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-                Show pending →
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Loss / pending alert banners removed for a cleaner tab — that detail is in the
+          per-campaign breakdown table below (sort by Loss / Pending to surface them). */}
 
       {/* ── Finish the rates: actionable checklist so every revenue number is calculated, not estimated ── */}
       {missingRates.length>0&&(
@@ -11726,11 +11877,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
               {showRateFixer?"Hide":"Finish the rates →"}
             </button>
           </div>
-          {showRateFixer&&(
+          {showRateFixer&&(()=>{
+            const learnedRates = learnRatesByPlatform(campaigns); // typical rate per tactic, from your data
+            return (
             <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:5,maxHeight:360,overflowY:"auto"}}>
               {missingRates.map(c=>{
                 const isCPV = c.platform==="YT";
                 const goal = parseMonthlyGoal(c.note1);
+                const sug = isCPV ? null : suggestRate(c.platform, learnedRates); // CPM auto-suggest per tactic
                 return (
                   <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:7}}>
                     {(()=>{ const pc=PLT_COLORS[c.platform]||PLT_COLORS.default; return <span style={{background:pc+"22",color:pc,border:`1px solid ${pc}55`,borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>; })()}
@@ -11738,8 +11892,16 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                     <span style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",whiteSpace:"nowrap"}}>{c.mediaPartner}</span>
                     <span style={{fontSize:10,color:goal?(_lm?"#64748b":"#7a9bbf"):"#ef4444",whiteSpace:"nowrap"}}>{goal?`${(goal>=1000?(goal/1000).toFixed(goal>=10000?0:1)+"K":goal)} ${isCPV?"views":"impr"}/mo`:"⚠ no goal in Note 1"}</span>
                     <div style={{display:"flex",alignItems:"center",gap:5,marginLeft:"auto",flexShrink:0}}>
+                      {/* CPM auto-suggest — one-click apply the typical rate for this tactic */}
+                      {sug && (
+                        <button onClick={()=>onSetRate(c.id, sug.rate, "CPM")}
+                          title={sug.learned ? `Typical CPM for ${c.platform} (from ${sug.count} of your campaign${sug.count!==1?"s":""}) — click to apply` : `Default CPM for ${c.platform} — click to apply`}
+                          style={{background:_lm?"#f0fdf9":"#06231a",border:`1px solid ${_lm?"#00c896":"#00c89655"}`,borderRadius:5,color:_lm?"#059669":"#00d48a",fontSize:10,fontWeight:700,padding:"3px 8px",cursor:"pointer",whiteSpace:"nowrap"}}>
+                          use ${sug.rate}{sug.learned?"":" •"}
+                        </button>
+                      )}
                       <span style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf"}}>{isCPV?"CPV $":"CPM $"}</span>
-                      <input type="number" step="0.01" min="0" placeholder={isCPV?"0.08":"18.00"}
+                      <input type="number" step="0.01" min="0" placeholder={isCPV?"0.08":(sug?String(sug.rate):"18.00")}
                         onKeyDown={e=>{ if(e.key==="Enter"){ const v=parseFloat(e.target.value); if(v>0) onSetRate(c.id, v, isCPV?"CPV":"CPM"); } }}
                         onBlur={e=>{ const v=parseFloat(e.target.value); if(v>0) onSetRate(c.id, v, isCPV?"CPV":"CPM"); }}
                         style={{width:72,background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:5,padding:"4px 7px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,outline:"none"}}/>
@@ -11747,9 +11909,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                   </div>
                 );
               })}
-              <div style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",marginTop:2}}>Type a rate and press Enter (or click away). Revenue recalculates instantly. Campaigns marked "no goal" also need a monthly goal in Note 1 (edit the campaign).</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",marginTop:2}}>Click <strong>use $X</strong> to apply the typical CPM for that tactic (learned from your campaigns), or type your own and press Enter. A " • " means it's a starter default, not yet learned. Revenue recalculates instantly.</div>
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
@@ -11818,6 +11981,12 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           <div style={{...labelStyle,flex:1}}>{focusLabel}</div>
           {isCurrentFocus && <span style={{fontSize:9,background:_lm?"#f0fdf9":"#00e5a022",color:_lm?"#059669":"#00e5a0",padding:"2px 7px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em",border:_lm?"1px solid #00c89640":"none"}}>CURRENT</span>}
           {isLockedFocus && <span title={`Locked on ${monthLocks[activeMonth]?.lockedAt} — spend data frozen`} style={{fontSize:9,background:_lm?"#f1f5f9":"#7a9bbf22",color:_lm?"#475569":"#7a9bbf",padding:"2px 7px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em",cursor:"default"}}>🔒 LOCKED</span>}
+          {monthForecast && (
+            <button onClick={()=>setShowRevForecast(v=>!v)} title="Project this month and the quarter to their finish at current pace"
+              style={{background:showRevForecast?(_lm?"#eff6ff":"#0a1f33"):(_lm?"#f1f5f9":"#0d1a2e"),border:`1px solid ${showRevForecast?(_lm?"#3b82f6":"#38bdf860"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:7,padding:"5px 12px",color:showRevForecast?(_lm?"#1d4ed8":"#7ec8ff"):(_lm?"#475569":"#7a9bbf"),fontSize:11,fontWeight:700,cursor:"pointer"}}>
+              📈 {showRevForecast?"Hide forecast":"Forecast"}
+            </button>
+          )}
           {(fmRevWithSpend>0||fmRev>0) && (
             <button onClick={()=>setShowPLReport(true)}
               style={{background:_lm?"#f1f5f9":"#0d1a2e",border:`1px solid ${_lm?"#e2e8f0":"#3B8FFF60"}`,borderRadius:7,padding:"5px 12px",color:_lm?"#475569":"#7dd3fc",fontSize:11,fontWeight:700,cursor:"pointer"}}>
@@ -11860,6 +12029,29 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           ))}
         </div>
       </div>
+
+      {/* ── Forecast (on-demand) — generated only when the user opens it, to keep the tab clean ── */}
+      {showRevForecast && monthForecast && (
+        <div style={{...card,padding:"14px 18px",marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+            <div style={{...labelStyle,flex:1}}>📈 Projected at current pace</div>
+            <button onClick={()=>setShowRevForecast(false)} style={{background:"none",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"3px 9px",color:_lm?"#64748b":"#4d6e8a",fontSize:10,cursor:"pointer"}}>Hide</button>
+          </div>
+          <div style={{display:"flex",gap:22,flexWrap:"wrap"}}>
+            <div>
+              <div style={{fontSize:9,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>{focusLabelShort} finish</div>
+              <div style={{fontSize:20,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1}}>{$fc(monthForecast.projRev)}</div>
+              {monthForecast.projProfit!=null && <div style={{fontSize:11,fontWeight:700,color:profitColor(monthForecast.projProfit),marginTop:3}}>{(monthForecast.projProfit>=0?"+":"")+$fk(monthForecast.projProfit)} profit</div>}
+            </div>
+            <div>
+              <div style={{fontSize:9,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>{quarterForecast.label}</div>
+              <div style={{fontSize:20,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1}}>{$fc(quarterForecast.rev)}</div>
+              {quarterForecast.profit!=null && <div style={{fontSize:11,fontWeight:700,color:profitColor(quarterForecast.profit),marginTop:3}}>{(quarterForecast.profit>=0?"+":"")+$fk(quarterForecast.profit)} profit</div>}
+            </div>
+          </div>
+          <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:8}}>This month extended to its flight end at the current daily pace; quarter = closed months + this forecast + projected.</div>
+        </div>
+      )}
 
       {/* ── 12-month PROFIT bar chart (big & clean) ─────────── */}
       <div style={{...card,padding:"22px 26px",marginBottom:14}}>
