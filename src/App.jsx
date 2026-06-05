@@ -7923,32 +7923,39 @@ function calcMonthlyRevenue(c, monthIdx) {
 //   1) a "$X/Mo" amount in Note 1 (recognized per active month, prorated on partial months), or
 //   2) an explicit managementFee + contractValue total, spread across the flight (legacy).
 // Returns a { [YYYY-MM]: fee } map.
+// SEM monthly media budget (the client's spend goal / pass-through) — the "$X/Mo" in Note 1.
+function semMonthlyBudget(c) {
+  const m = String(c?.note1 || "").replace(/,/g, "").match(/\$\s*([\d.]+)\s*\/\s*mo/i);
+  return m ? parseFloat(m[1]) : 0;
+}
+// SEM monthly management fee = Recrue's profit when media stays within budget. From the Management
+// Fee field (also auto-imported from IO files). Treated as a MONTHLY fee, matching the monthly budget.
+function semMonthlyFee(c) { return parseFloat(c?.managementFee) || 0; }
+
+// SEM "revenue" map = the monthly management fee (Recrue's revenue; client media is pass-through).
+// Profit is this fee minus any over-budget overage — that overage is applied later in spendForMonth,
+// where the month's actual spend is known. Months are keyed if the campaign has EITHER a budget or a
+// fee, so SEM campaigns still appear in the tab before a fee is entered (they just show $0 fee).
 function semFeeMap(c) {
   if (!c || c.platform !== "SEM" || !c.startDate || !c.endDate) return {};
+  if (!(semMonthlyBudget(c) > 0 || semMonthlyFee(c) > 0)) return {};
   const start = new Date(c.startDate + "T00:00:00");
   const end   = new Date(c.endDate   + "T00:00:00");
   if (isNaN(start) || isNaN(end) || end < start) return {};
-  const monthlyMatch = String(c.note1 || "").replace(/,/g, "").match(/\$\s*([\d.]+)\s*\/\s*mo/i);
+  const fee = semMonthlyFee(c);
   const map = {};
-  if (monthlyMatch && parseFloat(monthlyMatch[1]) > 0) {
-    const monthly = parseFloat(monthlyMatch[1]);
-    let cur = new Date(start.getFullYear(), start.getMonth(), 1);
-    const endMo = new Date(end.getFullYear(), end.getMonth(), 1);
-    while (cur <= endMo) {
-      const mo = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`;
-      const daysInMonth = new Date(cur.getFullYear(), cur.getMonth()+1, 0).getDate();
-      const mStart = new Date(Math.max(start, new Date(cur.getFullYear(), cur.getMonth(), 1)));
-      const mEnd   = new Date(Math.min(end,   new Date(cur.getFullYear(), cur.getMonth()+1, 0)));
-      const activeDays = Math.max(0, Math.round((mEnd - mStart) / 86400000) + 1);
-      map[mo] = monthly * (activeDays / daysInMonth); // full fee for whole months, prorated on partial
-      cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1);
-    }
-    return map;
+  let cur = new Date(start.getFullYear(), start.getMonth(), 1);
+  const endMo = new Date(end.getFullYear(), end.getMonth(), 1);
+  while (cur <= endMo) {
+    const mo = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`;
+    const daysInMonth = new Date(cur.getFullYear(), cur.getMonth()+1, 0).getDate();
+    const mStart = new Date(Math.max(start, new Date(cur.getFullYear(), cur.getMonth(), 1)));
+    const mEnd   = new Date(Math.min(end,   new Date(cur.getFullYear(), cur.getMonth()+1, 0)));
+    const activeDays = Math.max(0, Math.round((mEnd - mStart) / 86400000) + 1);
+    map[mo] = fee * (activeDays / daysInMonth); // monthly fee, prorated on partial months (0 until a fee is set)
+    cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1);
   }
-  // Fallback: explicit fee/contract total spread evenly across the flight
-  const total = (parseFloat(c.managementFee) || 0) + (parseFloat(c.contractValue) || 0);
-  if (total > 0) return spreadRevenue({ ...c, contractValue: total, managementFee: 0 });
-  return {};
+  return map;
 }
 
 // Returns a { [YYYY-MM]: revenue } map for a campaign.
@@ -11591,10 +11598,19 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // Per-campaign per-month spend resolver — locked months take priority.
   // Returns null when no spend data exists for that month.
   function spendForMonth(c, mo) {
-    // SEM: the client's media spend is pass-through (their money), NOT Recrue's cost — so it
-    // contributes $0 to profit for realized months (profit then = the management fee). Future
-    // months return null so the fee shows as pending forecast, not booked profit.
-    if (c.platform === "SEM") return mo > thisMonth ? null : 0;
+    // SEM: media spend is the client's pass-through budget — it only hits Recrue's profit when it
+    // goes OVER the monthly budget. So "spend" here = the over-budget overage (budget = "$X/Mo" in
+    // Note 1). Within budget → 0 (profit = the full fee). Over budget → the overage, which the row's
+    // profit (fee − overage) then absorbs. Future months are pending (null).
+    if (c.platform === "SEM") {
+      if (mo > thisMonth) return null;
+      const budget = semMonthlyBudget(c);
+      let actual;
+      if (mo === thisMonth) { actual = getActualMtdSpend(c); if (actual == null) actual = getManualSpend(c); }
+      else { const cm = closedMonthMetrics(c, mo); actual = cm ? cm.spend : null; }
+      if (actual == null || actual <= 0) return 0;          // no media spend recorded → no overage
+      return budget > 0 ? Math.max(0, actual - budget) : 0; // over-budget media eats into the fee
+    }
     // Locked months: use the frozen snapshot — immune to future CSV drops
     if (monthLocks[mo]) {
       const lc = monthLocks[mo].campaigns?.find(r => String(r.id) === String(c.id));
@@ -12507,23 +12523,40 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                     </div>
                     {/* ── Real-time profit math, spelled out — delivered × rate − spend = profit so far ── */}
                     {(()=>{
-                      // SEM is a management-fee model: the fee IS the profit; client media is pass-through.
+                      // SEM: management fee is the profit; over-budget media spend eats into it.
                       if(r.c.platform==="SEM"){
-                        const fee = r.focusCell.rev||0;
+                        const fee = r.focusCell.rev||0;                 // monthly management fee
+                        const overage = r.focusCell.spend||0;            // amount over budget eating the fee
                         const prof = r.focusCell.profit!=null ? r.focusCell.profit : fee;
-                        const media = parseFloat(r.c.spend)||0;
-                        if(fee<=0 && r.focusCell.profit==null) return null;
+                        const budget = semMonthlyBudget(r.c);
+                        const actual = activeMonth===thisMonth
+                          ? (getActualMtdSpend(r.c) ?? getManualSpend(r.c))
+                          : (closedMonthMetrics(r.c, activeMonth)?.spend ?? 0);
+                        const feeMissing = !(parseFloat(r.c.managementFee)>0);
+                        if(fee<=0 && r.focusCell.profit==null && !budget) return null;
                         return (
                           <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
                             <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>How this profit is calculated · management fee</div>
-                            <div style={{fontSize:13.5,lineHeight:1.7,color:_lm?"#334155":"#d8eaf8"}}>
-                              Management fee <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>{$fc(fee)}</span> for {focusLabelShort} = <span style={{color:profitColor(prof),fontWeight:800}}>{(prof>=0?"+":"")+$fc(prof)}</span> profit
-                            </div>
-                            <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
-                              {media>0
-                                ? <>Client media <span style={{color:"#f59e0b",fontWeight:700}}>{$fc(media)}</span> is pass-through (their budget) — not counted in profit.</>
-                                : <>Client media spend is pass-through (their budget) — not counted in profit.</>}
-                            </div>
+                            {feeMissing ? (
+                              <div style={{fontSize:12.5,color:_lm?"#b45309":"#f59e0b",lineHeight:1.6}}>
+                                No management fee set for this SEM campaign. Add the monthly fee in the campaign's <b>Management Fee</b> field — that's your profit. (Note 1's “${budget?budget.toLocaleString():"X"}/Mo” is the client's media budget, not the fee.)
+                              </div>
+                            ) : (
+                              <>
+                                <div style={{fontSize:13.5,lineHeight:1.75,color:_lm?"#334155":"#d8eaf8"}}>
+                                  Management fee <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>{$fc(fee)}</span>
+                                  {overage>0 && <><span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> − </span><span style={{color:"#f59e0b",fontWeight:700}}>{$fc(overage)}</span> over budget</>}
+                                  <span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> = </span>
+                                  <span style={{color:profitColor(prof),fontWeight:800}}>{(prof>=0?"+":"")+$fc(prof)}</span> profit
+                                </div>
+                                <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
+                                  Media spend <span style={{color:"#f59e0b",fontWeight:700}}>{$fc(actual||0)}</span> of <span style={{fontWeight:700}}>{budget?$fc(budget):"—"}</span> budget ·{" "}
+                                  {overage>0
+                                    ? <span style={{color:"#ef4444",fontWeight:700}}>{$fc(overage)} over — eating into the fee</span>
+                                    : <span style={{color:_lm?"#059669":"#00d48a"}}>within budget (pass-through)</span>}
+                                </div>
+                              </>
+                            )}
                           </div>
                         );
                       }
@@ -15488,10 +15521,15 @@ export default function App() {
             // id so a record that exists in BOTH lists (e.g. archived without being removed
             // from active) is only counted ONCE. The active copy wins when ids collide.
             const seen=new Set(); const merged=[];
-            for(const c of [...campaigns,...archive]){
-              const k = c && c.id!=null ? c.id : c;
-              if(seen.has(k)) continue;
-              seen.add(k); merged.push(c);
+            // Active campaigns first — the live copy wins on id collisions.
+            for(const c of campaigns){ const k=c&&c.id!=null?c.id:c; if(seen.has(k))continue; seen.add(k); merged.push(c); }
+            // Archived campaigns: a pulled campaign stops earning the moment it's archived, so cap its
+            // revenue flight at the archive date. Otherwise it keeps accruing current/future-month
+            // revenue (e.g. an SEM fee for a month it wasn't running) and pollutes the breakdown + totals.
+            for(const c of archive){
+              const k=c&&c.id!=null?c.id:c; if(seen.has(k))continue; seen.add(k);
+              const cap=(c&&c.archivedDate&&c.endDate&&c.archivedDate<c.endDate)?c.archivedDate:(c&&c.endDate);
+              merged.push(c&&cap&&cap!==c.endDate?{...c,endDate:cap}:c);
             }
             return merged;
           })()} onEdit={(camp)=>setEditTarget(camp)} onLock={(month, lockObj)=>{
