@@ -100,6 +100,22 @@ function lmBadge(c) {
 }
 
 function getToday() { return new Date().toISOString().split("T")[0]; }
+// Parse a check-in / metricSeries date stamp to a local-midnight Date. Handles BOTH the ISO
+// "YYYY-MM-DD" that Quick Check-in actually writes (via getToday) AND the legacy "MM/DD/YYYY"
+// format some older entries use. One source of truth so every history reader agrees — previously
+// the readers only understood MM/DD/YYYY, so all ISO-stamped QCI data silently failed to parse
+// (no weekly charts, no closed-month history). Returns null if unparseable.
+function parseSeriesDate(s){
+  if(!s) return null;
+  const str=String(s).trim();
+  let m=str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);          // ISO YYYY-MM-DD
+  if(m) return new Date(+m[1], +m[2]-1, +m[3]);
+  m=str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);             // US MM/DD/YYYY
+  if(m) return new Date(+m[3], +m[1]-1, +m[2]);
+  return null;
+}
+// Same, but returns "YYYY-MM" (the month bucket) or null — for month-matching readers.
+function seriesDateYM(s){ const d=parseSeriesDate(s); return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}` : null; }
 function fmt(d) { return d.toISOString().split("T")[0]; }
 function getDaysLeft(endDate) {
   const t = new Date(); t.setHours(0,0,0,0);
@@ -1723,6 +1739,16 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                   <div style={{flexShrink:0,minWidth:130}}>
                     <DatePicker value={editReminderDraft.date} onChange={v=>setEditReminderDraft(p=>({...p,date:v}))}/>
                   </div>
+                  {/* Quick-push the due date forward (relative to whatever's in the picker). Local-safe
+                      date math — no toISOString, which would roll back a day in US timezones. */}
+                  {[1,3,7].map(days=>(
+                    <button key={days} type="button"
+                      title={`Push the due date ${days} day${days>1?"s":""} later`}
+                      onClick={()=>{ const base=editReminderDraft.date||getToday(); const d=new Date(base+"T00:00:00"); d.setDate(d.getDate()+days); const nd=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; setEditReminderDraft(p=>({...p,date:nd})); }}
+                      style={{background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:4,color:_lm?"#475569":"#7a9bbf",fontSize:10,fontWeight:700,padding:"4px 8px",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                      +{days}d
+                    </button>
+                  ))}
                   <button onClick={()=>saveEditReminder(r.id)} style={{background:"#f59e0b",border:"none",borderRadius:5,padding:"5px 12px",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>Save</button>
                   <button onClick={cancelEditReminder} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px 10px",color:_lm?"#475569":"#7a9bbf",fontSize:11,cursor:"pointer",flexShrink:0}}>Cancel</button>
                 </div>
@@ -5977,7 +6003,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // pacing — it catches "delivering 3× its usual" or "suddenly stopped" regardless of goal.
   function deliveryAnomaly(c) {
     const series = (Array.isArray(c.metricSeries) ? c.metricSeries : [])
-      .map(e => { const m = String(e.d||"").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m ? { d: new Date(+m[3], +m[1]-1, +m[2]), i: parseInt(e.i)||0 } : null; })
+      .map(e => { const d = parseSeriesDate(e.d); return d ? { d, i: parseInt(e.i)||0 } : null; })
       .filter(Boolean).sort((a, b) => a.d - b.d);
     if (series.length < 4) return null; // need a few readings to learn a norm
     const daily = []; let prev = null;
@@ -6114,19 +6140,33 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       // Build prior-line lookup by name
       const priorByName = {};
       mtd.priorBreakdown.forEach(p => { if (p?.name) priorByName[p.name] = p; });
-      // Sum per-line yesterday delta
-      let sumDelivered = 0, priorTotal = 0;
+      // Sum per-line yesterday delta — matching today's lines to yesterday's by name.
+      let sumDelivered = 0, priorTotal = 0, matched = 0;
       mtd.breakdown.forEach(b => {
         const prior = priorByName[b.name];
         if (!prior) return; // line is new — no comparison available, skip
+        matched++;
         const lineDelta = (b.impressions||0) - (prior.impressions||0);
         if (lineDelta > 0) sumDelivered += lineDelta;
         priorTotal += (prior.impressions||0);
       });
-      delivered = sumDelivered;
-      baseDate = mtd.priorBreakdownDate;
-      baseImpr = priorTotal;
-      break;
+      if (matched > 0) {
+        // Per-line names lined up → use the per-line sum (most accurate; skips genuinely new lines).
+        delivered = sumDelivered;
+        baseImpr  = priorTotal;
+        baseDate  = mtd.priorBreakdownDate;
+      } else {
+        // No line names matched — ad sets were renamed/reordered between exports (common for FB
+        // ad-set CSVs, where lines fall back to positional "Line N" labels). The per-line sum would
+        // wrongly read 0. Fall back to a name-independent TOTAL diff: today's breakdown total minus
+        // yesterday's. If that isn't positive, leave delivered=null so the checkInLog fallback (or a
+        // "—" no-data state) takes over instead of asserting a false 0.
+        const todayTotal = mtd.breakdown.reduce((s,b)=>s+(b.impressions||0),0);
+        const priorGrand = mtd.priorBreakdown.reduce((s,p)=>s+(p.impressions||0),0);
+        const totalDelta = todayTotal - priorGrand;
+        if (totalDelta > 0) { delivered = totalDelta; baseImpr = priorGrand; baseDate = mtd.priorBreakdownDate; }
+      }
+      if (delivered !== null) break; // otherwise let Strategy 2 (checkInLog) try
     }
 
     // ── Strategy 2: checkInLog fallback (impression platforms only) ─────
@@ -6192,9 +6232,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     let best = null;
     for (const e of series) {
       if (!e || !e.d) continue;
-      const m = String(e.d).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (!m) continue;
-      const mo = parseInt(m[1]) - 1, day = parseInt(m[2]), yr = parseInt(m[3]);
+      const ed = parseSeriesDate(e.d);
+      if (!ed) continue;
+      const mo = ed.getMonth(), day = ed.getDate(), yr = ed.getFullYear();
       if (mo !== lmMonth || yr !== lmYear) continue;
       if (!best || day > best.day) best = { day, impressions: parseInt(e.i) || 0, clicks: parseInt(e.c) || 0, spend: parseFloat(e.s) || 0, vcr: parseFloat(e.v) || 0 };
     }
@@ -6615,12 +6655,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const weekly = (()=>{
       const series = Array.isArray(c.metricSeries) ? c.metricSeries : [];
       if(series.length < 1) return [];
-      const parseD = s => { const [m,d,y]=String(s).split("/").map(Number); return new Date(y,m-1,d); };
+      const parseD = parseSeriesDate; // tolerates ISO (what QCI writes) AND MM/DD/YYYY
       const monday = dt => { const x=new Date(dt); const dow=x.getDay(); x.setDate(x.getDate()-((dow+6)%7)); x.setHours(0,0,0,0); return x; };
       const DAY = 86400000;
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const rd = series.map(e=>({d:parseD(e.d), i:+e.i||0, ck:+e.c||0, s:+e.s||0, vv:+e.vv||0}))
-        .filter(e=>e.d.getMonth()===now.getMonth() && e.d.getFullYear()===now.getFullYear())
+        .filter(e=>e.d && e.d.getMonth()===now.getMonth() && e.d.getFullYear()===now.getFullYear())
         .sort((a,b)=>a.d-b.d);
       if(!rd.length) return [];
       const bk=new Map();
@@ -6944,7 +6984,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                   {weekly.map(w=>(
                     <div key={w.k} title={`${lab(w.k)} — ${fmtFull(val(w))} ${barLabel.toLowerCase()} · ${w.c.toLocaleString()} clicks`}
                       style={{flex:1,display:"flex",justifyContent:"center",alignItems:"flex-end",height:"100%"}}>
-                      <div style={{width:"58%",background:weekColor(w),borderRadius:"2px 2px 0 0",height:`${Math.max(1,(val(w)/barMax)*88)}%`}}/>
+                      {/* Cap bar width so a 1–2 week chart doesn't balloon into a fat bar. Each bar stays
+                          centered in its slot (kept aligned with the clicks line, which is positioned by the
+                          same per-week distribution), so the chart reads cleanly whether there's 1 week or 5. */}
+                      <div style={{width:"58%",maxWidth:52,background:weekColor(w),borderRadius:"2px 2px 0 0",height:`${Math.max(1,(val(w)/barMax)*88)}%`}}/>
                     </div>
                   ))}
                 </div>
@@ -7875,11 +7918,46 @@ function calcMonthlyRevenue(c, monthIdx) {
   return null;
 }
 
+// SEM revenue = the management fee only. The client's media spend is pass-through (their money),
+// so it is NOT Recrue revenue and never reduces profit. Reads the fee from, in order:
+//   1) a "$X/Mo" amount in Note 1 (recognized per active month, prorated on partial months), or
+//   2) an explicit managementFee + contractValue total, spread across the flight (legacy).
+// Returns a { [YYYY-MM]: fee } map.
+function semFeeMap(c) {
+  if (!c || c.platform !== "SEM" || !c.startDate || !c.endDate) return {};
+  const start = new Date(c.startDate + "T00:00:00");
+  const end   = new Date(c.endDate   + "T00:00:00");
+  if (isNaN(start) || isNaN(end) || end < start) return {};
+  const monthlyMatch = String(c.note1 || "").replace(/,/g, "").match(/\$\s*([\d.]+)\s*\/\s*mo/i);
+  const map = {};
+  if (monthlyMatch && parseFloat(monthlyMatch[1]) > 0) {
+    const monthly = parseFloat(monthlyMatch[1]);
+    let cur = new Date(start.getFullYear(), start.getMonth(), 1);
+    const endMo = new Date(end.getFullYear(), end.getMonth(), 1);
+    while (cur <= endMo) {
+      const mo = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`;
+      const daysInMonth = new Date(cur.getFullYear(), cur.getMonth()+1, 0).getDate();
+      const mStart = new Date(Math.max(start, new Date(cur.getFullYear(), cur.getMonth(), 1)));
+      const mEnd   = new Date(Math.min(end,   new Date(cur.getFullYear(), cur.getMonth()+1, 0)));
+      const activeDays = Math.max(0, Math.round((mEnd - mStart) / 86400000) + 1);
+      map[mo] = monthly * (activeDays / daysInMonth); // full fee for whole months, prorated on partial
+      cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1);
+    }
+    return map;
+  }
+  // Fallback: explicit fee/contract total spread evenly across the flight
+  const total = (parseFloat(c.managementFee) || 0) + (parseFloat(c.contractValue) || 0);
+  if (total > 0) return spreadRevenue({ ...c, contractValue: total, managementFee: 0 });
+  return {};
+}
+
 // Returns a { [YYYY-MM]: revenue } map for a campaign.
 // Prefers CPM/CPV rate-based monthly revenue (if contractRate is set), computed PER MONTH so a
 // multi-phase flight bills the right amount in each month. Falls back to the legacy pro-rated
 // contractValue spread for old-style campaigns.
 function revenueMapForCampaign(c) {
+  // SEM is a management-fee model — revenue is the fee, never the client's pass-through media spend.
+  if (c && c.platform === "SEM") return semFeeMap(c);
   // Rate-based: spread each calendar month the campaign is active using THAT month's goal.
   const isRateBased = c && c.platform !== "SEM" && parseFloat(c.contractRate) > 0
     && (c.platform === "YT" ? !!c.dealType : true);
@@ -8551,12 +8629,8 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   // month, so when a reading is the first of its month (or the number drops, = reset) we
   // treat the reading itself as that interval's delivery. More frequent check-ins → finer
   // resolution; sparse check-ins still give a reasonable weekly shape.
-  function parseStamp(s){ // "MM/DD/YYYY" → Date (local midnight) or null
-    if(!s||typeof s!=="string") return null;
-    const m=s.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if(!m) return null;
-    const d=new Date(parseInt(m[3]),parseInt(m[1])-1,parseInt(m[2]));
-    return isNaN(d)?null:d;
+  function parseStamp(s){ // ISO "YYYY-MM-DD" (what QCI writes) or legacy "MM/DD/YYYY" → Date or null
+    return parseSeriesDate(s);
   }
   function weekStart(d){ // Monday of the week containing d
     const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());
@@ -11482,10 +11556,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     let best = null;
     for (const e of series) {
       if (!e || !e.d) continue;
-      const m = String(e.d).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (!m) continue;
-      if (`${m[3]}-${m[1].padStart(2, "0")}` !== mo) continue;
-      const day = parseInt(m[2]);
+      const ed = parseSeriesDate(e.d);
+      if (!ed) continue;
+      if (`${ed.getFullYear()}-${String(ed.getMonth()+1).padStart(2, "0")}` !== mo) continue;
+      const day = ed.getDate();
       if (!best || day > best.day) best = { day, impressions: parseInt(e.i) || 0, spend: parseFloat(e.s) || 0, views: parseInt(e.vv) || 0 };
     }
     return best ? { impressions: best.impressions, spend: best.spend, views: best.views } : null;
@@ -11517,6 +11591,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // Per-campaign per-month spend resolver — locked months take priority.
   // Returns null when no spend data exists for that month.
   function spendForMonth(c, mo) {
+    // SEM: the client's media spend is pass-through (their money), NOT Recrue's cost — so it
+    // contributes $0 to profit for realized months (profit then = the management fee). Future
+    // months return null so the fee shows as pending forecast, not booked profit.
+    if (c.platform === "SEM") return mo > thisMonth ? null : 0;
     // Locked months: use the frozen snapshot — immune to future CSV drops
     if (monthLocks[mo]) {
       const lc = monthLocks[mo].campaigns?.find(r => String(r.id) === String(c.id));
@@ -11534,10 +11612,15 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     const totalSpend = getLifetimeSpend(c);
     if (totalSpend <= 0 || !c.startDate || !c.endDate) return null;
     const prorated = spreadRevenue({...c, contractValue: totalSpend})[mo] || 0;
-    // For current month: use real synced actual if available, otherwise fall back to pro-rated
+    // For the CURRENT month, spend is month-to-date — the SAME basis as the actual MTD delivery used
+    // for revenue. Prefer a synced MTD actual; otherwise the manually-entered spend already IS the
+    // month-to-date figure (QCI/CSV reports the current period), so use it AS-IS. Pro-rating it across
+    // the whole flight would understate this month's real cost and make profit look too high.
     if (mo === thisMonth) {
       const actual = getActualMtdSpend(c);
       if (actual != null && actual > 0) return actual;
+      const manual = getManualSpend(c);
+      if (manual > 0) return manual;
     }
     return prorated;
   }
@@ -11558,8 +11641,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // month" / showEnded filter is now applied ONLY to the per-month breakdown table below
   // (see dateVisibleRows). revenueMapForCampaign already assigns $0 to months a campaign
   // wasn't active, so including everything here keeps each month's bar correct.
+  // Include any revenue-bearing campaign. Must mirror revenueMapForCampaign's isRateBased rule EXACTLY,
+  // or a campaign can compute revenue yet be missing from the tab (and from its totals). Non-YT campaigns
+  // bill CPM and need only a rate; YT needs an explicit dealType (CPV vs CPM); SEM uses the contract path.
   const withContract = campaigns.filter(c =>
-    parseFloat(c.contractValue) > 0 || (c.dealType && parseFloat(c.contractRate) > 0)
+    parseFloat(c.contractValue) > 0 ||
+    (parseFloat(c.contractRate) > 0 && c.platform !== "SEM" && (c.platform === "YT" ? !!c.dealType : true)) ||
+    (c.platform === "SEM" && Object.keys(semFeeMap(c)).length > 0)
   );
   // Active non-SEM campaigns that have no CPM rate set yet — shown as a nudge in the header.
   // Mirror the same date filter that `withContract` uses (exclude campaigns that ended
@@ -11609,6 +11697,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           const actualImpr = actualImprForMonth(c, mo); // live MTD for this month, backup for closed months
           if (actualImpr != null && actualImpr > 0) {
             adjRev = (actualImpr / 1000) * rate;
+          } else if (spendForMonth(c, mo) != null) {
+            // Spent this month but no impressions logged yet → nothing earned to book.
+            // (Without spend, keep the full-goal projection so it still shows as pending forecast.)
+            adjRev = 0;
           }
         } else if (rate > 0 && effectiveDt === "CPV") {
           // YouTube per-view deals: bill on views actually DELIVERED so far (not the full-month
@@ -11679,7 +11771,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // Per-campaign rows with month grid
   const rows = filtered.map(c=>{
     const spread = revenueMapForCampaign(c);
-    const trackable = hasSpendData(c);
+    // SEM profit is the management fee (realized, no media-spend dependency) — so a SEM campaign with
+    // a fee is "tracked", not pending. Everything else is tracked once real spend exists.
+    const trackable = c.platform === "SEM" ? Object.keys(spread).length > 0 : hasSpendData(c);
     const monthCells = {};
     let windowRev=0, windowSpend=0, windowHasSpend=false;
     months.forEach(mo => {
@@ -11694,6 +11788,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           const actualImpr = actualImprForMonth(c, mo);
           if (actualImpr != null && actualImpr > 0) {
             rev = (actualImpr / 1000) * rate;
+          } else if (spendForMonth(c, mo) != null) {
+            rev = 0; // spent but no impressions logged yet → nothing earned (keep goal only when pending/no-spend)
           }
         } else if (rate > 0 && effectiveDt === "CPV") {
           // YouTube per-view deals: bill on views actually DELIVERED so far, not the full-month goal.
@@ -12366,18 +12462,23 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                           const effectiveDt=r.c.platform==="YT"?(r.c.dealType||"CPM"):"CPM";
                           const rateNum=parseFloat(r.c.contractRate)||0;
                           if(rateNum>0){
-                            // For current month, check if we're using actual impressions
-                            const actualImpr = activeMonth===thisMonth ? getActualMtdImpressions(r.c) : null;
-                            const usingActual = actualImpr!=null && actualImpr>0 && effectiveDt==="CPM";
-                            const imprBasis = usingActual ? actualImpr : goal;
-                            if(imprBasis){
+                            // Bill on what was ACTUALLY delivered this month — views for CPV (YouTube),
+                            // impressions for CPM — and only fall back to the Note-1 goal when nothing's
+                            // delivered yet. (Previously the actual-delivery path was CPM-only, so a YouTube
+                            // CPV row showed the full monthly goal next to an actual-delivery revenue number.)
+                            const actualDelivered = effectiveDt==="CPV"
+                              ? actualViewsForMonth(r.c, activeMonth)
+                              : actualImprForMonth(r.c, activeMonth);
+                            const usingActual = actualDelivered!=null && actualDelivered>0;
+                            const basis = usingActual ? actualDelivered : goal;
+                            if(basis){
+                              const unitTxt = effectiveDt==="CPV"
+                                ? `${basis.toLocaleString()} views × $${rateNum.toFixed(3)}/view`
+                                : `${(basis/1000).toFixed(1)}K impr × $${rateNum.toFixed(2)} CPM`;
                               return <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:3}}>
-                                {effectiveDt==="CPV"
-                                  ? `${(imprBasis/1000).toFixed(0)}K views × $${rateNum.toFixed(3)}/view`
-                                  : `${(imprBasis/1000).toFixed(0)}K impr × $${rateNum.toFixed(2)} CPM`
-                                } = <span style={{color:_lm?"#059669":"#00c896",fontWeight:700}}>${Math.round(r.focusCell.rev||r.monthlyRev||0).toLocaleString()}</span>
-                                <span style={{color:usingActual?(_lm?"#f59e0b":"#f59e0b"):(_lm?"#94a3b8":"#3d5a72"),marginLeft:4}}>
-                                  {usingActual?"(actual delivered so far)":"(from Note 1 goal)"}
+                                {unitTxt} = <span style={{color:_lm?"#059669":"#00c896",fontWeight:700}}>${Math.round(r.focusCell.rev||r.monthlyRev||0).toLocaleString()}</span>
+                                <span style={{color:usingActual?"#f59e0b":(_lm?"#94a3b8":"#3d5a72"),marginLeft:4}}>
+                                  {usingActual?"(actual delivered so far)":"(goal — nothing delivered yet)"}
                                 </span>
                               </div>;
                             }
@@ -12404,6 +12505,68 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                         Edit →
                       </button>
                     </div>
+                    {/* ── Real-time profit math, spelled out — delivered × rate − spend = profit so far ── */}
+                    {(()=>{
+                      // SEM is a management-fee model: the fee IS the profit; client media is pass-through.
+                      if(r.c.platform==="SEM"){
+                        const fee = r.focusCell.rev||0;
+                        const prof = r.focusCell.profit!=null ? r.focusCell.profit : fee;
+                        const media = parseFloat(r.c.spend)||0;
+                        if(fee<=0 && r.focusCell.profit==null) return null;
+                        return (
+                          <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+                            <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>How this profit is calculated · management fee</div>
+                            <div style={{fontSize:13.5,lineHeight:1.7,color:_lm?"#334155":"#d8eaf8"}}>
+                              Management fee <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>{$fc(fee)}</span> for {focusLabelShort} = <span style={{color:profitColor(prof),fontWeight:800}}>{(prof>=0?"+":"")+$fc(prof)}</span> profit
+                            </div>
+                            <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
+                              {media>0
+                                ? <>Client media <span style={{color:"#f59e0b",fontWeight:700}}>{$fc(media)}</span> is pass-through (their budget) — not counted in profit.</>
+                                : <>Client media spend is pass-through (their budget) — not counted in profit.</>}
+                            </div>
+                          </div>
+                        );
+                      }
+                      const rev = r.focusCell.rev||0;
+                      const spend = r.focusCell.spend;
+                      const profit = r.focusCell.profit;
+                      const effectiveDt = r.c.platform==="YT"?(r.c.dealType||"CPM"):"CPM";
+                      const isCPV = effectiveDt==="CPV";
+                      const rateNum = parseFloat(r.c.contractRate)||0;
+                      const delivered = isCPV ? actualViewsForMonth(r.c, activeMonth) : actualImprForMonth(r.c, activeMonth);
+                      const hasUnit = rateNum>0 && delivered!=null && delivered>0 && r.c.platform!=="SEM";
+                      const costPer = (spend!=null && delivered>0) ? spend/delivered : null;
+                      const eq = isCPV
+                        ? `${delivered!=null?delivered.toLocaleString():"—"} views × $${rateNum.toFixed(3)}/view`
+                        : `${delivered!=null?(delivered/1000).toFixed(1):"—"}K impr × $${rateNum.toFixed(2)} CPM`;
+                      if(rev<=0 && spend==null) return null;
+                      return (
+                        <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+                          <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>How this profit is calculated · updates in real time</div>
+                          {profit==null ? (
+                            <div style={{fontSize:12.5,color:_lm?"#475569":"#9fb8d4",lineHeight:1.6}}>
+                              Earned <span style={{color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:700}}>{$fc(rev)}</span> so far{hasUnit?` (${eq})`:""}. Profit appears here the moment this month's spend is entered.
+                            </div>
+                          ) : (
+                            <div>
+                              <div style={{fontSize:13.5,lineHeight:1.75,color:_lm?"#334155":"#d8eaf8"}}>
+                                {hasUnit&&<><span style={{color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:700}}>{eq}</span> = </>}
+                                <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>{$fc(rev)}</span> revenue
+                                <span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> − </span>
+                                <span style={{color:"#f59e0b",fontWeight:700}}>{$fc(spend)}</span> spend
+                                <span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> = </span>
+                                <span style={{color:profitColor(profit),fontWeight:800}}>{(profit>=0?"+":"")+$fc(profit)}</span> profit so far
+                              </div>
+                              {isCPV && costPer!=null && (
+                                <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
+                                  Your cost <span style={{color:"#f59e0b",fontWeight:700}}>${costPer.toFixed(3)}/view</span> · billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(3)}/view</span> · margin <span style={{color:profitColor(rateNum-costPer),fontWeight:700}}>${(rateNum-costPer).toFixed(3)}/view</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
                       <span>{r.c.mediaPartner||"—"} · {r.c.startDate||"—"} → {r.c.endDate||"—"}</span>
                       <span>
