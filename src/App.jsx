@@ -6675,20 +6675,23 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         for(let t=0;t<n;t++){ const k=monday(new Date(start.getTime()+t*DAY)).getTime();
           const o=bk.get(k)||{i:0,c:0,s:0,vv:0}; o.i+=fi; o.c+=fc; o.s+=fs; o.vv+=fvv; bk.set(k,o); }
       };
-      let pi=0, pc=0, ps=0, pvv=0, pd=null;
+      // Daily delivery = NEW delivery beyond the highest month-to-date value seen so far. Within one
+      // month MTD is cumulative and only rises; a DIP (a revised-down report, or one day's CSV missing
+      // a rolled-up ad-set row) is noise. The old code treated every dip as a fresh "reset" and re-added
+      // the full reading, which double-counted on every bounce and inflated the weekly totals far above
+      // the real MTD. Tracking a running max per metric makes the bars sum to the actual delivery.
+      // (rd is already filtered to THIS month, so there is no true mid-series month reset to handle.)
+      let maxI=0, maxC=0, maxS=0, maxVV=0, pd=null;
       rd.forEach((e,idx)=>{
-        const reset = !(e.i>=pi); // cumulative dropped — treat reading as fresh (new month edge / data reset)
-        const fresh = idx===0 || reset;
-        const di  = fresh ? e.i  : e.i-pi;
-        const dc  = fresh ? e.ck : e.ck-pc;
-        const ds  = fresh ? e.s  : e.s-ps;
-        const dvv = fresh ? e.vv : e.vv-pvv;
-        // First reading spreads from the 1st of the month → its date (the MTD value
-        // covers the whole month-to-date). A reset attributes to its single day to
-        // avoid double-counting earlier days. Normal gaps span (prev day +1) → this day.
-        const start = idx===0 ? new Date(monthStart) : reset ? new Date(e.d) : new Date(pd.getTime()+DAY);
+        const di  = Math.max(0, e.i  - maxI);
+        const dc  = Math.max(0, e.ck - maxC);
+        const ds  = Math.max(0, e.s  - maxS);
+        const dvv = Math.max(0, e.vv - maxVV);
+        // First reading spreads from the 1st of the month → its date; later readings span (prev day +1) → this day.
+        const start = idx===0 ? new Date(monthStart) : new Date(pd.getTime()+DAY);
         spread(start, e.d, di, dc, ds, dvv);
-        pi=e.i; pc=e.ck; ps=e.s; pvv=e.vv; pd=e.d;
+        maxI=Math.max(maxI,e.i); maxC=Math.max(maxC,e.ck); maxS=Math.max(maxS,e.s); maxVV=Math.max(maxVV,e.vv);
+        pd=e.d;
       });
       return [...bk.entries()].sort((a,b)=>a[0]-b[0]).map(([k,o])=>({k, i:Math.round(o.i), c:Math.round(o.c), s:Math.round(o.s*100)/100, vv:Math.round(o.vv)}));
     })();
@@ -8582,14 +8585,16 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
       .filter(e=>e.date)
       .sort((a,b)=>a.date-b.date);
     if(!raw.length) return null;
-    const deltas=[]; let prev=null;
+    // Daily delivery = new delivery beyond the running MAX month-to-date, with the baseline reset at
+    // each calendar-month boundary (a real MTD reset). Within a month a DIP is noise (revised-down
+    // report, or a rolled-up ad-set row missing from one day's CSV) — the old code treated any dip as a
+    // fresh full reading and double-counted on every bounce, inflating totals well above true delivery.
+    const deltas=[]; let monthKey=null, maxI=0, maxC=0, maxS=0, maxVV=0;
     for(const e of raw){
-      const sameMonth = prev && prev.date.getFullYear()===e.date.getFullYear() && prev.date.getMonth()===e.date.getMonth();
-      let di,dc,ds,dvv;
-      if(sameMonth && e.i>=prev.i){ di=e.i-prev.i; dc=e.c-prev.c; ds=e.s-prev.s; dvv=e.vv-prev.vv; }
-      else { di=e.i; dc=e.c; ds=e.s; dvv=e.vv; } // first reading of a month, or a reset
-      deltas.push({date:e.date, di:Math.max(0,di), dc:Math.max(0,dc), ds:Math.max(0,ds), dvv:Math.max(0,dvv), v:e.v});
-      prev=e;
+      const mk = e.date.getFullYear()+"-"+e.date.getMonth();
+      if(mk!==monthKey){ monthKey=mk; maxI=0; maxC=0; maxS=0; maxVV=0; } // new month → reset baseline
+      deltas.push({date:e.date, di:Math.max(0,e.i-maxI), dc:Math.max(0,e.c-maxC), ds:Math.max(0,e.s-maxS), dvv:Math.max(0,e.vv-maxVV), v:e.v});
+      maxI=Math.max(maxI,e.i); maxC=Math.max(maxC,e.c); maxS=Math.max(maxS,e.s); maxVV=Math.max(maxVV,e.vv);
     }
     let i=0,cl=0,s=0,vv=0,vcr=0,any=false;
     for(const d of deltas){
@@ -8652,15 +8657,15 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
       .filter(e=>e.date)
       .sort((a,b)=>a.date-b.date);
     if(!raw.length) return [];
-    // consecutive deltas (handle month reset)
-    const deltas=[]; let prev=null;
+    // Delivery = new delivery beyond the running MAX month-to-date, baseline reset at each month
+    // boundary. Within a month a dip is noise (revised-down report / a rolled-up ad-set row missing
+    // from a day's CSV); the old code re-added the full reading on any dip and double-counted.
+    const deltas=[]; let monthKey=null, maxI=0, maxC=0;
     for(const e of raw){
-      let di,dc;
-      const sameMonth = prev && prev.date.getFullYear()===e.date.getFullYear() && prev.date.getMonth()===e.date.getMonth();
-      if(sameMonth && e.i>=prev.i){ di=e.i-prev.i; dc=e.c-prev.c; }
-      else { di=e.i; dc=e.c; } // first reading of a month, or a reset
-      deltas.push({date:e.date, di:Math.max(0,di), dc:Math.max(0,dc)});
-      prev=e;
+      const mk = e.date.getFullYear()+"-"+e.date.getMonth();
+      if(mk!==monthKey){ monthKey=mk; maxI=0; maxC=0; } // new month → reset baseline
+      deltas.push({date:e.date, di:Math.max(0,e.i-maxI), dc:Math.max(0,e.c-maxC)});
+      maxI=Math.max(maxI,e.i); maxC=Math.max(maxC,e.c);
     }
     // bucket by Monday week-start, respecting the report date range
     const buckets=new Map();
