@@ -14,6 +14,9 @@ const MONTH_RESET_KEY = "campaign-tracker-last-month-reset"; // "YYYY-MM" of the
 const MONTHLY_BACKUP_KEY = "campaign-tracker-monthly-backups"; // {"YYYY-MM":{savedAt, campaigns:[...closing snapshot]}}
 const ARCHIVE_DAYS = 5;
 const MAX_LOG_ENTRIES = 500;
+// Show the platform sync status badges (Meta / TTD / DSP / Google / Snap) in the top header.
+// Off for now since no platforms are connected — flip to true once you start syncing a platform.
+const SHOW_SYNC_BADGES = false;
 
 // ── Storage usage helpers ────────────────────────────────────────────────────
 // Browsers cap localStorage at roughly 5 MB per site. We surface usage in Config and warn
@@ -12095,8 +12098,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // Project the CURRENT month to month-end by extending each campaign's so-far delivery/spend at
   // its current daily pace over the remaining flight days (flight-aware). The quarter sums closed
   // months (actuals) + this month (forecast) + future months (projected revenue).
-  const monthForecast = (() => {
-    if (activeMonth !== thisMonth) return null;
+  // Live current-month forecast — computed UNCONDITIONALLY (NOT gated by which month is focused) so the
+  // Monthly Profit bar chart's vertical scale and the current-month dotted "pace target" bar stay fixed
+  // when you click around other months' bars. The focus-gated `monthForecast` below drives the on-demand
+  // Forecast panel (which only makes sense while the live month is the one in focus).
+  const liveForecast = (() => {
     let projRev = 0, projSpend = 0, any = false, anySpend = false;
     rows.forEach(r => {
       const cur = r.monthCells[thisMonth];
@@ -12121,6 +12127,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     if (!any) return null;
     return { projRev, projSpend: anySpend ? projSpend : null, projProfit: anySpend ? (projRev - projSpend) : null };
   })();
+  const monthForecast = activeMonth === thisMonth ? liveForecast : null;
   // ── Goal-based "target" finish ──────────────────────────────────────────────
   // Answers "where do I land if I HIT my monthly goals this month?" Revenue = each active
   // campaign's full monthly goal × rate (the contracted target). Spend is NOT held flat — to
@@ -12158,7 +12165,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       const t = monthTotals[mo];
       if (mo < thisMonth) { if (t) { rev += t.revenueWithSpend; profit += (t.revenueWithSpend - t.spend); hasProfit = true; } }
       else if (mo === thisMonth) {
-        if (monthForecast) { rev += monthForecast.projRev; if (monthForecast.projProfit != null) { profit += monthForecast.projProfit; hasProfit = true; } }
+        if (liveForecast) { rev += liveForecast.projRev; if (liveForecast.projProfit != null) { profit += liveForecast.projProfit; hasProfit = true; } }
         else if (t) { rev += t.revenueWithSpend; profit += (t.revenueWithSpend - t.spend); hasProfit = true; }
       } else { if (t) rev += t.revenue; } // future months: projected revenue only
     });
@@ -12439,7 +12446,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           const LABEL_H = 40; // month label zone with year + value
           // Current-month "at current pace" projection (profit). Folded into the vertical scale so the
           // dotted target bar never clips — and so the solid realized bar reads as a true % of target.
-          const projProfit = monthForecast && monthForecast.projProfit != null ? monthForecast.projProfit : null;
+          const projProfit = liveForecast && liveForecast.projProfit != null ? liveForecast.projProfit : null;
           const chartMax = Math.max(maxAbsProfit, projProfit != null ? Math.abs(projProfit) : 0, 1);
           return (
             <div style={{overflowX:"auto",overflowY:"hidden"}}>
@@ -15475,6 +15482,7 @@ export default function App() {
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:17,fontWeight:800,color:"#00c896",letterSpacing:"-0.03em"}}>Campaign Tracker</span>
             <span style={{fontSize:11,padding:"2px 7px",borderRadius:4,background:saved?(lightMode?"#dcfce7":"#00200f"):"transparent",color:saved?"#00c896":"transparent",border:saved?"1px solid #00c89640":"1px solid transparent",transition:"all .3s",fontWeight:600}}>✓ Saved</span>
+            {SHOW_SYNC_BADGES && <>
             {metaSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dbeafe":"#0e1a2e",border:`1px solid ${lightMode?"#93c5fd":"#3b82f640"}`,color:lightMode?"#1d4ed8":"#60a5fa",fontWeight:600}}>⟳ Syncing Meta…</span>}
             {metaSyncStatus==="done" && metaSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(metaSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dcfce7":"#002018",border:`1px solid ${lightMode?"#86efac":"#00c89640"}`,color:lightMode?"#15803d":"#00d48a",fontWeight:600,cursor:"default"}}>⬡ Meta: {metaSyncInfo.fetched_count} synced</span>}
             {metaSyncStatus==="error" && <span title={metaSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fee2e2":"#1a0808",border:`1px solid ${lightMode?"#fca5a5":"#ef444440"}`,color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Meta sync —</span>}
@@ -15490,6 +15498,7 @@ export default function App() {
             {snapSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dbeafe":"#0e1a2e",border:`1px solid ${lightMode?"#93c5fd":"#3b82f640"}`,color:lightMode?"#1d4ed8":"#60a5fa",fontWeight:600}}>⟳ Syncing Snap…</span>}
             {snapSyncStatus==="done" && snapSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(snapSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fdf2f8":"#1a0010",border:`1px solid ${lightMode?"#f9a8d4":"#f9a8d440"}`,color:lightMode?"#be185d":"#f9a8d4",fontWeight:600,cursor:"default"}}>⬡ Snap: {snapSyncInfo.fetched_count} synced</span>}
             {snapSyncStatus==="error" && <span title={snapSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fee2e2":"#1a0808",border:`1px solid ${lightMode?"#fca5a5":"#ef444440"}`,color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Snap sync —</span>}
+            </>}
           </div>
           <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
             <button onClick={()=>setShowReminderModal(true)} style={{position:"relative",background:lightMode?(pendingReminders>0?"#fef3c7":"#f1f5f9"):(pendingReminders>0?"#130a00":"#0e1a2e"),border:`1px solid ${lightMode?(pendingReminders>0?"#fde68a":"#e2e8f0"):(pendingReminders>0?"#f59e0b60":"#1e293b")}`,borderRadius:7,padding:"6px 13px",color:lightMode?(pendingReminders>0?"#b45309":"#64748b"):(pendingReminders>0?"#f59e0b":"#4d6e8a"),fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
