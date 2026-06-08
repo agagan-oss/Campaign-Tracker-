@@ -10898,6 +10898,19 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         </div>
       )}
 
+      {/* ── Big drop zone — shown until a file is loaded (the small toolbar button stays for re-drops) ── */}
+      {!fileRows && (
+        <label style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:7,margin:"12px 14px",padding:"30px 20px",border:`2px dashed ${_lm?"#00c89688":"#00c89655"}`,borderRadius:12,background:_lm?"#f0fdf9":"#001a0e",cursor:"pointer",textAlign:"center"}}
+          onDragOver={e=>{e.preventDefault();e.currentTarget.style.background=_lm?"#d1fae5":"#002e24";e.currentTarget.style.borderColor="#00c896";}}
+          onDragLeave={e=>{e.currentTarget.style.background=_lm?"#f0fdf9":"#001a0e";e.currentTarget.style.borderColor=_lm?"#00c89688":"#00c89655";}}
+          onDrop={e=>{e.preventDefault();e.currentTarget.style.background=_lm?"#f0fdf9":"#001a0e";e.currentTarget.style.borderColor=_lm?"#00c89688":"#00c89655";handleFileDrop(e.dataTransfer.files[0]);}}>
+          <span style={{fontSize:30,lineHeight:1}}>📊</span>
+          <span style={{fontSize:13.5,fontWeight:700,color:_lm?"#059669":"#00e5a0"}}>Drop your CSV or XLSX report here</span>
+          <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a"}}>or click to browse — Facebook, TradeDesk, DSP, Google, Snapchat</span>
+          <input type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={e=>handleFileDrop(e.target.files[0])}/>
+        </label>
+      )}
+
       <div style={{display:"grid",gridTemplateColumns:fileRows?"1fr 1fr":"1fr",minHeight:200}}>
 
         {/* ── Left: Campaign checklist ── */}
