@@ -6601,7 +6601,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const [rowBreakdownOpen, setRowBreakdownOpen] = useState(false);
     // Weekly/Daily chart toggle. Per-row state (so toggling doesn't remount/collapse the row), but the
     // choice is persisted as the default — so every row you open uses your last-picked granularity.
-    const [chartView, setChartView] = useState(()=>{ try { return localStorage.getItem("pacing-chart-view")==="daily" ? "daily" : "weekly"; } catch { return "weekly"; } });
+    const [chartView, setChartView] = useState(()=>{ try { return localStorage.getItem("pacing-chart-view")==="weekly" ? "weekly" : "daily"; } catch { return "daily"; } });
     const pickChartView = v => { setChartView(v); try { localStorage.setItem("pacing-chart-view", v); } catch {} };
     const now=pacingNow(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
     // Expected-by-now comes from the pacing calc, which is flight-aware (prorated to the
