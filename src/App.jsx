@@ -7141,6 +7141,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           <div style={{fontSize:9,color:lightMode?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5}}>
             Line breakdown — {sorted.length === 1 ? "1 ad set mapped to this campaign" : `${sorted.length} ad sets rolled up into this campaign`}
             {hasPrior&&<span style={{color:lightMode?"#3b82f6":"#7ec8ff",marginLeft:6,textTransform:"none",letterSpacing:0}}>· yesterday delivery vs {rowPriorDate}</span>}
+            {c.lastQciAt&&(()=>{ const d=new Date(c.lastQciAt); return isNaN(d.getTime())?null:<span title="When this campaign's data was last pulled in — handy when some pulls are real-time and others lag a day" style={{color:lightMode?"#94a3b8":"#4d6e8a",marginLeft:6,textTransform:"none",letterSpacing:0}}>· data as of {d.toLocaleDateString("en-US",{month:"short",day:"numeric"})}, {d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span>; })()}
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
             {sorted.map(b=>{
@@ -9777,6 +9778,11 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   const [qciSearch,    setQciSearch]    = React.useState("");
   const [qciPlatforms, setQciPlatforms] = React.useState(new Set()); // empty = all platforms
   const [selected,     setSelected]     = React.useState(new Set());
+  // "Data as of" — the date/time the dropped file's numbers are actually current to (most platform
+  // exports lag ~a day; some pulls are real-time). Drives the freshness stamp + the day each reading
+  // is charted on. Format: "YYYY-MM-DDTHH:MM" for the datetime-local input.
+  const toLocalDT = d => { const p=n=>String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+  const [qciAsOf,      setQciAsOf]      = React.useState(()=>toLocalDT(new Date()));
   const [fileRows,     setFileRows]     = React.useState(null);   // parsed rows from file drop
   const [fileSource,   setFileSource]   = React.useState("");     // "Facebook/Meta" | "Snapchat"
   const [mapping,      setMapping]      = React.useState({});     // fileRowIdx -> campId (integers only)
@@ -10621,7 +10627,13 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   }
 
   function applyMapping(){
-    const stamp=getToday();
+    const stamp=getToday(); // ACTION date — "checked in today" (stale detection, last-checked badge)
+    // DATA date/time — what the dropped numbers are current to (user-selectable; defaults to now).
+    // Drives the reading's charted day + the freshness stamp, without faking "last checked".
+    const _asOf = qciAsOf ? new Date(qciAsOf) : new Date();
+    const _p = n=>String(n).padStart(2,"0");
+    const dataStamp = isNaN(_asOf.getTime()) ? stamp : `${_asOf.getFullYear()}-${_p(_asOf.getMonth()+1)}-${_p(_asOf.getDate())}`;
+    const asOfIso   = isNaN(_asOf.getTime()) ? new Date().toISOString() : _asOf.toISOString();
     const updates={};
     Object.entries(mapping).forEach(([idxStr,campId])=>{
       if(!campId) return;
@@ -10738,8 +10750,8 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         // months of daily drops) to bound localStorage growth.
         metricSeries: (()=>{
           const prev = Array.isArray(c.metricSeries) ? c.metricSeries : [];
-          const entry = { d: stamp, i: u.impressions||0, c: u.clicks||0, s: u.spend||0, v: u.completionRate||0, vv: u.videoViews||0 };
-          const next = [...prev.filter(e=>e && e.d!==stamp), entry];
+          const entry = { d: dataStamp, i: u.impressions||0, c: u.clicks||0, s: u.spend||0, v: u.completionRate||0, vv: u.videoViews||0 };
+          const next = [...prev.filter(e=>e && e.d!==dataStamp), entry];
           return next.slice(-500);
         })(),
         // lastCheckInImpr: MTD impressions as of the most recent check-in
@@ -10748,6 +10760,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         // Track which file source last synced this campaign and when — shown in QCI left panel
         lastQciSource: fileSource,
         lastQciDate: stamp,
+        lastQciAt: asOfIso, // the file's "data as of" time (user-selectable) — surfaces data freshness
       };
     };
     // Apply to live campaigns. Archived ids won't match here (ids are unique to one list).
@@ -10954,7 +10967,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                               const srcMap={"TradeDesk":"TTD","Google":"GGL","Facebook/Meta":"FB","Snapchat":"SNAP","Generic":"CSV"};
                               const srcLabel=srcMap[c.lastQciSource]||(c.lastQciSource||"CSV").slice(0,4);
                               const isToday=c.lastQciDate===getToday();
-                              return <span style={{flexShrink:0,color:isToday?(_lm?"#059669":"#00c896"):(_lm?"#94a3b8":"#2a4060"),fontWeight:isToday?700:400}} title={`Last QCI: ${c.lastQciDate} via ${c.lastQciSource||"CSV"}`}>
+                              return <span style={{flexShrink:0,color:isToday?(_lm?"#059669":"#00c896"):(_lm?"#94a3b8":"#2a4060"),fontWeight:isToday?700:400}} title={`Last QCI: ${c.lastQciDate} via ${c.lastQciSource||"CSV"}${c.lastQciAt&&!isNaN(new Date(c.lastQciAt).getTime())?` · pulled ${new Date(c.lastQciAt).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}`:""}`}>
                                 · {isToday?"✓ "+srcLabel+" today":c.lastQciDate.slice(5).replace("-","/")+` ${srcLabel}`}
                               </span>;
                             })()}
@@ -11002,6 +11015,22 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                 </div>
               ) : null;
             })()}
+            {/* Data-as-of selector — what time the dropped file's numbers are current to. Uses the app's
+                styled calendar for the date + a matching time field; defaults to now. Drives freshness
+                + the charted day. */}
+            <div style={{padding:"7px 12px",background:_lm?"#f8fafc":"#060d18",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span style={{fontSize:10,fontWeight:700,color:_lm?"#059669":"#00e5a0",whiteSpace:"nowrap",textTransform:"uppercase",letterSpacing:"0.05em"}}>🕑 Data as of</span>
+              <div style={{minWidth:142}}>
+                <DatePicker value={qciAsOf.slice(0,10)} onChange={d=>setQciAsOf(`${d}T${qciAsOf.slice(11)||"00:00"}`)}/>
+              </div>
+              <input type="time" value={qciAsOf.slice(11)||"00:00"} onChange={e=>setQciAsOf(`${qciAsOf.slice(0,10)}T${e.target.value||"00:00"}`)}
+                style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:6,padding:"7px 9px",color:_lm?"#0f172a":"#edf4ff",fontSize:13,fontFamily:"inherit",fontVariantNumeric:"tabular-nums",colorScheme:_lm?"light":"dark",cursor:"pointer",outline:"none"}}/>
+              <button onClick={()=>setQciAsOf(toLocalDT(new Date()))}
+                style={{background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:6,padding:"5px 11px",color:_lm?"#059669":"#00e5a0",fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Now</button>
+              <button onClick={()=>{const d=new Date();d.setDate(d.getDate()-1);d.setHours(6,0,0,0);setQciAsOf(toLocalDT(d));}}
+                style={{background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:6,padding:"5px 11px",color:_lm?"#059669":"#00e5a0",fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Yesterday 6 AM</button>
+              <span style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72"}}>applies to every row in this file</span>
+            </div>
             <div style={{padding:"6px 12px",background:_lm?"#f8fafc":"#060d18",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <span style={{fontSize:11,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{fileSource==="Generic"?"📊 Generic CSV":fileSource==="TradeDesk"?"📡 TradeDesk (_AG only)":fileSource} — {fileRows.length} rows</span>
               <span style={{fontSize:10,color:mappedCount<fileRows.length?"#f59e0b":(_lm?"#059669":"#00e5a0"),fontWeight:600}}>{mappedCount}/{fileRows.length} matched</span>
@@ -12095,20 +12124,32 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     return { projRev, projSpend: anySpend ? projSpend : null, projProfit: anySpend ? (projRev - projSpend) : null };
   })();
   // ── Goal-based "target" finish ──────────────────────────────────────────────
-  // Answers "where do I land if I HIT my monthly goals and stay on the current spend pace?"
-  // Revenue = each active campaign's full monthly goal × rate (the contracted target); spend =
-  // the same pace-projected spend used by the forecast above. Together: target revenue, but a
-  // realistic cost. This is stable from day 1 (unlike pace revenue, which is noisy early).
+  // Answers "where do I land if I HIT my monthly goals this month?" Revenue = each active
+  // campaign's full monthly goal × rate (the contracted target). Spend is NOT held flat — to
+  // deliver the extra impressions/views you'd spend proportionally more, so each campaign's spend
+  // is scaled up by its goal/so-far revenue ratio (i.e. its realized cost-per-impression held
+  // constant). SEM fee campaigns have fixed revenue, so their spend (overage) stays put.
   const monthGoalForecast = (() => {
     if (activeMonth !== thisMonth) return null;
-    let goalRev = 0, any = false;
-    filtered.forEach(c => {
-      const m = revenueMapForCampaign(c)[thisMonth] || 0; // full-goal monthly revenue (pre actual-delivery adjustment)
-      if (m > 0) { goalRev += m; any = true; }
+    let goalRev = 0, goalSpend = 0, any = false, anySpend = false;
+    rows.forEach(r => {
+      const cur = r.monthCells[thisMonth];
+      const gRev = revenueMapForCampaign(r.c)[thisMonth] || 0; // full-goal monthly revenue (pre actual-delivery adjustment)
+      if (!(gRev > 0)) return;
+      goalRev += gRev; any = true;
+      if (cur && cur.spend != null && cur.rev > 0) {
+        // Proportional: hold this campaign's realized spend-to-revenue ratio constant and apply it to
+        // the full goal revenue. The pace-projection scale factor cancels out, so this equals
+        // projSpend × (goalRev / projRev) for the campaign — spend rises in step with the delivery.
+        goalSpend += gRev * (cur.spend / cur.rev); anySpend = true;
+      } else if (cur && cur.spend != null) {
+        // Spent but nothing earned yet (no impressions/views logged) → no efficiency signal to scale;
+        // carry the actual spend so far so it isn't dropped from the total.
+        goalSpend += cur.spend; anySpend = true;
+      }
     });
     if (!any) return null;
-    const projSpend = monthForecast ? monthForecast.projSpend : null;
-    return { goalRev, projSpend, goalProfit: projSpend != null ? goalRev - projSpend : null };
+    return { goalRev, projSpend: anySpend ? goalSpend : null, goalProfit: anySpend ? (goalRev - goalSpend) : null };
   })();
   const quarterForecast = (() => {
     const q = Math.floor(now.getMonth() / 3);
@@ -12359,23 +12400,26 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           <div style={{display:"flex",gap:22,flexWrap:"wrap",alignItems:"flex-start"}}>
             <div>
               <div style={{fontSize:9,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>{focusLabelShort} · at current pace</div>
-              <div style={{fontSize:20,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1}}>{$fc(monthForecast.projRev)}</div>
+              <div style={{fontSize:20,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1}}>{$fc(monthForecast.projRev)}<span style={{fontSize:9,fontWeight:600,color:_lm?"#94a3b8":"#4d6e8a",marginLeft:4}}>revenue</span></div>
+              {monthForecast.projSpend!=null && <div style={{fontSize:11,fontWeight:700,color:"#f59e0b",marginTop:3}}>{$fc(monthForecast.projSpend)} spend</div>}
               {monthForecast.projProfit!=null && <div style={{fontSize:11,fontWeight:700,color:profitColor(monthForecast.projProfit),marginTop:3}}>{(monthForecast.projProfit>=0?"+":"")+$fk(monthForecast.projProfit)} profit</div>}
             </div>
             {monthGoalForecast && (
               <div style={{paddingLeft:22,borderLeft:`1px solid ${_lm?"#e2e8f0":"#1e3a52"}`}}>
                 <div style={{fontSize:9,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>{focusLabelShort} · if you hit goal</div>
-                <div style={{fontSize:20,fontWeight:800,color:_lm?"#0d9488":"#5eead4",lineHeight:1}}>{$fc(monthGoalForecast.goalRev)}</div>
+                <div style={{fontSize:20,fontWeight:800,color:_lm?"#0d9488":"#5eead4",lineHeight:1}}>{$fc(monthGoalForecast.goalRev)}<span style={{fontSize:9,fontWeight:600,color:_lm?"#94a3b8":"#4d6e8a",marginLeft:4}}>revenue</span></div>
+                {monthGoalForecast.projSpend!=null && <div style={{fontSize:11,fontWeight:700,color:"#f59e0b",marginTop:3}}>{$fc(monthGoalForecast.projSpend)} spend</div>}
                 {monthGoalForecast.goalProfit!=null && <div style={{fontSize:11,fontWeight:700,color:profitColor(monthGoalForecast.goalProfit),marginTop:3}}>{(monthGoalForecast.goalProfit>=0?"+":"")+$fk(monthGoalForecast.goalProfit)} profit</div>}
               </div>
             )}
             <div style={{paddingLeft:22,borderLeft:`1px solid ${_lm?"#e2e8f0":"#1e3a52"}`}}>
               <div style={{fontSize:9,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>{quarterForecast.label}</div>
-              <div style={{fontSize:20,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1}}>{$fc(quarterForecast.rev)}</div>
+              <div style={{fontSize:20,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1}}>{$fc(quarterForecast.rev)}<span style={{fontSize:9,fontWeight:600,color:_lm?"#94a3b8":"#4d6e8a",marginLeft:4}}>revenue</span></div>
+              {quarterForecast.profit!=null && <div style={{fontSize:11,fontWeight:700,color:"#f59e0b",marginTop:3}}>{$fc(quarterForecast.rev-quarterForecast.profit)} spend</div>}
               {quarterForecast.profit!=null && <div style={{fontSize:11,fontWeight:700,color:profitColor(quarterForecast.profit),marginTop:3}}>{(quarterForecast.profit>=0?"+":"")+$fk(quarterForecast.profit)} profit</div>}
             </div>
           </div>
-          <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:8}}>At current pace = today's delivery & spend rate extended to each campaign's flight end. If you hit goal = full monthly goals × rate, with spend held at the current pace. Quarter = closed months + this month's pace forecast + projected.</div>
+          <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:8}}>At current pace = today's delivery & spend rate extended to each campaign's flight end. If you hit goal = full monthly goals × rate, with spend scaled up proportionally to the extra delivery (cost-per-impression held constant). Quarter = closed months + this month's pace forecast + projected.</div>
         </div>
       )}
 
@@ -12433,15 +12477,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       </div>
                       {/* Positive bar zone */}
                       <div style={{height:POS_H,display:"flex",alignItems:"flex-end",justifyContent:"center",position:"relative"}}>
-                        {/* Projected $ — pinned just ABOVE the dotted pace line. Actual $ pinned just BELOW the
-                            realized line once the bar is tall enough; while the bar is still a short sliver
-                            (early month) it flips ABOVE the bar so the zero baseline never cuts through it.
-                            Opposite sides of the lines means projected/actual never collide as they converge. */}
+                        {/* Projected $ (green) pinned just ABOVE the dotted pace line = the at-current-pace
+                            month-end finish. The "earned so far" $ (electric blue) sits just BELOW the bar
+                            (see the negative zone) so it's readable instead of buried in the green fill. */}
                         {projPos && (
-                          <div style={{position:"absolute",left:0,right:0,bottom:Math.min(POS_H+4, ghostPosH+3),display:"flex",justifyContent:"center",fontSize:10,fontWeight:700,color:_lm?"#0d9488":"#34d399",zIndex:3,pointerEvents:"none",whiteSpace:"nowrap"}}>{(projProfit>=0?"+":"")+$fk(projProfit)}</div>
-                        )}
-                        {projPos && posH > 0 && (
-                          <div style={{position:"absolute",left:0,right:0,bottom: posH >= 16 ? posH - 13 : posH + 2,display:"flex",justifyContent:"center",fontSize:10,fontWeight:800,color:_lm?"#0066cc":"#00a3ff",zIndex:4,pointerEvents:"none",whiteSpace:"nowrap"}}>{(profit>=0?"+":"")+$fk(profit)}</div>
+                          <div title={`Projected month-end profit at current pace`} style={{position:"absolute",left:0,right:0,bottom:Math.min(POS_H+4, ghostPosH+3),display:"flex",justifyContent:"center",fontSize:10,fontWeight:700,color:_lm?"#0d9488":"#34d399",zIndex:3,pointerEvents:"none",whiteSpace:"nowrap"}}>{(projProfit>=0?"+":"")+$fk(projProfit)}</div>
                         )}
                         {projPos ? (
                           <div title={`${label} '${yr}: ${$f(profit)} earned so far → ${$f(projProfit)} projected at current pace`}
@@ -12466,6 +12506,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       <div style={{height:2,background:_lm?"#cbd5e1":"#1a2744",margin:"0 -4px"}}/>
                       {/* Negative bar zone */}
                       <div style={{height:NEG_H,display:"flex",alignItems:"flex-start",justifyContent:"center",position:"relative"}}>
+                        {/* "Earned so far" (electric blue), just below the baseline — readable, distinct from
+                            the green projected-finish number above the bar. */}
+                        {projPos && posH > 0 && (
+                          <div title="Profit earned so far this month" style={{position:"absolute",top:3,left:0,right:0,textAlign:"center",fontSize:11,fontWeight:800,color:_lm?"#0066cc":"#00a3ff"}}>{(profit>=0?"+":"")+$fk(profit)}</div>
+                        )}
                         {projNeg ? (
                           <div title={`${label} '${yr}: ${$f(profit)} so far → ${$f(projProfit)} projected loss at current pace`}
                             style={{position:"relative",width:"100%",maxWidth:42,height:ghostNegH,display:"flex",alignItems:"flex-start",justifyContent:"center"}}>
