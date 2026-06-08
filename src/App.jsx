@@ -7028,7 +7028,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         : (v>=1000000?(v/1000000).toFixed(1)+"M":v>=1000?(v/1000).toFixed(1)+"K":String(Math.round(v)));
       const fmtFull=v=> isMoney ? "$"+Math.round(v).toLocaleString() : Math.round(v).toLocaleString();
       const lab=k=>new Date(k).toLocaleDateString("en-US",{month:"short",day:"2-digit"});
-      const pts=chartData.map((w,i)=>`${((i+0.5)/n*100).toFixed(2)},${(6+(1-w.c/clkMax)*88).toFixed(2)}`).join(" ");
       // Per-week pace color: compare that week's delivery to its expected share of
       // the monthly goal (expected = goal/day × days that week covers, capped at
       // today so the current partial week isn't unfairly flagged behind).
@@ -7072,7 +7071,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                 <span key={p.l} style={{display:"flex",alignItems:"center",gap:4,fontSize:9,color:lmTxtS}}><span style={{width:9,height:9,borderRadius:2,background:p.c,display:"inline-block"}}/>{p.l}</span>
               ))}
               {perDay>0&&<span style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:lmTxtS}}><span style={{width:14,height:0,borderTop:`2px dotted ${goalColor}`,display:"inline-block"}}/>Goal/{isDaily?"day":"wk"}</span>}
-              <span style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:lmTxtS}}><span style={{width:14,height:2,background:lineColor,display:"inline-block"}}/>Clicks</span>
+              <span style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:lmTxtS}}><span style={{width:7,height:7,borderRadius:"50%",background:lineColor,display:"inline-block"}}/>Clicks</span>
             </div>
           </div>
           <div style={{display:"flex",gap:8}}>
@@ -7095,16 +7094,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                     </div>
                   ))}
                 </div>
-                {/* dotted goal line — where each bar SHOULD reach to be on the daily (or weekly) goal pace */}
+                {/* dotted goal line — where each bar SHOULD reach to be on the daily (or weekly) goal pace.
+                    A small label pinned to its left end calls out the actual per-day (or per-week) target #. */}
                 {perDay>0 && (
                   <div title={`Goal pace ≈ ${fmtFull(goalPerBucket)} ${barLabel.toLowerCase()} per ${isDaily?"day":"week"}`}
-                    style={{position:"absolute",left:0,right:0,bottom:`${Math.min(96,(goalPerBucket/barMax)*88)}%`,height:0,borderTop:`2px dotted ${goalColor}`,pointerEvents:"none",zIndex:1}}/>
+                    style={{position:"absolute",left:0,right:0,bottom:`${Math.min(96,(goalPerBucket/barMax)*88)}%`,height:0,borderTop:`2px dotted ${goalColor}`,pointerEvents:"none",zIndex:2}}>
+                    <span style={{position:"absolute",left:1,bottom:1,fontSize:8,fontWeight:800,color:goalColor,background:lightMode?"#f8fafce0":"#050b14e0",padding:"0 3px",borderRadius:3,whiteSpace:"nowrap",lineHeight:1.35}}>{fmtFull(goalPerBucket)}/{isDaily?"day":"wk"}</span>
+                  </div>
                 )}
-                {/* clicks line */}
-                <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{position:"absolute",inset:0,width:"100%",height:"100%",overflow:"visible",pointerEvents:"none"}}>
-                  <polyline points={pts} fill="none" stroke={lineColor} strokeWidth={2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round"/>
-                </svg>
-                {/* clicks dots */}
+                {/* clicks dots — plotted points only (no connecting line, to keep the goal line readable) */}
                 {chartData.map((w,i)=>(
                   <div key={w.k} title={`${lab(w.k)} — ${w.c.toLocaleString()} clicks`}
                     style={{position:"absolute",left:`${(i+0.5)/n*100}%`,top:`${6+(1-w.c/clkMax)*88}%`,transform:"translate(-50%,-50%)",width:7,height:7,borderRadius:"50%",background:lineColor,border:`1px solid ${lightMode?"#ffffff":"#050b14"}`}}/>
