@@ -116,6 +116,35 @@ function parseSeriesDate(s){
 }
 // Same, but returns "YYYY-MM" (the month bucket) or null — for month-matching readers.
 function seriesDateYM(s){ const d=parseSeriesDate(s); return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}` : null; }
+// One-time repair for stale "pre-reset" check-in entries. If a month's reset is run AFTER some
+// check-ins that still carried the prior month's running total, those leave a metricSeries entry whose
+// cumulative MTD is impossibly HIGHER than every later reading that same month. Cumulative MTD can only
+// rise within a month, so such an entry is bad data — drop it. Conservative: removes an entry only when
+// its impressions exceed the MAX of all later same-month readings (a true impossible total), so it never
+// touches a normal day or a one-off dip. Idempotent. Returns { list, removed }.
+function repairMetricSeries(list){
+  let removed = 0;
+  const out = (list||[]).map(c=>{
+    const ms = Array.isArray(c?.metricSeries) ? c.metricSeries : null;
+    if(!ms || ms.length < 2) return c;
+    const tagged = ms.map((e,idx)=>{ const d=parseSeriesDate(e?.d); return { idx, mk: d?`${d.getFullYear()}-${d.getMonth()}`:null, t: d?d.getTime():0, i: parseInt(e?.i)||0 }; });
+    const byMonth = {};
+    tagged.forEach(o=>{ if(o.mk==null) return; (byMonth[o.mk]=byMonth[o.mk]||[]).push(o); });
+    const drop = new Set();
+    Object.values(byMonth).forEach(g=>{
+      if(g.length < 2) return;
+      g.sort((a,b)=>a.t-b.t);
+      for(let i=0;i<g.length-1;i++){
+        let maxLater=0; for(let j=i+1;j<g.length;j++) maxLater=Math.max(maxLater, g[j].i);
+        if(maxLater>0 && g[i].i > maxLater && g[i].i > 1000) drop.add(g[i].idx);
+      }
+    });
+    if(!drop.size) return c;
+    removed += drop.size;
+    return { ...c, metricSeries: ms.filter((_,idx)=>!drop.has(idx)) };
+  });
+  return { list: out, removed };
+}
 function fmt(d) { return d.toISOString().split("T")[0]; }
 function getDaysLeft(endDate) {
   const t = new Date(); t.setHours(0,0,0,0);
@@ -6713,6 +6742,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         .filter(e=>e.d && e.d.getMonth()===now.getMonth() && e.d.getFullYear()===now.getFullYear())
         .sort((a,b)=>a.d-b.d);
       if(!rd.length) return { weekly:[], daily:[] };
+      // Trim a corrupt LEADING reading whose MTD is higher than the readings that follow it. Within a
+      // month cumulative MTD can only rise, so a first reading that's higher than the next two is a
+      // stray/duplicate total dated too early — left in, it dumps the whole month onto day 1. (Dips and
+      // mid-series spikes are handled by the clamp + running-max below; this only removes a bogus head.)
+      while (rd.length > 3 && rd[0].i > rd[1].i && rd[0].i > rd[2].i) rd.shift();
       // Cap each reading at the LATEST reading's MTD (spike guard), then take NEW delivery beyond the
       // running max (dip guard) — so the bars sum to the real month-to-date regardless of spikes/dips.
       const last = rd[rd.length-1];
@@ -6981,9 +7015,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       else { barField="i"; barLabel="Impressions"; }
       const isMoney=barField==="s";
       const val=w=>w[barField]||0;
-      const barMax=Math.max(...chartData.map(val),1);
+      const perDay=monthlyGoal>0 ? monthlyGoal/dim : 0;   // expected delivery per DAY
+      const goalPerBucket=perDay*(isDaily?1:7);            // expected per bar (1 day in daily view, 7 in weekly)
+      const barMax=Math.max(...chartData.map(val), goalPerBucket, 1); // include the goal so its line is always visible
       const clkMax=Math.max(...chartData.map(w=>w.c),1);
-      const lineColor=lightMode?"#0f172a":"#fbbf24";
+      const lineColor=lightMode?"#0284c7":"#00a3ff";       // clicks line — electric blue
+      const goalColor=lightMode?"#9333ea":"#c084fc";       // daily/weekly goal line — purple
       const grid=lightMode?"#e2e8f0":"#1a2744";
       const neutralBar=lightMode?"#1d4ed8":"#3b82f6";
       const fmtK=v=> isMoney
@@ -6999,7 +7036,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       const mStart=new Date(now.getFullYear(),now.getMonth(),1);
       const mEnd=new Date(now.getFullYear(),now.getMonth()+1,0);
       const today0=new Date(now.getFullYear(),now.getMonth(),now.getDate());
-      const perDay=monthlyGoal>0 ? monthlyGoal/dim : 0;
       const C_GREEN=lmC("#00d48a"), C_YELLOW=lmC("#fbbf24"), C_ORANGE=lmC("#f97316"), C_RED=lmC("#ef4444");
       const weekColor=w=>{
         if(!perDay) return neutralBar;          // no goal → can't judge pace
@@ -7035,6 +7071,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               {perDay>0&&paceKey.map(p=>(
                 <span key={p.l} style={{display:"flex",alignItems:"center",gap:4,fontSize:9,color:lmTxtS}}><span style={{width:9,height:9,borderRadius:2,background:p.c,display:"inline-block"}}/>{p.l}</span>
               ))}
+              {perDay>0&&<span style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:lmTxtS}}><span style={{width:14,height:0,borderTop:`2px dotted ${goalColor}`,display:"inline-block"}}/>Goal/{isDaily?"day":"wk"}</span>}
               <span style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:lmTxtS}}><span style={{width:14,height:2,background:lineColor,display:"inline-block"}}/>Clicks</span>
             </div>
           </div>
@@ -7058,6 +7095,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                     </div>
                   ))}
                 </div>
+                {/* dotted goal line — where each bar SHOULD reach to be on the daily (or weekly) goal pace */}
+                {perDay>0 && (
+                  <div title={`Goal pace ≈ ${fmtFull(goalPerBucket)} ${barLabel.toLowerCase()} per ${isDaily?"day":"week"}`}
+                    style={{position:"absolute",left:0,right:0,bottom:`${Math.min(96,(goalPerBucket/barMax)*88)}%`,height:0,borderTop:`2px dotted ${goalColor}`,pointerEvents:"none",zIndex:1}}/>
+                )}
                 {/* clicks line */}
                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{position:"absolute",inset:0,width:"100%",height:"100%",overflow:"visible",pointerEvents:"none"}}>
                   <polyline points={pts} fill="none" stroke={lineColor} strokeWidth={2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round"/>
@@ -8006,8 +8048,12 @@ function calcMonthlyRevenue(c, monthIdx) {
 // Returns a { [YYYY-MM]: fee } map.
 // SEM monthly media budget (the client's spend goal / pass-through) — the "$X/Mo" in Note 1.
 function semMonthlyBudget(c) {
-  const m = String(c?.note1 || "").replace(/,/g, "").match(/\$\s*([\d.]+)\s*\/\s*mo/i);
-  return m ? parseFloat(m[1]) : 0;
+  const note = String(c?.note1 || "").replace(/,/g, "");
+  const mo = note.match(/\$\s*([\d.]+)\s*\/\s*mo/i);           // "$X/Mo"
+  if (mo) return parseFloat(mo[1]);
+  const day = note.match(/\$\s*([\d.]+)\s*\/\s*day/i);          // "$X/Day" → monthly = daily × days in the current month
+  if (day) { const n = new Date(); return parseFloat(day[1]) * new Date(n.getFullYear(), n.getMonth()+1, 0).getDate(); }
+  return 0;
 }
 // SEM monthly management fee = Recrue's profit when media stays within budget. From the Management
 // Fee field (also auto-imported from IO files). Treated as a MONTHLY fee, matching the monthly budget.
@@ -14911,6 +14957,13 @@ export default function App() {
   useEffect(()=>{ try { localStorage.setItem(STORAGE_KEY,JSON.stringify(campaigns)); setSaved(true); setSaveError(false); setTimeout(()=>setSaved(false),1400); } catch(e){ console.error(e); setSaveError(true); } },[campaigns]);
   useEffect(()=>{ try { localStorage.setItem(REMINDERS_KEY,JSON.stringify(reminders)); } catch(e){console.error(e);} },[reminders]);
   useEffect(()=>{ try { localStorage.setItem(ARCHIVE_KEY,JSON.stringify(archive)); } catch(e){ console.error(e); setSaveError(true); } },[archive]);
+  // One-time repair of stale pre-reset check-in entries on load (see repairMetricSeries). Idempotent —
+  // once cleaned there's nothing to remove, so it won't keep rewriting. Covers active + archived.
+  useEffect(()=>{
+    const rc = repairMetricSeries(campaigns); if(rc.removed > 0){ console.log(`[Zeus] cleaned ${rc.removed} stale check-in entr${rc.removed===1?"y":"ies"} (active)`); setCampaigns(rc.list); }
+    const ra = repairMetricSeries(archive);   if(ra.removed > 0){ console.log(`[Zeus] cleaned ${ra.removed} stale check-in entr${ra.removed===1?"y":"ies"} (archived)`); setArchive(ra.list); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
   useEffect(()=>{ const last=localStorage.getItem(EXPORT_KEY); if(!last){setShowExportReminder(true);return;} if((Date.now()-parseInt(last))/(1000*60*60*24)>=3) setShowExportReminder(true); },[]);
   // New-month detection: if the calendar month has advanced past the last reset we
   // handled, surface a one-click banner to clear last month's metrics. Never fires on
