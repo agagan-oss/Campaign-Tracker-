@@ -6001,29 +6001,65 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // reset-aware, spread over the days between drops), learns the average of the prior days, and
   // flags the latest day if it's a big spike or drop vs that learned norm. This is BEYOND simple
   // pacing — it catches "delivering 3× its usual" or "suddenly stopped" regardless of goal.
-  function deliveryAnomaly(c) {
-    const series = (Array.isArray(c.metricSeries) ? c.metricSeries : [])
-      .map(e => { const d = parseSeriesDate(e.d); return d ? { d, i: parseInt(e.i)||0 } : null; })
+  // Returns an array of NAMED metric anomalies for a campaign — each KPI (delivery, CTR, CPM, VCR)
+  // whose latest day swung far from that campaign's own learned daily norm. Built from check-in
+  // history with the same spike/dip-proof daily math as the delivery chart.
+  function campaignAnomalies(c) {
+    const raw = (Array.isArray(c.metricSeries) ? c.metricSeries : [])
+      .map(e => { const d = parseSeriesDate(e.d); return d ? { d, i:parseInt(e.i)||0, ck:parseInt(e.c)||0, s:parseFloat(e.s)||0, vv:parseInt(e.vv)||0, v:parseFloat(e.v)||0 } : null; })
       .filter(Boolean).sort((a, b) => a.d - b.d);
-    if (series.length < 4) return null; // need a few readings to learn a norm
-    const daily = []; let prev = null;
-    for (const e of series) {
-      if (prev) {
-        const days = Math.max(1, Math.round((e.d - prev.d) / 86400000));
-        const delta = e.i - prev.i;
-        if (delta >= 0) daily.push(delta / days); // skip resets (cumulative dropped)
+    if (raw.length < 4) return []; // need a few readings to learn a norm
+    // Clean per-day deltas: clamp each reading at the final MTD (spike guard) and take new delivery
+    // beyond the running max (dip guard) — so noisy history doesn't create phantom anomalies.
+    const last = raw[raw.length - 1];
+    const capI = last.i, capC = last.ck, capS = last.s, capVV = last.vv;
+    let maxI = 0, maxC = 0, maxS = 0, maxVV = 0, prevD = null;
+    const days = [];
+    for (const e of raw) {
+      const ei = Math.min(e.i, capI), ec = Math.min(e.ck, capC), es = Math.min(e.s, capS), evv = Math.min(e.vv, capVV);
+      if (prevD) {
+        const gap = Math.max(1, Math.round((e.d - prevD) / 86400000));
+        days.push({ i: Math.max(0, ei - maxI) / gap, ck: Math.max(0, ec - maxC) / gap, s: Math.max(0, es - maxS) / gap, vv: Math.max(0, evv - maxVV) / gap, vcr: e.v });
       }
-      prev = e;
+      maxI = Math.max(maxI, ei); maxC = Math.max(maxC, ec); maxS = Math.max(maxS, es); maxVV = Math.max(maxVV, evv);
+      prevD = e.d;
     }
-    if (daily.length < 3) return null;
-    const latest = daily[daily.length - 1];
-    const prior = daily.slice(0, -1);
-    const avg = prior.reduce((s, v) => s + v, 0) / prior.length;
-    if (avg < 200) return null; // too small to judge meaningfully
-    const ratio = latest / avg;
-    if (ratio >= 2.5) return { type: "spike", ratio, latest: Math.round(latest), avg: Math.round(avg) };
-    if (ratio <= 0.4) return { type: "drop", ratio, latest: Math.round(latest), avg: Math.round(avg) };
-    return null;
+    if (days.length < 3) return [];
+    const latest = days[days.length - 1];
+    const prior = days.slice(0, -1);
+    const mean = arr => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0;
+    const out = [];
+    // Flag a metric when its latest value deviates from the prior-day average beyond the thresholds.
+    const check = (label, metric, latestVal, priorVals, o) => {
+      const valid = priorVals.filter(v => v > 0);
+      if (valid.length < 2) return;
+      const avg = mean(valid);
+      if (avg <= 0 || avg < (o.floor || 0)) return;
+      if (!(latestVal > 0) && !o.allowZero) { if (latestVal !== 0) return; }
+      const ratio = latestVal / avg;
+      if (ratio >= o.spike) out.push({ metric, label, type: "spike", ratio, latest: latestVal, avg, unit: o.unit });
+      else if (ratio <= o.drop) out.push({ metric, label, type: "drop", ratio, latest: latestVal, avg, unit: o.unit });
+    };
+    // Primary delivery metric (impressions / views / spend, by platform)
+    const mk = pacingMetricFor(c.platform);
+    if (mk === "views")      check("Views",  "views",  latest.vv, prior.map(d=>d.vv), { spike:2.5, drop:0.4, floor:50,  unit:"count" });
+    else if (mk === "spend") check("Spend",  "spend",  latest.s,  prior.map(d=>d.s),  { spike:2.5, drop:0.4, floor:50,  unit:"spend" });
+    else                     check("Impr",   "impr",   latest.i,  prior.map(d=>d.i),  { spike:2.5, drop:0.4, floor:200, unit:"count" });
+    // CTR — only when the latest day has real volume (else the daily ratio is just noise)
+    if (latest.i >= 500) {
+      const dayCtr = d => d.i >= 300 ? (d.ck / d.i) : null;
+      check("CTR", "ctr", latest.ck / latest.i, prior.map(dayCtr).filter(v=>v!=null), { spike:2.0, drop:0.5, unit:"ctr" });
+    }
+    // CPM — needs spend + volume
+    if (latest.i >= 500 && latest.s > 0) {
+      const dayCpm = d => (d.i >= 300 && d.s > 0) ? (d.s / d.i * 1000) : null;
+      check("CPM", "cpm", latest.s / latest.i * 1000, prior.map(dayCpm).filter(v=>v!=null), { spike:2.0, drop:0.5, unit:"cpm" });
+    }
+    // VCR (video completion rate) — the recorded rate directly
+    if (latest.vcr > 0) {
+      check("VCR", "vcr", latest.vcr, prior.map(d=>d.vcr).filter(v=>v>0), { spike:1.8, drop:0.55, floor:5, unit:"vcr" });
+    }
+    return out;
   }
 
   // Parse a check-in log line like "2026-05-23 | 41,045 impr | ..." → { dateStr, impr }
@@ -6099,13 +6135,19 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const deliveryAnomalies = (() => {
     const out = [];
     filtered.forEach(({ c }) => {
-      const a = deliveryAnomaly(c);
-      if (a) out.push({ c, ...a });
+      const items = campaignAnomalies(c);
+      if (items.length) {
+        // most severe metric first within each campaign
+        items.sort((a, b) => Math.abs(Math.log(b.ratio || 1)) - Math.abs(Math.log(a.ratio || 1)));
+        out.push({ c, items });
+      }
     });
-    // biggest deviation first (spikes by ratio desc, drops by ratio asc → both = furthest from 1)
-    out.sort((x, y) => Math.abs(Math.log(y.ratio || 1)) - Math.abs(Math.log(x.ratio || 1)));
+    // campaigns with the single biggest deviation first
+    const sev = a => Math.max(...a.items.map(it => Math.abs(Math.log(it.ratio || 1))));
+    out.sort((x, y) => sev(y) - sev(x));
     return out;
   })();
+  const anomalyCount = deliveryAnomalies.reduce((s, a) => s + a.items.length, 0);
 
   // ── Yesterday's delivery helper ─────────────────────────────────────────
   // Returns the impressions/views/spend delivered yesterday. Two strategies,
@@ -7403,7 +7445,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           border:`1px solid ${showAnomalies?(lightMode?"#d946ef":"#e879f960"):lmBrd}`,
           color:showAnomalies?(lightMode?"#a21caf":"#e879f9"):lmTxtS}}>
         🔍 Anomalies
-        {deliveryAnomalies.length>0 && <span style={{background:lightMode?"#f5d0fe":"#701a75",color:lightMode?"#86198f":"#f0abfc",borderRadius:9,padding:"0 6px",fontSize:10,fontWeight:800}}>{deliveryAnomalies.length}</span>}
+        {anomalyCount>0 && <span style={{background:lightMode?"#f5d0fe":"#701a75",color:lightMode?"#86198f":"#f0abfc",borderRadius:9,padding:"0 6px",fontSize:10,fontWeight:800}}>{anomalyCount}</span>}
       </button>
       <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
         <span style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
@@ -7558,28 +7600,42 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     {showAnomalies && (
       <div style={{background:lightMode?"#fdf4ff":"#1a0f20",border:`1px solid ${lightMode?"#f0abfc":"#a21caf55"}`,borderRadius:9,padding:"10px 14px",marginBottom:12}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:deliveryAnomalies.length?8:0,flexWrap:"wrap"}}>
-          <span style={{fontSize:12,fontWeight:800,color:lightMode?"#a21caf":"#e879f9"}}>🔍 Delivery Anomalies ({deliveryAnomalies.length})</span>
-          <span style={{fontSize:10,color:lmTxtS}}>Campaigns delivering far above or below their own usual daily rate — learned from check-in history.</span>
+          <span style={{fontSize:12,fontWeight:800,color:lightMode?"#a21caf":"#e879f9"}}>🔍 KPI Anomalies ({anomalyCount})</span>
+          <span style={{fontSize:10,color:lmTxtS}}>KPIs (delivery, CTR, CPM, VCR) that swung far from each campaign's own usual daily rate — learned from check-in history.</span>
         </div>
-        {deliveryAnomalies.length===0
-          ? <div style={{fontSize:11,color:lmTxtS}}>No unusual delivery swings — every campaign is running near its normal daily pace. (Needs a few check-ins per campaign to learn a baseline.)</div>
+        {(()=>{
+          // Format an anomaly's value by its unit so the tooltip reads in the metric's real terms.
+          const fmtAnom=(v,unit)=> unit==="ctr" ? (v*100).toFixed(3)+"%"
+            : unit==="vcr" ? v.toFixed(1)+"%"
+            : unit==="cpm" ? "$"+v.toFixed(2)
+            : unit==="spend" ? "$"+fmtN(Math.round(v))
+            : fmtN(Math.round(v));
+          return deliveryAnomalies.length===0
+          ? <div style={{fontSize:11,color:lmTxtS}}>No unusual KPI swings — every campaign is running near its normal daily numbers. (Needs a few check-ins per campaign to learn a baseline.)</div>
           : <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {deliveryAnomalies.map(a=>{
-                const isSpike=a.type==="spike";
-                const col=isSpike?(lightMode?"#7c3aed":"#c4b5fd"):(lightMode?"#dc2626":"#f87171");
-                return (
+              {deliveryAnomalies.map(a=>(
                   <div key={a.c.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:lmBg,border:`1px solid ${lmBrdR}`,borderRadius:7}}>
                     {(()=>{ const pc=PLT_COLORS[a.c.platform]||PLT_COLORS.default; return <span style={{...vBadge(pc),borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{a.c.platform}</span>; })()}
                     <span style={{fontSize:12,fontWeight:700,color:lmTxt,minWidth:150,flex:"0 1 auto",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={a.c.campaignName.trim()}>{a.c.campaignName.trim()}</span>
                     <span style={{fontSize:10,color:lmTxtS,whiteSpace:"nowrap"}}>{a.c.mediaPartner}</span>
-                    <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:col,background:col+(lightMode?"14":"22"),border:`1px solid ${col}${lightMode?"33":"45"}`,borderRadius:5,padding:"2px 8px",whiteSpace:"nowrap"}}
-                      title={`Latest day ≈ ${a.latest.toLocaleString()}/day vs usual ≈ ${a.avg.toLocaleString()}/day`}>
-                      {isSpike?"▲ spike":"▼ drop"} · {a.ratio>=1?a.ratio.toFixed(1)+"×":Math.round(a.ratio*100)+"%"} of usual
-                    </span>
+                    <div style={{marginLeft:"auto",display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                      {a.items.map((it,idx)=>{
+                        const isSpike=it.type==="spike";
+                        const col=isSpike?(lightMode?"#7c3aed":"#c4b5fd"):(lightMode?"#dc2626":"#f87171");
+                        const mag=isSpike ? (it.ratio>=2 ? it.ratio.toFixed(1)+"×" : "+"+Math.round((it.ratio-1)*100)+"%")
+                                          : "−"+Math.round((1-it.ratio)*100)+"%";
+                        return (
+                          <span key={idx} style={{fontSize:10,fontWeight:700,color:col,background:col+(lightMode?"14":"22"),border:`1px solid ${col}${lightMode?"33":"45"}`,borderRadius:5,padding:"2px 8px",whiteSpace:"nowrap"}}
+                            title={`${it.label}: latest ≈ ${fmtAnom(it.latest,it.unit)}/day vs usual ≈ ${fmtAnom(it.avg,it.unit)}/day`}>
+                            {it.label} {isSpike?"▲":"▼"} {mag}
+                          </span>
+                        );
+                      })}
+                    </div>
                   </div>
-                );
-              })}
-            </div>}
+              ))}
+            </div>;
+        })()}
       </div>
     )}
 
@@ -11093,9 +11149,12 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
 
                         const showingAll = showAllMap[i];
 
-                        // Respect the user's left-panel platform + search filters in the assign dropdown.
-                        // "show all" bypasses these to reveal every campaign.
+                        // Respect the user's left-panel selection + platform + search filters in the
+                        // assign dropdown. "show all" bypasses these to reveal every campaign.
                         const qciPool = showingAll ? assignPool : assignPool.filter(c => {
+                          // If the user has CHECKED campaigns on the left, they've told us exactly which
+                          // campaign(s) this file is for — restrict the dropdown to just those.
+                          if (selected.size > 0 && !selected.has(c.id)) return false;
                           if (qciPlatforms.size > 0 && !qciPlatforms.has(c.platform)) return false;
                           if (qciSearch) {
                             const q = qciSearch.toLowerCase();
@@ -11133,7 +11192,9 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                         if (assignedCamp && !displayList.some(c=>String(c.id)===String(assignedCamp.id))) {
                           displayList = [assignedCamp, ...displayList];
                         }
-                        const isFiltered = hasSmartMatch && displayList.length < pool.length;
+                        // Show the "show all" escape hatch whenever the list is narrowed — by the smart
+                        // filter OR by a left-panel selection — so the user can always reach every campaign.
+                        const isFiltered = (hasSmartMatch && displayList.length < pool.length) || (selected.size > 0 && !showingAll);
 
                         return (
                           <div style={{display:"flex",flexDirection:"column",gap:2,minWidth:160,maxWidth:230}}>
