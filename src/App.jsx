@@ -6528,6 +6528,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   function TableRow({c,disp,pacing,monthlyGoal}){
     const [rowBreakdownOpen, setRowBreakdownOpen] = useState(false);
+    // Weekly/Daily chart toggle. Per-row state (so toggling doesn't remount/collapse the row), but the
+    // choice is persisted as the default — so every row you open uses your last-picked granularity.
+    const [chartView, setChartView] = useState(()=>{ try { return localStorage.getItem("pacing-chart-view")==="daily" ? "daily" : "weekly"; } catch { return "weekly"; } });
+    const pickChartView = v => { setChartView(v); try { localStorage.setItem("pacing-chart-view", v); } catch {} };
     const now=pacingNow(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
     // Expected-by-now comes from the pacing calc, which is flight-aware (prorated to the
     // campaign's end date for mid-month flights) — keeps the Gap column in sync with the bar.
@@ -6652,55 +6656,52 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // Derived from Quick Check-in history (metricSeries), current month only —
     // the series is MTD-cumulative and resets each month, so we diff consecutive
     // readings (idx 0 is the month-to-date baseline) and bucket by Monday week.
-    const weekly = (()=>{
+    // Build BOTH a weekly (Monday-bucketed) and a daily (per-day) delivery series from the same
+    // check-in history, so the dropdown can toggle between them. Same spike/dip-proof math for both;
+    // only the bucket key differs (Monday-of-week vs the day itself).
+    const { weekly, daily } = (()=>{
       const series = Array.isArray(c.metricSeries) ? c.metricSeries : [];
-      if(series.length < 1) return [];
+      if(series.length < 1) return { weekly:[], daily:[] };
       const parseD = parseSeriesDate; // tolerates ISO (what QCI writes) AND MM/DD/YYYY
-      const monday = dt => { const x=new Date(dt); const dow=x.getDay(); x.setDate(x.getDate()-((dow+6)%7)); x.setHours(0,0,0,0); return x; };
+      const monday   = dt => { const x=new Date(dt); const dow=x.getDay(); x.setDate(x.getDate()-((dow+6)%7)); x.setHours(0,0,0,0); return x; };
+      const dayStart = dt => { const x=new Date(dt); x.setHours(0,0,0,0); return x; };
       const DAY = 86400000;
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const rd = series.map(e=>({d:parseD(e.d), i:+e.i||0, ck:+e.c||0, s:+e.s||0, vv:+e.vv||0}))
         .filter(e=>e.d && e.d.getMonth()===now.getMonth() && e.d.getFullYear()===now.getFullYear())
         .sort((a,b)=>a.d-b.d);
-      if(!rd.length) return [];
-      const bk=new Map();
-      // Spread each reading's delivery evenly across the calendar days it covers, then
-      // bucket each day into its Monday–Sunday week. This way a multi-day gap (weekend,
-      // day off) splits its delivery across the weeks it actually spans, instead of
-      // dumping the whole catch-up amount into the week of the next drop. Even daily
-      // split — assumes steady pace between drops (budgets rarely change on days off).
-      const spread = (start, end, i, c, s, vv) => {
-        const n = Math.max(1, Math.round((end - start)/DAY) + 1);
-        const fi=i/n, fc=c/n, fs=s/n, fvv=vv/n;
-        for(let t=0;t<n;t++){ const k=monday(new Date(start.getTime()+t*DAY)).getTime();
-          const o=bk.get(k)||{i:0,c:0,s:0,vv:0}; o.i+=fi; o.c+=fc; o.s+=fs; o.vv+=fvv; bk.set(k,o); }
-      };
-      // Daily delivery = NEW delivery beyond the highest month-to-date value seen so far. Within one
-      // month MTD is cumulative and only rises; a DIP (a revised-down report, or one day's CSV missing
-      // a rolled-up ad-set row) is noise. The old code treated every dip as a fresh "reset" and re-added
-      // the full reading, which double-counted on every bounce and inflated the weekly totals far above
-      // the real MTD. Tracking a running max per metric makes the bars sum to the actual delivery.
-      // (rd is already filtered to THIS month, so there is no true mid-series month reset to handle.)
-      // Also cap each reading at the LATEST reading's MTD (per metric). A cumulative month-to-date
-      // can't truly exceed where it ends up, so a transient SPIKE (a bad import, a one-off over-count)
-      // is clamped away instead of dominating the total. Running-max then absorbs dips. Together the
-      // bars sum to the real MTD regardless of spikes or dips in the check-in history.
+      if(!rd.length) return { weekly:[], daily:[] };
+      // Cap each reading at the LATEST reading's MTD (spike guard), then take NEW delivery beyond the
+      // running max (dip guard) — so the bars sum to the real month-to-date regardless of spikes/dips.
       const last = rd[rd.length-1];
       const capI=last.i, capC=last.ck, capS=last.s, capVV=last.vv;
-      let maxI=0, maxC=0, maxS=0, maxVV=0, pd=null;
-      rd.forEach((e,idx)=>{
-        const ei=Math.min(e.i,capI), ec=Math.min(e.ck,capC), es=Math.min(e.s,capS), evv=Math.min(e.vv,capVV);
-        const di  = Math.max(0, ei  - maxI);
-        const dc  = Math.max(0, ec  - maxC);
-        const ds  = Math.max(0, es  - maxS);
-        const dvv = Math.max(0, evv - maxVV);
-        // First reading spreads from the 1st of the month → its date; later readings span (prev day +1) → this day.
-        const start = idx===0 ? new Date(monthStart) : new Date(pd.getTime()+DAY);
-        spread(start, e.d, di, dc, ds, dvv);
-        maxI=Math.max(maxI,ei); maxC=Math.max(maxC,ec); maxS=Math.max(maxS,es); maxVV=Math.max(maxVV,evv);
-        pd=e.d;
-      });
-      return [...bk.entries()].sort((a,b)=>a[0]-b[0]).map(([k,o])=>({k, i:Math.round(o.i), c:Math.round(o.c), s:Math.round(o.s*100)/100, vv:Math.round(o.vv)}));
+      // build a bucket series given a key function (Monday-of-week for weekly, day-start for daily).
+      const build = (keyFn) => {
+        const bk=new Map();
+        // Spread each reading's delivery evenly across the calendar days it covers, then bucket each
+        // day. A multi-day gap splits its delivery across the days/weeks it actually spans.
+        const spread = (start, end, i, c, s, vv) => {
+          const n = Math.max(1, Math.round((end - start)/DAY) + 1);
+          const fi=i/n, fc=c/n, fs=s/n, fvv=vv/n;
+          for(let t=0;t<n;t++){ const k=keyFn(new Date(start.getTime()+t*DAY)).getTime();
+            const o=bk.get(k)||{i:0,c:0,s:0,vv:0}; o.i+=fi; o.c+=fc; o.s+=fs; o.vv+=fvv; bk.set(k,o); }
+        };
+        let maxI=0, maxC=0, maxS=0, maxVV=0, pd=null;
+        rd.forEach((e,idx)=>{
+          const ei=Math.min(e.i,capI), ec=Math.min(e.ck,capC), es=Math.min(e.s,capS), evv=Math.min(e.vv,capVV);
+          const di  = Math.max(0, ei  - maxI);
+          const dc  = Math.max(0, ec  - maxC);
+          const ds  = Math.max(0, es  - maxS);
+          const dvv = Math.max(0, evv - maxVV);
+          // First reading spreads from the 1st of the month → its date; later readings span (prev day +1) → this day.
+          const start = idx===0 ? new Date(monthStart) : new Date(pd.getTime()+DAY);
+          spread(start, e.d, di, dc, ds, dvv);
+          maxI=Math.max(maxI,ei); maxC=Math.max(maxC,ec); maxS=Math.max(maxS,es); maxVV=Math.max(maxVV,evv);
+          pd=e.d;
+        });
+        return [...bk.entries()].sort((a,b)=>a[0]-b[0]).map(([k,o])=>({k, i:Math.round(o.i), c:Math.round(o.c), s:Math.round(o.s*100)/100, vv:Math.round(o.vv)}));
+      };
+      return { weekly: build(monday), daily: build(dayStart) };
     })();
     const hasWeekly = weekly.length > 0 && weekly.some(w=>w.i>0 || w.c>0 || w.s>0 || w.vv>0);
     const canExpand = !!rowBreakdown || hasWeekly;
@@ -6926,17 +6927,20 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         expected weekly pace; line = weekly clicks (right axis). Built from Quick
         Check-in history, current month only. Sparse until check-ins accumulate. */}
     {rowBreakdownOpen&&hasWeekly&&(()=>{
-      const n=weekly.length;
+      // Active series follows the Weekly/Daily toggle (both built from the same history above).
+      const isDaily = chartView==="daily";
+      const chartData = isDaily ? daily : weekly;
+      const n=chartData.length;
       // Bar metric follows the row's pacing metric. Views aren't always retained in
       // older history, so YT falls back to impressions when no view data exists yet.
       let barField, barLabel;
       if(metricKind==="spend"){ barField="s"; barLabel="Spend"; }
-      else if(metricKind==="views"){ const hasVV=weekly.some(w=>w.vv>0); barField=hasVV?"vv":"i"; barLabel=hasVV?"Views":"Impressions"; }
+      else if(metricKind==="views"){ const hasVV=chartData.some(w=>w.vv>0); barField=hasVV?"vv":"i"; barLabel=hasVV?"Views":"Impressions"; }
       else { barField="i"; barLabel="Impressions"; }
       const isMoney=barField==="s";
       const val=w=>w[barField]||0;
-      const barMax=Math.max(...weekly.map(val),1);
-      const clkMax=Math.max(...weekly.map(w=>w.c),1);
+      const barMax=Math.max(...chartData.map(val),1);
+      const clkMax=Math.max(...chartData.map(w=>w.c),1);
       const lineColor=lightMode?"#0f172a":"#fbbf24";
       const grid=lightMode?"#e2e8f0":"#1a2744";
       const neutralBar=lightMode?"#1d4ed8":"#3b82f6";
@@ -6945,7 +6949,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         : (v>=1000000?(v/1000000).toFixed(1)+"M":v>=1000?(v/1000).toFixed(1)+"K":String(Math.round(v)));
       const fmtFull=v=> isMoney ? "$"+Math.round(v).toLocaleString() : Math.round(v).toLocaleString();
       const lab=k=>new Date(k).toLocaleDateString("en-US",{month:"short",day:"2-digit"});
-      const pts=weekly.map((w,i)=>`${((i+0.5)/n*100).toFixed(2)},${(6+(1-w.c/clkMax)*88).toFixed(2)}`).join(" ");
+      const pts=chartData.map((w,i)=>`${((i+0.5)/n*100).toFixed(2)},${(6+(1-w.c/clkMax)*88).toFixed(2)}`).join(" ");
       // Per-week pace color: compare that week's delivery to its expected share of
       // the monthly goal (expected = goal/day × days that week covers, capped at
       // today so the current partial week isn't unfairly flagged behind).
@@ -6957,7 +6961,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       const C_GREEN=lmC("#00d48a"), C_YELLOW=lmC("#fbbf24"), C_ORANGE=lmC("#f97316"), C_RED=lmC("#ef4444");
       const weekColor=w=>{
         if(!perDay) return neutralBar;          // no goal → can't judge pace
-        const ws=new Date(w.k), we=new Date(w.k); we.setDate(we.getDate()+6);
+        // A bucket covers 1 day (daily view) or 7 (weekly). Pace = its delivery vs the goal's share
+        // for the days it spans, capped at today so the current partial bucket isn't unfairly flagged.
+        const ws=new Date(w.k), we=new Date(w.k); we.setDate(we.getDate()+(isDaily?0:6));
         const s=new Date(Math.max(ws,mStart)), e=new Date(Math.min(we,mEnd,today0));
         const days=Math.floor((e-s)/dayMs)+1;
         if(days<=0) return neutralBar;
@@ -6973,7 +6979,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       return (
         <div style={{background:lightMode?"#f8fafc":"#050b14",borderBottom:rowBreakdown?"none":"1px solid "+lmBrdR,borderLeft:"3px solid "+col,padding:"10px 16px 10px 42px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
-            <span style={{fontSize:9,color:lightMode?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Weekly {barLabel.toLowerCase()} vs. clicks · this month</span>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span style={{fontSize:9,color:lightMode?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{isDaily?"Daily":"Weekly"} {barLabel.toLowerCase()} vs. clicks · this month</span>
+              {/* Weekly / Daily toggle — shared across all rows, remembered between sessions */}
+              <div style={{display:"flex",border:`1px solid ${lightMode?"#cbd5e1":"#1e3350"}`,borderRadius:5,overflow:"hidden"}}>
+                {["weekly","daily"].map(v=>(
+                  <button key={v} onClick={(e)=>{e.stopPropagation(); pickChartView(v);}}
+                    style={{background:chartView===v?(lightMode?"#059669":"#00352a"):"transparent",border:"none",padding:"2px 9px",fontSize:9,fontWeight:700,color:chartView===v?(lightMode?"#ffffff":"#00e5a0"):(lightMode?"#64748b":"#4d6e8a"),cursor:"pointer",textTransform:"capitalize"}}>{v}</button>
+                ))}
+              </div>
+            </div>
             <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
               {perDay>0&&paceKey.map(p=>(
                 <span key={p.l} style={{display:"flex",alignItems:"center",gap:4,fontSize:9,color:lmTxtS}}><span style={{width:9,height:9,borderRadius:2,background:p.c,display:"inline-block"}}/>{p.l}</span>
@@ -6989,9 +7004,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             {/* plot area */}
             <div style={{flex:1,minWidth:0}}>
               <div style={{position:"relative",height:150,borderBottom:"1px solid "+grid,borderLeft:"1px solid "+grid}}>
-                {/* metric bars — color = weekly pace */}
+                {/* metric bars — color = pace for the bucket */}
                 <div style={{position:"absolute",inset:0,display:"flex",alignItems:"flex-end",gap:0}}>
-                  {weekly.map(w=>(
+                  {chartData.map(w=>(
                     <div key={w.k} title={`${lab(w.k)} — ${fmtFull(val(w))} ${barLabel.toLowerCase()} · ${w.c.toLocaleString()} clicks`}
                       style={{flex:1,display:"flex",justifyContent:"center",alignItems:"flex-end",height:"100%"}}>
                       {/* Cap bar width so a 1–2 week chart doesn't balloon into a fat bar. Each bar stays
@@ -7006,14 +7021,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                   <polyline points={pts} fill="none" stroke={lineColor} strokeWidth={2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round"/>
                 </svg>
                 {/* clicks dots */}
-                {weekly.map((w,i)=>(
+                {chartData.map((w,i)=>(
                   <div key={w.k} title={`${lab(w.k)} — ${w.c.toLocaleString()} clicks`}
                     style={{position:"absolute",left:`${(i+0.5)/n*100}%`,top:`${6+(1-w.c/clkMax)*88}%`,transform:"translate(-50%,-50%)",width:7,height:7,borderRadius:"50%",background:lineColor,border:`1px solid ${lightMode?"#ffffff":"#050b14"}`}}/>
                 ))}
               </div>
-              {/* x-axis week labels */}
+              {/* x-axis labels — thinned in daily view (many days) so they don't overlap */}
               <div style={{display:"flex",gap:0,marginTop:3}}>
-                {weekly.map(w=>(<div key={w.k} style={{flex:1,textAlign:"center",fontSize:8,color:lmTxtD,whiteSpace:"nowrap"}}>{lab(w.k)}</div>))}
+                {chartData.map((w,i)=>{ const step=isDaily?Math.max(1,Math.ceil(n/8)):1; return (<div key={w.k} style={{flex:1,textAlign:"center",fontSize:8,color:lmTxtD,whiteSpace:"nowrap",overflow:"hidden"}}>{(i%step===0)?lab(w.k):""}</div>); })}
               </div>
             </div>
             {/* right axis (clicks) */}
