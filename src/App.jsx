@@ -6772,9 +6772,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           const dc  = Math.max(0, ec  - maxC);
           const ds  = Math.max(0, es  - maxS);
           const dvv = Math.max(0, evv - maxVV);
-          // First reading spreads from the 1st of the month → its date; later readings span (prev day +1) → this day.
-          const start = idx===0 ? new Date(monthStart) : new Date(pd.getTime()+DAY);
-          spread(start, e.d, di, dc, ds, dvv);
+          // Exports lag ~a day: a check-in dated D reflects delivery through the END of D−1. So a
+          // reading's NEW delivery is charted on the day(s) it actually happened — ENDING the day
+          // BEFORE the check-in date — which matches the "yesterday delivery" breakdown and stops
+          // today's (incomplete) bar from showing yesterday's numbers. Window: [prev reading … D−1].
+          // First reading still starts at the 1st of the month; later readings start at the prev date.
+          const start = idx===0 ? new Date(monthStart) : new Date(pd.getTime());
+          const end   = new Date(Math.max(start.getTime(), e.d.getTime()-DAY));
+          spread(start, end, di, dc, ds, dvv);
           maxI=Math.max(maxI,ei); maxC=Math.max(maxC,ec); maxS=Math.max(maxS,es); maxVV=Math.max(maxVV,evv);
           pd=e.d;
         });
@@ -8746,10 +8751,26 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
     if(reportType==="custom")  return !!(dr.end && dr.end < `${cur}-01`);
     return false;
   },[reportType,reportMonth,dr]);
+  // Locked months — the "final monthly check-in" frozen via Lock Month Final Data (Revenue tab).
+  // When a MONTHLY report's month is locked, that snapshot is the authoritative source for the report
+  // (it overrides the history-reconstruction below). Read straight from the same localStorage store
+  // the Revenue tab writes; re-read when the chosen month/type changes.
+  const monthLocks = useMemo(() => { try { return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); } catch { return {}; } }, [reportMonth, reportType]);
+  const reportLock = reportType==="monthly" ? (monthLocks[reportMonth]||null) : null;
   const rows = useMemo(()=>selectedCamps.map(c=>{
     const overrides = csvOverrides[c.id]||{};
     let m = getM(c);
-    if(useHistory){
+    // 1) Locked month → use the frozen "final monthly check-in" snapshot as the source of truth.
+    const locked = reportLock?.campaigns?.find(r => String(r.id) === String(c.id)) || null;
+    if(locked){
+      const impressions=parseInt(locked.impressions)||0, clicks=parseInt(locked.clicks)||0, spend=parseFloat(locked.spend)||0;
+      m = {...m, impressions, clicks, spend,
+        reach: parseInt(locked.reach)||0, videoViews: parseInt(locked.videoViews)||0,
+        completionRate: parseFloat(locked.completionRate)||m.completionRate,
+        ctr: parseFloat(locked.ctr) || (impressions>0 ? +(clicks/impressions*100).toFixed(2) : 0),
+        cpm: parseFloat(locked.cpm) || (impressions>0 ? +(spend/impressions*1000).toFixed(2) : 0) };
+    } else if(useHistory){
+      // 2) Otherwise reconstruct delivery in-range from retained check-in history.
       const h = seriesTotalsInRange(c);
       if(h){
         const impressions=h.impressions, clicks=h.clicks, spend=h.spend;
@@ -8760,7 +8781,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
       }
     }
     return {...c, ...overrides, m};
-  }),[selectedCamps, csvOverrides, useHistory, dr]);
+  }),[selectedCamps, csvOverrides, useHistory, dr, reportLock]);
   const totals = useMemo(()=>rows.reduce((a,r)=>({impressions:a.impressions+r.m.impressions,clicks:a.clicks+r.m.clicks,spend:a.spend+r.m.spend,reach:a.reach+r.m.reach,videoViews:a.videoViews+r.m.videoViews,contractValue:a.contractValue+r.m.contractValue}),{impressions:0,clicks:0,spend:0,reach:0,videoViews:0,contractValue:0}),[rows]);
   const overallCTR=totals.clicks>0&&totals.impressions>0?(totals.clicks/totals.impressions*100).toFixed(2)+"%":"—";
   const overallCPM=totals.impressions>0&&totals.spend>0?"$"+(totals.spend/totals.impressions*1000).toFixed(2):"—";
@@ -9216,6 +9237,12 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                   ))}
                 </div>
                 {reportType==="monthly"&&<input type="month" value={reportMonth} onChange={e=>setReportMonth(e.target.value)} style={{...iS,width:"100%"}}/>}
+                {reportType==="monthly" && reportLock && (
+                  <div style={{fontSize:9,color:_lm?"#7c3aed":"#a855f7",marginTop:4,fontWeight:700}}>🔒 Using locked snapshot{reportLock.lockedAt?` from ${fmtDate(reportLock.lockedAt)}`:""} — final numbers frozen</div>
+                )}
+                {reportType==="monthly" && !reportLock && reportMonth < getToday().slice(0,7) && (
+                  <div style={{fontSize:9,color:_lm?"#94a3b8":"#4d6e8a",marginTop:4}}>Reconstructed from check-in history · lock this month in Revenue to freeze final numbers</div>
+                )}
                 {reportType==="custom"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}><DatePicker value={customStart} onChange={setCustomStart}/><DatePicker value={customEnd} onChange={setCustomEnd}/></div>}
               </div>
               <div>
