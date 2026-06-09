@@ -12929,7 +12929,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                     const dol = n => "$"+Math.round(n).toLocaleString();
                     const sgn = n => (n>=0?"+":"-")+"$"+Math.round(Math.abs(n)).toLocaleString();
                     const partnerRows = byPartner.map(p=>{ const share=totalProfit>0?(p.profit/totalProfit*100):null; return `<tr><td>${esc(p.partner)}</td><td class="r">${p.count>p.tracked?p.tracked+"/"+p.count:p.tracked}</td><td class="r">${dol(p.revenue)}</td><td class="r">${dol(p.spend)}</td><td class="r" style="font-weight:700;color:${pcol(p.profit)}">${sgn(p.profit)}</td><td class="r" style="color:${mcol(p.margin)}">${p.margin.toFixed(1)}%</td><td class="r">${share!=null?Math.round(share)+"%":"—"}</td></tr>`; }).join("");
-                    const campRows = [...reportRows].sort((a,b)=>(b.profit||0)-(a.profit||0)).map(r=>{ const margin=r.revenue>0&&r.spend!=null?((r.profit||0)/r.revenue*100):null; return `<tr><td>${esc(r.name)}</td><td>${esc(r.partner)}</td><td>${esc(r.platform)}</td><td class="r">${dol(r.revenue)}</td><td class="r">${r.spend!=null?dol(r.spend):"pending"}</td><td class="r" style="font-weight:700;color:${r.profit==null?'#94a3b8':pcol(r.profit)}">${r.profit==null?"—":sgn(r.profit)}</td><td class="r" style="color:${margin==null?'#94a3b8':mcol(margin)}">${margin==null?"—":margin.toFixed(1)+"%"}</td></tr>`; }).join("");
+                    const campRows = [...reportRows].sort((a,b)=>(b.profit||0)-(a.profit||0)).map(r=>{ const margin=r.revenue>0&&r.spend!=null?((r.profit||0)/r.revenue*100):null; return `<tr><td>${esc(r.partner)}</td><td>${esc(r.name)}</td><td>${esc(r.platform)}</td><td class="r">${dol(r.revenue)}</td><td class="r">${r.spend!=null?dol(r.spend):"pending"}</td><td class="r" style="font-weight:700;color:${r.profit==null?'#94a3b8':pcol(r.profit)}">${r.profit==null?"—":sgn(r.profit)}</td><td class="r" style="color:${margin==null?'#94a3b8':mcol(margin)}">${margin==null?"—":margin.toFixed(1)+"%"}</td></tr>`; }).join("");
                     const totalsRow = `<tr class="tot"><td colspan="3">TOTAL${pendingCount>0?` (${pendingCount} pending excluded)`:""}</td><td class="r">${dol(totalRevWithSpend)}</td><td class="r">${dol(totalSpend)}</td><td class="r" style="color:${pcol(totalProfit)}">${sgn(totalProfit)}</td><td class="r" style="color:${totalRevWithSpend>0?mcol(totalMargin):'#94a3b8'}">${totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—"}</td></tr>`;
                     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>P&L Report — ${esc(focusLabel)}</title>
 <style>
@@ -12960,7 +12960,7 @@ tr.tot td{border-top:2px solid #e2e8f0;font-weight:800;font-size:13px;background
 <div class="kpi"><div class="kl">Margin</div><div class="kv" style="color:${totalRevWithSpend>0?mcol(totalMargin):'#94a3b8'}">${totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—"}</div></div>
 </div>
 ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th class="r">Campaigns</th><th class="r">Revenue</th><th class="r">Spend</th><th class="r">Profit</th><th class="r">Margin</th><th class="r">% of Profit</th></tr></thead><tbody>${partnerRows}</tbody></table>`:""}
-<h2>By Campaign</h2><table><thead><tr><th>Campaign</th><th>Partner</th><th>Plt</th><th class="r">Revenue</th><th class="r">Spend</th><th class="r">Profit</th><th class="r">Margin</th></tr></thead><tbody>${campRows}${totalsRow}</tbody></table>
+<h2>By Campaign</h2><table><thead><tr><th>Partner</th><th>Campaign</th><th>Plt</th><th class="r">Revenue</th><th class="r">Spend</th><th class="r">Profit</th><th class="r">Margin</th></tr></thead><tbody>${campRows}${totalsRow}</tbody></table>
 <div class="foot"><span>Recrue Media · ${esc(focusLabel)} P&L</span><span>Generated ${esc(new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}))}</span></div>
 <script>window.onload=()=>setTimeout(()=>window.print(),350)</script>
 </body></html>`;
@@ -13024,7 +13024,7 @@ ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th cla
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead>
                     <tr style={{borderBottom:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
-                      {["Campaign","Partner","Plt","Revenue","Spend","Profit","Margin"].map(h=>(
+                      {["Partner","Campaign","Plt","Revenue","Spend","Profit","Margin"].map(h=>(
                         <th key={h} style={{padding:"7px 8px",textAlign:["Revenue","Spend","Profit","Margin"].includes(h)?"right":"left",color:_lm?"#64748b":"#3d5a72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
                       ))}
                     </tr>
@@ -13037,8 +13037,8 @@ ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th cla
                       const ptxt=(0.299*pr+0.587*pg+0.114*pb)>0.45?"#0a1a0a":"#ffffff";
                       return (
                         <tr key={i} style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#0d1525"}`,background:_lm?(i%2===0?"#ffffff":"#f8fafc"):(i%2===0?"transparent":"#06101a")}}>
-                          <td style={{padding:"6px 8px",color:_lm?"#0f172a":"#d8eaf8",fontWeight:600,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</td>
                           <td style={{padding:"6px 8px",color:_lm?"#475569":"#7a9bbf",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.partner}</td>
+                          <td style={{padding:"6px 8px",color:_lm?"#0f172a":"#d8eaf8",fontWeight:600,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</td>
                           <td style={{padding:"6px 8px"}}>{_lm?<span style={{background:pc,color:ptxt,borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.platform}</span>:<span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.platform}</span>}</td>
                           <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:600}}>${Math.round(r.revenue).toLocaleString()}</td>
                           <td style={{padding:"6px 8px",textAlign:"right",color:"#f59e0b"}}>{r.spend!=null?"$"+Math.round(r.spend).toLocaleString():"⏳"}</td>
