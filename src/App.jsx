@@ -148,6 +148,23 @@ function repairMetricSeries(list){
   });
   return { list: out, removed };
 }
+// One-time cleanup for the auto-generated lock notes that older builds wrote into each campaign's
+// notes/history when a month was locked (e.g. "🔒 May 2026 LOCKED | $237.39 spend"). The notes section
+// belongs to the user, so these are stripped. The pattern is locked tightly to the auto format —
+// "🔒 {Month} {Year} LOCKED …" on its own line — so a user's own note is never matched. Idempotent.
+function stripAutoLockNotes(list){
+  const LOCK_LINE = /^\s*🔒\s+[A-Z][a-z]+\s+\d{4}\s+LOCKED\b.*$/;
+  let removed = 0;
+  const out = (list||[]).map(c=>{
+    if(!c || typeof c.history !== "string" || !c.history.includes("LOCKED")) return c;
+    const lines = c.history.split("\n");
+    const kept = lines.filter(ln => !LOCK_LINE.test(ln));
+    if(kept.length === lines.length) return c;
+    removed += lines.length - kept.length;
+    return { ...c, history: kept.join("\n") };
+  });
+  return { list: out, removed };
+}
 function fmt(d) { return d.toISOString().split("T")[0]; }
 function getDaysLeft(endDate) {
   const t = new Date(); t.setHours(0,0,0,0);
@@ -6788,7 +6805,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       return { weekly: build(monday), daily: build(dayStart) };
     })();
     const hasWeekly = weekly.length > 0 && weekly.some(w=>w.i>0 || w.c>0 || w.s>0 || w.vv>0);
-    const canExpand = !!rowBreakdown || hasWeekly;
+    const hasCreatives = !!(c.creativeReport && Array.isArray(c.creativeReport.creatives) && c.creativeReport.creatives.length);
+    const canExpand = !!rowBreakdown || hasWeekly || hasCreatives;
 
     return <React.Fragment>
     <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 16px",borderBottom:canExpand&&rowBreakdownOpen?"none":"1px solid "+lmBrdR,alignItems:"center",background:lmBg,borderLeft:"3px solid "+col}}>
@@ -7213,6 +7231,75 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             })}
           </div>
           {!hasPrior&&<div style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",fontStyle:"italic",marginTop:6}}>Yesterday delivery per line will appear after your next CSV drop (needs two days of data to compute).</div>}
+        </div>
+      );
+    })()}
+    {/* ── Creatives (per-ad) breakdown — from a dropped FB or Snapchat creative report (Quick Check-in). ──
+        Purely informational: impressions / CTR / clicks / CPM / spend / quality|status per ad, plus
+        gone-quiet, paused, CTR-drop and new-creative flags computed vs the PREVIOUS report. */}
+    {rowBreakdownOpen && c.creativeReport && Array.isArray(c.creativeReport.creatives) && c.creativeReport.creatives.length>0 && (()=>{
+      const cr = c.creativeReport;
+      const ads = [...cr.creatives].sort((a,b)=>(b.impressions||0)-(a.impressions||0));
+      const totalImpr = ads.reduce((s,a)=>s+(a.impressions||0),0);
+      const srcLabel = cr.source==="Snapchat" ? "Snapchat" : cr.source==="Facebook/Meta" ? "FB/Meta" : "";
+      const fdate = s => { if(!s) return ""; const m=String(s).match(/^(\d{4})-(\d{2})-(\d{2})$/); return m?`${m[2]}/${m[3]}/${m[1]}`:String(s); };
+      const range = (cr.dateStart||cr.dateEnd) ? `${fdate(cr.dateStart)} – ${fdate(cr.dateEnd)}` : "";
+      const qColor = q => !q ? lmTxtD : /above/i.test(q) ? (lightMode?"#059669":"#00d48a") : /below/i.test(q) ? (lightMode?"#dc2626":"#f87171") : (lightMode?"#64748b":"#7a9bbf");
+      const qShort = q => !q ? "" : /above/i.test(q) ? "Above avg" : /below/i.test(q) ? "Below avg" : "Average";
+      const isPaused = a => !!(a.status && !/active/i.test(a.status));
+      const ctrOf = x => x && x.ctr!=null ? x.ctr : (x && x.ctrLink!=null ? x.ctrLink : null); // back-compat: older FB reports stored ctrLink
+      // ── Anomaly / gone-quiet detection vs the previous report for this campaign ──
+      const priorByName = {};
+      (cr.prior?.creatives||[]).forEach(p=>{ if(p?.name) priorByName[p.name.toLowerCase()]=p; });
+      const hasPrior = !!(cr.prior && cr.prior.creatives && cr.prior.creatives.length);
+      const wentQuiet = a => { const p=priorByName[(a.name||"").toLowerCase()]; return !!(p && (p.impressions||0)>=100 && (a.impressions||0) <= (p.impressions||0)*0.15); };
+      const ctrDrop  = a => { const p=priorByName[(a.name||"").toLowerCase()]; const pc=ctrOf(p), ac=ctrOf(a); return !!(p && (p.impressions||0)>=200 && pc>0 && ac!=null && ac <= pc*0.5); };
+      const isNew    = a => hasPrior && !priorByName[(a.name||"").toLowerCase()] && (a.impressions||0)>0;
+      const curNames = new Set(ads.map(a=>(a.name||"").toLowerCase()));
+      const vanished = (cr.prior?.creatives||[]).filter(p=>(p.impressions||0)>=100 && !curNames.has((p.name||"").toLowerCase()));
+      const quietCount = ads.filter(wentQuiet).length + vanished.length;
+      const pausedCount = ads.filter(isPaused).length;
+      return (
+        <div style={{background:lightMode?"#faf5ff":"#0a0614",borderBottom:rowBreakdown?"none":"1px solid "+lmBrdR,borderLeft:"3px solid "+(lightMode?"#a855f7":"#7c3aed"),padding:"6px 16px 10px 42px"}}>
+          <div style={{fontSize:9,color:lightMode?"#7c3aed":"#c4b5fd",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span>🎨 Creatives — {ads.length} ad{ads.length!==1?"s":""}{srcLabel?` · ${srcLabel}`:""}{range?` · ${range}`:""}</span>
+            {pausedCount>0 && <span style={{textTransform:"none",letterSpacing:0,fontSize:9,color:"#f59e0b",fontWeight:700}}>⏸ {pausedCount} paused</span>}
+            {quietCount>0 && <span title={[...ads.filter(wentQuiet).map(a=>a.name), ...vanished.map(v=>v.name+" (gone)")].join(", ")} style={{textTransform:"none",letterSpacing:0,fontSize:9,color:lightMode?"#dc2626":"#f87171",fontWeight:700,cursor:"help"}}>▼ {quietCount} gone quiet vs last report</span>}
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+            {ads.map((a,i)=>{
+              const pct = totalImpr>0 ? (a.impressions/totalImpr)*100 : 0;
+              const quiet=wentQuiet(a), paused=isPaused(a), fresh=isNew(a), cdrop=ctrDrop(a);
+              const dim = paused || quiet || (a.impressions||0)===0;
+              return (
+                <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:lightMode?"#ffffff":"#0a0a16",border:`1px solid ${quiet?(lightMode?"#fca5a5":"#7f1d1d"):(lightMode?"#e9d5ff":"#2a1a40")}`,borderRadius:5,padding:"6px 10px",opacity:dim?0.72:1}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:11,color:lightMode?"#334155":"#d8c4f0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{overflow:"hidden",textOverflow:"ellipsis"}} title={a.name}>{a.name}</span>
+                      {paused && <span style={{flexShrink:0,fontSize:8,fontWeight:700,color:"#f59e0b",background:lightMode?"#fef3c7":"#1a1000",border:"1px solid #f59e0b55",borderRadius:3,padding:"0 4px"}}>⏸ paused</span>}
+                      {quiet && <span style={{flexShrink:0,fontSize:8,fontWeight:700,color:lightMode?"#dc2626":"#f87171",background:lightMode?"#fee2e2":"#1a0808",border:"1px solid #ef444455",borderRadius:3,padding:"0 4px"}}>▼ went quiet</span>}
+                      {cdrop && !quiet && <span style={{flexShrink:0,fontSize:8,fontWeight:700,color:"#f59e0b",background:lightMode?"#fef3c7":"#1a1000",border:"1px solid #f59e0b55",borderRadius:3,padding:"0 4px"}}>CTR ▼</span>}
+                      {fresh && <span style={{flexShrink:0,fontSize:8,fontWeight:700,color:lightMode?"#0d9488":"#5eead4",background:lightMode?"#f0fdfa":"#04201a",border:"1px solid #14b8a655",borderRadius:3,padding:"0 4px"}}>▲ new</span>}
+                    </div>
+                    <div style={{fontSize:9,color:lightMode?"#94a3b8":"#6d5a8a",marginTop:1}}>{pct.toFixed(0)}% of impressions</div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                    <span style={{fontSize:11,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:700,fontVariantNumeric:"tabular-nums",minWidth:70,textAlign:"right"}}>{(a.impressions||0).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#6d5a8a",fontWeight:400,fontSize:9}}> impr</span></span>
+                    {(()=>{const v=ctrOf(a);return <span title="CTR" style={{fontSize:11,color:v>0?"#00ffb3":lmTxtD,fontWeight:600,minWidth:52,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{v!=null?`${v.toFixed(2)}%`:"—"}</span>;})()}
+                    <span style={{fontSize:11,color:a.clicks>0?"#a3bffa":lmTxtD,fontWeight:600,minWidth:50,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{a.clicks>0?`${a.clicks.toLocaleString()} clk`:"—"}</span>
+                    <span title="CPM" style={{fontSize:11,color:a.cpm!=null?(lightMode?"#475569":"#7a9bbf"):lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{a.cpm!=null?`$${a.cpm.toFixed(2)}`:"—"}</span>
+                    <span style={{fontSize:11,color:a.spend>0?"#f472b6":lmTxtD,fontWeight:600,minWidth:50,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{a.spend>0?`$${Math.round(a.spend).toLocaleString()}`:"—"}</span>
+                    {a.quality
+                      ? <span title={`Quality: ${a.quality}`} style={{fontSize:9,fontWeight:700,color:qColor(a.quality),minWidth:62,textAlign:"right"}}>{qShort(a.quality)}</span>
+                      : <span title={a.status?`Status: ${a.status}`:""} style={{fontSize:9,fontWeight:700,color:a.status?(/active/i.test(a.status)?(lightMode?"#059669":"#00d48a"):"#f59e0b"):lmTxtD,minWidth:62,textAlign:"right"}}>{a.status||"—"}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {vanished.length>0 && (
+            <div style={{fontSize:9,color:lightMode?"#dc2626":"#f87171",marginTop:6}}>▼ Gone since last report: {vanished.map(v=>v.name).join(", ")}</div>
+          )}
         </div>
       );
     })()}
@@ -9816,6 +9903,12 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   const [mapping,      setMapping]      = React.useState({});     // fileRowIdx -> campId (integers only)
   const [matchConf,    setMatchConf]    = React.useState({});     // fileRowIdx -> confidence (1.0=memory, 0.8=TTD, fuzzy score for others)
   const [memoryMap,    setMemoryMap]    = React.useState({});     // fileRowIdx -> campId that was RESTORED FROM SAVED MEMORY (a prior check-in). Drives the purple "remembered" check — shown ONLY while the current mapping still equals this. Never set by auto-match or manual picks.
+  // ── Creative (per-ad) report mode ──────────────────────────────────────────
+  // A FB creative report is one row per AD/creative (it has an "Ads" column). It's purely informational
+  // — it does NOT touch pacing/MTD numbers. We collapse it to one synthetic row per ad set (so the
+  // normal mapping UI + memory work unchanged) and stash the per-ad creatives here, keyed by ad-set name.
+  const [isCreativeMode, setIsCreativeMode] = React.useState(false);
+  const [creativeGroups, setCreativeGroups] = React.useState({}); // adSetName -> { dateStart, dateEnd, creatives:[...] }
   const [confirmApplyPending, setConfirmApplyPending] = React.useState(false); // pre-apply low-conf review
   const [showAllMap,   setShowAllMap]   = React.useState({});     // fileRowIdx -> bool (separate from mapping)
   const [leftPickCampId, setLeftPickCampId] = React.useState(null); // campaign id being manually assigned from left panel
@@ -10415,10 +10508,91 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     return m;
   }
 
+  // ── Creative (per-ad) report detection + handling ──────────────────────────
+  // One row per AD. Supported: FB/Meta (an "Ads" column) and Snapchat ("Ad Name" + "Ad Set Name").
+  // Purely informational — never touches pacing/MTD. We collapse to one synthetic row per ad set so
+  // the normal mapping UI + memory work unchanged, and stash the per-ad creatives for apply.
+  function creativeSource(rows){
+    if(!rows?.length) return null;
+    const cols = Object.keys(rows[0]).map(k=>String(k).toLowerCase().trim());
+    const has = n => cols.includes(n);
+    const hasC = s => cols.some(c=>c.includes(s));
+    if(has("ads") && (hasC("amount spent")||hasC("ctr (link click-through rate)")||hasC("quality ranking"))) return "Facebook/Meta";
+    if(has("ad name") && has("ad set name") && hasC("paid impressions")) return "Snapchat";
+    return null;
+  }
+  function isCreativeReport(rows){ return !!creativeSource(rows); }
+  // Per-source column map. ctrIsPercent: FB stores CTR already as % (0.90=0.90%); Snapchat's Click
+  // Rate is a ratio (0.0057=0.57%) so it's ×100'd. Snapchat has an "Ad Active Status" we keep for
+  // the gone-quiet check; FB has no per-ad status nor reporting-date columns in this export.
+  const CREATIVE_COLS = {
+    "Facebook/Meta": { adSet:["Campaign name","Campaign Name"], name:["Ads"], impr:["Impressions"], clicks:["Link clicks"], ctr:["CTR (link click-through rate)"], ctrIsPercent:true, cpm:["CPM (cost per 1,000 impressions)"], spend:["Amount spent (USD)"], reach:["Reach"], freq:["Frequency"], status:[], dStart:["Reporting starts"], dEnd:["Reporting ends"], quality:["Quality ranking"] },
+    "Snapchat":      { adSet:["Ad Set Name","Campaign Name"], name:["Ad Name"], impr:["Paid Impressions"], clicks:["Clicks"], ctr:["Click Rate"], ctrIsPercent:false, cpm:["Paid eCPM"], spend:["Amount Spent"], reach:["Paid Reach"], freq:["Paid Frequency"], status:["Ad Active Status"], dStart:[], dEnd:[], quality:[] },
+  };
+  function handleCreativeReport(rows){
+    const source = creativeSource(rows);
+    const CC = CREATIVE_COLS[source]; if(!CC){ setFileError("Unrecognized creative report format."); return; }
+    setFileSource(source);
+    setIsCreativeMode(true);
+    const get  = (row,keys) => { for(const k of keys){ if(row[k]!=null && String(row[k]).trim()!=="") return row[k]; } return ""; };
+    const num  = v => { const n=parseFloat(String(v==null?"":v).replace(/[$,%\s]/g,"")); return isNaN(n)?null:n; };
+    const rank = v => { const s=String(v==null?"":v).trim(); return (!s||s==="-")?null:s; };
+    const groups={}; // adSet -> { dateStart, dateEnd, creatives:[] }
+    rows.forEach(row=>{
+      const adSet=String(get(row,CC.adSet)).trim();
+      if(!adSet) return;
+      if(!groups[adSet]) groups[adSet]={ dateStart:String(get(row,CC.dStart)).trim(), dateEnd:String(get(row,CC.dEnd)).trim(), creatives:[] };
+      let ctr=num(get(row,CC.ctr));
+      if(ctr!=null && !CC.ctrIsPercent) ctr=ctr*100; // ratio → percent
+      groups[adSet].creatives.push({
+        source, adSet, name:String(get(row,CC.name)).trim()||"(unnamed ad)",
+        impressions: Math.round(num(get(row,CC.impr))||0),
+        clicks:      Math.round(num(get(row,CC.clicks))||0),
+        ctr, cpm:num(get(row,CC.cpm)), spend:num(get(row,CC.spend)),
+        reach:Math.round(num(get(row,CC.reach))||0), frequency:num(get(row,CC.freq)),
+        quality:rank(get(row,CC.quality)), status:rank(get(row,CC.status)),
+      });
+    });
+    const adSets=Object.keys(groups);
+    if(!adSets.length){ setFileError("No creative rows found in this file."); return; }
+    setCreativeGroups(groups);
+    // One synthetic row per ad set — carries the source's getCampName key + the columns extractMetrics
+    // reads, so the mapping review shows real totals and memory matches the ad set.
+    const synthRows=adSets.map(adSet=>{
+      const cs=groups[adSet].creatives; const sum=f=>cs.reduce((s,c)=>s+(c[f]||0),0);
+      const base={ __creativeCount:cs.length };
+      if(source==="Snapchat"){ base["Campaign Name"]=adSet; base["Paid Impressions"]=sum("impressions"); base["Clicks"]=sum("clicks"); base["Amount Spent"]=sum("spend"); base["Paid Reach"]=sum("reach"); }
+      else { base["Campaign name"]=adSet; base["Impressions"]=sum("impressions"); base["Link clicks"]=sum("clicks"); base["Amount spent (USD)"]=sum("spend"); base["Reach"]=sum("reach"); }
+      return base;
+    });
+    const initMap={}, initConf={}, memMap={};
+    let savedCount=0, autoCount=0;
+    const sp=(typeof SOURCE_PLATFORMS!=="undefined") ? SOURCE_PLATFORMS[source] : null;
+    const qciFiltered = qciPlatforms.size>0 ? activeCamps.filter(c=>qciPlatforms.has(c.platform)) : activeCamps;
+    const cands = sp ? qciFiltered.filter(c=>sp.has(c.platform)) : qciFiltered;
+    synthRows.forEach((row,i)=>{
+      const csvName=getCampName(row,source);
+      const rememberedId=lookupMemory(source,csvName,row);
+      if(rememberedId){ initMap[i]=rememberedId; initConf[i]=1.0; memMap[i]=rememberedId; savedCount++; return; }
+      initMap[i]="";
+      let bestId="",bestScore=0;
+      cands.forEach(c=>{ const score=fuzzyScore(csvName,c.campaignName); if(score>bestScore&&score>=0.45){ bestScore=score; bestId=String(c.id); } });
+      if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; }
+    });
+    setFileRows(synthRows);
+    setMapping(initMap); setMatchConf(initConf); setMemoryMap(memMap);
+    setConfirmApplyPending(false);
+    const totalAds=adSets.reduce((s,a)=>s+groups[a].creatives.length,0);
+    const srcLabel = source==="Snapchat"?"Snapchat":"FB";
+    setSavedMsg(`🎨 ${srcLabel} creative report — ${totalAds} ads across ${adSets.length} ad set${adSets.length!==1?"s":""}${savedCount>0?` · ✓ ${savedCount} remembered`:""}${autoCount>0?` · ⚡ ${autoCount} auto-matched`:""}`);
+    setView("split");
+  }
+
   // ── File drop handler — supports CSV and XLSX ──────────────────────────────
   async function handleFileDrop(file){
     if(!file){ setFileError("No file detected"); return; }
     setFileError(""); setSavedMsg("");
+    setIsCreativeMode(false); setCreativeGroups({}); // reset; handleCreativeReport re-enables if it's a creative file
     const isXlsx = file.name?.toLowerCase().endsWith(".xlsx")||file.name?.toLowerCase().endsWith(".xls");
 
     let rows=null;
@@ -10441,6 +10615,9 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     }
 
     if(!rows?.length){ setFileError("No data found in file"); return; }
+
+    // FB creative (per-ad) report — handled separately; never touches pacing/MTD numbers.
+    if(isCreativeReport(rows)){ handleCreativeReport(rows); return; }
 
     // Filename detection wins — it's explicit. Fall back to header sniffing only if unknown.
     const source = detectSourceFromFilename(file.name) || detectSource(rows);
@@ -10665,6 +10842,36 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     const _p = n=>String(n).padStart(2,"0");
     const dataStamp = isNaN(_asOf.getTime()) ? stamp : `${_asOf.getFullYear()}-${_p(_asOf.getMonth()+1)}-${_p(_asOf.getDate())}`;
     const asOfIso   = isNaN(_asOf.getTime()) ? new Date().toISOString() : _asOf.toISOString();
+
+    // ── Creative report: store a per-ad breakdown on each mapped campaign. Informational ONLY —
+    //    it never touches pacing/MTD (no metricSeries, no lastChecked). Also saves the ad-set→campaign
+    //    mapping to memory so future creative (and regular FB) drops auto-match.
+    if(isCreativeMode){
+      const byCamp={}; const memEntries=[];
+      Object.entries(mapping).forEach(([idxStr,campId])=>{
+        if(!campId) return;
+        const row=fileRows[parseInt(idxStr)]; if(!row) return;
+        const adSet=getCampName(row,fileSource);
+        const grp=creativeGroups[adSet]; if(!grp) return;
+        const key=String(campId);
+        (byCamp[key]=byCamp[key]||[]).push(...grp.creatives);
+        memEntries.push({ csvName:adSet, campId:key, campName: assignPool.find(c=>String(c.id)===key)?.campaignName||"" });
+      });
+      const campKeys=Object.keys(byCamp);
+      if(!campKeys.length){ setSavedMsg("Map at least one ad set to a campaign before saving."); return; }
+      const anyGrp=Object.values(creativeGroups)[0]||{};
+      // Keep the PREVIOUS report as `prior` so the dropdown can flag creatives that went quiet
+      // (delivered last time, now stopped/near-zero) and brand-new creatives.
+      const mkReport=(list,prev)=>({ importedAt:new Date().toISOString(), source:fileSource, asOf:asOfIso, dateStart:anyGrp.dateStart||"", dateEnd:anyGrp.dateEnd||"", creatives:[...list].sort((a,b)=>(b.impressions||0)-(a.impressions||0)), prior:(prev&&Array.isArray(prev.creatives)&&prev.creatives.length)?{ importedAt:prev.importedAt, dateStart:prev.dateStart, dateEnd:prev.dateEnd, creatives:prev.creatives }:null });
+      setCampaigns(cs=>cs.map(c=> byCamp[String(c.id)] ? {...c, creativeReport:mkReport(byCamp[String(c.id)], c.creativeReport)} : c));
+      if(typeof setArchive==="function"){ setArchive(as=>as.map(c=> byCamp[String(c.id)] ? {...c, creativeReport:mkReport(byCamp[String(c.id)], c.creativeReport)} : c)); }
+      if(memEntries.length) persistNameMappings(fileSource, memEntries);
+      const totalAds=campKeys.reduce((s,k)=>s+byCamp[k].length,0);
+      setSavedMsg(`🎨 Saved ${totalAds} creative${totalAds!==1?"s":""} to ${campKeys.length} campaign${campKeys.length!==1?"s":""}`);
+      setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setIsCreativeMode(false); setCreativeGroups({}); setConfirmApplyPending(false);
+      return;
+    }
+
     const updates={};
     Object.entries(mapping).forEach(([idxStr,campId])=>{
       if(!campId) return;
@@ -10836,7 +11043,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if(unmatchedRowCount>0) msgParts.push(`⚠ ${unmatchedRowCount} row${unmatchedRowCount>1?"s":""} had no match — verify below`);
     msgParts.push(`${entries.length} mappings saved`);
     setSavedMsg(msgParts.join(" · "));
-    setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setConfirmApplyPending(false);
+    setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setIsCreativeMode(false); setCreativeGroups({}); setConfirmApplyPending(false);
   }
 
   function saveDraftField(campId,field,value){
@@ -11063,8 +11270,13 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                 style={{background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:6,padding:"5px 11px",color:_lm?"#059669":"#00e5a0",fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Yesterday 6 AM</button>
               <span style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72"}}>applies to every row in this file</span>
             </div>
+            {isCreativeMode && (
+              <div style={{padding:"6px 12px",background:_lm?"#faf5ff":"#160a26",borderBottom:`1px solid ${_lm?"#e9d5ff":"#7c3aed40"}`,fontSize:10,color:_lm?"#7c3aed":"#c4b5fd",fontWeight:600}}>
+                🎨 Creative report — per-ad impressions &amp; CTR only. Map each ad set to its campaign, then Save. This does <b>not</b> change pacing or MTD numbers.
+              </div>
+            )}
             <div style={{padding:"6px 12px",background:_lm?"#f8fafc":"#060d18",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span style={{fontSize:11,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{fileSource==="Generic"?"📊 Generic CSV":fileSource==="TradeDesk"?"📡 TradeDesk (_AG only)":fileSource} — {fileRows.length} rows</span>
+              <span style={{fontSize:11,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{isCreativeMode?`🎨 ${fileSource==="Snapchat"?"Snapchat":"FB"} Creative Report — ${fileRows.length} ad set${fileRows.length!==1?"s":""}`:`${fileSource==="Generic"?"📊 Generic CSV":fileSource==="TradeDesk"?"📡 TradeDesk (_AG only)":fileSource} — ${fileRows.length} rows`}</span>
               <span style={{fontSize:10,color:mappedCount<fileRows.length?"#f59e0b":(_lm?"#059669":"#00e5a0"),fontWeight:600}}>{mappedCount}/{fileRows.length} matched</span>
               {mappedCount<fileRows.length&&<span style={{fontSize:10,color:"#f59e0b"}}>⚠ assign unmatched rows below</span>}
               <div style={{display:"flex",gap:5}}>
@@ -11109,7 +11321,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                   }}
                   style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444430"}`,borderRadius:5,padding:"3px 9px",color:_lm?"#dc2626":"#f87171",fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}
                 >🗑 Reset Memory</button>
-                {btn("Clear",()=>{setFileRows(null);setMapping({});setMatchConf({});setMemoryMap({});setConfirmApplyPending(false);setFileSource("");setSavedMsg("");})}
+                {btn("Clear",()=>{setFileRows(null);setMapping({});setMatchConf({});setMemoryMap({});setIsCreativeMode(false);setCreativeGroups({});setConfirmApplyPending(false);setFileSource("");setSavedMsg("");})}
                 <button onClick={()=>{
                   if(!mappedCount) return;
                   // Count low-confidence auto-matches (not manually assigned, not memory)
@@ -11126,7 +11338,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                   }
                 }} disabled={!mappedCount}
                   style={{background:mappedCount?(_lm?"#00e19e":"#002e24"):(_lm?"#f1f5f9":"#162236"),border:`1px solid ${mappedCount?(_lm?"#00c896":"#00c89640"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:5,padding:"5px 12px",color:mappedCount?(_lm?"#0a1a0a":"#00e5a0"):(_lm?"#94a3b8":"#3d5a72"),fontSize:11,fontWeight:700,cursor:mappedCount?"pointer":"default",whiteSpace:"nowrap"}}>
-                  {confirmApplyPending?"⚠ Review below":"✓ Apply"} {mappedCount}
+                  {confirmApplyPending?"⚠ Review below":(isCreativeMode?"🎨 Save creatives":"✓ Apply")} {mappedCount}
                 </button>
               </div>
             </div>
@@ -15065,8 +15277,15 @@ export default function App() {
   // One-time repair of stale pre-reset check-in entries on load (see repairMetricSeries). Idempotent —
   // once cleaned there's nothing to remove, so it won't keep rewriting. Covers active + archived.
   useEffect(()=>{
-    const rc = repairMetricSeries(campaigns); if(rc.removed > 0){ console.log(`[Zeus] cleaned ${rc.removed} stale check-in entr${rc.removed===1?"y":"ies"} (active)`); setCampaigns(rc.list); }
-    const ra = repairMetricSeries(archive);   if(ra.removed > 0){ console.log(`[Zeus] cleaned ${ra.removed} stale check-in entr${ra.removed===1?"y":"ies"} (archived)`); setArchive(ra.list); }
+    // Active: repair stale check-in entries, then strip old auto lock-notes. Chained so neither setState overwrites the other.
+    let activeList = campaigns, activeChanged = false; const aMsg = [];
+    const rc = repairMetricSeries(activeList); if(rc.removed > 0){ activeList = rc.list; activeChanged = true; aMsg.push(`${rc.removed} stale check-in entr${rc.removed===1?"y":"ies"}`); }
+    const lc = stripAutoLockNotes(activeList); if(lc.removed > 0){ activeList = lc.list; activeChanged = true; aMsg.push(`${lc.removed} auto lock-note line${lc.removed===1?"":"s"}`); }
+    if(activeChanged){ console.log(`[Zeus] cleaned (active): ${aMsg.join(", ")}`); setCampaigns(activeList); }
+    let archiveList = archive, archiveChanged = false; const rMsg = [];
+    const ra = repairMetricSeries(archiveList); if(ra.removed > 0){ archiveList = ra.list; archiveChanged = true; rMsg.push(`${ra.removed} stale check-in entr${ra.removed===1?"y":"ies"}`); }
+    const la = stripAutoLockNotes(archiveList); if(la.removed > 0){ archiveList = la.list; archiveChanged = true; rMsg.push(`${la.removed} auto lock-note line${la.removed===1?"":"s"}`); }
+    if(archiveChanged){ console.log(`[Zeus] cleaned (archived): ${rMsg.join(", ")}`); setArchive(archiveList); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
   useEffect(()=>{ const last=localStorage.getItem(EXPORT_KEY); if(!last){setShowExportReminder(true);return;} if((Date.now()-parseInt(last))/(1000*60*60*24)>=3) setShowExportReminder(true); },[]);
@@ -15792,24 +16011,12 @@ export default function App() {
             }
             return merged;
           })()} onEdit={(camp)=>setEditTarget(camp)} onLock={(month, lockObj)=>{
-            // Activity log entry — permanent record of the lock event
+            // Activity log entry — permanent record of the lock event. The frozen numbers live in the
+            // lock snapshot (monthLocks) and this log; we deliberately do NOT write anything to each
+            // campaign's notes/history — that section is reserved for the user's own notes.
             addLog({ type:"lock", campaignName:`${lockObj.label} — Final Lock`, partner:"", platform:"",
               detail:`${lockObj.campaigns.length} campaigns · $${lockObj.totalSpend.toFixed(2)} spend · $${lockObj.totalRevenue.toFixed(2)} revenue · $${lockObj.totalProfit.toFixed(2)} profit`,
               lockData: lockObj, month });
-            // Write a history note to each campaign in the snapshot — survives bulk clear + future CSV drops
-            setCampaigns(cs => cs.map(c => {
-              const snap = lockObj.campaigns.find(r => String(r.id) === String(c.id));
-              if (!snap) return c;
-              const ctrPct = snap.ctr > 0 ? (snap.ctr < 1 ? (snap.ctr*100).toFixed(3) : snap.ctr.toFixed(3)) : null;
-              const parts = [`🔒 ${lockObj.label} LOCKED`,
-                snap.impressions > 0 ? snap.impressions.toLocaleString()+' impr' : null,
-                snap.clicks > 0 ? snap.clicks+' clicks' : null,
-                ctrPct ? ctrPct+'% CTR' : null,
-                snap.spend > 0 ? '$'+snap.spend.toFixed(2)+' spend' : null,
-                snap.completionRate > 0 && snap.completionRate <= 100 ? snap.completionRate.toFixed(1)+'% VCR' : null,
-              ].filter(Boolean).join(' | ');
-              return { ...c, history: c.history?.trim() ? parts+'\n'+c.history : parts };
-            }));
           }}
           onSetRate={(id, rate, dealType)=>{
             setCampaigns(cs=>cs.map(c=>c.id===id?{...c, contractRate:String(rate), dealType: dealType || c.dealType || (c.platform==="YT"?"CPV":"CPM")}:c));
