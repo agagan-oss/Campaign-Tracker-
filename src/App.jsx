@@ -9788,6 +9788,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   const [fileSource,   setFileSource]   = React.useState("");     // "Facebook/Meta" | "Snapchat"
   const [mapping,      setMapping]      = React.useState({});     // fileRowIdx -> campId (integers only)
   const [matchConf,    setMatchConf]    = React.useState({});     // fileRowIdx -> confidence (1.0=memory, 0.8=TTD, fuzzy score for others)
+  const [memoryMap,    setMemoryMap]    = React.useState({});     // fileRowIdx -> campId that was RESTORED FROM SAVED MEMORY (a prior check-in). Drives the purple "remembered" check — shown ONLY while the current mapping still equals this. Never set by auto-match or manual picks.
   const [confirmApplyPending, setConfirmApplyPending] = React.useState(false); // pre-apply low-conf review
   const [showAllMap,   setShowAllMap]   = React.useState({});     // fileRowIdx -> bool (separate from mapping)
   const [leftPickCampId, setLeftPickCampId] = React.useState(null); // campaign id being manually assigned from left panel
@@ -10511,6 +10512,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
 
     // Build initial mapping: 1) per-name memory, 2) legacy whole-file memory, 3) source-aware auto-match
     let initMap={};
+    const memMap={};   // ONLY rows restored from saved memory (steps 1+2) — drives the purple "remembered" check
     let savedCount=0;
     let autoCount=0;
 
@@ -10519,7 +10521,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     rows.forEach((row,i)=>{
       const csvName=getCampName(row,source);
       const rememberedId=lookupMemory(source,csvName,row);
-      if(rememberedId){ initMap[i]=rememberedId; savedCount++; }
+      if(rememberedId){ initMap[i]=rememberedId; savedCount++; memMap[i]=rememberedId; }
       else initMap[i]="";
     });
 
@@ -10531,7 +10533,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         if(initMap[i]) return;
         const csvName=getCampName(row,source);
         const entry=legacySaved.find(e=>e.csvName===csvName);
-        if(entry&&campaigns.find(c=>String(c.id)===String(entry.campId))){ initMap[i]=String(entry.campId); savedCount++; }
+        if(entry&&campaigns.find(c=>String(c.id)===String(entry.campId))){ initMap[i]=String(entry.campId); savedCount++; memMap[i]=String(entry.campId); }
       });
     }
 
@@ -10620,6 +10622,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     setFileRows(rows);
     setMapping(initMap);
     setMatchConf(initConf);
+    setMemoryMap(memMap);
     setConfirmApplyPending(false);
     if(savedCount>0 && autoCount>0) setSavedMsg(`✓ ${savedCount} remembered · ⚡ ${autoCount} auto-matched · ${totalMatched}/${rows.length} total`);
     else if(savedCount>0) setSavedMsg(`✓ ${savedCount} of ${rows.length} remembered from past sessions`);
@@ -10806,16 +10809,17 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if(unmatchedRowCount>0) msgParts.push(`⚠ ${unmatchedRowCount} row${unmatchedRowCount>1?"s":""} had no match — verify below`);
     msgParts.push(`${entries.length} mappings saved`);
     setSavedMsg(msgParts.join(" · "));
-    setFileRows(null); setMapping({}); setMatchConf({}); setConfirmApplyPending(false);
+    setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setConfirmApplyPending(false);
   }
 
   function saveDraftField(campId,field,value){
     setDrafts(d=>({...d,[campId]:{...(d[campId]||{}),[field]:value}}));
     const stamp=getToday();
+    const [_hy,_hm,_hd]=stamp.split("-"); const histStamp=`${_hm}/${_hd}/${_hy}`; // history notes use MM/DD/YYYY (lastChecked stays ISO)
     setCampaigns(cs=>cs.map(x=>{
       if(x.id!==campId) return x;
       const upd={...x,[field]:value,lastChecked:stamp};
-      if(field==="impressions"&&value) upd.history=(x.history?x.history+"\n":"")+`${stamp} — ${parseInt(value).toLocaleString()} impressions`;
+      if(field==="impressions"&&value) upd.history=(x.history?x.history+"\n":"")+`${histStamp} — ${parseInt(value).toLocaleString()} impressions`;
       return upd;
     }));
   }
@@ -11073,12 +11077,12 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                         if(bId){reMap[i]=bId;reConf[i]=bSc;autoC++;}
                       }
                     });
-                    setMapping(reMap); setMatchConf(reConf);
+                    setMapping(reMap); setMatchConf(reConf); setMemoryMap({});
                     setSavedMsg(`🗑 Memory cleared for ${fileSource} · ⚡ Re-matched ${autoC} rows`);
                   }}
                   style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444430"}`,borderRadius:5,padding:"3px 9px",color:_lm?"#dc2626":"#f87171",fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}
                 >🗑 Reset Memory</button>
-                {btn("Clear",()=>{setFileRows(null);setMapping({});setMatchConf({});setConfirmApplyPending(false);setFileSource("");setSavedMsg("");})}
+                {btn("Clear",()=>{setFileRows(null);setMapping({});setMatchConf({});setMemoryMap({});setConfirmApplyPending(false);setFileSource("");setSavedMsg("");})}
                 <button onClick={()=>{
                   if(!mappedCount) return;
                   // Count low-confidence auto-matches (not manually assigned, not memory)
@@ -11185,7 +11189,11 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                 const isPickTarget = isPickMode && !assigned; // only offer unassigned rows in pick mode
                 const rowConf = matchConf[i];
                 const isLowConf = assigned && rowConf !== undefined && rowConf < 0.7;
-                const isMemory  = assigned && rowConf === 1.0;
+                // Purple "remembered" check: ONLY when this row was restored from saved memory AND the
+                // current mapping still points to that exact remembered campaign. Manual picks / dropdown
+                // changes / fuzzy auto-matches never qualify — so the check is a trustworthy signal that
+                // this exact line→campaign mapping was confirmed in a previous check-in.
+                const isMemory  = !!assigned && memoryMap[i] != null && String(memoryMap[i]) === String(assigned);
                 return (
                   <div key={i}
                     onClick={isPickTarget ? ()=>{ setMapping(m=>({...m,[i]:String(leftPickCampId)})); setMatchConf(mc=>({...mc,[i]:1.0})); setLeftPickCampId(null); } : undefined}
@@ -12799,6 +12807,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                               {isCPV && costPer!=null && (
                                 <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
                                   Your cost <span style={{color:"#f59e0b",fontWeight:700}}>${costPer.toFixed(3)}/view</span> · billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(3)}/view</span> · margin <span style={{color:profitColor(rateNum-costPer),fontWeight:700}}>${(rateNum-costPer).toFixed(3)}/view</span>
+                                </div>
+                              )}
+                              {/* CPM campaigns: show the campaign's ACTUAL delivered CPM (spend ÷ impressions × 1000)
+                                  against the billed contract CPM, so the margin per thousand is spelled out. */}
+                              {!isCPV && hasUnit && costPer!=null && (
+                                <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
+                                  Your cost <span style={{color:"#f59e0b",fontWeight:700}}>${(costPer*1000).toFixed(2)} CPM</span> · billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(2)} CPM</span> · margin <span style={{color:profitColor(rateNum-costPer*1000),fontWeight:700}}>${(rateNum-costPer*1000).toFixed(2)} CPM</span>
                                 </div>
                               )}
                             </div>
@@ -15221,7 +15236,9 @@ export default function App() {
     if (bulkDraft.platform)                  updates.platform           = bulkDraft.platform;
     const historyEntry = bulkDraft.history.trim();
     if (Object.keys(updates).length === 0 && !historyEntry) return;
-    const datePrefix = `${today} — `;
+    // getToday() is ISO (YYYY-MM-DD); history stamps use MM/DD/YYYY everywhere else, so match that.
+    const [_ty, _tm, _td] = today.split("-");
+    const datePrefix = `${_tm}/${_td}/${_ty} — `;
     setCampaigns(cs => cs.map(c => {
       if (!selectedIds.has(c.id)) return c;
       const newUpdates = {...updates};
@@ -15886,7 +15903,7 @@ export default function App() {
                       placeholder="e.g. New creatives launched for FB, SP & DSP"
                       rows={2}
                       style={{width:"100%",background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${bulkDraft.history.trim()?"#f59e0b60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 36px 7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit",resize:"vertical",lineHeight:1.5,outline:"none"}}/>
-                    {bulkDraft.history.trim()&&<span style={{position:"absolute",top:8,right:10,fontSize:10,color:"#f59e0b",fontWeight:600,pointerEvents:"none",background:_lm?"#f8fafc":"#0e1a2e",padding:"1px 4px",borderRadius:3}}>{today} —</span>}
+                    {bulkDraft.history.trim()&&<span style={{position:"absolute",top:8,right:10,fontSize:10,color:"#f59e0b",fontWeight:600,pointerEvents:"none",background:_lm?"#f8fafc":"#0e1a2e",padding:"1px 4px",borderRadius:3}}>{(()=>{const [yy,mm,dd]=today.split("-");return `${mm}/${dd}/${yy}`;})()} —</span>}
                   </div>
                 </div>
 
