@@ -6619,6 +6619,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   function TableRow({c,disp,pacing,monthlyGoal}){
     const [rowBreakdownOpen, setRowBreakdownOpen] = useState(false);
+    const [creativesOpen, setCreativesOpen] = useState(false); // Creatives section — collapsed by default (one-off imports, not daily)
     // Weekly/Daily chart toggle. Per-row state (so toggling doesn't remount/collapse the row), but the
     // choice is persisted as the default — so every row you open uses your last-picked granularity.
     const [chartView, setChartView] = useState(()=>{ try { return localStorage.getItem("pacing-chart-view")==="weekly" ? "weekly" : "daily"; } catch { return "daily"; } });
@@ -6758,7 +6759,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       const dayStart = dt => { const x=new Date(dt); x.setHours(0,0,0,0); return x; };
       const DAY = 86400000;
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const rd = series.map(e=>({d:parseD(e.d), i:+e.i||0, ck:+e.c||0, s:+e.s||0, vv:+e.vv||0}))
+      const rd = series.map(e=>({d:parseD(e.d), t:e.t, i:+e.i||0, ck:+e.c||0, s:+e.s||0, vv:+e.vv||0}))
         .filter(e=>e.d && e.d.getMonth()===now.getMonth() && e.d.getFullYear()===now.getFullYear())
         .sort((a,b)=>a.d-b.d);
       if(!rd.length) return { weekly:[], daily:[] };
@@ -6771,34 +6772,43 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       // running max (dip guard) — so the bars sum to the real month-to-date regardless of spikes/dips.
       const last = rd[rd.length-1];
       const capI=last.i, capC=last.ck, capS=last.s, capVV=last.vv;
+      // The MOMENT a reading represents: the real "data as of" timestamp the user set on the check-in
+      // (t) when present; otherwise assume it's current through the END of its date (real-time, not a
+      // fixed 1-day lag). This is what makes delivery track real time instead of always shifting a day.
+      const endOfDay = d => { const x=new Date(d); x.setHours(23,59,59,999); return x.getTime(); };
+      const readingMs = e => { if(e.t){ const tm=new Date(e.t).getTime(); if(!isNaN(tm)) return tm; } return endOfDay(e.d); };
       // build a bucket series given a key function (Monday-of-week for weekly, day-start for daily).
       const build = (keyFn) => {
         const bk=new Map();
-        // Spread each reading's delivery evenly across the calendar days it covers, then bucket each
-        // day. A multi-day gap splits its delivery across the days/weeks it actually spans.
-        const spread = (start, end, i, c, s, vv) => {
-          const n = Math.max(1, Math.round((end - start)/DAY) + 1);
-          const fi=i/n, fc=c/n, fs=s/n, fvv=vv/n;
-          for(let t=0;t<n;t++){ const k=keyFn(new Date(start.getTime()+t*DAY)).getTime();
-            const o=bk.get(k)||{i:0,c:0,s:0,vv:0}; o.i+=fi; o.c+=fc; o.s+=fs; o.vv+=fvv; bk.set(k,o); }
+        // Spread a reading's NEW delivery across the calendar days of the actual time window it covers,
+        // PROPORTIONALLY to the hours falling in each day — so a morning pull lands mostly on yesterday,
+        // a late-night pull mostly on today, and a multi-day gap splits across the days it spans.
+        const spread = (startMs, endMs, i, c, s, vv) => {
+          if(!(endMs > startMs)){ const k=keyFn(new Date(endMs)).getTime(); const o=bk.get(k)||{i:0,c:0,s:0,vv:0}; o.i+=i;o.c+=c;o.s+=s;o.vv+=vv; bk.set(k,o); return; }
+          const total = endMs - startMs;
+          let cur = startMs;
+          while(cur < endMs){
+            const day0=new Date(cur); day0.setHours(0,0,0,0);
+            const segEnd = Math.min(endMs, day0.getTime()+DAY);
+            const frac = (segEnd - cur)/total;
+            const k=keyFn(new Date(cur)).getTime();
+            const o=bk.get(k)||{i:0,c:0,s:0,vv:0}; o.i+=i*frac; o.c+=c*frac; o.s+=s*frac; o.vv+=vv*frac; bk.set(k,o);
+            cur = segEnd;
+          }
         };
-        let maxI=0, maxC=0, maxS=0, maxVV=0, pd=null;
+        let maxI=0, maxC=0, maxS=0, maxVV=0;
         rd.forEach((e,idx)=>{
           const ei=Math.min(e.i,capI), ec=Math.min(e.ck,capC), es=Math.min(e.s,capS), evv=Math.min(e.vv,capVV);
           const di  = Math.max(0, ei  - maxI);
           const dc  = Math.max(0, ec  - maxC);
           const ds  = Math.max(0, es  - maxS);
           const dvv = Math.max(0, evv - maxVV);
-          // Exports lag ~a day: a check-in dated D reflects delivery through the END of D−1. So a
-          // reading's NEW delivery is charted on the day(s) it actually happened — ENDING the day
-          // BEFORE the check-in date — which matches the "yesterday delivery" breakdown and stops
-          // today's (incomplete) bar from showing yesterday's numbers. Window: [prev reading … D−1].
-          // First reading still starts at the 1st of the month; later readings start at the prev date.
-          const start = idx===0 ? new Date(monthStart) : new Date(pd.getTime());
-          const end   = new Date(Math.max(start.getTime(), e.d.getTime()-DAY));
-          spread(start, end, di, dc, ds, dvv);
+          // Window the delta over (previous reading's moment … this reading's moment]; the first reading
+          // covers from the 1st of the month. Real timestamps drive real-time, time-proportional spread.
+          const endMs   = readingMs(e);
+          const startMs = idx===0 ? monthStart.getTime() : readingMs(rd[idx-1]);
+          spread(Math.min(startMs,endMs), endMs, di, dc, ds, dvv);
           maxI=Math.max(maxI,ei); maxC=Math.max(maxC,ec); maxS=Math.max(maxS,es); maxVV=Math.max(maxVV,evv);
-          pd=e.d;
         });
         return [...bk.entries()].sort((a,b)=>a[0]-b[0]).map(([k,o])=>({k, i:Math.round(o.i), c:Math.round(o.c), s:Math.round(o.s*100)/100, vv:Math.round(o.vv)}));
       };
@@ -7248,25 +7258,36 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       const qShort = q => !q ? "" : /above/i.test(q) ? "Above avg" : /below/i.test(q) ? "Below avg" : "Average";
       const isPaused = a => !!(a.status && !/active/i.test(a.status));
       const ctrOf = x => x && x.ctr!=null ? x.ctr : (x && x.ctrLink!=null ? x.ctrLink : null); // back-compat: older FB reports stored ctrLink
+      // FB labels a row covering multiple ads "X;...and 1 more ad" (the extra is usually old/paused).
+      // Strip it for display + matching (covers reports saved before parse-time stripping existed).
+      const MORE_RE = /;\s*\.\.\.and\s+(\d+)\s+more\s+ads?\s*$/i;
+      const dispName = x => String(x?.name||"").replace(MORE_RE,"").trim();
+      const moreOf   = x => { if(x?.moreAds) return x.moreAds; const m=String(x?.name||"").match(MORE_RE); return m?parseInt(m[1]):0; };
+      const normName = x => dispName(x).toLowerCase();
       // ── Anomaly / gone-quiet detection vs the previous report for this campaign ──
       const priorByName = {};
-      (cr.prior?.creatives||[]).forEach(p=>{ if(p?.name) priorByName[p.name.toLowerCase()]=p; });
+      (cr.prior?.creatives||[]).forEach(p=>{ if(p?.name) priorByName[normName(p)]=p; });
       const hasPrior = !!(cr.prior && cr.prior.creatives && cr.prior.creatives.length);
-      const wentQuiet = a => { const p=priorByName[(a.name||"").toLowerCase()]; return !!(p && (p.impressions||0)>=100 && (a.impressions||0) <= (p.impressions||0)*0.15); };
-      const ctrDrop  = a => { const p=priorByName[(a.name||"").toLowerCase()]; const pc=ctrOf(p), ac=ctrOf(a); return !!(p && (p.impressions||0)>=200 && pc>0 && ac!=null && ac <= pc*0.5); };
-      const isNew    = a => hasPrior && !priorByName[(a.name||"").toLowerCase()] && (a.impressions||0)>0;
-      const curNames = new Set(ads.map(a=>(a.name||"").toLowerCase()));
-      const vanished = (cr.prior?.creatives||[]).filter(p=>(p.impressions||0)>=100 && !curNames.has((p.name||"").toLowerCase()));
+      const wentQuiet = a => { const p=priorByName[normName(a)]; return !!(p && (p.impressions||0)>=100 && (a.impressions||0) <= (p.impressions||0)*0.15); };
+      const ctrDrop  = a => { const p=priorByName[normName(a)]; const pc=ctrOf(p), ac=ctrOf(a); return !!(p && (p.impressions||0)>=200 && pc>0 && ac!=null && ac <= pc*0.5); };
+      const isNew    = a => hasPrior && !priorByName[normName(a)] && (a.impressions||0)>0;
+      const curNames = new Set(ads.map(a=>normName(a)));
+      const vanished = (cr.prior?.creatives||[]).filter(p=>(p.impressions||0)>=100 && !curNames.has(normName(p)));
       const quietCount = ads.filter(wentQuiet).length + vanished.length;
       const pausedCount = ads.filter(isPaused).length;
       return (
         <div style={{background:lightMode?"#faf5ff":"#0a0614",borderBottom:rowBreakdown?"none":"1px solid "+lmBrdR,borderLeft:"3px solid "+(lightMode?"#a855f7":"#7c3aed"),padding:"6px 16px 10px 42px"}}>
-          <div style={{fontSize:9,color:lightMode?"#7c3aed":"#c4b5fd",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          {/* Clickable header — the section is collapsed by default (creative imports are one-off,
+              not daily); the count + paused/gone-quiet summary stays visible while collapsed. */}
+          <div onClick={()=>setCreativesOpen(v=>!v)} title={creativesOpen?"Collapse creatives":"Expand creatives"}
+            style={{fontSize:9,color:lightMode?"#7c3aed":"#c4b5fd",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:creativesOpen?5:0,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",cursor:"pointer",userSelect:"none",padding:"2px 0"}}>
+            <span style={{display:"inline-block",transform:creativesOpen?"rotate(90deg)":"rotate(0deg)",transition:"transform .15s",fontSize:9}}>▸</span>
             <span>🎨 Creatives — {ads.length} ad{ads.length!==1?"s":""}{srcLabel?` · ${srcLabel}`:""}{range?` · ${range}`:""}</span>
             {pausedCount>0 && <span style={{textTransform:"none",letterSpacing:0,fontSize:9,color:"#f59e0b",fontWeight:700}}>⏸ {pausedCount} paused</span>}
-            {quietCount>0 && <span title={[...ads.filter(wentQuiet).map(a=>a.name), ...vanished.map(v=>v.name+" (gone)")].join(", ")} style={{textTransform:"none",letterSpacing:0,fontSize:9,color:lightMode?"#dc2626":"#f87171",fontWeight:700,cursor:"help"}}>▼ {quietCount} gone quiet vs last report</span>}
+            {quietCount>0 && <span title={[...ads.filter(wentQuiet).map(a=>dispName(a)), ...vanished.map(v=>dispName(v)+" (gone)")].join(", ")} style={{textTransform:"none",letterSpacing:0,fontSize:9,color:lightMode?"#dc2626":"#f87171",fontWeight:700,cursor:"help"}}>▼ {quietCount} gone quiet vs last report</span>}
+            {!creativesOpen && <span style={{textTransform:"none",letterSpacing:0,fontSize:9,color:lightMode?"#94a3b8":"#6d5a8a",fontWeight:400}}>click to expand</span>}
           </div>
-          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+          {creativesOpen && <div style={{display:"flex",flexDirection:"column",gap:3}}>
             {ads.map((a,i)=>{
               const pct = totalImpr>0 ? (a.impressions/totalImpr)*100 : 0;
               const quiet=wentQuiet(a), paused=isPaused(a), fresh=isNew(a), cdrop=ctrDrop(a);
@@ -7275,7 +7296,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                 <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:lightMode?"#ffffff":"#0a0a16",border:`1px solid ${quiet?(lightMode?"#fca5a5":"#7f1d1d"):(lightMode?"#e9d5ff":"#2a1a40")}`,borderRadius:5,padding:"6px 10px",opacity:dim?0.72:1}}>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:11,color:lightMode?"#334155":"#d8c4f0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:6}}>
-                      <span style={{overflow:"hidden",textOverflow:"ellipsis"}} title={a.name}>{a.name}</span>
+                      <span style={{overflow:"hidden",textOverflow:"ellipsis"}} title={a.name}>{dispName(a)}</span>
+                      {moreOf(a)>0 && <span title={`FB groups ${moreOf(a)} more ad${moreOf(a)>1?"s":""} (usually old/paused) into this row's totals`} style={{flexShrink:0,fontSize:8,fontWeight:700,color:lightMode?"#94a3b8":"#6d5a8a",border:`1px solid ${lightMode?"#e2e8f0":"#2a1a40"}`,borderRadius:3,padding:"0 4px",cursor:"help"}}>+{moreOf(a)}</span>}
                       {paused && <span style={{flexShrink:0,fontSize:8,fontWeight:700,color:"#f59e0b",background:lightMode?"#fef3c7":"#1a1000",border:"1px solid #f59e0b55",borderRadius:3,padding:"0 4px"}}>⏸ paused</span>}
                       {quiet && <span style={{flexShrink:0,fontSize:8,fontWeight:700,color:lightMode?"#dc2626":"#f87171",background:lightMode?"#fee2e2":"#1a0808",border:"1px solid #ef444455",borderRadius:3,padding:"0 4px"}}>▼ went quiet</span>}
                       {cdrop && !quiet && <span style={{flexShrink:0,fontSize:8,fontWeight:700,color:"#f59e0b",background:lightMode?"#fef3c7":"#1a1000",border:"1px solid #f59e0b55",borderRadius:3,padding:"0 4px"}}>CTR ▼</span>}
@@ -7296,9 +7318,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                 </div>
               );
             })}
-          </div>
-          {vanished.length>0 && (
-            <div style={{fontSize:9,color:lightMode?"#dc2626":"#f87171",marginTop:6}}>▼ Gone since last report: {vanished.map(v=>v.name).join(", ")}</div>
+          </div>}
+          {creativesOpen && vanished.length>0 && (
+            <div style={{fontSize:9,color:lightMode?"#dc2626":"#f87171",marginTop:6}}>▼ Gone since last report: {vanished.map(v=>dispName(v)).join(", ")}</div>
           )}
         </div>
       );
@@ -9728,7 +9750,16 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
               {/* Top Creatives data + screenshots */}
               {sections.creatives&&(()=>{
-                const dataCreatives=rows.flatMap(r=>{const d=tryParseJson(r.topCreatives);return d?d.map(c=>({...c,platform:r.platform,campaign:r.campaignName.trim()})):[];});
+                const dataCreatives=rows.flatMap(r=>{
+                  // Auto-include the imported per-ad creative report (FB/Snapchat Quick Check-in) when present;
+                  // fall back to the legacy manually-entered topCreatives JSON otherwise.
+                  if(r.creativeReport && Array.isArray(r.creativeReport.creatives) && r.creativeReport.creatives.length){
+                    // Strip FB's ";...and N more ad" row-grouping suffix — client-facing names should read clean.
+                    return r.creativeReport.creatives.map(c=>({ name:String(c.name||"").replace(/;\s*\.\.\.and\s+\d+\s+more\s+ads?\s*$/i,"").trim(), impressions:c.impressions||0, clicks:c.clicks||0, ctr:(c.ctr!=null?c.ctr:c.ctrLink), platform:r.platform, campaign:r.campaignName.trim() }));
+                  }
+                  const d=tryParseJson(r.topCreatives);
+                  return d?d.map(c=>({...c,platform:r.platform,campaign:r.campaignName.trim()})):[];
+                });
                 const allScreenshots=selectedCamps.flatMap(c=>(creativeImages[c.id]||[]).map(url=>({url,campaign:c.campaignName.trim(),platform:c.platform})));
                 if(!dataCreatives.length&&!allScreenshots.length) return null;
                 return (
@@ -10544,8 +10575,13 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if(!groups[adSet]) groups[adSet]={ dateStart:String(get(row,CC.dStart)).trim(), dateEnd:String(get(row,CC.dEnd)).trim(), creatives:[] };
       let ctr=num(get(row,CC.ctr));
       if(ctr!=null && !CC.ctrIsPercent) ctr=ctr*100; // ratio → percent
+      // FB names a row covering multiple ads "X;...and 1 more ad" (the extra is usually an old/paused
+      // ad). Strip the suffix so the row reads as the actual creative; keep the count as moreAds.
+      const rawName=String(get(row,CC.name)).trim()||"(unnamed ad)";
+      const moreM=rawName.match(/;\s*\.\.\.and\s+(\d+)\s+more\s+ads?\s*$/i);
       groups[adSet].creatives.push({
-        source, adSet, name:String(get(row,CC.name)).trim()||"(unnamed ad)",
+        source, adSet, name:moreM?rawName.replace(/;\s*\.\.\.and\s+\d+\s+more\s+ads?\s*$/i,"").trim():rawName,
+        moreAds:moreM?parseInt(moreM[1]):0,
         impressions: Math.round(num(get(row,CC.impr))||0),
         clicks:      Math.round(num(get(row,CC.clicks))||0),
         ctr, cpm:num(get(row,CC.cpm)), spend:num(get(row,CC.spend)),
@@ -10988,7 +11024,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         // months of daily drops) to bound localStorage growth.
         metricSeries: (()=>{
           const prev = Array.isArray(c.metricSeries) ? c.metricSeries : [];
-          const entry = { d: dataStamp, i: u.impressions||0, c: u.clicks||0, s: u.spend||0, v: u.completionRate||0, vv: u.videoViews||0 };
+          const entry = { d: dataStamp, t: asOfIso, i: u.impressions||0, c: u.clicks||0, s: u.spend||0, v: u.completionRate||0, vv: u.videoViews||0 };
           const next = [...prev.filter(e=>e && e.d!==dataStamp), entry];
           return next.slice(-500);
         })(),
@@ -12407,16 +12443,19 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     const q = Math.floor(now.getMonth() / 3);
     const qMonths = [0, 1, 2].map(i => moStr(new Date(now.getFullYear(), q * 3 + i, 1)))
       .filter(mo => !dataStartMonth || mo >= dataStartMonth);
-    let rev = 0, profit = 0, hasProfit = false;
+    // Track SPEND explicitly. (Displaying rev−profit as "spend" was wrong whenever the quarter
+    // still had future months: their projected revenue is in `rev` but not in `profit`, so the
+    // difference silently absorbed future revenue as fake spend.)
+    let rev = 0, profit = 0, spend = 0, hasProfit = false;
     qMonths.forEach(mo => {
       const t = monthTotals[mo];
-      if (mo < thisMonth) { if (t) { rev += t.revenueWithSpend; profit += (t.revenueWithSpend - t.spend); hasProfit = true; } }
+      if (mo < thisMonth) { if (t) { rev += t.revenueWithSpend; profit += (t.revenueWithSpend - t.spend); spend += t.spend; hasProfit = true; } }
       else if (mo === thisMonth) {
-        if (liveForecast) { rev += liveForecast.projRev; if (liveForecast.projProfit != null) { profit += liveForecast.projProfit; hasProfit = true; } }
-        else if (t) { rev += t.revenueWithSpend; profit += (t.revenueWithSpend - t.spend); hasProfit = true; }
-      } else { if (t) rev += t.revenue; } // future months: projected revenue only
+        if (liveForecast) { rev += liveForecast.projRev; if (liveForecast.projProfit != null) { profit += liveForecast.projProfit; spend += (liveForecast.projSpend || 0); hasProfit = true; } }
+        else if (t) { rev += t.revenueWithSpend; profit += (t.revenueWithSpend - t.spend); spend += t.spend; hasProfit = true; }
+      } else { if (t) rev += t.revenue; } // future months: projected revenue only (no spend data yet)
     });
-    return { rev, profit: hasProfit ? profit : null, label: `Q${q + 1} ${now.getFullYear()}`, monthsInView: qMonths.length };
+    return { rev, profit: hasProfit ? profit : null, spend: hasProfit ? spend : null, label: `Q${q + 1} ${now.getFullYear()}`, monthsInView: qMonths.length };
   })();
 
 
@@ -12667,7 +12706,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             <div style={{paddingLeft:22,borderLeft:`1px solid ${_lm?"#e2e8f0":"#1e3a52"}`}}>
               <div style={{fontSize:9,color:_lm?"#64748b":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:3}}>{quarterForecast.label}</div>
               <div style={{fontSize:20,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1}}>{$fc(quarterForecast.rev)}<span style={{fontSize:9,fontWeight:600,color:_lm?"#94a3b8":"#4d6e8a",marginLeft:4}}>revenue</span></div>
-              {quarterForecast.profit!=null && <div style={{fontSize:11,fontWeight:700,color:"#f59e0b",marginTop:3}}>{$fc(quarterForecast.rev-quarterForecast.profit)} spend</div>}
+              {quarterForecast.spend!=null && <div style={{fontSize:11,fontWeight:700,color:"#f59e0b",marginTop:3}}>{$fc(quarterForecast.spend)} spend</div>}
               {quarterForecast.profit!=null && <div style={{fontSize:11,fontWeight:700,color:profitColor(quarterForecast.profit),marginTop:3}}>{(quarterForecast.profit>=0?"+":"")+$fk(quarterForecast.profit)} profit</div>}
             </div>
           </div>
