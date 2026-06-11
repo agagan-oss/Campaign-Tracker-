@@ -2156,6 +2156,18 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   useEffect(() => {
     if (didFirstRender.current && onValuesChange) setHasEdited(true);
   }, [f]);
+  // Device-targeting surcharge auto-suggest: when ADDING a FB/Snapchat device-ID-integration
+  // campaign (Mobile-to-Social, Device Integration, "Device Targeting"/MTS — see isDeviceIdSocial),
+  // pre-enable the surcharge (default $1.00/1K). New campaigns only, only until the user explicitly
+  // toggles the box.
+  const [dtTouched, setDtTouched] = useState(false);
+  useEffect(() => {
+    if (!isNew || dtTouched) return;
+    if (f.deviceSurcharge !== undefined) return;
+    if (isDeviceIdSocial({ campaignName: f.campaignName, note2: f.note2, platform: f.platform, mediaPartner: f.mediaPartner }, campaigns)) {
+      setF(prev => ({ ...prev, deviceSurcharge: true, deviceSurchargeRate: prev.deviceSurchargeRate || "1.00" }));
+    }
+  }, [f.campaignName, f.platform, f.note2, f.mediaPartner, isNew, dtTouched]);
   const [pendingReminders, setPendingReminders] = useState([]); // reminders added before campaign has an ID
   const [editingReminderId, setEditingReminderId] = useState(null); // id of reminder currently being edited inline
   const [editReminderDraft, setEditReminderDraft] = useState(blankR); // draft values for inline edit
@@ -2412,6 +2424,31 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                       <span style={{fontWeight:400,color:_lm?"#475569":"#4d6e8a"}}> · {effectiveDt==="CPV"?(goal/1000).toFixed(1)+"K views":(goal/1000).toFixed(1)+"K impr"}</span>
                     </div>;
                   })()}
+                </div>
+              )}
+              {/* Device Targeting surcharge — the device line bills us an extra $/1K impr (a COST
+                  that eats margin). Auto-suggested when the name contains "Device Targeting". */}
+              {f.platform!=="SEM" && (
+                <div style={{marginBottom:12}}>
+                  <label style={{display:"block",fontSize:10,color:"#e879a6",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📱 Device Targeting Fee</label>
+                  <label style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",background:_lm?"#f8fafc":"#162236",border:`1px solid ${f.deviceSurcharge?"#e879a6"+(_lm?"":"55"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px"}}>
+                    <input type="checkbox" checked={!!f.deviceSurcharge}
+                      onChange={e=>{ setDtTouched(true); set("deviceSurcharge", e.target.checked); if(e.target.checked && !f.deviceSurchargeRate) set("deviceSurchargeRate","1.00"); }}
+                      style={{accentColor:"#e879a6",width:15,height:15,cursor:"pointer"}}/>
+                    <span style={{fontSize:12,color:_lm?"#0f172a":"#d8eaf8",fontWeight:600}}>Device line has an extra charge</span>
+                  </label>
+                  {f.deviceSurcharge && (
+                    <div style={{display:"flex",alignItems:"center",marginTop:6,background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e879a6":"#e879a655"}`,borderRadius:6,overflow:"hidden"}}>
+                      <span style={{padding:"7px 8px",color:"#e879a6",fontWeight:700,fontSize:13,background:_lm?"#fdf2f8":"#1e0f1a",borderRight:`1px solid ${_lm?"#f5d0e6":"#334155"}`}}>$</span>
+                      <input type="number" step="0.01" value={f.deviceSurchargeRate??""}
+                        onChange={e=>set("deviceSurchargeRate", e.target.value)} placeholder="1.00"
+                        style={{flex:1,background:"transparent",border:"none",padding:"7px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
+                      <span style={{padding:"0 8px",color:_lm?"#94a3b8":"#3d5a72",fontSize:10,whiteSpace:"nowrap"}}>/1K impr · device line</span>
+                    </div>
+                  )}
+                  <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:4,fontStyle:"italic"}}>
+                    Charged on the "Device Targeting" line's impressions; reduces profit in the Revenue tab.
+                  </div>
                 </div>
               )}
             </div>
@@ -8080,6 +8117,64 @@ function ReassignLineModal({ target, campaigns, lightMode, onCancel, onConfirm }
   );
 }
 
+// ─── Device Targeting surcharge ───────────────────────────────────────────
+// Some FB/Snapchat campaigns carry a "Device Targeting (MTS)" ad-set line: we pull
+// device IDs from a mobile platform and upload them, and the device source bills us
+// an extra $X per 1,000 impressions THAT line serves (default $1.00). It's a COST —
+// it eats into our margin (profit = revenue − media spend − device fee). The chargeable
+// impressions come from the SAME live per-line breakdown the Pacing tab shows: the
+// breakdown line whose name contains "Device Targeting".
+function findBreakdownSnapMod(c) {
+  if (!c) return null;
+  const fields = ["metaSnapshots", "ttdSnapshots", "dspSnapshots", "googleSnapshots", "snapSnapshots"];
+  for (const f of fields) { const src = c[f]; if (!src) continue; for (const k of ["mtd", "last30", "yesterday"]) { if (src[k]?.breakdown?.length >= 1) return src[k]; } }
+  return null;
+}
+// Sum of MTD impressions on the device-targeting line(s) of the latest breakdown snapshot.
+function deviceLineImpr(c) {
+  const snap = findBreakdownSnapMod(c);
+  if (!snap || !Array.isArray(snap.breakdown)) return 0;
+  return snap.breakdown
+    .filter(b => /device\s*targeting/i.test(b?.name || ""))
+    .reduce((s, b) => s + (parseInt(b.impressions) || 0), 0);
+}
+// The device-data surcharge ($) for the CURRENT month — live device-line impressions × rate/1000.
+// Rate is dollars per 1,000 impressions; defaults to $1.00 when the flag is on but no rate is set.
+function deviceFeeCurrent(c) {
+  if (!c || !c.deviceSurcharge) return 0;
+  const rate = parseFloat(c.deviceSurchargeRate);
+  const r = rate > 0 ? rate : 1.0;
+  const impr = deviceLineImpr(c);
+  return impr > 0 ? (impr / 1000) * r : 0;
+}
+
+// Detect FB/Snapchat (social) campaigns that integrate uploaded device IDs. Used only to SUGGEST
+// turning on the surcharge; the actual fee still bills off a live "Device Targeting" breakdown line
+// (deviceLineImpr). Device IDs are pulled from the mobile/DSP side and uploaded INTO the social
+// platform, so only the FB/Snapchat record is flagged, not its DSP twin. Three signals (any hit):
+//   1) name keyword (Mobile / Device / Device ID / Integration / MTS)
+//   2) import type recorded in Note 2 (Mobile-to-Social / Device-Integration / data-integration IO)
+//   3) STRUCTURAL — the same campaign (name + partner) also runs on a DSP record. This is the
+//      "includes mobile (DSP) and FB" split Austin described, and it's the only signal that catches
+//      campaigns named plainly like "Olympia Hills Golf" (no keyword, blank Note 2). Needs the full
+//      campaign list passed in; without it, only signals 1–2 apply.
+function isDeviceIdSocial(c, all) {
+  if (!c) return false;
+  const social = ["FB", "FBV", "IG", "SP"];
+  if (!social.includes(c.platform)) return false;
+  const nameHit   = /mobile|device|integration|\bmts\b/i.test(c.campaignName || "");
+  const importHit = /mobile to social|device integration to social|mobile id integration|data integration|device id/i.test(c.note2 || "");
+  if (nameHit || importHit) return true;
+  if (Array.isArray(all)) {
+    const nm = (c.campaignName || "").trim().toLowerCase();
+    const pt = (c.mediaPartner || "").trim().toLowerCase();
+    if (nm && all.some(o => o && o.platform === "DSP"
+      && (o.campaignName || "").trim().toLowerCase() === nm
+      && (o.mediaPartner || "").trim().toLowerCase() === pt)) return true;
+  }
+  return false;
+}
+
 // ─── Revenue Dashboard ────────────────────────────────────────────────────
 // Helper: given a campaign with contractValue + startDate + endDate,
 // spread revenue evenly across each calendar month it is active.
@@ -11922,7 +12017,7 @@ function ReportVault({ onAnalyzeWithZeus }) {
 }
 
 
-function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{} }) {
+function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{}, onSetDeviceSurcharge=()=>{} }) {
   // Revenue tab filter/sort state persists to localStorage so the view sticks
   // across sessions. Same pattern as Pacing/Campaigns tabs. focusMonth is
   // intentionally NOT persisted — it's typically the current month and would be
@@ -11934,10 +12029,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const [sortKey, setSortKey]               = useState(_revPersisted.sortKey || "profit"); // "profit" | "loss" | "contract" | "name" | "pending"
   const [focusMonth, setFocusMonth]         = useState(null); // YYYY-MM, null = current (NOT persisted — see comment above)
   const [cellMode, setCellMode]             = useState(_revPersisted.cellMode || "dollar"); // "dollar" | "margin"
-  // Fresh-start cutoff: real spend tracking began May 2026, so everything before it is hidden
-  // everywhere in Revenue (graph, month strip, per-month grid, totals). Fixed — pre-May data
-  // was projected/incomplete and threw the numbers off, so there's no toggle.
-  const dataStartMonth = "2026-05";
+  // Fresh-start cutoff: clean spend tracking begins June 2026, so everything before it is hidden
+  // everywhere in Revenue (graph, month strip, per-month grid, totals). Fixed — May and earlier
+  // were projected/incomplete and threw the numbers off, so there's no toggle.
+  const dataStartMonth = "2026-06";
   const [monthLocks, setMonthLocks]         = useState(() => { try { return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); } catch { return {}; } });
   // Closing snapshots saved at each new-month reset — the source of truth for a CLOSED month's
   // actual spend/impressions, since the reset clears the live values. Lets past-month revenue
@@ -11945,6 +12040,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const monthlyBackups = useMemo(() => { try { return JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}"); } catch { return {}; } }, []);
   const [showPLReport, setShowPLReport]     = useState(false);
   const [showRateFixer, setShowRateFixer]   = useState(false); // expand the "finish the rates" checklist
+  const [showDtFixer, setShowDtFixer]       = useState(false); // expand the "device surcharge" suggestion list
   const [showRevForecast, setShowRevForecast] = useState(false); // on-demand month/quarter $ forecast
   const [showEnded, setShowEnded]           = useState(_revPersisted.showEnded || false); // show campaigns that ended before active month
   useEffect(() => {
@@ -11973,6 +12069,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       // JUMP the moment you lock. Locking must freeze what's shown, not change it.
       spend:   r.monthCells[month]?.spend ?? null,
       profit:  r.monthCells[month]?.profit ?? null,
+      // Device-targeting surcharge for this month — frozen so it survives the live breakdown
+      // being cleared/overwritten on the next check-in. profit above already nets this out.
+      deviceFee: r.monthCells[month]?.deviceFee || 0,
       // Live campaign metrics — frozen here so next CSV drop can't overwrite them
       impressions:    parseInt(r.c.impressions)||0,
       clicks:         parseInt(r.c.clicks)||0,
@@ -11985,12 +12084,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     // Summary totals count ONLY tracked campaigns (those with real spend) — exactly what the
     // dashboard shows — so the numbers are identical before and after locking.
     const tracked = campData.filter(r => r.spend != null && r.spend > 0);
-    const totalRevenue = tracked.reduce((s,r)=>s+r.revenue,0);
-    const totalSpend   = tracked.reduce((s,r)=>s+r.spend,0);
-    const totalProfit  = totalRevenue - totalSpend;
+    const totalRevenue   = tracked.reduce((s,r)=>s+r.revenue,0);
+    const totalSpend     = tracked.reduce((s,r)=>s+r.spend,0);
+    const totalDeviceFee = tracked.reduce((s,r)=>s+(r.deviceFee||0),0);
+    const totalProfit    = totalRevenue - totalSpend - totalDeviceFee;
     const lockObj = {
       lockedAt: getToday(), label: moDate(month).toLocaleDateString("en-US",{month:"long",year:"numeric"}),
-      totalRevenue, totalSpend, totalProfit, margin: totalRevenue>0?(totalProfit/totalRevenue)*100:0,
+      totalRevenue, totalSpend, totalDeviceFee, totalProfit, margin: totalRevenue>0?(totalProfit/totalRevenue)*100:0,
       campaigns: campData,
     };
     saveMonthLocks({ ...monthLocks, [month]: lockObj });
@@ -12125,6 +12225,28 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     }
     return prorated;
   }
+  // Per-campaign per-month device-targeting surcharge (a COST that eats margin).
+  // Mirrors spendForMonth's month resolution: locked months read the frozen fee from the
+  // lock snapshot; the current month is computed live from the device-line breakdown; past
+  // unlocked months and future months have no retained per-line breakdown, so the fee is 0.
+  function deviceFeeForMonth(c, mo) {
+    if (!c) return 0;
+    // Locked & past months are sourced from frozen snapshots, NOT the current flag — so toggling the
+    // surcharge off later (or a campaign ending) never rewrites what was actually charged in history.
+    if (monthLocks[mo]) {
+      const lc = monthLocks[mo].campaigns?.find(r => String(r.id) === String(c.id));
+      return lc && lc.deviceFee != null ? lc.deviceFee : 0;
+    }
+    // Current month: live from the device-line breakdown, only while the flag is on.
+    if (mo === thisMonth) return c.deviceSurcharge ? deviceFeeCurrent(c) : 0;
+    // Past months: the fee frozen into the month-close backup (the live breakdown is gone by now).
+    const b = monthlyBackups[mo];
+    if (b && Array.isArray(b.campaigns)) {
+      const rec = b.campaigns.find(r => String(r.id) === String(c.id));
+      if (rec && rec.deviceFee != null) return rec.deviceFee;
+    }
+    return 0;
+  }
   // Track WHICH source we used for the current month — informational only
   function currentMonthSource(c) {
     if (!hasSpendData(c)) return "pending";
@@ -12165,6 +12287,15 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     }
     return true;
   });
+  // Device-ID social campaigns that look like they should carry the device surcharge but don't have it
+  // turned on yet (and haven't been dismissed). Drives a one-click suggestion nudge. Skip ended/archived.
+  const deviceIdSuggestions = campaigns.filter(c => {
+    if (!isDeviceIdSocial(c, campaigns)) return false;
+    if (c.deviceSurcharge || c.deviceSurchargeDismissed) return false;
+    if (c.status === "archived" || c.archivedDate) return false; // archived lives in a separate list — can't toggle it here
+    if (c.endDate && c.endDate.slice(0, 7) < thisMonth) return false; // ended before this month — moot
+    return true;
+  });
   const partners = ["all", ...new Set(withContract.map(c=>c.mediaPartner))].sort();
   const filtered  = filterPartner==="all" ? withContract : withContract.filter(c=>c.mediaPartner===filterPartner);
 
@@ -12181,7 +12312,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // A campaign's revenue counts toward profit ONLY in months where we have real spend data for it.
   // Otherwise that month's revenue is "pending" (shown amber, excluded from profit math).
   const monthTotals = {};
-  months.forEach(mo => { monthTotals[mo] = { revenue:0, spend:0, revenueWithSpend:0, pendingRev:0, pendingCount:0 }; });
+  months.forEach(mo => { monthTotals[mo] = { revenue:0, spend:0, deviceFee:0, revenueWithSpend:0, pendingRev:0, pendingCount:0 }; });
   filtered.forEach(c => {
     const spread = revenueMapForCampaign(c);
     Object.entries(spread).forEach(([mo, rev]) => {
@@ -12222,6 +12353,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         // Trackable for THIS month — counts toward profit
         monthTotals[mo].revenueWithSpend += adjRev;
         monthTotals[mo].spend += s;
+        monthTotals[mo].deviceFee += deviceFeeForMonth(c, mo);
       } else if (adjRev > 0) {
         // Revenue but no spend data for this month — pending
         monthTotals[mo].pendingRev += adjRev;
@@ -12234,7 +12366,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // value shown on each. A bar's value is its PROFIT when the month has spend (trackable), or its
   // pending REVENUE when it doesn't yet. Previously profit and pending used different scales (and
   // pending was clamped), which made a $5k and a $29k bar render at the same height.
-  const barMagnitude = mo => { const t = monthTotals[mo]; return t.revenueWithSpend > 0 ? Math.abs(t.revenueWithSpend - t.spend) : (t.pendingRev || 0); };
+  const barMagnitude = mo => { const t = monthTotals[mo]; return t.revenueWithSpend > 0 ? Math.abs(t.revenueWithSpend - t.spend - (t.deviceFee || 0)) : (t.pendingRev || 0); };
   const maxAbsProfit = Math.max(...months.map(barMagnitude), 1);
 
   const $f = v => { const n=Math.round(v); return n===0?"$0":(n<0?"-$":"$")+Math.abs(n).toLocaleString(); };
@@ -12259,7 +12391,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const fmRev    = fmTotals.revenue;
   const fmRevWithSpend = fmTotals.revenueWithSpend;
   const fmSpend  = fmTotals.spend;
-  const fmProfit = fmRevWithSpend - fmSpend;
+  const fmDeviceFee = fmTotals.deviceFee || 0;
+  const fmProfit = fmRevWithSpend - fmSpend - fmDeviceFee;
   const fmMargin = fmRevWithSpend>0?(fmProfit/fmRevWithSpend)*100:0;
   const fmPendingCount = fmTotals.pendingCount;
   const fmPendingRev   = fmTotals.pendingRev;
@@ -12276,7 +12409,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     // a fee is "tracked", not pending. Everything else is tracked once real spend exists.
     const trackable = c.platform === "SEM" ? Object.keys(spread).length > 0 : hasSpendData(c);
     const monthCells = {};
-    let windowRev=0, windowSpend=0, windowHasSpend=false;
+    let windowRev=0, windowSpend=0, windowDeviceFee=0, windowHasSpend=false;
     months.forEach(mo => {
       let rev = spread[mo] || 0;
       // CPM campaigns: use ACTUAL delivered impressions × rate instead of goal × rate, so
@@ -12305,10 +12438,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       // Spend: ask the resolver directly (it already returns null when there's no data, and
       // pulls a closed month's actual spend from the backup even after live metrics are cleared).
       const spn = spendForMonth(c, mo);
-      monthCells[mo] = { rev, spend:spn, profit: spn==null?null:(rev-spn), pending: rev>0 && spn==null };
+      const df = deviceFeeForMonth(c, mo);
+      monthCells[mo] = { rev, spend:spn, deviceFee: df, profit: spn==null?null:(rev-spn-df), pending: rev>0 && spn==null };
       // Only count REALIZED months (actual spend recorded, and not in the future) toward earned
       // totals — so projected/pending revenue never inflates profit.
-      if (spn != null && mo <= thisMonth) { windowRev += rev; windowSpend += spn; windowHasSpend = true; }
+      if (spn != null && mo <= thisMonth) { windowRev += rev; windowSpend += spn; windowDeviceFee += df; windowHasSpend = true; }
     });
     const contract = parseFloat(c.contractValue)||0;
     // Monthly revenue: use rate-based calc if available; fall back to contract value for lifetime view
@@ -12317,7 +12451,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     // EARNED profit to date = actual revenue delivered minus actual spend, across realized months.
     // (Previously "contract value − spend", which counted the FULL contract's revenue against only
     // the spend so far — making an underdelivering campaign look wildly profitable.)
-    const lifetimeProfit = windowHasSpend ? (windowRev - windowSpend) : null;
+    const lifetimeProfit = windowHasSpend ? (windowRev - windowSpend - windowDeviceFee) : null;
     const lifetimeMargin = windowHasSpend && windowRev>0 ? (lifetimeProfit/windowRev)*100 : null;
     const focusCell = monthCells[activeMonth] || {rev:0,spend:null,profit:null,pending:false};
     const focusMargin = focusCell.profit!=null && focusCell.rev>0 ? (focusCell.profit/focusCell.rev)*100 : null;
@@ -12325,7 +12459,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       c, contract, monthlyRev, totalSpend, trackable,
       lifetimeProfit, lifetimeMargin,
       monthCells, focusCell, focusMargin,
-      windowRev, windowSpend, windowProfit: windowHasSpend ? windowRev - windowSpend : null,
+      windowRev, windowSpend, windowDeviceFee, windowProfit: windowHasSpend ? windowRev - windowSpend - windowDeviceFee : null,
       pCol: PLT_COLORS[c.platform]||PLT_COLORS.default,
     };
   });
@@ -12385,7 +12519,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const totRev   = months.reduce((s,mo)=>s+(monthTotals[mo]?.revenue||0),0);
   const totRevWithSpend = months.reduce((s,mo)=>s+(monthTotals[mo]?.revenueWithSpend||0),0);
   const totSpend = months.reduce((s,mo)=>s+(monthTotals[mo]?.spend||0),0);
-  const totProfit= totRevWithSpend - totSpend;
+  const totDeviceFee = months.reduce((s,mo)=>s+(monthTotals[mo]?.deviceFee||0),0);
+  const totProfit= totRevWithSpend - totSpend - totDeviceFee;
   const totMargin= totRevWithSpend>0?(totProfit/totRevWithSpend)*100:0;
   // Counts (subtitles): campaigns with any tracked spend within the window vs pending.
   const trackableCampaigns = filtered.filter(c => months.some(mo => spendForMonth(c, mo) != null));
@@ -12402,7 +12537,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // when you click around other months' bars. The focus-gated `monthForecast` below drives the on-demand
   // Forecast panel (which only makes sense while the live month is the one in focus).
   const liveForecast = (() => {
-    let projRev = 0, projSpend = 0, any = false, anySpend = false;
+    let projRev = 0, projSpend = 0, projDeviceFee = 0, any = false, anySpend = false;
     rows.forEach(r => {
       const cur = r.monthCells[thisMonth];
       if (!cur || !(cur.rev > 0)) return;
@@ -12415,16 +12550,16 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         const elapsed = dt ? Math.max(1, dt.dayOfMonth) : 1;
         const scale = Math.min(4, Math.max(1, windowDays / elapsed));
         projRev += cur.rev * scale;
-        if (cur.spend != null) { projSpend += cur.spend * scale; anySpend = true; }
+        if (cur.spend != null) { projSpend += cur.spend * scale; projDeviceFee += (cur.deviceFee || 0) * scale; anySpend = true; }
       } else {
         // No delivery yet → cur.rev is already the full-month goal projection; use as-is (don't scale).
         projRev += cur.rev;
-        if (cur.spend != null) { projSpend += cur.spend; anySpend = true; }
+        if (cur.spend != null) { projSpend += cur.spend; projDeviceFee += (cur.deviceFee || 0); anySpend = true; }
       }
       any = true;
     });
     if (!any) return null;
-    return { projRev, projSpend: anySpend ? projSpend : null, projProfit: anySpend ? (projRev - projSpend) : null };
+    return { projRev, projSpend: anySpend ? projSpend : null, projDeviceFee: anySpend ? projDeviceFee : 0, projProfit: anySpend ? (projRev - projSpend - projDeviceFee) : null };
   })();
   const monthForecast = activeMonth === thisMonth ? liveForecast : null;
   // ── Goal-based "target" finish ──────────────────────────────────────────────
@@ -12435,7 +12570,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // constant). SEM fee campaigns have fixed revenue, so their spend (overage) stays put.
   const monthGoalForecast = (() => {
     if (activeMonth !== thisMonth) return null;
-    let goalRev = 0, goalSpend = 0, any = false, anySpend = false;
+    let goalRev = 0, goalSpend = 0, goalDeviceFee = 0, any = false, anySpend = false;
     rows.forEach(r => {
       const cur = r.monthCells[thisMonth];
       const gRev = revenueMapForCampaign(r.c)[thisMonth] || 0; // full-goal monthly revenue (pre actual-delivery adjustment)
@@ -12446,14 +12581,16 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         // the full goal revenue. The pace-projection scale factor cancels out, so this equals
         // projSpend × (goalRev / projRev) for the campaign — spend rises in step with the delivery.
         goalSpend += gRev * (cur.spend / cur.rev); anySpend = true;
+        // Device fee tracks impressions, which rise in step with revenue — scale it the same way.
+        goalDeviceFee += gRev * ((cur.deviceFee || 0) / cur.rev);
       } else if (cur && cur.spend != null) {
         // Spent but nothing earned yet (no impressions/views logged) → no efficiency signal to scale;
         // carry the actual spend so far so it isn't dropped from the total.
-        goalSpend += cur.spend; anySpend = true;
+        goalSpend += cur.spend; goalDeviceFee += (cur.deviceFee || 0); anySpend = true;
       }
     });
     if (!any) return null;
-    return { goalRev, projSpend: anySpend ? goalSpend : null, goalProfit: anySpend ? (goalRev - goalSpend) : null };
+    return { goalRev, projSpend: anySpend ? goalSpend : null, goalDeviceFee: anySpend ? goalDeviceFee : 0, goalProfit: anySpend ? (goalRev - goalSpend - goalDeviceFee) : null };
   })();
   const quarterForecast = (() => {
     const q = Math.floor(now.getMonth() / 3);
@@ -12465,10 +12602,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     let rev = 0, profit = 0, spend = 0, hasProfit = false;
     qMonths.forEach(mo => {
       const t = monthTotals[mo];
-      if (mo < thisMonth) { if (t) { rev += t.revenueWithSpend; profit += (t.revenueWithSpend - t.spend); spend += t.spend; hasProfit = true; } }
+      if (mo < thisMonth) { if (t) { rev += t.revenueWithSpend; profit += (t.revenueWithSpend - t.spend - (t.deviceFee || 0)); spend += t.spend; hasProfit = true; } }
       else if (mo === thisMonth) {
         if (liveForecast) { rev += liveForecast.projRev; if (liveForecast.projProfit != null) { profit += liveForecast.projProfit; spend += (liveForecast.projSpend || 0); hasProfit = true; } }
-        else if (t) { rev += t.revenueWithSpend; profit += (t.revenueWithSpend - t.spend); spend += t.spend; hasProfit = true; }
+        else if (t) { rev += t.revenueWithSpend; profit += (t.revenueWithSpend - t.spend - (t.deviceFee || 0)); spend += t.spend; hasProfit = true; }
       } else { if (t) rev += t.revenue; } // future months: projected revenue only (no spend data yet)
     });
     return { rev, profit: hasProfit ? profit : null, spend: hasProfit ? spend : null, label: `Q${q + 1} ${now.getFullYear()}`, monthsInView: qMonths.length };
@@ -12583,6 +12720,51 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         </div>
       )}
 
+      {/* ── Device-surcharge suggestion nudge — mirrors the "finish the rates" nudge above.
+          Flags FB/Snapchat device-ID-integration campaigns that don't yet carry the surcharge. ── */}
+      {deviceIdSuggestions.length>0&&(
+        <div style={{background:_lm?"#fdf2f8":"#1a0f17",border:`1px solid ${_lm?"#f5b8d6":"#e879a640"}`,borderRadius:9,padding:"10px 16px",marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <span style={{fontSize:13}}>📱</span>
+            <div style={{flex:1,minWidth:0}}>
+              <span style={{fontSize:12,fontWeight:700,color:_lm?"#9d174d":"#f0a6c8"}}>{deviceIdSuggestions.length} device-ID campaign{deviceIdSuggestions.length!==1?"s":""} may owe a Device Targeting fee</span>
+              <span style={{fontSize:11,color:_lm?"#be4d82":"#c98aa8",marginLeft:8}}>Mobile→Social / device-integration campaigns get billed an extra $/1K on their device line. Turn the add-on on so it shows in profit.</span>
+            </div>
+            <button onClick={()=>setShowDtFixer(v=>!v)}
+              style={{background:_lm?"#e879a6":"#3a0f24",border:`1px solid ${_lm?"#e879a6":"#e879a660"}`,borderRadius:7,padding:"5px 13px",color:_lm?"#ffffff":"#f0a6c8",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+              {showDtFixer?"Hide":"Review →"}
+            </button>
+          </div>
+          {showDtFixer&&(
+            <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:5,maxHeight:360,overflowY:"auto"}}>
+              {deviceIdSuggestions.map(c=>{
+                const pc=PLT_COLORS[c.platform]||PLT_COLORS.default;
+                return (
+                  <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:7}}>
+                    <span style={{background:pc+"22",color:pc,border:`1px solid ${pc}55`,borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+                    <span style={{fontSize:12,fontWeight:600,color:_lm?"#0f172a":"#d8eaf8",minWidth:150,flex:"0 1 auto",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={c.campaignName.trim()}>{c.campaignName.trim()}</span>
+                    <span style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",whiteSpace:"nowrap"}}>{c.mediaPartner}</span>
+                    <div style={{display:"flex",alignItems:"center",gap:5,marginLeft:"auto",flexShrink:0}}>
+                      <button onClick={()=>onSetDeviceSurcharge(c.id,{deviceSurcharge:true,deviceSurchargeRate:(c.deviceSurchargeRate||"1.00"),deviceSurchargeDismissed:undefined})}
+                        title="Turn on the device targeting surcharge at $1.00/1K (editable per campaign)"
+                        style={{background:_lm?"#fdf2f8":"#2a0f1c",border:`1px solid ${_lm?"#e879a6":"#e879a655"}`,borderRadius:5,color:_lm?"#9d174d":"#f0a6c8",fontSize:10,fontWeight:700,padding:"3px 9px",cursor:"pointer",whiteSpace:"nowrap"}}>
+                        Enable $1.00/1K
+                      </button>
+                      <button onClick={()=>onSetDeviceSurcharge(c.id,{deviceSurchargeDismissed:true})}
+                        title="Not a device-targeting campaign — stop suggesting it"
+                        style={{background:"none",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:5,color:_lm?"#94a3b8":"#7a9bbf",fontSize:10,fontWeight:600,padding:"3px 9px",cursor:"pointer",whiteSpace:"nowrap"}}>
+                        Not this one
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",marginTop:2}}>Enabling charges $1/1K on the campaign's "Device Targeting" delivery line (editable per campaign). "Not this one" hides it from this list.</div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Month navigator — prev/next + mini strip ─────────── */}
       <div style={{...card,padding:"16px 20px",marginBottom:14}}>
         {/* Big prev / current month / next row */}
@@ -12622,7 +12804,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             const isCurr  = mo===thisMonth;
             const isLocked = !!monthLocks[mo];
             const t = monthTotals[mo];
-            const p = t.revenueWithSpend - t.spend;
+            const p = t.revenueWithSpend - t.spend - (t.deviceFee || 0);
             const hasTrackable = t.revenueWithSpend > 0;
             return (
               <button key={mo} onClick={()=>setFocusMonth(mo===thisMonth?null:mo)}
@@ -12755,7 +12937,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
               <div style={{minWidth: months.length*64, display:"flex",gap:8,alignItems:"stretch"}}>
                 {months.map(mo=>{
                   const t = monthTotals[mo];
-                  const profit = t.revenueWithSpend - t.spend;
+                  const profit = t.revenueWithSpend - t.spend - (t.deviceFee || 0);
                   const isFocus = mo===activeMonth;
                   const isCurr  = mo===thisMonth;
                   const hasTrackable = t.revenueWithSpend > 0;
@@ -12942,6 +13124,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       {_lm?(()=>{const rc=r.pCol;const rr=parseInt(rc.slice(1,3),16)/255,rg=parseInt(rc.slice(3,5),16)/255,rb=parseInt(rc.slice(5,7),16)/255;const txt=(0.299*rr+0.587*rg+0.114*rb)>0.45?"#0a1a0a":"#ffffff";return<span style={{background:rc,color:txt,border:"none",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.c.platform}</span>;})():<span style={{background:r.pCol+"22",color:r.pCol,border:"1px solid "+r.pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.c.platform}</span>}
                       <span style={{fontSize:13,fontWeight:600,color:_lm?"#0f172a":"#d8eaf8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.c.campaignName.trim()}</span>
                       {!r.trackable && <span title="No spend data yet" style={{fontSize:10,color:"#f59e0b"}}>⏳</span>}
+                      {r.c.deviceSurcharge && <span title={`Device targeting surcharge — $${(parseFloat(r.c.deviceSurchargeRate)||1).toFixed(2)}/1K on the device line${r.focusCell.deviceFee>0?` · $${Math.round(r.focusCell.deviceFee).toLocaleString()} ${focusLabelShort}`:""}`} style={{fontSize:8.5,fontWeight:700,color:"#e879a6",border:"1px solid "+(_lm?"#e879a688":"#e879a655"),borderRadius:3,padding:"0 4px",letterSpacing:"0.04em",whiteSpace:"nowrap",flexShrink:0}}>DT</span>}
                     </div>
                     <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",paddingLeft:16}}>{r.c.mediaPartner}</div>
                   </div>
@@ -13095,6 +13278,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                 <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>{$fc(rev)}</span> revenue
                                 <span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> − </span>
                                 <span style={{color:"#f59e0b",fontWeight:700}}>{$fc(spend)}</span> spend
+                                {r.focusCell.deviceFee>0&&<>
+                                  <span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> − </span>
+                                  <span style={{color:"#e879a6",fontWeight:700}}>{$fc(r.focusCell.deviceFee)}</span> device fee
+                                </>}
                                 <span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> = </span>
                                 <span style={{color:profitColor(profit),fontWeight:800}}>{(profit>=0?"+":"")+$fc(profit)}</span> profit so far
                               </div>
@@ -13145,6 +13332,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
               revenue:r.monthCells[activeMonth]?.rev||0,
               // Keep null as null — don't coerce to 0 — so pending rows stay out of profit math
               spend:r.monthCells[activeMonth]?.spend!=null ? r.monthCells[activeMonth].spend : null,
+              deviceFee:r.monthCells[activeMonth]?.deviceFee||0,
               profit:r.monthCells[activeMonth]?.profit??null,
               pending:!!(r.monthCells[activeMonth]?.pending),
             }));
@@ -13152,7 +13340,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         const totalSpend = reportRows.reduce((s,r)=>s+(r.spend!=null?r.spend:0),0);
         // Mirror dashboard logic: profit only on campaigns that have real spend data (not pending)
         const totalRevWithSpend = reportRows.filter(r=>r.spend!=null).reduce((s,r)=>s+r.revenue,0);
-        const totalProfit= totalRevWithSpend - totalSpend;
+        const totalDeviceFee = reportRows.filter(r=>r.spend!=null).reduce((s,r)=>s+(r.deviceFee||0),0);
+        const showDevFee = totalDeviceFee > 0;
+        const totalProfit= totalRevWithSpend - totalSpend - totalDeviceFee;
         const totalMargin= totalRevWithSpend>0?(totalProfit/totalRevWithSpend)*100:0;
         const pendingCount = reportRows.filter(r=>r.spend==null).length;
         // By-partner rollup (tracked only, to match the profit math) — ranked by profit. Bosses
@@ -13161,13 +13351,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           const m = {};
           reportRows.forEach(r=>{
             const k = r.partner || "—";
-            if(!m[k]) m[k] = { partner:k, revenue:0, spend:0, count:0, tracked:0 };
+            if(!m[k]) m[k] = { partner:k, revenue:0, spend:0, deviceFee:0, count:0, tracked:0 };
             const e = m[k]; e.count++;
-            if(r.spend!=null){ e.revenue += r.revenue; e.spend += r.spend; e.tracked++; }
+            if(r.spend!=null){ e.revenue += r.revenue; e.spend += r.spend; e.deviceFee += (r.deviceFee||0); e.tracked++; }
           });
           return Object.values(m)
             .filter(e=>e.tracked>0)
-            .map(e=>({ ...e, profit:e.revenue-e.spend, margin:e.revenue>0?((e.revenue-e.spend)/e.revenue*100):0 }))
+            .map(e=>({ ...e, profit:e.revenue-e.spend-e.deviceFee, margin:e.revenue>0?((e.revenue-e.spend-e.deviceFee)/e.revenue*100):0 }))
             .sort((a,b)=>b.profit-a.profit);
         })();
         const printId = "pl-report-"+activeMonth;
@@ -13195,9 +13385,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                     const mcol = m => m>=30?"#059669":m>=15?"#b45309":"#dc2626";
                     const dol = n => "$"+Math.round(n).toLocaleString();
                     const sgn = n => (n>=0?"+":"-")+"$"+Math.round(Math.abs(n)).toLocaleString();
-                    const partnerRows = byPartner.map(p=>{ const share=totalProfit>0?(p.profit/totalProfit*100):null; return `<tr><td>${esc(p.partner)}</td><td class="r">${p.count>p.tracked?p.tracked+"/"+p.count:p.tracked}</td><td class="r">${dol(p.revenue)}</td><td class="r">${dol(p.spend)}</td><td class="r" style="font-weight:700;color:${pcol(p.profit)}">${sgn(p.profit)}</td><td class="r" style="color:${mcol(p.margin)}">${p.margin.toFixed(1)}%</td><td class="r">${share!=null?Math.round(share)+"%":"—"}</td></tr>`; }).join("");
-                    const campRows = [...reportRows].sort((a,b)=>(b.profit||0)-(a.profit||0)).map(r=>{ const margin=r.revenue>0&&r.spend!=null?((r.profit||0)/r.revenue*100):null; return `<tr><td>${esc(r.partner)}</td><td>${esc(r.name)}</td><td>${esc(r.platform)}</td><td class="r">${dol(r.revenue)}</td><td class="r">${r.spend!=null?dol(r.spend):"pending"}</td><td class="r" style="font-weight:700;color:${r.profit==null?'#94a3b8':pcol(r.profit)}">${r.profit==null?"—":sgn(r.profit)}</td><td class="r" style="color:${margin==null?'#94a3b8':mcol(margin)}">${margin==null?"—":margin.toFixed(1)+"%"}</td></tr>`; }).join("");
-                    const totalsRow = `<tr class="tot"><td colspan="3">TOTAL${pendingCount>0?` (${pendingCount} pending excluded)`:""}</td><td class="r">${dol(totalRevWithSpend)}</td><td class="r">${dol(totalSpend)}</td><td class="r" style="color:${pcol(totalProfit)}">${sgn(totalProfit)}</td><td class="r" style="color:${totalRevWithSpend>0?mcol(totalMargin):'#94a3b8'}">${totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—"}</td></tr>`;
+                    const dfCell = v => showDevFee?`<td class="r">${v>0?dol(v):"—"}</td>`:"";
+                    const partnerRows = byPartner.map(p=>{ const share=totalProfit>0?(p.profit/totalProfit*100):null; return `<tr><td>${esc(p.partner)}</td><td class="r">${p.count>p.tracked?p.tracked+"/"+p.count:p.tracked}</td><td class="r">${dol(p.revenue)}</td><td class="r">${dol(p.spend)}</td>${dfCell(p.deviceFee)}<td class="r" style="font-weight:700;color:${pcol(p.profit)}">${sgn(p.profit)}</td><td class="r" style="color:${mcol(p.margin)}">${p.margin.toFixed(1)}%</td><td class="r">${share!=null?Math.round(share)+"%":"—"}</td></tr>`; }).join("");
+                    const campRows = [...reportRows].sort((a,b)=>(b.profit||0)-(a.profit||0)).map(r=>{ const margin=r.revenue>0&&r.spend!=null?((r.profit||0)/r.revenue*100):null; return `<tr><td>${esc(r.partner)}</td><td>${esc(r.name)}</td><td>${esc(r.platform)}</td><td class="r">${dol(r.revenue)}</td><td class="r">${r.spend!=null?dol(r.spend):"pending"}</td>${showDevFee?`<td class="r">${r.spend!=null&&r.deviceFee>0?dol(r.deviceFee):"—"}</td>`:""}<td class="r" style="font-weight:700;color:${r.profit==null?'#94a3b8':pcol(r.profit)}">${r.profit==null?"—":sgn(r.profit)}</td><td class="r" style="color:${margin==null?'#94a3b8':mcol(margin)}">${margin==null?"—":margin.toFixed(1)+"%"}</td></tr>`; }).join("");
+                    const totalsRow = `<tr class="tot"><td colspan="3">TOTAL${pendingCount>0?` (${pendingCount} pending excluded)`:""}</td><td class="r">${dol(totalRevWithSpend)}</td><td class="r">${dol(totalSpend)}</td>${dfCell(totalDeviceFee)}<td class="r" style="color:${pcol(totalProfit)}">${sgn(totalProfit)}</td><td class="r" style="color:${totalRevWithSpend>0?mcol(totalMargin):'#94a3b8'}">${totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—"}</td></tr>`;
                     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>P&L Report — ${esc(focusLabel)}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -13223,11 +13414,11 @@ tr.tot td{border-top:2px solid #e2e8f0;font-weight:800;font-size:13px;background
 <div class="kpis">
 <div class="kpi"><div class="kl">Revenue (tracked)</div><div class="kv" style="color:#0ea5e9">${dol(totalRevWithSpend)}</div>${pendingCount>0?`<div class="ks">+ ${dol(totalRev-totalRevWithSpend)} pending</div>`:""}</div>
 <div class="kpi"><div class="kl">Platform Spend</div><div class="kv" style="color:#b45309">${dol(totalSpend)}</div></div>
-<div class="kpi"><div class="kl">Gross Profit</div><div class="kv" style="color:${pcol(totalProfit)}">${sgn(totalProfit)}</div>${pendingCount>0?`<div class="ks">${pendingCount} pending excluded</div>`:""}</div>
+<div class="kpi"><div class="kl">Gross Profit</div><div class="kv" style="color:${pcol(totalProfit)}">${sgn(totalProfit)}</div>${showDevFee?`<div class="ks">after ${dol(totalDeviceFee)} device fees</div>`:""}${pendingCount>0?`<div class="ks">${pendingCount} pending excluded</div>`:""}</div>
 <div class="kpi"><div class="kl">Margin</div><div class="kv" style="color:${totalRevWithSpend>0?mcol(totalMargin):'#94a3b8'}">${totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—"}</div></div>
 </div>
-${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th class="r">Campaigns</th><th class="r">Revenue</th><th class="r">Spend</th><th class="r">Profit</th><th class="r">Margin</th><th class="r">% of Profit</th></tr></thead><tbody>${partnerRows}</tbody></table>`:""}
-<h2>By Campaign</h2><table><thead><tr><th>Partner</th><th>Campaign</th><th>Plt</th><th class="r">Revenue</th><th class="r">Spend</th><th class="r">Profit</th><th class="r">Margin</th></tr></thead><tbody>${campRows}${totalsRow}</tbody></table>
+${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th class="r">Campaigns</th><th class="r">Revenue</th><th class="r">Spend</th>${showDevFee?'<th class="r">Dev Fee</th>':''}<th class="r">Profit</th><th class="r">Margin</th><th class="r">% of Profit</th></tr></thead><tbody>${partnerRows}</tbody></table>`:""}
+<h2>By Campaign</h2><table><thead><tr><th>Partner</th><th>Campaign</th><th>Plt</th><th class="r">Revenue</th><th class="r">Spend</th>${showDevFee?'<th class="r">Dev Fee</th>':''}<th class="r">Profit</th><th class="r">Margin</th></tr></thead><tbody>${campRows}${totalsRow}</tbody></table>
 <div class="foot"><span>Recrue Media · ${esc(focusLabel)} P&L</span><span>Generated ${esc(new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}))}</span></div>
 <script>window.onload=()=>setTimeout(()=>window.print(),350)</script>
 </body></html>`;
@@ -13245,7 +13436,7 @@ ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th cla
                   {[
                     {label:"Revenue (tracked)",val:"$"+Math.round(totalRevWithSpend).toLocaleString(),sub:pendingCount>0?`+$${Math.round(totalRev-totalRevWithSpend).toLocaleString()} pending`:null,color:_lm?"#0ea5e9":"#7dd3fc"},
                     {label:"Platform Spend",val:"$"+Math.round(totalSpend).toLocaleString(),color:"#f59e0b"},
-                    {label:"Gross Profit",val:(totalProfit>=0?"+":"-")+"$"+Math.round(Math.abs(totalProfit)).toLocaleString(),sub:pendingCount>0?`${pendingCount} campaigns pending`:null,color:totalProfit>=0?"#00d48a":"#ef4444"},
+                    {label:"Gross Profit",val:(totalProfit>=0?"+":"-")+"$"+Math.round(Math.abs(totalProfit)).toLocaleString(),sub:showDevFee?`after $${Math.round(totalDeviceFee).toLocaleString()} device fees`:(pendingCount>0?`${pendingCount} campaigns pending`:null),color:totalProfit>=0?"#00d48a":"#ef4444"},
                     {label:"Margin",val:totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—",color:totalMargin>=30?"#00d48a":totalMargin>=15?"#f59e0b":"#ef4444"},
                   ].map(s=>(
                     <div key={s.label} style={{background:_lm?"#f8fafc":"#0a1628",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8,padding:"12px 14px"}}>
@@ -13262,7 +13453,7 @@ ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th cla
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                       <thead>
                         <tr style={{borderBottom:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
-                          {["Partner","Campaigns","Revenue","Spend","Profit","Margin","% of Profit"].map(h=>(
+                          {["Partner","Campaigns","Revenue","Spend",...(showDevFee?["Dev Fee"]:[]),"Profit","Margin","% of Profit"].map(h=>(
                             <th key={h} style={{padding:"6px 8px",textAlign:["Partner"].includes(h)?"left":"right",color:_lm?"#64748b":"#3d5a72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
                           ))}
                         </tr>
@@ -13276,6 +13467,7 @@ ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th cla
                               <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#475569":"#7a9bbf"}}>{p.tracked}{p.count>p.tracked?`/${p.count}`:""}</td>
                               <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:600}}>${Math.round(p.revenue).toLocaleString()}</td>
                               <td style={{padding:"6px 8px",textAlign:"right",color:"#f59e0b"}}>${Math.round(p.spend).toLocaleString()}</td>
+                              {showDevFee&&<td style={{padding:"6px 8px",textAlign:"right",color:"#e879a6"}}>{p.deviceFee>0?"$"+Math.round(p.deviceFee).toLocaleString():"—"}</td>}
                               <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:p.profit>=0?"#00d48a":"#ef4444"}}>{(p.profit>=0?"+":"-")+"$"+Math.round(Math.abs(p.profit)).toLocaleString()}</td>
                               <td style={{padding:"6px 8px",textAlign:"right",color:p.margin>=30?"#00d48a":p.margin>=15?"#f59e0b":"#ef4444"}}>{p.margin.toFixed(1)}%</td>
                               <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#64748b":"#7a9bbf"}}>{share!=null?share.toFixed(0)+"%":"—"}</td>
@@ -13291,8 +13483,8 @@ ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th cla
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead>
                     <tr style={{borderBottom:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
-                      {["Partner","Campaign","Plt","Revenue","Spend","Profit","Margin"].map(h=>(
-                        <th key={h} style={{padding:"7px 8px",textAlign:["Revenue","Spend","Profit","Margin"].includes(h)?"right":"left",color:_lm?"#64748b":"#3d5a72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
+                      {["Partner","Campaign","Plt","Revenue","Spend",...(showDevFee?["Dev Fee"]:[]),"Profit","Margin"].map(h=>(
+                        <th key={h} style={{padding:"7px 8px",textAlign:["Revenue","Spend","Dev Fee","Profit","Margin"].includes(h)?"right":"left",color:_lm?"#64748b":"#3d5a72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -13309,6 +13501,7 @@ ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th cla
                           <td style={{padding:"6px 8px"}}>{_lm?<span style={{background:pc,color:ptxt,borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.platform}</span>:<span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.platform}</span>}</td>
                           <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:600}}>${Math.round(r.revenue).toLocaleString()}</td>
                           <td style={{padding:"6px 8px",textAlign:"right",color:"#f59e0b"}}>{r.spend!=null?"$"+Math.round(r.spend).toLocaleString():"⏳"}</td>
+                          {showDevFee&&<td style={{padding:"6px 8px",textAlign:"right",color:"#e879a6"}}>{r.spend!=null&&r.deviceFee>0?"$"+Math.round(r.deviceFee).toLocaleString():"—"}</td>}
                           <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:r.profit==null?(_lm?"#94a3b8":"#3d5a72"):r.profit>=0?"#00d48a":"#ef4444"}}>{r.profit==null?"—":(r.profit>=0?"+":"-")+"$"+Math.round(Math.abs(r.profit||0)).toLocaleString()}</td>
                           <td style={{padding:"6px 8px",textAlign:"right",color:margin==null?(_lm?"#94a3b8":"#3d5a72"):margin>=30?"#00d48a":margin>=15?"#f59e0b":"#ef4444"}}>{margin==null?"—":margin.toFixed(1)+"%"}</td>
                         </tr>
@@ -13321,6 +13514,7 @@ ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th cla
                       </td>
                       <td style={{padding:"8px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:800,fontSize:13}}>${Math.round(totalRevWithSpend).toLocaleString()}</td>
                       <td style={{padding:"8px 8px",textAlign:"right",color:"#f59e0b",fontWeight:800,fontSize:13}}>${Math.round(totalSpend).toLocaleString()}</td>
+                      {showDevFee&&<td style={{padding:"8px 8px",textAlign:"right",color:"#e879a6",fontWeight:800,fontSize:13}}>${Math.round(totalDeviceFee).toLocaleString()}</td>}
                       <td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,fontSize:13,color:totalProfit>=0?"#00d48a":"#ef4444"}}>{(totalProfit>=0?"+":"-")+"$"+Math.round(Math.abs(totalProfit)).toLocaleString()}</td>
                       <td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,fontSize:13,color:totalMargin>=30?"#00d48a":totalMargin>=15?"#f59e0b":"#ef4444"}}>{totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—"}</td>
                     </tr>
@@ -15606,7 +15800,10 @@ export default function App() {
         savedAt: getToday(),
         campaigns: campaigns.map(c=>({ id:c.id, campaignName:c.campaignName, platform:c.platform, mediaPartner:c.mediaPartner,
           impressions:c.impressions, clicks:c.clicks, ctr:c.ctr, cpm:c.cpm, spend:c.spend,
-          videoViews:c.videoViews, completionRate:c.completionRate, frequency:c.frequency, note1:c.note1 })),
+          videoViews:c.videoViews, completionRate:c.completionRate, frequency:c.frequency, note1:c.note1,
+          // Freeze the device-targeting surcharge NOW, while the live line-breakdown still exists —
+          // step 2 below clears metaSnapshots, so this is the only chance to retain it for history.
+          deviceFee: deviceFeeCurrent(c), deviceLineImpr: c.deviceSurcharge ? deviceLineImpr(c) : 0 })),
       };
       const keys = Object.keys(backups).sort();
       while(keys.length>12){ delete backups[keys.shift()]; }
@@ -16077,6 +16274,15 @@ export default function App() {
             setCampaigns(cs=>cs.map(c=>c.id===id?{...c, contractRate:String(rate), dealType: dealType || c.dealType || (c.platform==="YT"?"CPV":"CPM")}:c));
             const camp = campaigns.find(c=>c.id===id);
             if (camp) addLog({ type:"edited", campaignName:camp.campaignName, partner:camp.mediaPartner, platform:camp.platform, detail:`Set ${camp.platform==="YT"?"CPV":"CPM"} rate → $${rate}`, campaignId:id, prevSnapshot:null });
+          }}
+          onSetDeviceSurcharge={(id, patch)=>{
+            setCampaigns(cs=>cs.map(c=>c.id===id?{...c, ...patch}:c));
+            const camp = campaigns.find(c=>c.id===id) || archive.find(c=>c.id===id);
+            if (camp) {
+              const detail = patch.deviceSurcharge ? `Enabled device targeting surcharge ($${patch.deviceSurchargeRate||"1.00"}/1K)`
+                : patch.deviceSurchargeDismissed ? `Dismissed device surcharge suggestion` : `Updated device surcharge`;
+              addLog({ type:"edited", campaignName:camp.campaignName, partner:camp.mediaPartner, platform:camp.platform, detail, campaignId:id, prevSnapshot:null });
+            }
           }}/>
         ) : (<>
         <ReminderAlertBanner reminders={reminders} onOpen={()=>setShowReminderModal(true)} onDismissAll={()=>setReminders(prev=>prev.map(r=>r.date<=today?{...r,dismissed:true}:r))}/>
