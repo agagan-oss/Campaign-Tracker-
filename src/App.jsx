@@ -7119,7 +7119,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               ))}
               {perDay>0&&<span style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:lmTxtS}}><span style={{width:14,height:0,borderTop:`2px dotted ${goalColor}`,display:"inline-block"}}/>Goal/{isDaily?"day":"wk"}</span>}
               <span style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:lmTxtS}}><span style={{width:7,height:7,borderRadius:"50%",background:lineColor,display:"inline-block"}}/>Clicks</span>
-              {chartData.some(w=>w.est)&&<span title="Filled in between check-ins — no reading for that day, so the value is an even estimate across the gap. Check in that day to make it exact." style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:lmTxtS,cursor:"help"}}><span style={{width:10,height:10,borderRadius:2,background:lmTxtD,opacity:0.5,backgroundImage:`repeating-linear-gradient(45deg, ${lightMode?"rgba(255,255,255,0.6)":"rgba(0,0,0,0.4)"} 0 2px, transparent 2px 5px)`,display:"inline-block"}}/>Estimated</span>}
             </div>
           </div>
           <div style={{display:"flex",gap:8}}>
@@ -7133,16 +7132,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                 {/* metric bars — color = pace for the bucket */}
                 <div style={{position:"absolute",inset:0,display:"flex",alignItems:"flex-end",gap:0}}>
                   {chartData.map(w=>(
-                    <div key={w.k} title={`${lab(w.k)} — ${fmtFull(val(w))} ${barLabel.toLowerCase()} · ${w.c.toLocaleString()} clicks${w.est?` · estimated (filled in between check-ins — no ${isDaily?"daily":"weekly"} reading)`:""}`}
+                    <div key={w.k} title={`${lab(w.k)} — ${fmtFull(val(w))} ${barLabel.toLowerCase()} · ${w.c.toLocaleString()} clicks`}
                       style={{flex:1,display:"flex",justifyContent:"center",alignItems:"flex-end",height:"100%"}}>
                       {/* Cap bar width so a 1–2 week chart doesn't balloon into a fat bar. Each bar stays
                           centered in its slot (kept aligned with the clicks line, which is positioned by the
-                          same per-week distribution), so the chart reads cleanly whether there's 1 week or 5.
-                          Estimated bars (interpolated across a check-in gap) are softened + diagonally hatched
-                          so a measured day is never confused with a filled-in one. */}
-                      <div style={{width:"58%",maxWidth:52,background:weekColor(w),borderRadius:"2px 2px 0 0",height:`${Math.max(1,(val(w)/barMax)*88)}%`,
-                        opacity:w.est?0.5:1,
-                        backgroundImage:w.est?`repeating-linear-gradient(45deg, ${lightMode?"rgba(255,255,255,0.6)":"rgba(0,0,0,0.4)"} 0 2px, transparent 2px 5px)`:"none"}}/>
+                          same per-week distribution), so the chart reads cleanly whether there's 1 week or 5. */}
+                      <div style={{width:"58%",maxWidth:52,background:weekColor(w),borderRadius:"2px 2px 0 0",height:`${Math.max(1,(val(w)/barMax)*88)}%`}}/>
                     </div>
                   ))}
                 </div>
@@ -12118,6 +12113,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     // month-to-date figure (QCI/CSV reports the current period), so use it AS-IS. Pro-rating it across
     // the whole flight would understate this month's real cost and make profit look too high.
     if (mo === thisMonth) {
+      // A campaign that ENDED before this month has no current-month spend — even if it still carries
+      // a leftover spend value on the record. Without this guard, that final spend leaks into the
+      // current month (it surfaced ended campaigns with phantom June spend in the P&L export). Mirrors
+      // the dashboard's "ended before this month" hide rule (dateVisibleRows) so the two always agree.
+      if (c.endDate && c.endDate.slice(0, 7) < mo) return null;
       const actual = getActualMtdSpend(c);
       if (actual != null && actual > 0) return actual;
       const manual = getManualSpend(c);
