@@ -6759,6 +6759,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       const dayStart = dt => { const x=new Date(dt); x.setHours(0,0,0,0); return x; };
       const DAY = 86400000;
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      // A campaign can't have delivered before its flight start date — so the first reading never
+      // spreads earlier than max(month start, start date). This stops a campaign that went live
+      // mid-month (e.g. dated 6/1 but live 6/9) from smearing its first total across days it wasn't
+      // running. Set the start date to the real live date and the chart lands it on the right days.
+      const flightStartMs = (()=>{ const m=String(c.startDate||"").match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) return monthStart.getTime(); const d=new Date(+m[1],+m[2]-1,+m[3]); return isNaN(d.getTime())?monthStart.getTime():d.getTime(); })();
+      const seriesStartMs = Math.max(monthStart.getTime(), flightStartMs);
       const rd = series.map(e=>({d:parseD(e.d), t:e.t, i:+e.i||0, ck:+e.c||0, s:+e.s||0, vv:+e.vv||0}))
         .filter(e=>e.d && e.d.getMonth()===now.getMonth() && e.d.getFullYear()===now.getFullYear())
         .sort((a,b)=>a.d-b.d);
@@ -6778,21 +6784,25 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       const endOfDay = d => { const x=new Date(d); x.setHours(23,59,59,999); return x.getTime(); };
       const readingMs = e => { if(e.t){ const tm=new Date(e.t).getTime(); if(!isNaN(tm)) return tm; } return endOfDay(e.d); };
       // build a bucket series given a key function (Monday-of-week for weekly, day-start for daily).
-      const build = (keyFn) => {
+      // estThr = how long a check-in gap can be before the buckets it fills are flagged ESTIMATED
+      // (interpolated). A bar is "measured" only if its delivery came from check-ins close enough to
+      // pin it down (≤ estThr apart); otherwise it's a smooth fill across a gap and gets hatched.
+      const build = (keyFn, estThr) => {
         const bk=new Map();
         // Spread a reading's NEW delivery across the calendar days of the actual time window it covers,
         // PROPORTIONALLY to the hours falling in each day — so a morning pull lands mostly on yesterday,
         // a late-night pull mostly on today, and a multi-day gap splits across the days it spans.
         const spread = (startMs, endMs, i, c, s, vv) => {
-          if(!(endMs > startMs)){ const k=keyFn(new Date(endMs)).getTime(); const o=bk.get(k)||{i:0,c:0,s:0,vv:0}; o.i+=i;o.c+=c;o.s+=s;o.vv+=vv; bk.set(k,o); return; }
+          if(!(endMs > startMs)){ const k=keyFn(new Date(endMs)).getTime(); const o=bk.get(k)||{i:0,c:0,s:0,vv:0,est:false}; o.i+=i;o.c+=c;o.s+=s;o.vv+=vv; bk.set(k,o); return; }
           const total = endMs - startMs;
+          const est = total > estThr;        // gap longer than this bar's period → interpolated
           let cur = startMs;
           while(cur < endMs){
             const day0=new Date(cur); day0.setHours(0,0,0,0);
             const segEnd = Math.min(endMs, day0.getTime()+DAY);
             const frac = (segEnd - cur)/total;
             const k=keyFn(new Date(cur)).getTime();
-            const o=bk.get(k)||{i:0,c:0,s:0,vv:0}; o.i+=i*frac; o.c+=c*frac; o.s+=s*frac; o.vv+=vv*frac; bk.set(k,o);
+            const o=bk.get(k)||{i:0,c:0,s:0,vv:0,est:false}; o.i+=i*frac; o.c+=c*frac; o.s+=s*frac; o.vv+=vv*frac; o.est=o.est||est; bk.set(k,o);
             cur = segEnd;
           }
         };
@@ -6806,13 +6816,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           // Window the delta over (previous reading's moment … this reading's moment]; the first reading
           // covers from the 1st of the month. Real timestamps drive real-time, time-proportional spread.
           const endMs   = readingMs(e);
-          const startMs = idx===0 ? monthStart.getTime() : readingMs(rd[idx-1]);
+          const startMs = idx===0 ? seriesStartMs : readingMs(rd[idx-1]);
           spread(Math.min(startMs,endMs), endMs, di, dc, ds, dvv);
           maxI=Math.max(maxI,ei); maxC=Math.max(maxC,ec); maxS=Math.max(maxS,es); maxVV=Math.max(maxVV,evv);
         });
-        return [...bk.entries()].sort((a,b)=>a[0]-b[0]).map(([k,o])=>({k, i:Math.round(o.i), c:Math.round(o.c), s:Math.round(o.s*100)/100, vv:Math.round(o.vv)}));
+        return [...bk.entries()].sort((a,b)=>a[0]-b[0]).map(([k,o])=>({k, i:Math.round(o.i), c:Math.round(o.c), s:Math.round(o.s*100)/100, vv:Math.round(o.vv), est:!!o.est}));
       };
-      return { weekly: build(monday), daily: build(dayStart) };
+      // Daily bars are "measured" if check-ins are ≤ ~1.5 days apart; weekly bars if ≤ ~8 days apart.
+      return { weekly: build(monday, 8*DAY), daily: build(dayStart, 1.5*DAY) };
     })();
     const hasWeekly = weekly.length > 0 && weekly.some(w=>w.i>0 || w.c>0 || w.s>0 || w.vv>0);
     const hasCreatives = !!(c.creativeReport && Array.isArray(c.creativeReport.creatives) && c.creativeReport.creatives.length);
@@ -7108,6 +7119,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               ))}
               {perDay>0&&<span style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:lmTxtS}}><span style={{width:14,height:0,borderTop:`2px dotted ${goalColor}`,display:"inline-block"}}/>Goal/{isDaily?"day":"wk"}</span>}
               <span style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:lmTxtS}}><span style={{width:7,height:7,borderRadius:"50%",background:lineColor,display:"inline-block"}}/>Clicks</span>
+              {chartData.some(w=>w.est)&&<span title="Filled in between check-ins — no reading for that day, so the value is an even estimate across the gap. Check in that day to make it exact." style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:lmTxtS,cursor:"help"}}><span style={{width:10,height:10,borderRadius:2,background:lmTxtD,opacity:0.5,backgroundImage:`repeating-linear-gradient(45deg, ${lightMode?"rgba(255,255,255,0.6)":"rgba(0,0,0,0.4)"} 0 2px, transparent 2px 5px)`,display:"inline-block"}}/>Estimated</span>}
             </div>
           </div>
           <div style={{display:"flex",gap:8}}>
@@ -7121,12 +7133,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                 {/* metric bars — color = pace for the bucket */}
                 <div style={{position:"absolute",inset:0,display:"flex",alignItems:"flex-end",gap:0}}>
                   {chartData.map(w=>(
-                    <div key={w.k} title={`${lab(w.k)} — ${fmtFull(val(w))} ${barLabel.toLowerCase()} · ${w.c.toLocaleString()} clicks`}
+                    <div key={w.k} title={`${lab(w.k)} — ${fmtFull(val(w))} ${barLabel.toLowerCase()} · ${w.c.toLocaleString()} clicks${w.est?` · estimated (filled in between check-ins — no ${isDaily?"daily":"weekly"} reading)`:""}`}
                       style={{flex:1,display:"flex",justifyContent:"center",alignItems:"flex-end",height:"100%"}}>
                       {/* Cap bar width so a 1–2 week chart doesn't balloon into a fat bar. Each bar stays
                           centered in its slot (kept aligned with the clicks line, which is positioned by the
-                          same per-week distribution), so the chart reads cleanly whether there's 1 week or 5. */}
-                      <div style={{width:"58%",maxWidth:52,background:weekColor(w),borderRadius:"2px 2px 0 0",height:`${Math.max(1,(val(w)/barMax)*88)}%`}}/>
+                          same per-week distribution), so the chart reads cleanly whether there's 1 week or 5.
+                          Estimated bars (interpolated across a check-in gap) are softened + diagonally hatched
+                          so a measured day is never confused with a filled-in one. */}
+                      <div style={{width:"58%",maxWidth:52,background:weekColor(w),borderRadius:"2px 2px 0 0",height:`${Math.max(1,(val(w)/barMax)*88)}%`,
+                        opacity:w.est?0.5:1,
+                        backgroundImage:w.est?`repeating-linear-gradient(45deg, ${lightMode?"rgba(255,255,255,0.6)":"rgba(0,0,0,0.4)"} 0 2px, transparent 2px 5px)`:"none"}}/>
                     </div>
                   ))}
                 </div>
