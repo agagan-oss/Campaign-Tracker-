@@ -12678,7 +12678,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       } else {
         // No delivery yet → cur.rev is already the full-month goal projection; use as-is (don't scale).
         projRev += cur.rev;
-        if (cur.spend != null) { projSpend += cur.spend; projDeviceFee += (cur.deviceFee || 0); anySpend = true; }
+        if (r.c.platform === "DSP") {
+          // DSP cost is MODELED, not measured. Since we're counting this campaign's goal revenue,
+          // count its goal-based modeled cost too (same basis as monthGoalForecast) — otherwise this
+          // tile would book DSP goal revenue with $0 cost and overstate profit vs "if you hit goal".
+          const rate = parseFloat(r.c.contractRate) || 0;
+          if (rate > 0) { projSpend += cur.rev * (dspCpm / rate); anySpend = true; }
+        } else if (cur.spend != null) { projSpend += cur.spend; projDeviceFee += (cur.deviceFee || 0); anySpend = true; }
       }
       any = true;
     });
