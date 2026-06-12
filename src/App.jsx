@@ -14,6 +14,10 @@ const MONTH_RESET_KEY = "campaign-tracker-last-month-reset"; // "YYYY-MM" of the
 const MONTHLY_BACKUP_KEY = "campaign-tracker-monthly-backups"; // {"YYYY-MM":{savedAt, campaigns:[...closing snapshot]}}
 const ARCHIVE_DAYS = 5;
 const MAX_LOG_ENTRIES = 500;
+// DSP campaigns rarely report real media spend, so we MODEL their cost at a flat assumed CPM. This
+// lets the Revenue tab surface projected revenue/profit for DSP (esp. the "if you hit goal" forecast)
+// before any real impressions/spend exist. Easy to change here; could move to Config for per-user later.
+const DSP_EST_CPM = 2.75;
 // Show the platform sync status badges (Meta / TTD / DSP / Google / Snap) in the top header.
 // Off for now since no platforms are connected — flip to true once you start syncing a platform.
 const SHOW_SYNC_BADGES = false;
@@ -241,6 +245,69 @@ function resolveMetrics(c, preset) {
     return { impressions:s.impressions!=null?String(s.impressions):"", ctr:s.ctr!=null?String(s.ctr):"", cpm:s.cpm!=null?String(s.cpm):"", spend:s.spend!=null?String(s.spend):"", clicks:s.clicks!=null?String(s.clicks):"", source:"snap", snapshotKey:key };
   }
   return { impressions:c.impressions||"", ctr:c.ctr||"", cpm:c.cpm||"", spend:c.spend||"", clicks:c.clicks||"", videoViews:c.videoViews||"", completionRate:c.completionRate||"", source:key?"manual-no-snapshot":"manual", snapshotKey:key };
+}
+
+// ─── Metric source-of-truth mirroring ──────────────────────────────────────
+// A campaign's current-period delivery metrics live in TWO stores: the flat c.* fields and the
+// synced snapshot's `mtd`. The snapshot is the source of truth; c.* is a maintained mirror that raw
+// readers (Reports getM, exports, the Campaigns row) rely on. The QCI check-in and manual edits
+// already write both, but the platform-sync handlers write only the snapshot — so we mirror here to
+// keep them in lockstep and guarantee the two stores can never drift apart.
+// Which snapshot field holds a campaign's synced metrics, keyed by platform (inverse of the
+// SOURCE_PLATFORMS map used by ReassignLineModal).
+const PLATFORM_SNAPSHOT_FIELD = {
+  FB:"metaSnapshots", FBV:"metaSnapshots", IG:"metaSnapshots",
+  TD:"ttdSnapshots", TDV:"ttdSnapshots", TDA:"ttdSnapshots", CTV:"ttdSnapshots", OTT:"ttdSnapshots", OTTD:"ttdSnapshots",
+  DSP:"dspSnapshots",
+  SEM:"googleSnapshots", YT:"googleSnapshots",
+  SP:"snapSnapshots",
+};
+// Copy the synced snapshot's mtd metrics into the flat c.* fields (as strings, matching
+// resolveMetrics' convention). Returns the SAME object when nothing changed or there's no snapshot
+// (manual-only campaigns keep their c.*), so callers can cheaply detect a change by identity.
+// Rounding to match how the QCI check-in stores the flat fields (raw snapshots carry full-precision
+// floats; the flat c.* fields are kept clean). Without this the mirror would replace clean values
+// with float noise (e.g. spend "121.08" → "121.08000000000001") and flag spurious changes.
+const _METRIC_INT  = new Set(["impressions","clicks","reach","videoViews"]);
+const _METRIC_DEC4 = new Set(["ctr","cpm"]);
+const _METRIC_DEC2 = new Set(["spend","completionRate","frequency"]);
+function _normMetric(key, val) {
+  if (val == null) return null;
+  const n = Number(val); if (isNaN(n)) return null;
+  if (_METRIC_INT.has(key))  return String(Math.round(n));
+  if (_METRIC_DEC4.has(key)) return String(parseFloat(n.toFixed(4)));
+  if (_METRIC_DEC2.has(key)) return String(parseFloat(n.toFixed(2)));
+  return String(n);
+}
+function mirrorSnapshotToFields(campaign) {
+  if (!campaign) return campaign;
+  const field = PLATFORM_SNAPSHOT_FIELD[campaign.platform];
+  const mtd = field && campaign[field] && campaign[field].mtd;
+  if (!mtd) return campaign;
+  let out = campaign, changed = false;
+  const put = (key, val) => {
+    const s = _normMetric(key, val);
+    if (s == null) return;
+    if (campaign[key] !== s) { if (!changed) { out = {...campaign}; changed = true; } out[key] = s; }
+  };
+  put("impressions", mtd.impressions);
+  put("clicks", mtd.clicks);
+  put("ctr", mtd.ctr);
+  put("cpm", mtd.cpm);
+  put("spend", mtd.spend);
+  put("reach", mtd.reach);
+  put("frequency", mtd.frequency);
+  put("videoViews", mtd.video_views != null ? mtd.video_views : mtd.videoViews);
+  put("completionRate", mtd.vcr != null ? mtd.vcr : mtd.completionRate);
+  return out;
+}
+// Load-time reconciliation across a campaign list — heals any records that drifted before mirroring
+// existed. Idempotent: subsequent loads find nothing to change. Returns {list, changed:count}.
+function reconcileMetricFields(list) {
+  if (!Array.isArray(list)) return { list, changed: 0 };
+  let changed = 0;
+  const out = list.map(c => { const m = mirrorSnapshotToFields(c); if (m !== c) changed++; return m; });
+  return { list: changed ? out : list, changed };
 }
 
 
@@ -2240,24 +2307,6 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     }
     return next;
   });
-  // Metric edits must stay in sync with the synced snapshot, otherwise the Revenue tab and the
-  // Campaigns tab (both read the snapshot's mtd FIRST) would keep shadowing the manual value. These
-  // 5 core metrics map 1:1 to the snapshot's mtd keys across every platform source, so when one is
-  // edited we mirror it into mtd too (matching MetricRow's behavior). Leaves `breakdown` intact.
-  const CORE_SNAP_METRICS = ["impressions","clicks","ctr","cpm","spend"];
-  const setMetric = (k,v) => setF(p => {
-    const next = {...p, [k]: v};
-    if (CORE_SNAP_METRICS.includes(k)) {
-      const srcMap = { meta:"metaSnapshots", ttd:"ttdSnapshots", dsp:"dspSnapshots", google:"googleSnapshots", snap:"snapSnapshots" };
-      const field = srcMap[resolveMetrics(p, "mtd").source];
-      if (field && p[field] && p[field].mtd) {
-        const isInt = (k==="impressions"||k==="clicks");
-        const n = isInt ? parseInt(v) : parseFloat(v);
-        next[field] = {...p[field], mtd: {...p[field].mtd, [k]: isNaN(n) ? p[field].mtd[k] : n}};
-      }
-    }
-    return next;
-  });
   const iS = {width:"100%",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box"};
   const row = (key,label,type="text") => (
     <div style={{marginBottom:12}}>
@@ -2493,36 +2542,6 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 </div>
               )}
             </div>
-
-            {/* ── Current delivery metrics — editable here too (syncs to Pacing + Revenue) ── */}
-            {(()=>{
-              const mv = resolveMetrics(f, "mtd");
-              const synced = mv.source && mv.source !== "manual" && mv.source !== "manual-no-snapshot";
-              const coreF = [["impressions","Impressions"],["clicks","Clicks"],["ctr","CTR %"],["cpm","CPM $"],["spend","Spend $"]];
-              const moreF = [["reach","Reach"],["frequency","Frequency"],["videoViews","Video Views"],["completionRate","VCR %"],["conversions","Conversions"]];
-              const fld = (k,label,isCore) => (
-                <div key={k}>
-                  <label style={{display:"block",fontSize:9,color:_lm?"#64748b":"#7a9bbf",marginBottom:2,textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</label>
-                  <input type="number" step="any" value={isCore ? (mv[k] ?? "") : (f[k] ?? "")}
-                    onChange={e=> isCore ? setMetric(k, e.target.value) : set(k, e.target.value)}
-                    style={{...iS, padding:"6px 8px", fontSize:12}}/>
-                </div>
-              );
-              return (
-                <div style={{marginBottom:14,padding:"12px 14px",background:_lm?"#f8fafc":"#0c1828",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-                    <label style={{fontSize:10,color:"#00e5a0",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>📊 Current Metrics — this month</label>
-                    <span style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a"}}>{synced ? `synced from ${mv.source.toUpperCase()} · edits update Pacing + Revenue` : "manual entry · drives Pacing + Revenue"}</span>
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:8}}>
-                    {coreF.map(([k,l])=>fld(k,l,true))}
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
-                    {moreF.map(([k,l])=>fld(k,l,false))}
-                  </div>
-                </div>
-              );
-            })()}
 
             {/* Full-width fields below the grid */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:12}}>
@@ -12113,6 +12132,12 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // everywhere in Revenue (graph, month strip, per-month grid, totals). Fixed — May and earlier
   // were projected/incomplete and threw the numbers off, so there's no toggle.
   const dataStartMonth = "2026-06";
+  // DSP estimated cost CPM — user-editable in Config (per tracker); falls back to the DSP_EST_CPM
+  // default. Read on each render so switching back from the Config tab picks up changes.
+  const dspCpm = (() => {
+    try { const v = parseFloat(JSON.parse(localStorage.getItem(CONFIG_KEY) || "{}").dspEstCpm); return v > 0 ? v : DSP_EST_CPM; }
+    catch { return DSP_EST_CPM; }
+  })();
   const [monthLocks, setMonthLocks]         = useState(() => { try { return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); } catch { return {}; } });
   // Closing snapshots saved at each new-month reset — the source of truth for a CLOSED month's
   // actual spend/impressions, since the reset clears the live values. Lets past-month revenue
@@ -12275,6 +12300,16 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     if (monthLocks[mo]) {
       const lc = monthLocks[mo].campaigns?.find(r => String(r.id) === String(c.id));
       return lc ? lc.spend : null;
+    }
+    // DSP: cost is MODELED at a flat assumed CPM (DSP rarely reports real spend), applied to the
+    // impressions actually delivered that month. No impressions yet → pending (the goal forecast
+    // still projects it). Future months → pending. Keeps DSP profit estimate consistent everywhere.
+    if (c.platform === "DSP") {
+      if (mo > thisMonth) return null;
+      if (mo === thisMonth && c.endDate && c.endDate.slice(0, 7) < mo) return null; // ended before this month
+      const impr = actualImprForMonth(c, mo);
+      if (impr == null || impr <= 0) return null;
+      return (impr / 1000) * dspCpm;
     }
     // Closed month: use the actual spend from the backup or check-in history (reset-proof).
     if (mo < thisMonth) {
@@ -12486,8 +12521,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const rows = filtered.map(c=>{
     const spread = revenueMapForCampaign(c);
     // SEM profit is the management fee (realized, no media-spend dependency) — so a SEM campaign with
-    // a fee is "tracked", not pending. Everything else is tracked once real spend exists.
-    const trackable = c.platform === "SEM" ? Object.keys(spread).length > 0 : hasSpendData(c);
+    // a fee is "tracked", not pending. DSP cost is MODELED from delivered impressions, so a DSP campaign
+    // is "tracked" once it has impressions (even with no real spend). Everything else needs real spend.
+    const trackable = c.platform === "SEM" ? Object.keys(spread).length > 0
+      : c.platform === "DSP" ? (getActualMtdImpressions(c) != null)
+      : hasSpendData(c);
     const monthCells = {};
     let windowRev=0, windowSpend=0, windowDeviceFee=0, windowHasSpend=false;
     months.forEach(mo => {
@@ -12662,6 +12700,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       const gRev = revenueMapForCampaign(r.c)[thisMonth] || 0; // full-goal monthly revenue (pre actual-delivery adjustment)
       if (!(gRev > 0)) return;
       goalRev += gRev; any = true;
+      // DSP: model the cost from the GOAL impressions at the assumed CPM, regardless of delivery so
+      // far — so "if you hit goal" shows a real profit for DSP even with zero impressions logged yet.
+      // gRev = goalImpr/1000 × rate, so gRev × (dspCpm/rate) = goalImpr/1000 × dspCpm.
+      if (r.c.platform === "DSP") {
+        const rate = parseFloat(r.c.contractRate) || 0;
+        if (rate > 0) { goalSpend += gRev * (dspCpm / rate); anySpend = true; }
+        return;
+      }
       if (cur && cur.spend != null && cur.rev > 0) {
         // Proportional: hold this campaign's realized spend-to-revenue ratio constant and apply it to
         // the full goal revenue. The pace-projection scale factor cancels out, so this equals
@@ -12999,7 +13045,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
               {quarterForecast.profit!=null && <div style={{fontSize:11,fontWeight:700,color:profitColor(quarterForecast.profit),marginTop:3}}>{(quarterForecast.profit>=0?"+":"")+$fk(quarterForecast.profit)} profit</div>}
             </div>
           </div>
-          <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:8}}>At current pace = today's delivery & spend rate extended to each campaign's flight end. If you hit goal = full monthly goals × rate, with spend scaled up proportionally to the extra delivery (cost-per-impression held constant). Quarter = closed months + this month's pace forecast + projected.</div>
+          <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:8}}>At current pace = today's delivery & spend rate extended to each campaign's flight end. If you hit goal = full monthly goals × rate, with spend scaled up proportionally to the extra delivery (cost-per-impression held constant). Quarter = closed months + this month's pace forecast + projected. DSP campaigns' spend is modeled at an estimated ${dspCpm.toFixed(2)} CPM (DSP rarely reports real spend) — editable in Config.</div>
         </div>
       )}
 
@@ -13301,7 +13347,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                         })()}
                       </div>
                       <div>
-                        <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Spend</div>
+                        <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
+                          Spend{r.c.platform==="DSP"&&<span style={{color:"#f59e0b",fontWeight:700,textTransform:"none",letterSpacing:0,marginLeft:5}}>· est. ${dspCpm.toFixed(2)} CPM</span>}
+                        </div>
                         <div style={{fontSize:26,fontWeight:700,color:"#f59e0b",lineHeight:1}}>
                           {r.focusCell.spend==null?<span style={{color:"#f59e0b",fontSize:18}}>⏳ pending</span>:$fc(r.focusCell.spend)}
                         </div>
@@ -13409,7 +13457,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                   against the billed contract CPM, so the margin per thousand is spelled out. */}
                               {!isCPV && hasUnit && costPer!=null && (
                                 <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
-                                  Your cost <span style={{color:"#f59e0b",fontWeight:700}}>${(costPer*1000).toFixed(2)} CPM</span> · billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(2)} CPM</span> · margin <span style={{color:profitColor(rateNum-costPer*1000),fontWeight:700}}>${(rateNum-costPer*1000).toFixed(2)} CPM</span>
+                                  Your cost <span style={{color:"#f59e0b",fontWeight:700}}>${(costPer*1000).toFixed(2)} CPM</span>{r.c.platform==="DSP"&&<span style={{color:"#f59e0b",fontStyle:"italic"}}> (estimated)</span>} · billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(2)} CPM</span> · margin <span style={{color:profitColor(rateNum-costPer*1000),fontWeight:700}}>${(rateNum-costPer*1000).toFixed(2)} CPM</span>
                                 </div>
                               )}
                               {/* Device surcharge transparency — spell out the matched device-line impressions
@@ -14303,6 +14351,25 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
                 placeholder="Leave blank if not using temporary credentials" style={{...iS,fontFamily:"monospace"}}/>
               <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Only needed if your rep issued temporary IAM credentials</div>
             </div>
+          </div>
+        </div>
+
+        {/* Estimated cost CPM — DSP rarely reports real spend, so the Revenue tab models DSP cost at
+            this CPM. Editable per tracker (per user). Read by RevenueDashboard from CONFIG_KEY. */}
+        <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"16px 20px",marginBottom:16,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+          <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+            💰 DSP Estimated Cost
+            <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",fontWeight:400}}>used for Revenue projections when no real spend is reported</span>
+          </div>
+          <div style={{maxWidth:300}}>
+            <label style={labelS}>Estimated CPM <span style={{color:_lm?"#94a3b8":"#3d5a72",textTransform:"none",fontWeight:400}}>— cost per 1,000 impressions</span></label>
+            <div style={{display:"flex",alignItems:"center",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,overflow:"hidden"}}>
+              <span style={{padding:"7px 10px",color:"#f59e0b",fontWeight:700,fontSize:13,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
+              <input type="number" step="0.01" min="0" value={getVal("dspEstCpm","")} onChange={e=>setVal("dspEstCpm", e.target.value)}
+                placeholder="2.75" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
+              <span style={{padding:"0 10px",color:_lm?"#94a3b8":"#3d5a72",fontSize:10,whiteSpace:"nowrap"}}>/1K impr</span>
+            </div>
+            <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:4}}>Default $2.75. Applied to every DSP campaign's spend in the Revenue tab &amp; forecasts.</div>
           </div>
         </div>
 
@@ -15481,7 +15548,7 @@ export default function App() {
         setCampaigns(cs=>cs.map(campaign=>{
           const meta=metaMap[campaign.id];
           if (!meta||!meta.snapshots) return campaign;
-          return {...campaign, metaSnapshots:meta.snapshots, metaSyncedAt:syncedAt};
+          return mirrorSnapshotToFields({...campaign, metaSnapshots:meta.snapshots, metaSyncedAt:syncedAt});
         }));
         setMetaSyncStatus("done");
         setMetaSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
@@ -15504,7 +15571,7 @@ export default function App() {
         setCampaigns(cs=>cs.map(campaign=>{
           const ttd=ttdMap[campaign.id];
           if (!ttd||!ttd.snapshots) return campaign;
-          return {...campaign, ttdSnapshots:ttd.snapshots, ttdSyncedAt:syncedAt};
+          return mirrorSnapshotToFields({...campaign, ttdSnapshots:ttd.snapshots, ttdSyncedAt:syncedAt});
         }));
         setTtdSyncStatus("done");
         setTtdSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
@@ -15527,7 +15594,7 @@ export default function App() {
         setCampaigns(cs=>cs.map(campaign=>{
           const dsp=dspMap[campaign.id];
           if (!dsp||!dsp.snapshots) return campaign;
-          return {...campaign, dspSnapshots:dsp.snapshots, dspSyncedAt:syncedAt};
+          return mirrorSnapshotToFields({...campaign, dspSnapshots:dsp.snapshots, dspSyncedAt:syncedAt});
         }));
         setDspSyncStatus("done");
         setDspSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
@@ -15550,7 +15617,7 @@ export default function App() {
         setCampaigns(cs=>cs.map(campaign=>{
           const g=googleMap[campaign.id];
           if (!g||!g.snapshots) return campaign;
-          return {...campaign, googleSnapshots:g.snapshots, googleSyncedAt:syncedAt};
+          return mirrorSnapshotToFields({...campaign, googleSnapshots:g.snapshots, googleSyncedAt:syncedAt});
         }));
         setGoogleSyncStatus("done");
         setGoogleSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
@@ -15573,7 +15640,7 @@ export default function App() {
         setCampaigns(cs=>cs.map(campaign=>{
           const s=snapMap[campaign.id];
           if (!s||!s.snapshots) return campaign;
-          return {...campaign, snapSnapshots:s.snapshots, snapSyncedAt:syncedAt};
+          return mirrorSnapshotToFields({...campaign, snapSnapshots:s.snapshots, snapSyncedAt:syncedAt});
         }));
         setSnapSyncStatus("done");
         setSnapSyncInfo({last_updated:data.last_updated,fetched_count:data.fetched_count,errors:data.errors||[]});
@@ -15667,10 +15734,14 @@ export default function App() {
     let activeList = campaigns, activeChanged = false; const aMsg = [];
     const rc = repairMetricSeries(activeList); if(rc.removed > 0){ activeList = rc.list; activeChanged = true; aMsg.push(`${rc.removed} stale check-in entr${rc.removed===1?"y":"ies"}`); }
     const lc = stripAutoLockNotes(activeList); if(lc.removed > 0){ activeList = lc.list; activeChanged = true; aMsg.push(`${lc.removed} auto lock-note line${lc.removed===1?"":"s"}`); }
+    // Heal any campaigns whose flat c.* metrics drifted from their synced snapshot's mtd (e.g. synced
+    // before the sync-mirror existed). Idempotent — once aligned there's nothing left to change.
+    const mc = reconcileMetricFields(activeList); if(mc.changed > 0){ activeList = mc.list; activeChanged = true; aMsg.push(`${mc.changed} metric mirror${mc.changed===1?"":"s"}`); }
     if(activeChanged){ console.log(`[Zeus] cleaned (active): ${aMsg.join(", ")}`); setCampaigns(activeList); }
     let archiveList = archive, archiveChanged = false; const rMsg = [];
     const ra = repairMetricSeries(archiveList); if(ra.removed > 0){ archiveList = ra.list; archiveChanged = true; rMsg.push(`${ra.removed} stale check-in entr${ra.removed===1?"y":"ies"}`); }
     const la = stripAutoLockNotes(archiveList); if(la.removed > 0){ archiveList = la.list; archiveChanged = true; rMsg.push(`${la.removed} auto lock-note line${la.removed===1?"":"s"}`); }
+    const ma = reconcileMetricFields(archiveList); if(ma.changed > 0){ archiveList = ma.list; archiveChanged = true; rMsg.push(`${ma.changed} metric mirror${ma.changed===1?"":"s"}`); }
     if(archiveChanged){ console.log(`[Zeus] cleaned (archived): ${rMsg.join(", ")}`); setArchive(archiveList); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
