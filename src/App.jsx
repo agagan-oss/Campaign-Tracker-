@@ -1713,7 +1713,30 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
   function saveEditReminder(id) { setReminders(prev=>prev.map(r=>r.id===id?{...r,...editReminderDraft}:r)); setEditingReminderId(null); }
   function cancelEditReminder() { setEditingReminderId(null); }
   const set = (k,v) => { setLocal(p=>({...p,[k]:v})); setDirty(true); };
-  const save = () => { onUpdate({...c,...local}); setDirty(false); };
+  const save = () => {
+    let patched = {...c, ...local};
+    // If the displayed metrics came from a synced snapshot, write the hand-edits back INTO that
+    // snapshot key too. The Revenue tab (and this tab via resolveMetrics) read spend/impressions
+    // from the snapshot FIRST, so without this the manual c.spend/c.impressions would be shadowed
+    // and the edit would appear to do nothing. (No snapshot → the manual fields already drive both.)
+    const srcMap = { meta:"metaSnapshots", ttd:"ttdSnapshots", dsp:"dspSnapshots", google:"googleSnapshots", snap:"snapSnapshots" };
+    const field = srcMap[resolved.source];
+    const key = resolved.snapshotKey;
+    if (field && key && c[field] && c[field][key]) {
+      const fNum = v => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+      const iNum = v => { const n = parseInt(v);   return isNaN(n) ? null : n; };
+      const cur = c[field][key];
+      patched = { ...patched, [field]: { ...c[field], [key]: { ...cur,
+        impressions: iNum(local.impressions) ?? cur.impressions,
+        spend:       fNum(local.spend)       ?? cur.spend,
+        clicks:      iNum(local.clicks)      ?? cur.clicks,
+        ctr:         fNum(local.ctr)         ?? cur.ctr,
+        cpm:         fNum(local.cpm)         ?? cur.cpm,
+      } } };
+    }
+    onUpdate(patched);
+    setDirty(false);
+  };
   
   const iS = {background:_lm?"#f8fafc":"#08111f",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,width:"100%",fontFamily:"Inter,sans-serif",boxSizing:"border-box"};
   const metrics = [
@@ -2217,6 +2240,24 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     }
     return next;
   });
+  // Metric edits must stay in sync with the synced snapshot, otherwise the Revenue tab and the
+  // Campaigns tab (both read the snapshot's mtd FIRST) would keep shadowing the manual value. These
+  // 5 core metrics map 1:1 to the snapshot's mtd keys across every platform source, so when one is
+  // edited we mirror it into mtd too (matching MetricRow's behavior). Leaves `breakdown` intact.
+  const CORE_SNAP_METRICS = ["impressions","clicks","ctr","cpm","spend"];
+  const setMetric = (k,v) => setF(p => {
+    const next = {...p, [k]: v};
+    if (CORE_SNAP_METRICS.includes(k)) {
+      const srcMap = { meta:"metaSnapshots", ttd:"ttdSnapshots", dsp:"dspSnapshots", google:"googleSnapshots", snap:"snapSnapshots" };
+      const field = srcMap[resolveMetrics(p, "mtd").source];
+      if (field && p[field] && p[field].mtd) {
+        const isInt = (k==="impressions"||k==="clicks");
+        const n = isInt ? parseInt(v) : parseFloat(v);
+        next[field] = {...p[field], mtd: {...p[field].mtd, [k]: isNaN(n) ? p[field].mtd[k] : n}};
+      }
+    }
+    return next;
+  });
   const iS = {width:"100%",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box"};
   const row = (key,label,type="text") => (
     <div style={{marginBottom:12}}>
@@ -2452,6 +2493,36 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 </div>
               )}
             </div>
+
+            {/* ── Current delivery metrics — editable here too (syncs to Pacing + Revenue) ── */}
+            {(()=>{
+              const mv = resolveMetrics(f, "mtd");
+              const synced = mv.source && mv.source !== "manual" && mv.source !== "manual-no-snapshot";
+              const coreF = [["impressions","Impressions"],["clicks","Clicks"],["ctr","CTR %"],["cpm","CPM $"],["spend","Spend $"]];
+              const moreF = [["reach","Reach"],["frequency","Frequency"],["videoViews","Video Views"],["completionRate","VCR %"],["conversions","Conversions"]];
+              const fld = (k,label,isCore) => (
+                <div key={k}>
+                  <label style={{display:"block",fontSize:9,color:_lm?"#64748b":"#7a9bbf",marginBottom:2,textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</label>
+                  <input type="number" step="any" value={isCore ? (mv[k] ?? "") : (f[k] ?? "")}
+                    onChange={e=> isCore ? setMetric(k, e.target.value) : set(k, e.target.value)}
+                    style={{...iS, padding:"6px 8px", fontSize:12}}/>
+                </div>
+              );
+              return (
+                <div style={{marginBottom:14,padding:"12px 14px",background:_lm?"#f8fafc":"#0c1828",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+                    <label style={{fontSize:10,color:"#00e5a0",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>📊 Current Metrics — this month</label>
+                    <span style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a"}}>{synced ? `synced from ${mv.source.toUpperCase()} · edits update Pacing + Revenue` : "manual entry · drives Pacing + Revenue"}</span>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:8}}>
+                    {coreF.map(([k,l])=>fld(k,l,true))}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
+                    {moreF.map(([k,l])=>fld(k,l,false))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Full-width fields below the grid */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:12}}>
@@ -8122,21 +8193,29 @@ function ReassignLineModal({ target, campaigns, lightMode, onCancel, onConfirm }
 // device IDs from a mobile platform and upload them, and the device source bills us
 // an extra $X per 1,000 impressions THAT line serves (default $1.00). It's a COST —
 // it eats into our margin (profit = revenue − media spend − device fee). The chargeable
-// impressions come from the SAME live per-line breakdown the Pacing tab shows: the
-// breakdown line whose name contains "Device Targeting".
+// impressions come from the SAME live per-line breakdown the Pacing tab shows: any
+// breakdown line whose name carries the word "device" (see DEVICE_LINE_RE).
 function findBreakdownSnapMod(c) {
   if (!c) return null;
   const fields = ["metaSnapshots", "ttdSnapshots", "dspSnapshots", "googleSnapshots", "snapSnapshots"];
   for (const f of fields) { const src = c[f]; if (!src) continue; for (const k of ["mtd", "last30", "yesterday"]) { if (src[k]?.breakdown?.length >= 1) return src[k]; } }
   return null;
 }
-// Sum of MTD impressions on the device-targeting line(s) of the latest breakdown snapshot.
-function deviceLineImpr(c) {
+// Breakdown-line names that carry the device-data surcharge. Matches the word "device(s)" so it
+// catches every label variant Austin uses — "Device Targeting", "Devices", "Device Lookback",
+// "Device ID", with or without "(MTS)" — not just the exact phrase "Device Targeting".
+const DEVICE_LINE_RE = /\bdevices?\b/i;
+// The device line(s) matched in the latest breakdown snapshot — {name, impr} each. For display.
+function deviceLineMatches(c) {
   const snap = findBreakdownSnapMod(c);
-  if (!snap || !Array.isArray(snap.breakdown)) return 0;
+  if (!snap || !Array.isArray(snap.breakdown)) return [];
   return snap.breakdown
-    .filter(b => /device\s*targeting/i.test(b?.name || ""))
-    .reduce((s, b) => s + (parseInt(b.impressions) || 0), 0);
+    .filter(b => DEVICE_LINE_RE.test(b?.name || ""))
+    .map(b => ({ name: b.name || "", impr: parseInt(b.impressions) || 0 }));
+}
+// Sum of MTD impressions across ALL device line(s) of the latest breakdown snapshot.
+function deviceLineImpr(c) {
+  return deviceLineMatches(c).reduce((s, b) => s + b.impr, 0);
 }
 // The device-data surcharge ($) for the CURRENT month — live device-line impressions × rate/1000.
 // Rate is dollars per 1,000 impressions; defaults to $1.00 when the flag is on but no rate is set.
@@ -12025,6 +12104,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const REVENUE_FILTER_KEY = "revenue-filter-state";
   const _revPersisted = (()=>{ try{ return JSON.parse(localStorage.getItem(REVENUE_FILTER_KEY) || "{}"); } catch { return {}; } })();
   const [filterPartner, setFilterPartner]   = useState(_revPersisted.filterPartner || "all");
+  const [revSearch, setRevSearch]           = useState(""); // free-text filter for the per-month breakdown table
   const [expandedRow, setExpandedRow]       = useState(null);
   const [sortKey, setSortKey]               = useState(_revPersisted.sortKey || "profit"); // "profit" | "loss" | "contract" | "name" | "pending"
   const [focusMonth, setFocusMonth]         = useState(null); // YYYY-MM, null = current (NOT persisted — see comment above)
@@ -12507,9 +12587,15 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // Per-month breakdown table visibility: hide campaigns that ended before the focused
   // month (unless "Show ended" is on). This is the ONLY place the focused-month date
   // filter is applied — the chart and totals above stay stable regardless of focus.
+  // Free-text search narrows ONLY the table (name / partner / platform), not the chart or KPIs —
+  // so the headline numbers stay stable while you hunt for a specific line.
+  const revQuery = revSearch.trim().toLowerCase();
   const dateVisibleRows = sortedRows.filter(r => {
-    if (showEnded) return true;
-    if (r.c.endDate && r.c.endDate.slice(0, 7) < activeMonth) return false;
+    if (!showEnded && r.c.endDate && r.c.endDate.slice(0, 7) < activeMonth) return false;
+    if (revQuery) {
+      const hay = `${r.c.campaignName||""} ${r.c.mediaPartner||""} ${r.c.platform||""}`.toLowerCase();
+      if (!hay.includes(revQuery)) return false;
+    }
     return true;
   });
 
@@ -12739,11 +12825,16 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:5,maxHeight:360,overflowY:"auto"}}>
               {deviceIdSuggestions.map(c=>{
                 const pc=PLT_COLORS[c.platform]||PLT_COLORS.default;
+                const dLines=deviceLineMatches(c);
+                const dImpr=dLines.reduce((s,b)=>s+b.impr,0);
                 return (
                   <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:7}}>
                     <span style={{background:pc+"22",color:pc,border:`1px solid ${pc}55`,borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
-                    <span style={{fontSize:12,fontWeight:600,color:_lm?"#0f172a":"#d8eaf8",minWidth:150,flex:"0 1 auto",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={c.campaignName.trim()}>{c.campaignName.trim()}</span>
+                    <span style={{fontSize:12,fontWeight:600,color:_lm?"#0f172a":"#d8eaf8",minWidth:140,flex:"0 1 auto",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={c.campaignName.trim()}>{c.campaignName.trim()}</span>
                     <span style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",whiteSpace:"nowrap"}}>{c.mediaPartner}</span>
+                    {dImpr>0
+                      ? <span title={dLines.map(l=>l.name).join("  ·  ")} style={{fontSize:9.5,fontWeight:700,color:"#e879a6",background:_lm?"#fdf2f8":"#2a0f1c",border:`1px solid ${_lm?"#f5b8d6":"#e879a655"}`,borderRadius:3,padding:"1px 6px",whiteSpace:"nowrap",flexShrink:0}}>📱 {dLines.length>1?`${dLines.length} device lines`:"device line"} · {dImpr.toLocaleString()} impr</span>
+                      : <span style={{fontSize:9.5,color:_lm?"#94a3b8":"#4d6e8a",whiteSpace:"nowrap",flexShrink:0,fontStyle:"italic"}}>no device line in last check-in</span>}
                     <div style={{display:"flex",alignItems:"center",gap:5,marginLeft:"auto",flexShrink:0}}>
                       <button onClick={()=>onSetDeviceSurcharge(c.id,{deviceSurcharge:true,deviceSurchargeRate:(c.deviceSurchargeRate||"1.00"),deviceSurchargeDismissed:undefined})}
                         title="Turn on the device targeting surcharge at $1.00/1K (editable per campaign)"
@@ -12759,7 +12850,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                   </div>
                 );
               })}
-              <div style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",marginTop:2}}>Enabling charges $1/1K on the campaign's "Device Targeting" delivery line (editable per campaign). "Not this one" hides it from this list.</div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",marginTop:2}}>Each row is one platform record — a split campaign (e.g. FB + FBV) shows up once per side, so enable it on every record that has a device line. "Not this one" hides a row.</div>
             </div>
           )}
         </div>
@@ -13049,10 +13140,26 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       </div>
 
       {/* ── Campaign breakdown — focused month ───────────────── */}
+      {/* Search sits right above the table so results are in view without scrolling. Filters the table only. */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",flex:1,minWidth:200,maxWidth:440,background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${revQuery?(_lm?"#3b82f6":"#3b82f680"):(_lm?"#cbd5e1":"#1e293b")}`,borderRadius:8,padding:"0 10px"}}>
+          <span style={{fontSize:13,color:_lm?"#94a3b8":"#3d5a72"}}>🔍</span>
+          <input value={revSearch} onChange={e=>setRevSearch(e.target.value)} placeholder="Search campaigns by name, partner, or platform…"
+            style={{flex:1,background:"transparent",border:"none",padding:"8px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
+          {revSearch && <button onClick={()=>setRevSearch("")} title="Clear search"
+            style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",cursor:"pointer",fontSize:16,lineHeight:1,padding:"0 4px"}}>×</button>}
+        </div>
+        {revQuery && <span style={{fontSize:11,color:_lm?"#64748b":"#7a9bbf",whiteSpace:"nowrap"}}>{dateVisibleRows.length} match{dateVisibleRows.length!==1?"es":""}</span>}
+      </div>
       {dateVisibleRows.length===0?(
         <div style={{textAlign:"center",padding:"40px 0",color:_lm?"#64748b":"#3d5a72"}}>
           <div style={{fontSize:28,marginBottom:8}}>💰</div>
-          {sortedRows.length===0?(
+          {revQuery?(
+            <>
+              <div style={{fontSize:13}}>No campaigns match "{revSearch.trim()}".</div>
+              <button onClick={()=>setRevSearch("")} style={{marginTop:8,background:_lm?"#eff6ff":"#0a1a2e",border:`1px solid ${_lm?"#3b82f6":"#3b82f660"}`,borderRadius:6,padding:"5px 12px",color:_lm?"#3b82f6":"#7ab4f5",fontSize:11,fontWeight:600,cursor:"pointer"}}>Clear search</button>
+            </>
+          ):sortedRows.length===0?(
             <>
               <div style={{fontSize:13}}>No campaigns with contract values yet.</div>
               <div style={{fontSize:11,marginTop:5}}>Edit a campaign and fill in the Contract Value field to start tracking.</div>
@@ -13156,7 +13263,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                 {/* Expanded detail row */}
                 {isOpen && (
                   <div style={{background:_lm?"#f8fafc":"#0a1320",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8,padding:"18px 22px",margin:"4px 4px 10px"}}>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:24,alignItems:"end"}}>
+                    <div style={{display:"grid",gridTemplateColumns:r.c.deviceSurcharge?"1fr 1fr 1fr 1fr auto":"1fr 1fr 1fr auto",gap:24,alignItems:"end"}}>
                       <div>
                         <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
                           Revenue · {focusLabelShort}
@@ -13199,6 +13306,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                           {r.focusCell.spend==null?<span style={{color:"#f59e0b",fontSize:18}}>⏳ pending</span>:$fc(r.focusCell.spend)}
                         </div>
                       </div>
+                      {r.c.deviceSurcharge && (
+                        <div>
+                          <div style={{fontSize:10,color:_lm?"#9d174d":"#e879a6",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Device Fee</div>
+                          <div style={{fontSize:26,fontWeight:700,color:"#e879a6",lineHeight:1}}>
+                            {r.focusCell.deviceFee>0?"−"+$fc(r.focusCell.deviceFee):<span style={{fontSize:18,color:_lm?"#94a3b8":"#3d5a72"}}>$0</span>}
+                          </div>
+                        </div>
+                      )}
                       <div>
                         <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
                           Profit{r.focusMargin!=null?<span style={{color:marginColor(r.focusMargin),marginLeft:6,fontWeight:700}}>· {r.focusMargin.toFixed(0)}%</span>:""}
@@ -13297,6 +13412,28 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                   Your cost <span style={{color:"#f59e0b",fontWeight:700}}>${(costPer*1000).toFixed(2)} CPM</span> · billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(2)} CPM</span> · margin <span style={{color:profitColor(rateNum-costPer*1000),fontWeight:700}}>${(rateNum-costPer*1000).toFixed(2)} CPM</span>
                                 </div>
                               )}
+                              {/* Device surcharge transparency — spell out the matched device-line impressions
+                                  so it's obvious whether a "device" line is being picked up (and what it costs). */}
+                              {r.c.deviceSurcharge && (()=>{
+                                const dfRate = parseFloat(r.c.deviceSurchargeRate) || 1;
+                                const fee = r.focusCell.deviceFee || 0;
+                                if (fee > 0) {
+                                  const dfImpr = activeMonth===thisMonth ? deviceLineImpr(r.c) : Math.round(fee / (dfRate||1) * 1000);
+                                  return (
+                                    <div style={{fontSize:11.5,color:_lm?"#9d174d":"#e879a6",marginTop:5}}>
+                                      📱 Device line: <span style={{fontWeight:700}}>{dfImpr.toLocaleString()} impr</span> × <span style={{fontWeight:700}}>${dfRate.toFixed(2)}/1K</span> = <span style={{fontWeight:700}}>{$fc(fee)} device fee</span>
+                                    </div>
+                                  );
+                                }
+                                if (activeMonth===thisMonth) {
+                                  return (
+                                    <div style={{fontSize:11.5,color:_lm?"#b45309":"#caa46a",marginTop:5}}>
+                                      📱 Device surcharge on — no device line in the latest check-in yet ($0).
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </div>
                           )}
                         </div>
