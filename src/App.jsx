@@ -683,33 +683,39 @@ function parseIOPdf(text, uris = []) {
   //   line 2: "CTVBuyer - Static:"
   //   line 3: "3200.04"
   // by trying the regex against line[i] AND line[i] + " " + line[i+1].
+  // `prefix` may be a single string OR an array of candidate prefixes (the AMB form sometimes labels
+  // a service's fields with a DIFFERENT prefix than its "Is X Included?" flag — e.g. "Broad Digital
+  // Audio" is flagged but its fields are prefixed "Digital Audio:"). We try each candidate in order.
   function getField(prefix, label) {
-    // (?:\s+Inventory)? allows "General Audience CTV Inventory: Gross Impressions"
-    const re = new RegExp("^" + escapeRe(prefix) + "(?:\\s+Inventory)?\\s*:?\\s*" + escapeRe(label) + "\\b", "i");
-    for (let i = 0; i < lines.length; i++) {
-      const l = lines[i];
-      // Try single-line match first
-      const m = l.match(re);
-      if (m) {
-        const rest = l.slice(m[0].length).replace(/^[\s:()\#$-]+/, "").trim();
-        if (looksLikeValue(rest)) return rest;
-        // Value is on a following line. The label itself sometimes wraps — e.g.
-        //   "Gross Dollar($) Budget to" / "CTVBuyer:" / "300.00"
-        // where line+1 ("CTVBuyer:") is a label continuation, not the value. If line+1 is
-        // such a continuation (ends in a colon and isn't itself a value), skip to line+2.
-        let ni = i + 1;
-        if (lines[ni] && /:$/.test(lines[ni]) && !looksLikeValue(lines[ni])) ni = i + 2;
-        return lines[ni] || null;
-      }
-      // Try wrapped-label match: current line + next line joined.
-      // The label might span 2 lines in the PDF; value is on line+2.
-      if (i + 1 < lines.length) {
-        const joined = l + " " + lines[i+1];
-        const m2 = joined.match(re);
-        if (m2) {
-          const rest = joined.slice(m2[0].length).replace(/^[\s:()\#$-]+/, "").trim();
+    const prefixes = Array.isArray(prefix) ? prefix : [prefix];
+    for (const px of prefixes) {
+      // (?:\s+Inventory)? allows "General Audience CTV Inventory: Gross Impressions"
+      const re = new RegExp("^" + escapeRe(px) + "(?:\\s+Inventory)?\\s*:?\\s*" + escapeRe(label) + "\\b", "i");
+      for (let i = 0; i < lines.length; i++) {
+        const l = lines[i];
+        // Try single-line match first
+        const m = l.match(re);
+        if (m) {
+          const rest = l.slice(m[0].length).replace(/^[\s:()\#$-]+/, "").trim();
           if (looksLikeValue(rest)) return rest;
-          return lines[i+2] || null;
+          // Value is on a following line. The label itself sometimes wraps — e.g.
+          //   "Gross Dollar($) Budget to" / "CTVBuyer:" / "300.00"
+          // where line+1 ("CTVBuyer:") is a label continuation, not the value. If line+1 is
+          // such a continuation (ends in a colon and isn't itself a value), skip to line+2.
+          let ni = i + 1;
+          if (lines[ni] && /:$/.test(lines[ni]) && !looksLikeValue(lines[ni])) ni = i + 2;
+          return lines[ni] || null;
+        }
+        // Try wrapped-label match: current line + next line joined.
+        // The label might span 2 lines in the PDF; value is on line+2.
+        if (i + 1 < lines.length) {
+          const joined = l + " " + lines[i+1];
+          const m2 = joined.match(re);
+          if (m2) {
+            const rest = joined.slice(m2[0].length).replace(/^[\s:()\#$-]+/, "").trim();
+            if (looksLikeValue(rest)) return rest;
+            return lines[i+2] || null;
+          }
         }
       }
     }
@@ -728,15 +734,19 @@ function parseIOPdf(text, uris = []) {
   }
 
   function extractServiceBlock(prefix) {
+    // `prefix` may be a single label or an array of candidate prefixes (see getField). getField/
+    // tryFields accept the array directly; the notes parsing below only needs a single primary.
+    const prefixes = Array.isArray(prefix) ? prefix : [prefix];
+    const primary = prefixes[0];
     // Notes block may span multiple lines — collect everything until the next labeled field
     function getNotes() {
-      const fullLabel = `${prefix} - Notes/Instructions`.toLowerCase();
+      const fullLabel = `${primary} - Notes/Instructions`.toLowerCase();
       const startIdx = lines.findIndex(l => l.toLowerCase().startsWith(fullLabel));
       if (startIdx === -1) return null;
       // Skip the label line and any continuation of it (e.g., "etc.):")
       let j = startIdx + 1;
       // Skip lines that are part of the label (parenthetical extension)
-      while (j < lines.length && /^[a-z(),.\s\w]+:?$/i.test(lines[j]) && !lines[j].toLowerCase().startsWith(prefix.toLowerCase())) {
+      while (j < lines.length && /^[a-z(),.\s\w]+:?$/i.test(lines[j]) && !lines[j].toLowerCase().startsWith(primary.toLowerCase())) {
         // If next line looks like a value (has substance), break out
         if (lines[j].length > 40) break;
         // Otherwise might still be label continuation — keep moving but cap
@@ -748,7 +758,7 @@ function parseIOPdf(text, uris = []) {
       while (j < lines.length) {
         const nextLine = lines[j];
         // Stop at next IO field (begins with prefix or another common label)
-        if (nextLine.toLowerCase().startsWith(prefix.toLowerCase() + " ") ||
+        if (nextLine.toLowerCase().startsWith(primary.toLowerCase() + " ") ||
             /^(mobile|video|display|reach|digital|native|search|email|fb|snapchat|linkedin|ip|tvsci|contact|last update|start time|finish time|browser|device|referrer|powered by)/i.test(nextLine)) {
           break;
         }
@@ -869,9 +879,10 @@ function parseIOPdf(text, uris = []) {
     // Programmatic display
     { label: "Mobile Targeting",             key: "mobile_targeting",  platform: "DSP" },
     { label: "Targeted Display",             key: "targeted_display",  platform: "TD" },   // TradeDesk Display
-    // Audio
-    { label: "Broad Digital Audio",          key: "broad_audio",       platform: "TDA" },
-    { label: "Premium Digital Audio",        key: "premium_audio",     platform: "TDA" },
+    // Audio — the AMB form flags these as "Broad/Premium Digital Audio" but prefixes their FIELDS
+    // with just "Digital Audio:", so we add that as a field-prefix alias.
+    { label: "Broad Digital Audio",          key: "broad_audio",       platform: "TDA", prefixAliases: ["Digital Audio"] },
+    { label: "Premium Digital Audio",        key: "premium_audio",     platform: "TDA", prefixAliases: ["Digital Audio"] },
     // Video preroll
     { label: "Instream PreRoll",             key: "instream_preroll",  platform: "TDV" },  // TradeDesk Video
     { label: "YouTube Trueview",             key: "yt_trueview",       platform: "YT" },
@@ -906,7 +917,9 @@ function parseIOPdf(text, uris = []) {
       split: sd.split,
       splitPair: sd.splitPair,
       socialSplit: sd.socialSplit,
-      details: extractServiceBlock(sd.label),
+      // Try the service's own label as the field prefix, plus any aliases (some AMB services label
+      // their fields with a shorter/different prefix than their inclusion flag).
+      details: extractServiceBlock([sd.label, ...(sd.prefixAliases || [])]),
     }));
 
   return { reference, partner, advertiser, submitted, station, services, clientWebsite, projectionUrl, rawText: text };
@@ -1009,7 +1022,7 @@ function buildDraftsFromIO(io) {
     }
 
     const totalImpr = parseNum(d.impressions);
-    const cpm = parseNum(d.cpm);
+    let cpm = parseNum(d.cpm);
     let totalBudget = parseNum(d.budget);
     const managementFee = parseNum(d.managementFee);
     const mediaSpend = parseNum(d.mediaSpend);
@@ -1020,6 +1033,11 @@ function buildDraftsFromIO(io) {
     const derivedBudget = (totalImpr > 0 && cpm > 0) ? (totalImpr / 1000 * cpm) : 0;
     let budgetDerived = false;
     if (totalBudget <= 0 && derivedBudget > 0) { totalBudget = derivedBudget; budgetDerived = true; }
+    // Inverse: if the IO gave a budget + impressions but no recognizable CPM field, derive the CPM
+    // (= budget ÷ impressions × 1000) so the campaign's rate is populated. Common on CTV/GCTV IOs that
+    // list dollars + impressions but no "Hard Cost"/"CPM Rate" line (e.g. $5,600 ÷ 400K = $14 CPM).
+    let cpmDerived = false;
+    if (cpm <= 0 && totalImpr > 0 && totalBudget > 0) { cpm = totalBudget / totalImpr * 1000; cpmDerived = true; }
 
     // Skip blocks with no budget/impressions — likely the IO has the field but it's $0
     if (totalImpr <= 0 && totalBudget <= 0) return;
@@ -1051,7 +1069,8 @@ function buildDraftsFromIO(io) {
     const feeNote = managementFee > 0 ? ` · management fee $${managementFee.toFixed(2)}` : "";
     const spendNote = mediaSpend > 0 ? ` · media spend $${mediaSpend.toFixed(2)}` : "";
     const budgetNote = budgetDerived ? " (derived from impr × CPM)" : "";
-    const baseNote2 = `Auto-imported from IO #${io.reference || "?"}. ${svc.label}. Total: ${totalImpr.toLocaleString()} impr · $${totalBudget.toFixed(2)} budget${budgetNote}${feeNote}${spendNote}${cpm>0?` · $${cpm.toFixed(2)} CPM`:""}${integrationNote}.${d.notes ? " " + d.notes : ""}`.trim();
+    const cpmNote = cpmDerived ? " (derived from $ ÷ impr)" : "";
+    const baseNote2 = `Auto-imported from IO #${io.reference || "?"}. ${svc.label}. Total: ${totalImpr.toLocaleString()} impr · $${totalBudget.toFixed(2)} budget${budgetNote}${feeNote}${spendNote}${cpm>0?` · $${cpm.toFixed(2)} CPM${cpmNote}`:""}${integrationNote}.${d.notes ? " " + d.notes : ""}`.trim();
 
     if (svc.splitPair) {
       // Arbitrary 50/50 split between two platforms (e.g. Performance CTV → CTV + OTT).
@@ -1128,6 +1147,106 @@ function buildDraftsFromIO(io) {
   }
 
   return drafts;
+}
+
+// Last-resort, format-agnostic draft builder. When the structured parser finds no service blocks or
+// can't build a draft (an IO format we don't recognize), scan the WHOLE document for the few things
+// every IO has — dollars, impressions, dates, a CPM, a platform keyword — and produce ONE best-effort
+// draft, clearly flagged for review. Goal: never hard-fail on a real IO; always give Austin something
+// to correct. Returns null only when there's truly no budget/impressions/dates anywhere.
+function buildFallbackDraft(io) {
+  const text = io && io.rawText ? String(io.rawText) : "";
+  if (!text) return null;
+  const lc = text.toLowerCase();
+  const num = s => parseFloat(String(s).replace(/,/g, "")) || 0;
+
+  // Budget: prefer a $-amount near a budget/total label; else the largest $-amount that isn't
+  // CPM-sized ($50+). CPMs are small (e.g. $14), budgets are hundreds/thousands.
+  const labeledBudget = (() => {
+    const m = text.match(/(?:gross dollar|budget|total\s+(?:budget|spend|investment|cost))[^0-9$]*\$?\s*([\d][\d,]*(?:\.\d{1,2})?)/i);
+    return m ? num(m[1]) : 0;
+  })();
+  const allDollars = [...text.matchAll(/\$\s*([\d][\d,]*(?:\.\d{1,2})?)/g)].map(m => num(m[1])).filter(n => n > 0);
+  let budget = labeledBudget;
+  if (!budget && allDollars.length) { const big = allDollars.filter(n => n >= 50); budget = big.length ? Math.max(...big) : Math.max(...allDollars); }
+
+  // Impressions: near "impressions"/"gross impressions"/"views", or a "NNNk impressions" shorthand.
+  let impressions = 0;
+  for (const re of [
+    /gross\s+impressions[^0-9]*([\d][\d,]{2,})/i,
+    /([\d.]+)\s*k\s*(?:gross\s+)?impressions/i,
+    /([\d][\d,]{3,})\s*(?:gross\s+|paid\s+)?impressions/i,
+    /impressions[^0-9]*([\d][\d,]{3,})/i,
+    /gross\s+views[^0-9]*([\d][\d,]{2,})/i,
+  ]) {
+    const m = text.match(re);
+    if (m) { impressions = /k\s*(?:gross\s+)?impressions/i.test(m[0]) ? Math.round(parseFloat(m[1]) * 1000) : num(m[1]); if (impressions > 0) break; }
+  }
+
+  // CPM: "$X CPM" / "Hard Cost: X" / "CPM: $X"; else derive from budget ÷ impressions.
+  let cpm = 0;
+  const cpmM = text.match(/\$?\s*([\d]+(?:\.\d{1,2})?)\s*cpm/i) || text.match(/hard\s*cost[^0-9]*\$?\s*([\d]+(?:\.\d{1,2})?)/i) || text.match(/\bcpm\b[^0-9]*\$?\s*([\d]+(?:\.\d{1,2})?)/i);
+  if (cpmM) cpm = parseFloat(cpmM[1]) || 0;
+  if (!cpm && budget > 0 && impressions > 0) cpm = budget / impressions * 1000;
+  if (!impressions && budget > 0 && cpm > 0) impressions = Math.round(budget / cpm * 1000);
+
+  // Dates (mm/dd/yyyy): explicit Start/End labels first, else earliest→latest across the doc.
+  const iso = s => { const m = String(s).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? `${m[3]}-${m[1].padStart(2,"0")}-${m[2].padStart(2,"0")}` : ""; };
+  const allDates = [...text.matchAll(/\b(\d{1,2}\/\d{1,2}\/\d{4})\b/g)].map(m => iso(m[1])).filter(Boolean).sort();
+  const startM = text.match(/start\s*date[^0-9]*(\d{1,2}\/\d{1,2}\/\d{4})/i);
+  const endM   = text.match(/end\s*date[^0-9]*(\d{1,2}\/\d{1,2}\/\d{4})/i);
+  let startDate = startM ? iso(startM[1]) : (allDates[0] || "");
+  let endDate   = endM   ? iso(endM[1])   : (allDates.length ? allDates[allDates.length - 1] : "");
+
+  // Require at least one substantive signal — otherwise it's not an IO we can draft.
+  if (!(budget > 0 || impressions > 0 || (startDate && endDate))) return null;
+
+  // Platform guess from keywords (most specific first).
+  const has = (...ks) => ks.some(k => lc.includes(k));
+  let platform = "";
+  if (has("general audience ctv", "gctv")) platform = "GCTV";
+  else if (has("premium audience ctv")) platform = "PCTV";
+  else if (has("digital audio")) platform = "TDA";
+  else if (has("instream", "preroll", "pre-roll", "pre roll")) platform = "TDV";
+  else if (has("youtube", "trueview")) platform = "YT";
+  else if (has("ctv", "connected tv", " ott", "hulu", "netflix", "peacock", "disney", "espn", "hbo max")) platform = "CTV";
+  else if (has("snapchat")) platform = "SP";
+  else if (has("tiktok")) platform = "TT";
+  else if (has("targeted display")) platform = "TD";
+  else if (has("search", " sem", "google ads")) platform = "SEM";
+  else if (has("facebook", "meta ", "fb/ig", "social media", "instagram")) platform = "FB";
+  else if (has("display", "programmatic", "banner", "mobile", "native", "dsp")) platform = "DSP";
+
+  const months = (() => {
+    if (!startDate || !endDate) return 1;
+    const [sy, sm] = startDate.split("-").map(Number), [ey, em] = endDate.split("-").map(Number);
+    return Math.max(1, (ey - sy) * 12 + (em - sm) + 1);
+  })();
+  const monthlyImpr = impressions > 0 ? Math.round(impressions / months) : 0;
+  const fmtK = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, "") + "K" : String(n);
+
+  const found = [];
+  if (impressions) found.push(`${impressions.toLocaleString()} impr`);
+  if (budget) found.push(`$${budget.toFixed(2)} budget`);
+  if (cpm) found.push(`$${cpm.toFixed(2)} CPM`);
+  if (startDate || endDate) found.push(`${startDate || "?"} → ${endDate || "?"}`);
+
+  const advertiser = (io.advertiser || "").trim();
+  return {
+    mediaPartner: io.partner || "",
+    campaignName: advertiser ? `${advertiser}${platform ? ` - ${platform}` : ""}` : `Review IO #${io.reference || "?"}`,
+    platform: platform || "DSP",
+    startDate, endDate,
+    status: "off",
+    goal: impressions > 0 ? String(impressions) : "",
+    note1: monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "",
+    contractRate: cpm > 0 ? String(parseFloat(cpm.toFixed(2))) : "",
+    dealType: cpm > 0 ? "CPM" : "",
+    contractValue: budget > 0 ? budget.toFixed(2) : "",
+    clientWebsite: io.clientWebsite || "",
+    projectionUrl: io.projectionUrl || "",
+    note2: `⚠ AUTO-DRAFT from an unrecognized IO format (#${io.reference || "?"}) — VERIFY every field before approving. Detected: ${found.join(" · ") || "no clear figures"}.${platform ? "" : " Platform not detected — set it manually."}`,
+  };
 }
 
 function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
@@ -2418,6 +2537,13 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
 
         {/* ── Scrollable body — two column layout ── */}
         <div style={{overflowY:"auto",padding:"18px 28px",flex:1}}>
+          {/* Low-confidence banner — this draft came from the whole-document fallback scan (unrecognized
+              IO format), so every field is a guess and must be checked against the PDF. */}
+          {draftQueueInfo?.lowConfidence && (
+            <div style={{marginBottom:16,padding:"11px 15px",background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#f59e0b":"#f59e0b66"}`,borderRadius:9,fontSize:12.5,color:_lm?"#92400e":"#fcd34d",lineHeight:1.55}}>
+              <strong>⚠ Low-confidence draft — unrecognized IO format.</strong> These fields were guessed from a whole-document scan, not a known IO layout. <strong>Verify every value against the PDF</strong> — platform, dates, impressions, CPM, and budget — before approving. The "Detected:" summary is in Note 2.
+            </div>
+          )}
           <div style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:20,alignItems:"start"}}>
 
           {/* ── LEFT: All campaign fields ── */}
@@ -5871,6 +5997,35 @@ function PacingDateBar({ range, setRange, lightMode=false }) {
   );
 }
 
+// Detect ADS that have gone quiet (stopped serving) in a campaign's creative report — the ad-level
+// counterpart to the line-level quietLines check. Creative reports are usually CUMULATIVE from
+// month-start (e.g. current 06-01→06-11 vs prior 06-01→06-09), so a stalled ad's impressions don't
+// DROP — they just stop growing. The old ratio test ("current ≤ 15% of prior") could never fire on
+// cumulative data, which is why ads that stopped serving weren't flagged. Here we compare each ad
+// NAME's summed impressions (FB repeats names across ad sets) vs the prior report: if it had been
+// running and grew by ~0, it's quiet. For non-cumulative (rolling-window) reports we fall back to
+// the ratio test. Returns deduped rows.
+function quietAdsForReport(cr) {
+  if (!cr || !Array.isArray(cr.creatives) || !cr.prior || !Array.isArray(cr.prior.creatives) || !cr.prior.creatives.length) return [];
+  const MORE_RE = /;\s*\.\.\.and\s+\d+\s+more\s+ads?\s*$/i;
+  const disp = x => String(x?.name || "").replace(MORE_RE, "").trim();
+  const norm = x => disp(x).toLowerCase();
+  const sumBy = list => { const m = {}; (list || []).forEach(x => { const n = norm(x); if (!n) return; m[n] = (m[n] || 0) + (x.impressions || 0); }); return m; };
+  const isPausedAd = x => !!(x && x.status && !/active/i.test(x.status));
+  const cur = sumBy(cr.creatives), pri = sumBy(cr.prior.creatives);
+  const cumulative = !!(cr.dateStart && cr.prior.dateStart && cr.dateStart === cr.prior.dateStart);
+  const out = [], seen = new Set();
+  cr.creatives.forEach(a => {
+    const n = norm(a); if (!n || seen.has(n)) return; seen.add(n);
+    const p = pri[n] || 0, c = cur[n] || 0;
+    if (p < 100) return;                                   // wasn't meaningfully running before
+    const quiet = cumulative ? (c - p <= 0) : (c <= p * 0.15);
+    if (!quiet) return;
+    out.push({ name: disp(a), curImpr: c, priorImpr: p, newImpr: Math.max(0, c - p), paused: isPausedAd(a) });
+  });
+  return out;
+}
+
 // ─── Pacing Dashboard ─────────────────────────────────────────────────────
 function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{}, onActivate=()=>{}, onSetStatus=()=>{}, onReassignLine=()=>{}, onClearLine=()=>{} }) {
   // ── Reassign-line modal state ──
@@ -6004,17 +6159,29 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [search,         setSearch]         = useState(_persisted.search || "");
   const [fPartner,       setFPartner]       = useState(_persisted.fPartner || "all");
   const [fPlatforms,     setFPlatforms]     = useState(new Set(_persisted.fPlatforms || []));
-  const [sortKey,        setSortKey]        = useState(_persisted.sortKey || "pacing"); // pacing | name | partner | platform
+  // Pacing sort config. METRIC_SORTS = keys that read a numeric metric from the resolved `disp`.
+  // SORT_DEFAULT_DIR = each key's starting direction. EVERY key is direction-toggleable (click the
+  // active key again to reverse); ctr defaults low-first (worst), $/impr default high-first, text A–Z.
+  const METRIC_SORTS = { impr:"impressions", ctr:"ctr", cpm:"cpm", spend:"spend" };
+  const SORT_DEFAULT_DIR = { pacing:"asc", impr:"desc", ctr:"asc", cpm:"desc", spend:"desc", platform:"asc", partner:"asc", name:"asc" };
+  const _initSortKey = _persisted.sortKey || "pacing";
+  const [sortKey,        setSortKey]        = useState(_initSortKey);
+  const [sortDir,        setSortDir]        = useState(_persisted.sortDir || SORT_DEFAULT_DIR[_initSortKey] || "asc");
   const [clearPendingId, setClearPendingId] = useState(null); // campaign id awaiting clear confirm
   const [todayFilter,    setTodayFilter]    = useState(_persisted.todayFilter || "all"); // "all" | "today" | "not-today"
   // Save on any filter change. Set is serialized as array.
   useEffect(() => {
     try {
       localStorage.setItem(PACING_FILTER_KEY, JSON.stringify({
-        search, fPartner, fPlatforms: [...fPlatforms], sortKey, todayFilter,
+        search, fPartner, fPlatforms: [...fPlatforms], sortKey, sortDir, todayFilter,
       }));
     } catch {}
-  }, [search, fPartner, fPlatforms, sortKey, todayFilter]);
+  }, [search, fPartner, fPlatforms, sortKey, sortDir, todayFilter]);
+  function clickSort(k) {
+    if (sortKey === k) { setSortDir(d => d === "asc" ? "desc" : "asc"); return; }  // toggle direction
+    setSortKey(k);
+    setSortDir(SORT_DEFAULT_DIR[k] || "asc");
+  }
   const todayStr = getToday(); // YYYY-MM-DD — matches c.lastChecked format
   const viewMode = "table"; // table-only — card view removed
 
@@ -6100,21 +6267,22 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // Sort
   const orderMap={"Behind":0,"No data":1,"On Track":2,"Ahead":3};
   const sortFn = (a,b) => {
-    if(sortKey==="name")     return a.c.campaignName.localeCompare(b.c.campaignName);
-    if(sortKey==="partner")  return a.c.mediaPartner.localeCompare(b.c.mediaPartner);
-    if(sortKey==="platform") return a.c.platform.localeCompare(b.c.platform);
-    if(sortKey==="impr")     return (parseInt(b.disp?.impressions)||0)-(parseInt(a.disp?.impressions)||0);
-    if(sortKey==="gap"){
-      // Sort by pace gap: how far behind/ahead in raw impressions (negative = behind)
-      const now=pacingNow(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
-      const gapA = a.monthlyGoal ? (parseInt(a.disp?.impressions)||0) - (a.pacing?.expected ?? Math.round(a.monthlyGoal*(dom/dim))) : 0;
-      const gapB = b.monthlyGoal ? (parseInt(b.disp?.impressions)||0) - (b.pacing?.expected ?? Math.round(b.monthlyGoal*(dom/dim))) : 0;
-      return gapA - gapB; // most behind first
+    const dir = sortDir==="asc" ? 1 : -1; // every sort key is direction-toggleable
+    if(sortKey==="name")     return dir * a.c.campaignName.localeCompare(b.c.campaignName);
+    if(sortKey==="partner")  return dir * a.c.mediaPartner.localeCompare(b.c.mediaPartner);
+    if(sortKey==="platform") return dir * a.c.platform.localeCompare(b.c.platform);
+    if(METRIC_SORTS[sortKey]){
+      const f=METRIC_SORTS[sortKey];
+      // Campaigns with no delivery have nothing to evaluate → push them last in BOTH directions,
+      // so the metric view always groups the actionable (delivering) campaigns at the top.
+      const hasA=(parseInt(a.disp?.impressions)||0)>0, hasB=(parseInt(b.disp?.impressions)||0)>0;
+      if(hasA!==hasB) return hasA?-1:1;
+      const va=parseFloat(a.disp?.[f])||0, vb=parseFloat(b.disp?.[f])||0;
+      return sortDir==="asc" ? (va-vb) : (vb-va);
     }
-    if(sortKey==="days")     return (daysRemaining(a.c)??999)-(daysRemaining(b.c)??999);
-    // default: pacing status then ratio
+    // default: pacing status then ratio (asc = Behind → On Track → Ahead, the actionable order)
     const oa=orderMap[a.pacing?.label??"No data"],ob=orderMap[b.pacing?.label??"No data"];
-    return oa!==ob?oa-ob:(a.pacing?.ratio??0)-(b.pacing?.ratio??0);
+    return dir * (oa!==ob?oa-ob:(a.pacing?.ratio??0)-(b.pacing?.ratio??0));
   };
   withGoal.sort(sortFn);
   noGoalRows.sort(sortFn);
@@ -6303,6 +6471,34 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     });
     // Most days-flat first, then biggest share of the campaign
     out.sort((a, b) => (b.daysFlat || 0) - (a.daysFlat || 0) || b.share - a.share);
+    return out;
+  })();
+
+  // ── Ad-level "gone quiet" detection ──────────────────────────────────────────
+  // Same idea as quietLines but for individual CREATIVES (from the Quick Check-in creative report):
+  // an ad that stopped serving since the last creative import. Surfaced in the same toolbar panel.
+  const quietAds = (() => {
+    const out = [];
+    filtered.forEach(({ c }) => {
+      if (c.status !== "active" && c.status !== "behind" && c.status !== "ahead") return;
+      const cr = c.creativeReport;
+      const ads = quietAdsForReport(cr).filter(ad => !ad.paused); // paused ads are expected to be quiet
+      if (!ads.length) return;
+      // days since the PRIOR creative report (the gap over which these ads served nothing)
+      let daysFlat = null, sinceDisp = null;
+      const pe = cr.prior && cr.prior.dateEnd;
+      if (pe && /^\d{4}-\d{2}-\d{2}$/.test(pe)) {
+        const [y, m, d] = pe.split("-").map(Number);
+        const prev = new Date(y, m - 1, d); prev.setHours(0,0,0,0);
+        const now = new Date(); now.setHours(0,0,0,0);
+        daysFlat = Math.round((now - prev) / 86400000); sinceDisp = `${m}/${d}`;
+      }
+      ads.forEach(ad => {
+        if (dismissedQuietLines.has(`${c.id}::ad::${ad.name}|${today}`)) return;
+        out.push({ c, adName: ad.name, curImpr: ad.curImpr, daysFlat, sinceDisp });
+      });
+    });
+    out.sort((a, b) => (b.daysFlat || 0) - (a.daysFlat || 0) || (b.curImpr || 0) - (a.curImpr || 0));
     return out;
   })();
 
@@ -7406,7 +7602,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       const priorByName = {};
       (cr.prior?.creatives||[]).forEach(p=>{ if(p?.name) priorByName[normName(p)]=p; });
       const hasPrior = !!(cr.prior && cr.prior.creatives && cr.prior.creatives.length);
-      const wentQuiet = a => { const p=priorByName[normName(a)]; return !!(p && (p.impressions||0)>=100 && (a.impressions||0) <= (p.impressions||0)*0.15); };
+      // Cumulative-aware quiet detection (shared with the toolbar aggregation). Cumulative reports
+      // (same start date) flag an ad that didn't GROW since the prior import; the old ratio test only
+      // worked for rolling-window reports and missed stalled ads in MTD data.
+      const _quietAdSet = new Set(quietAdsForReport(cr).map(x=>x.name.toLowerCase()));
+      const wentQuiet = a => _quietAdSet.has(normName(a));
       const ctrDrop  = a => { const p=priorByName[normName(a)]; const pc=ctrOf(p), ac=ctrOf(a); return !!(p && (p.impressions||0)>=200 && pc>0 && ac!=null && ac <= pc*0.5); };
       const isNew    = a => hasPrior && !priorByName[normName(a)] && (a.impressions||0)>0;
       const curNames = new Set(ads.map(a=>normName(a)));
@@ -7718,13 +7918,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         </button>
       )}
       {/* Lines gone quiet — opened on demand; count badge hints when there's something to see */}
-      <button onClick={()=>setShowQuietLines(v=>!v)} title="Show ad lines that have stopped delivering while their campaign keeps running"
+      <button onClick={()=>setShowQuietLines(v=>!v)} title="Show ad lines AND individual ads that have stopped delivering while their campaign keeps running"
         style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,fontSize:11,fontWeight:showQuietLines?700:400,
           background:showQuietLines?(lightMode?"#fff7ed":"#1a0f00"):lmBgInp,
           border:`1px solid ${showQuietLines?(lightMode?"#fb923c":"#f9731680"):lmBrd}`,
           color:showQuietLines?(lightMode?"#c2410c":"#fb923c"):lmTxtS}}>
-        🔌 Quiet Lines
-        {quietLines.length>0 && <span style={{background:lightMode?"#fed7aa":"#7c2d12",color:lightMode?"#9a3412":"#fdba74",borderRadius:9,padding:"0 6px",fontSize:10,fontWeight:800}}>{quietLines.length}</span>}
+        🔌 Quiet Lines &amp; Ads
+        {(quietLines.length+quietAds.length)>0 && <span style={{background:lightMode?"#fed7aa":"#7c2d12",color:lightMode?"#9a3412":"#fdba74",borderRadius:9,padding:"0 6px",fontSize:10,fontWeight:800}}>{quietLines.length+quietAds.length}</span>}
       </button>
       {/* Forecast — show each campaign's projected end-of-month finish at current pace */}
       <button onClick={()=>setShowForecast(v=>!v)} title="Show each campaign's projected end-of-month finish (% of goal) at its current pace"
@@ -7745,10 +7945,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </button>
       <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
         <span style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
-        {[["pacing","Pacing"],["gap","Gap"],["impr","Impr"],["days","Days"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setSortKey(k)}
+        {[["pacing","Pacing"],["impr","Impr"],["ctr","CTR"],["cpm","CPM"],["spend","Spend"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
+          <button key={k} onClick={()=>clickSort(k)}
+            title={sortKey===k?"Click to reverse order":`Sort by ${l}`}
             style={{background:sortKey===k?(lightMode?"#dcfce7":"#002e24"):lmBgInp,border:"1px solid "+(sortKey===k?"#00c896":lmBrd),borderRadius:6,padding:"4px 10px",color:sortKey===k?"#00e5a0":lmTxtS,fontSize:11,fontWeight:sortKey===k?700:400,cursor:"pointer"}}>
-            {l}
+            {l}{sortKey===k?(sortDir==="asc"?" ↑":" ↓"):""}
           </button>
         ))}
       </div>
@@ -7824,17 +8025,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         running (e.g. a retargeting set that shut off). Dismissible per line for the day. */}
     {showQuietLines && (
       <div style={{background:lightMode?"#fff7ed":"#1a0f00",border:`1px solid ${lightMode?"#fdba74":"#f9731640"}`,borderRadius:9,padding:"10px 14px",marginBottom:12}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:quietLines.length?8:0,flexWrap:"wrap"}}>
-          <span style={{fontSize:12,fontWeight:800,color:lightMode?"#c2410c":"#fb923c"}}>🔌 Lines Gone Quiet ({quietLines.length})</span>
-          <span style={{fontSize:10,color:lmTxtS}}>A line stopped delivering while its campaign keeps running — e.g. a retargeting set that shut off. Counts are since your last check-in for that campaign.</span>
-          {quietLines.length>1 && (
-            <button onClick={()=>dismissAllQuietLines(quietLines.map(q=>`${q.c.id}::${q.lineName}`))} title="Dismiss all of these for today"
-              style={{marginLeft:"auto",background:"none",border:`1px solid ${lightMode?"#fdba74":"#f9731660"}`,borderRadius:5,color:lightMode?"#c2410c":"#fb923c",fontSize:10,fontWeight:700,padding:"3px 10px",cursor:"pointer",flexShrink:0}}>
-              Dismiss all ({quietLines.length})
-            </button>
-          )}
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:(quietLines.length||quietAds.length)?8:0,flexWrap:"wrap"}}>
+          <span style={{fontSize:12,fontWeight:800,color:lightMode?"#c2410c":"#fb923c"}}>🔌 Lines &amp; Ads Gone Quiet ({quietLines.length+quietAds.length})</span>
+          <span style={{fontSize:10,color:lmTxtS}}>A line or ad stopped delivering while its campaign keeps running. Counts are since your last check-in (lines) or last creative import (ads).</span>
         </div>
-        {quietLines.length===0 && <div style={{fontSize:11,color:lmTxtS}}>No lines have gone quiet — every line is still delivering since its last check-in. (Dismissed alerts return tomorrow if a line is still dark.)</div>}
+        {(quietLines.length+quietAds.length)===0 && <div style={{fontSize:11,color:lmTxtS}}>Nothing has gone quiet — every line and ad is still delivering since its last check-in. (Dismissed alerts return tomorrow if it's still dark.)</div>}
+        {quietLines.length>0 && <div style={{fontSize:10,fontWeight:700,color:lightMode?"#9a3412":"#fdba74",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4,display:"flex",alignItems:"center",gap:8}}>Lines ({quietLines.length}){quietLines.length>1 && <button onClick={()=>dismissAllQuietLines(quietLines.map(q=>`${q.c.id}::${q.lineName}`))} title="Dismiss all lines for today" style={{background:"none",border:`1px solid ${lightMode?"#fdba74":"#f9731660"}`,borderRadius:5,color:lightMode?"#c2410c":"#fb923c",fontSize:9,fontWeight:700,padding:"1px 8px",cursor:"pointer",textTransform:"none",letterSpacing:0}}>Dismiss all</button>}</div>}
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
           {quietLines.map((q)=>(
             <div key={q.c.id+"::"+q.lineName} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:lmBg,border:`1px solid ${lmBrdR}`,borderRadius:7}}>
@@ -7851,6 +8047,23 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             </div>
           ))}
         </div>
+        {/* Ads gone quiet — individual creatives that stopped serving since the last creative import. */}
+        {quietAds.length>0 && <div style={{fontSize:10,fontWeight:700,color:lightMode?"#9a3412":"#fdba74",textTransform:"uppercase",letterSpacing:"0.06em",margin:"10px 0 4px",display:"flex",alignItems:"center",gap:8}}>Ads ({quietAds.length}){quietAds.length>1 && <button onClick={()=>dismissAllQuietLines(quietAds.map(q=>`${q.c.id}::ad::${q.adName}`))} title="Dismiss all ads for today" style={{background:"none",border:`1px solid ${lightMode?"#fdba74":"#f9731660"}`,borderRadius:5,color:lightMode?"#c2410c":"#fb923c",fontSize:9,fontWeight:700,padding:"1px 8px",cursor:"pointer",textTransform:"none",letterSpacing:0}}>Dismiss all</button>}</div>}
+        {quietAds.length>0 && <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {quietAds.map((q)=>(
+            <div key={q.c.id+"::ad::"+q.adName} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:lmBg,border:`1px solid ${lmBrdR}`,borderRadius:7}}>
+              <span style={{...vBadge(PLT_COLORS[q.c.platform]||PLT_COLORS.default),borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{q.c.platform}</span>
+              <span style={{fontSize:12,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200}} title={q.c.campaignName.trim()}>{q.c.campaignName.trim()}</span>
+              <span style={{fontSize:11,color:lmTxtS}}>🎨</span>
+              <span style={{fontSize:11,fontWeight:700,color:lightMode?"#c2410c":"#fb923c",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:240}} title={q.adName}>{q.adName}</span>
+              <span style={{fontSize:10,fontWeight:700,color:lightMode?"#dc2626":"#f87171",background:lightMode?"#fee2e2":"#3a0010",border:`1px solid ${lightMode?"#fca5a5":"#7f1d1d"}`,borderRadius:5,padding:"2px 7px",whiteSpace:"nowrap"}}>
+                0 new impr{q.daysFlat!=null&&q.daysFlat>=1?` · ${q.daysFlat} day${q.daysFlat!==1?"s":""} quiet`:""}{q.sinceDisp?` · since ${q.sinceDisp}`:""}
+              </span>
+              <button onClick={()=>dismissQuietLine(`${q.c.id}::ad::${q.adName}`)} title="Dismiss for today"
+                style={{marginLeft:"auto",background:"none",border:`1px solid ${lmBrd}`,borderRadius:5,color:lmTxtM,fontSize:10,padding:"2px 8px",cursor:"pointer",flexShrink:0}}>Dismiss</button>
+            </div>
+          ))}
+        </div>}
       </div>
     )}
 
@@ -15077,6 +15290,13 @@ function IODraftReviewModal({ drafts, meta, lightMode, existingPartners, onAppro
           </div>
         </div>
 
+        {/* Low-confidence banner — shown when the draft came from the whole-document fallback scan. */}
+        {meta?.lowConfidence && (
+          <div style={{margin:"12px 20px 0",padding:"10px 14px",background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#f59e0b":"#f59e0b55"}`,borderRadius:8,fontSize:12,color:_lm?"#92400e":"#fcd34d",lineHeight:1.5}}>
+            <strong>⚠ Low-confidence draft.</strong> This IO format wasn't recognized, so these fields were guessed from a whole-document scan. <strong>Check every value</strong> — platform, dates, impressions, CPM, budget — against the PDF before approving.
+          </div>
+        )}
+
         {/* Drafts list */}
         <div style={{overflow:"auto",padding:"14px 20px"}}>
           <div style={{fontSize:11,color:_lm?"#64748b":"#7a9bbf",marginBottom:10,padding:"8px 12px",background:_lm?"#f0f9ff":"#0a1628",border:`1px solid ${_lm?"#bae6fd":"#1e293b"}`,borderRadius:7}}>
@@ -15226,20 +15446,22 @@ export default function App() {
     try {
       const { text, uris } = await extractPdfText(file);
       const io = parseIOPdf(text, uris);
-      if (!io.services.length) {
-        setPdfError(`No service blocks found in the PDF. Expected fields like "Mobile ID Integration: FB/IG Included? Yes" — found none.`);
-        setPdfProcessing(false);
-        return;
-      }
-      const drafts = buildDraftsFromIO(io);
+      // Structured parse first; if it yields nothing (unrecognized format / fields didn't parse),
+      // fall back to a best-effort whole-document scan so the user ALWAYS gets a draft to review.
+      let drafts = io.services.length ? buildDraftsFromIO(io) : [];
+      let lowConfidence = false;
       if (!drafts.length) {
-        setPdfError(`Found ${io.services.length} service block(s) but couldn't build any drafts — likely all had zero impressions/budget. Open the PDF and verify the numbers.`);
+        const fb = buildFallbackDraft(io);
+        if (fb) { drafts = [fb]; lowConfidence = true; }
+      }
+      if (!drafts.length) {
+        setPdfError(`Couldn't find any budget, impressions, or dates in this PDF — it may not be a standard IO. Open it to check, or add the campaign manually.`);
         setPdfProcessing(false);
         return;
       }
       // _initialCount stays constant as drafts are popped so the "Draft 2 of 3"
       // indicator counts up correctly through the queue.
-      setPdfMeta({ reference: io.reference, partner: io.partner, advertiser: io.advertiser, submitted: io.submitted, fileName: file.name, _initialCount: drafts.length });
+      setPdfMeta({ reference: io.reference, partner: io.partner, advertiser: io.advertiser, submitted: io.submitted, fileName: file.name, _initialCount: drafts.length, lowConfidence });
       setPdfDrafts(drafts);
       setPdfDraftIdx(0);     // start at the first draft in the queue
       setPdfQueueOpen(true); // open the queue modal immediately
@@ -17156,6 +17378,7 @@ export default function App() {
               canPrev: safeIdx > 0,
               canNext: safeIdx < pdfDrafts.length - 1,
               remaining: pdfDrafts.length,
+              lowConfidence: pdfMeta?.lowConfidence,
             }}
             // Auto-save every edit back into the queue so prev/next/close don't lose work.
             onValuesChange={(values) => {
