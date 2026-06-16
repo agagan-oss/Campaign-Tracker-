@@ -456,14 +456,37 @@ function parseMonthlyGoal(note1, targetMonthIdx) {
 function parseGoalNumber(raw) {
   if (raw == null) return null;
   const s = String(raw).trim().replace(/^\$/, "").replace(/,/g, "");
-  const m = s.match(/([\d.]+)\s*([KkMm])?/);
-  if (!m) return null;
-  let n = parseFloat(m[1]);
+  // The K/M suffix must be a STANDALONE token — NOT the first letter of a following word.
+  // Bug it fixes: "$35,091 Media Spend" used to read the "M" in "Media" as millions → $35.09B,
+  // which wrecked SEM lifetime pacing. `(?![A-Za-z])` rejects "Media"/"Million"/etc.
+  let n;
+  const suffixed = s.match(/([\d.]+)\s*([KkMm])(?![A-Za-z])/);
+  if (suffixed) {
+    n = parseFloat(suffixed[1]);
+    const suf = suffixed[2].toLowerCase();
+    if (suf === "k") n *= 1000;
+    if (suf === "m") n *= 1000000;
+  } else {
+    const plain = s.match(/[\d.]+/);
+    if (!plain) return null;
+    n = parseFloat(plain[0]);
+  }
   if (isNaN(n)) return null;
-  const suf = (m[2] || "").toLowerCase();
-  if (suf === "k") n *= 1000;
-  if (suf === "m") n *= 1000000;
   return n > 0 ? Math.round(n) : null;
+}
+
+// Earliest month the tracker has CLOSING data for (smallest monthly-backup key, "YYYY-MM"); falls back
+// to the current month when no backups exist yet. Lifetime pacing uses this to (a) decide which
+// contracts are "partial" — flight started before we have data — and (b) label the backfill field's
+// boundary, so a manually-entered prior total never overlaps the months already in the backups.
+function earliestTrackedMonth() {
+  try {
+    const b = JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY) || "{}");
+    const keys = Object.keys(b).filter(k => /^\d{4}-\d{2}$/.test(k)).sort();
+    if (keys.length) return keys[0];
+  } catch {}
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;
 }
 
 // Lifetime / contract pacing: cumulative delivered (every closed month + the live month)
@@ -1002,7 +1025,14 @@ function parseIOPdf(text, uris = []) {
     // ── Allen Media Broadcasting format ──────────────────────────
     // Social Media: separate Static & Video budgets → FB and/or FBV campaigns
     { label: "Social Media",                 key: "social_media",   socialSplit: true },
-    // Mobile-to-Social services: half DSP + half FB (similar to Mobile ID Integration: FB/IG)
+    // Mobile-to-Social services: half DSP + half FB (similar to Mobile ID Integration: FB/IG).
+    // Newer "Universal IO" forms spell the product out as "Mobile to Social FB/IG" (and a Snapchat
+    // sibling), and prefix the fields the SAME way ("Mobile to Social FB/IG: Gross Impressions…").
+    // The bare "Mobile to Social" label below is anchored and won't match those longer flags, so
+    // the explicit variants are listed first. ("Video Mobile to Social FB/IG:" fields start with
+    // "Video", so the anchored field prefix here ignores them.)
+    { label: "Mobile to Social FB/IG",       key: "mob_to_social_fbig",   split: "FB" },
+    { label: "Mobile to Social Snapchat",    key: "mob_to_social_sc",     split: "SP" },
     { label: "Mobile to Social",             key: "mob_to_social",       split: "FB" },
     { label: "Device Integration to Social", key: "device_int_to_social", split: "FB" },
     // Programmatic display
@@ -1057,6 +1087,12 @@ function parseIOPdf(text, uris = []) {
 // Build draft campaign objects from parsed IO data.
 function buildDraftsFromIO(io) {
   const drafts = [];
+  // Does the IO's FREE-TEXT notes ask to include Snapchat (e.g. "includes Snapchat, please include!")?
+  // Separate from the structured "Snapchat Included? Yes/No" flag. Used by the Mobile-to-Social split
+  // (to make it a 3-way DSP/FB/Snap) and, if no SP leg ends up created, to flag the drafts.
+  // "includ" has no trailing \b so it catches "includes"/"including" (a trailing \b would miss them).
+  const snapRequested = (io.rawText || "").split(/\r?\n/).some(l =>
+    /snap\s*chat/i.test(l) && /(\binclud|\bplease\b|\badd\b|\bneed\b)/i.test(l) && !/Included\s*\?/i.test(l));
 
   function parseDate(s) {
     if (!s) return "";
@@ -1151,7 +1187,11 @@ function buildDraftsFromIO(io) {
     }
 
     const totalImpr = parseNum(d.impressions);
-    let cpm = parseNum(d.cpm);
+    // A CPM field carrying a "%" isn't a rate — it's a split/annotation note the form wrapped into
+    // the value (e.g. "Mobile to Social FB/IG: CPM Rate … 40%-60% split between social and mobile / 6.25").
+    // parseNum would read "$40" off that. Treat it as missing so the $ ÷ impr derivation recovers the
+    // real CPM (e.g. $390.62 ÷ 62,500 × 1000 = $6.25).
+    let cpm = (d.cpm && /%/.test(d.cpm)) ? 0 : parseNum(d.cpm);
     let totalBudget = parseNum(d.budget);
     const managementFee = parseNum(d.managementFee);
     const mediaSpend = parseNum(d.mediaSpend);
@@ -1223,23 +1263,27 @@ function buildDraftsFromIO(io) {
       return;
     }
     if (svc.split) {
-      // Mobile ID Integration: split half to DSP, half to other platform (FB or SP)
-      const halfImpr = Math.round(totalImpr / 2);
-      const halfBudget = totalBudget / 2;
-      const monthlyImpr = Math.round(halfImpr / months);
+      // Mobile ID Integration / Mobile-to-Social: split half to DSP, half to the other platform (FB or SP).
+      // EXCEPTION: when the IO's notes ask to ALSO include Snapchat on a FB-social split, split EVEN
+      // THIRDS across DSP + FB + Snap (Austin's call) instead of half/half.
+      const legs = (snapRequested && svc.split === "FB") ? ["DSP", "FB", "SP"] : ["DSP", svc.split];
+      const n = legs.length;
+      const legImpr = Math.round(totalImpr / n);
+      const legBudget = totalBudget / n;
+      const monthlyImpr = Math.round(legImpr / months);
       const note1 = monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "";
+      const splitNote = n === 3 ? " · 3-way even split (DSP/FB/Snap) per IO notes requesting Snapchat" : "";
       const common = {
         mediaPartner: ioPartner,
         startDate, endDate,
         status: "off",
-        goal: halfImpr > 0 ? String(halfImpr) : "",
+        goal: legImpr > 0 ? String(legImpr) : "",
         contractRate: cpm ? String(cpm) : "",
         dealType: cpm ? "CPM" : "",
-        note1, note2: baseNote2,
-        contractValue: halfBudget.toFixed(2),
+        note1, note2: baseNote2 + splitNote,
+        contractValue: legBudget.toFixed(2),
       };
-      drafts.push({ ...common, campaignName: `${advertiser} - DSP`,         platform: "DSP" });
-      drafts.push({ ...common, campaignName: `${advertiser} - ${svc.split}`, platform: svc.split });
+      legs.forEach(plat => drafts.push({ ...common, campaignName: `${advertiser} - ${plat}`, platform: plat }));
     } else {
       let platform = svc.platform || "DSP";
       // CTV streaming flavor (e.g. Channel Select / Netflix CTV) → its own dedicated platform if the
@@ -1274,6 +1318,15 @@ function buildDraftsFromIO(io) {
       });
     }
   });
+
+  // Snapchat-in-notes catch: if the notes requested Snapchat (see `snapRequested` at the top) but no
+  // Snap (SP) leg was created — e.g. a non-FB-split service couldn't fold Snap in — flag every draft so
+  // the reviewer can add one. When the Mobile-to-Social 3-way fires, an SP draft exists, so this is skipped.
+  if (snapRequested && !drafts.some(d => d.platform === "SP")) {
+    drafts.forEach(d => {
+      d.note2 = (d.note2 ? d.note2 + " " : "") + "⚠ NOTES REQUEST SNAPCHAT — the IO asks to include Snap, but there's no structured Snap line. Add a Snap (SP) leg / split this 3-way if needed.";
+    });
+  }
 
   // Stamp the client website + proposal/projection link (captured once from the IO) onto every
   // draft this IO produced, without clobbering anything a branch already set.
@@ -2745,6 +2798,21 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               {row("campaignName","Campaign Name")}
               {row("platform","Platform")}
               {row("goal","Goal")}
+              {/* Lifetime backfill — delivery from flight start UP TO the tracker's earliest recorded
+                  month. Lets a pre-tracking contract's Lifetime pacing be accurate now. Boundary is
+                  dynamic so the entered total never overlaps months already in the monthly backups. */}
+              {(()=>{
+                const tm=earliestTrackedMonth(); const [yy,mm]=tm.split("-");
+                const lbl=new Date(parseInt(yy),parseInt(mm)-1,1).toLocaleString("default",{month:"long",year:"numeric"});
+                const metric=f.platform==="SEM"?"spend ($)":f.platform==="YT"?"views":"impressions";
+                return (
+                  <div style={{marginBottom:12}}>
+                    <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Prior Delivery <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(before tracking — Lifetime only)</span></label>
+                    <input type="text" value={f.priorDelivered||""} onChange={e=>set("priorDelivered",e.target.value)} placeholder={`e.g. 120K — ${metric} delivered before ${lbl}`} style={iS}/>
+                    <div style={{fontSize:9,color:_lm?"#94a3b8":"#4d6e8a",marginTop:3}}>Total {metric} this contract delivered BEFORE {lbl} (the tracker's earliest data). Only for contracts that started before tracking — leave blank otherwise. Makes Lifetime pacing accurate now instead of waiting for months to close.</div>
+                  </div>
+                );
+              })()}
               {row("startDate","Start Date","date")}
               {row("endDate","End Date","date")}
               {row("status","Status")}
@@ -6354,6 +6422,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [lifeSort,       setLifeSort]       = useState(_persisted.lifeSort || "risk");
   const [lifeDir,        setLifeDir]        = useState(_persisted.lifeDir || LIFE_SORT_DEFAULT_DIR[_persisted.lifeSort||"risk"] || "asc");
   const [lifeAtRisk,     setLifeAtRisk]     = useState(!!_persisted.lifeAtRisk);
+  // Lifetime flight start-date filter (persisted): only show contracts whose start date is on/after
+  // `lifeStartsAfter` (ISO "YYYY-MM-DD" or ""=off). Lets Austin focus on campaigns starting from a date.
+  const [lifeStartsAfter,setLifeStartsAfter]= useState(_persisted.lifeStartsAfter || "");
   function clickLifeSort(k){ if(lifeSort===k){ setLifeDir(d=>d==="asc"?"desc":"asc"); return; } setLifeSort(k); setLifeDir(LIFE_SORT_DEFAULT_DIR[k]||"asc"); }
   const [showNoGoal,     setShowNoGoal]     = useState(false);
   const [search,         setSearch]         = useState(_persisted.search || "");
@@ -6374,10 +6445,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     try {
       localStorage.setItem(PACING_FILTER_KEY, JSON.stringify({
         search, fPartner, fPlatforms: [...fPlatforms], sortKey, sortDir, todayFilter, pacingView,
-        lifeSort, lifeDir, lifeAtRisk,
+        lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter,
       }));
     } catch {}
-  }, [search, fPartner, fPlatforms, sortKey, sortDir, todayFilter, pacingView, lifeSort, lifeDir, lifeAtRisk]);
+  }, [search, fPartner, fPlatforms, sortKey, sortDir, todayFilter, pacingView, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter]);
   function clickSort(k) {
     if (sortKey === k) { setSortDir(d => d === "asc" ? "desc" : "asc"); return; }  // toggle direction
     setSortKey(k);
@@ -6462,6 +6533,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
+    // Updated/Not-updated-today filter applies to Off campaigns too (same as the active sections).
+    if(todayFilter==="today"     && c.lastChecked!==todayStr) return false;
+    if(todayFilter==="not-today" && c.lastChecked===todayStr) return false;
     return true;
   });
 
@@ -8071,30 +8145,47 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       if (v >= 1000)    return (v/1000).toFixed(1).replace(/\.0$/,"") + "K";
       return v.toLocaleString();
     };
+    const _trackStart = earliestTrackedMonth() + "-01"; // first day of the tracker's earliest data month
     const build = (rows, isOff) => rows.map(({c}) => {
+      const backfill = parseGoalNumber(c.priorDelivered) || 0; // manually-entered pre-tracking total
       const prior = priorMonthsDelivered(c);
       const live  = liveMonthDelivered(c);
-      const delivered = prior + live;
+      const delivered = backfill + prior + live;
       const goalNum = parseGoalNumber(c.goal);
       const lp = computeLifetimePacing(c, delivered, goalNum);
-      return { c, prior, live, delivered, goalNum, lp, isOff };
+      // "partial" = flight started BEFORE the tracker's earliest data AND not backfilled AND not yet at
+      // goal → the % is incomplete (more months could exist), so we flag it rather than calling it
+      // Behind/Missed. If it's ALREADY ≥100% on the data we have, it's definitively hit — missing
+      // months can only add more — so it's NOT partial.
+      const partial = !!(c.startDate && c.startDate < _trackStart && backfill <= 0 && lp.pct < 1);
+      return { c, backfill, prior, live, delivered, goalNum, lp, isOff, partial };
     });
     const all   = [...build(filtered, false), ...build(offFiltered, true)];
-    const withG = all.filter(r => r.lp);
-    const noG   = all.filter(r => !r.lp);
+    // Flight start-date filter: show only contracts starting on/after lifeStartsAfter (ISO strings sort
+    // lexicographically; a campaign with no start date is excluded when the bound is set). Narrows the
+    // whole view (counts + rows) so "started June onward" shows that cohort's true standing.
+    const dateOk = c => {
+      if (lifeStartsAfter && (!c.startDate || c.startDate < lifeStartsAfter)) return false;
+      return true;
+    };
+    const withG = all.filter(r => r.lp && dateOk(r.c));
+    const noG   = all.filter(r => !r.lp && dateOk(r.c));
     const statusRank = { "Behind":0, "Missed":0, "Ended short":1, "Slightly behind":1, "On Track":2, "Ahead":2, "Ended ~at goal":3, "Goal hit":4 };
-    const atRiskOf = r => r.lp.pct < 1 && /Behind|Missed|short/i.test(r.lp.label);
+    // Partial (pre-tracking, un-backfilled) rows aren't confidently "behind" — exclude from at-risk.
+    const atRiskOf = r => !r.partial && r.lp.pct < 1 && /Behind|Missed|short/i.test(r.lp.label);
     // Counts reflect ALL goaled campaigns (the at-risk filter only changes which ROWS show).
-    const hitCount    = withG.filter(r => r.lp.pct >= 1).length;
+    const partialCount = withG.filter(r => r.partial).length;
+    const hitCount    = withG.filter(r => !r.partial && r.lp.pct >= 1).length;
     const behindCount = withG.filter(atRiskOf).length;
-    const onPaceCount = withG.length - hitCount - behindCount;
-    // Visible rows = optional at-risk filter, then the chosen sort (default "risk" = behind→hit).
+    const onPaceCount = withG.length - hitCount - behindCount - partialCount;
+    // Visible rows = optional at-risk filter, then the chosen sort (default "risk" = behind→hit, partial last).
     const _dir = lifeDir==="asc" ? 1 : -1;
     const rows = (lifeAtRisk ? withG.filter(atRiskOf) : withG.slice()).sort((a,b)=>{
       if(lifeSort==="name") return _dir * a.c.campaignName.localeCompare(b.c.campaignName);
       if(lifeSort==="pct")  return _dir * (a.lp.pct - b.lp.pct);
       if(lifeSort==="goal") return _dir * (a.lp.goal - b.lp.goal);
       if(lifeSort==="days"){ const da=a.lp.daysLeft==null?Infinity:a.lp.daysLeft, db=b.lp.daysLeft==null?Infinity:b.lp.daysLeft; return _dir * (da - db); }
+      if(a.partial!==b.partial) return a.partial?1:-1; // "risk": partial (incomplete data) sinks to the bottom
       const ra=statusRank[a.lp.label]??2, rb=statusRank[b.lp.label]??2; // "risk"
       return _dir * (ra!==rb ? ra-rb : a.lp.pct-b.lp.pct);
     });
@@ -8109,6 +8200,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> {hitCount} hit</span>
           <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> {onPaceCount} on pace</span>
           <span><span style={{color:lmC("#fde047"),fontWeight:700}}>●</span> {behindCount} behind</span>
+          {partialCount>0 && <span title="Flight started before the tracker had data and isn't backfilled — % is incomplete"><span style={{color:lmTxtD,fontWeight:700}}>●</span> {partialCount} partial</span>}
           {noG.length>0 && <span style={{color:lmTxtD}}>· {noG.length} missing a Goal value</span>}
         </div>
         {/* Sort + filter controls (mirrors the monthly toolbar style) */}
@@ -8121,6 +8213,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                 color:lifeAtRisk?lmC("#fde047"):lmTxtS}}>
               ⚠ At risk only{behindCount>0?` (${behindCount})`:""}
             </button>
+            {/* Flight start-date filter — focus on contracts that started on/after a date (e.g. June) */}
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <span style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em"}}>Starts after</span>
+              <DatePicker value={lifeStartsAfter} onChange={setLifeStartsAfter} placeholder="Any start date"/>
+              {lifeStartsAfter && <button onClick={()=>setLifeStartsAfter("")} title="Clear start-date filter" style={{background:"none",border:"1px solid "+lmBrd,borderRadius:6,padding:"4px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>clear</button>}
+            </div>
             <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
               <span style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
               {[["risk","Risk"],["pct","% to goal"],["days","Days left"],["goal","Goal"],["name","Name"]].map(([k,l])=>(
@@ -8146,14 +8244,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               ))}
             </div>
             {rows.length===0 && <div style={{padding:"16px",textAlign:"center",fontSize:11,color:lmTxtS}}>Nothing at risk right now — everything's on pace or hit. Toggle off “At risk only” to see all.</div>}
-            {rows.map(({c,delivered,prior,live,lp,isOff}) => {
-              const col = lp.color;
+            {rows.map(({c,delivered,backfill,prior,live,lp,isOff,partial}) => {
+              const col = partial ? (lightMode?"#94a3b8":"#7a9bbf") : lp.color; // neutral gray when data's incomplete
               const expPct = lp.timeFrac != null ? Math.min(100, lp.timeFrac*100) : null;
+              const statusLabel = partial ? "Partial" : lp.label;
               return (
                 <div key={c.id} style={{display:"grid",gridTemplateColumns:GL,gap:8,padding:"9px 14px",borderBottom:"1px solid "+lmBrdR,alignItems:"center",borderLeft:"3px solid "+lmC(col)}}>
-                  {/* Campaign + partner (matches the monthly row) */}
+                  {/* Campaign + partner — name opens the edit modal (to set Goal / backfill Prior Delivery) */}
                   <div style={{minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                    <div onClick={()=>onEdit(c)} title="Edit campaign (set Goal / backfill Prior Delivery)" style={{fontSize:13,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer"}}>
                       {isOff && <span title="Paused / off — shown so you can confirm a finished contract" style={{fontSize:9,fontWeight:700,color:lmTxtD,border:"1px solid "+lmBrd,borderRadius:3,padding:"0 4px",marginRight:5}}>OFF</span>}
                       {c.campaignName.trim()}
                     </div>
@@ -8166,17 +8265,20 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                   </div>
                   {/* Platform */}
                   <div><span style={{...vBadge(PLT_COLORS[c.platform]||PLT_COLORS.default),borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span></div>
-                  {/* Status pill (matches the monthly Status column) */}
-                  <div><span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 5px"}}>{lp.label}</span></div>
+                  {/* Status pill — neutral "Partial" when pre-tracking data is incomplete */}
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",gap:2}}>
+                    <span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 5px"}}>{statusLabel}</span>
+                    {partial && <span title="Started before the tracker had data — click the campaign name to backfill Prior Delivery" style={{fontSize:8,color:lmTxtD,whiteSpace:"nowrap"}}>pre-tracking</span>}
+                  </div>
                   {/* Lifetime pacing bar — same style as the monthly bar (electric-blue expected tick) */}
                   <div>
                     <div style={{position:"relative",background:lmBarTrk,borderRadius:4,height:10,overflow:"visible",marginBottom:2}}>
-                      <div style={{background:lmC(col),height:"100%",width:Math.min(100,lp.pct*100)+"%",borderRadius:4}}/>
+                      <div style={{background:lmC(col),height:"100%",width:Math.min(100,lp.pct*100)+"%",borderRadius:4,opacity:partial?0.5:1}}/>
                       {expPct!=null && !lp.ended && <div title={"Expected by now: "+Math.round(lp.expected||0).toLocaleString()+" ("+Math.round(expPct)+"%)"}
                         style={{position:"absolute",top:-4,left:Math.min(97,expPct)+"%",width:3,height:18,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>}
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:4}}>
-                      <span style={{fontSize:9,color:lmC(col),fontWeight:700}}>{(lp.pct*100).toFixed(1)}%</span>
+                      <span style={{fontSize:9,color:lmC(col),fontWeight:700}}>{(lp.pct*100).toFixed(1)}%{partial?"*":""}</span>
                       {expPct!=null && !lp.ended && <span style={{fontSize:8,color:"#38bdf8aa"}}>/{Math.round(expPct)}%</span>}
                     </div>
                   </div>
@@ -8185,12 +8287,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                     <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}} title={"Contract goal: "+lp.goal.toLocaleString()}>{fmtN(lp.goal,lp.metricKind)}</span>
                   </div>
                   {/* Impr / Views served (cumulative across the flight) — electric blue, matches monthly */}
-                  <div title="Total delivered across the flight (closed months + this month)">
+                  <div title="Total delivered across the flight (prior-entered + closed months + this month)">
                     <div style={{display:"flex",alignItems:"baseline",gap:3}}>
                       <span style={{fontSize:12,fontWeight:800,color:lmC("#7dd3fc"),letterSpacing:"-0.01em"}}>{fmtN(delivered,lp.metricKind)}</span>
                       <span style={{fontSize:9,color:lmTxtD}}>{lp.unit}</span>
                     </div>
-                    {prior>0 && <div title="Closed-month backups + this month so far" style={{fontSize:9,color:lmTxtD,whiteSpace:"nowrap"}}>{fmtN(prior,lp.metricKind)}+{fmtN(live,lp.metricKind)}</div>}
+                    {backfill>0
+                      ? <div title="Backfilled prior delivery + tracked (closed months + this month)" style={{fontSize:9,color:lmTxtD,whiteSpace:"nowrap"}}>{fmtN(backfill,lp.metricKind)} prior + {fmtN(prior+live,lp.metricKind)} tracked</div>
+                      : prior>0 && <div title="Closed-month backups + this month so far" style={{fontSize:9,color:lmTxtD,whiteSpace:"nowrap"}}>{fmtN(prior,lp.metricKind)}+{fmtN(live,lp.metricKind)}</div>}
                   </div>
                   {/* Flight — to the RIGHT of impressions/views */}
                   <div style={{...cell,flexDirection:"column",alignItems:"flex-start",gap:1}}>
@@ -11949,16 +12053,28 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // which still holds each campaign's previous lastQciSource.)
     const _updatedIds = new Set(Object.keys(updates).map(String));
     const _runningStatuses = new Set(["active","pacing-behind","pacing-ahead","close-to-goal",""]);
-    const _sourceHistory = activeCamps.filter(c => _runningStatuses.has(c.status||"") && String(c.lastQciSource||"")===String(fileSource));
+    // Scope reconciliation to what THIS drop targeted. A deliberate partial pull (platform filter +
+    // search — e.g. FB + "Fairmont" — or a manual campaign selection) must NOT flag every OTHER FB
+    // campaign that usually reports as "missing", only the ones inside that scope. With no filter and
+    // no selection active, scope is everything (a full daily drop) — original behavior preserved.
+    const _q = (qciSearch || "").trim().toLowerCase();
+    const _scoped = selected.size > 0 || _q !== "" || qciPlatforms.size > 0;
+    const _inScope = c => {
+      if (selected.size > 0) return selected.has(c.id);                            // explicit manual selection wins
+      if (qciPlatforms.size > 0 && !qciPlatforms.has(c.platform)) return false;    // platform filter (e.g. FB)
+      if (_q && !((c.campaignName||"").toLowerCase().includes(_q) || (c.mediaPartner||"").toLowerCase().includes(_q))) return false; // search (e.g. "Fairmont")
+      return true;
+    };
+    const _sourceHistory = activeCamps.filter(c => _runningStatuses.has(c.status||"") && String(c.lastQciSource||"")===String(fileSource) && _inScope(c));
     const _missing = _sourceHistory
       .filter(c => !_updatedIds.has(String(c.id)))
       .map(c => ({ id:c.id, name:(c.campaignName||"").trim(), platform:c.platform, partner:c.mediaPartner,
         lastImpr: parseInt(c.lastCheckInImpr)||parseInt(c.impressions)||0, lastDate: c.lastQciDate||c.lastChecked||"" }));
-    setReconcile({ source:fileSource, missing:_missing, expected:_sourceHistory.length, applied:appliedCampCount, ts:Date.now() });
+    setReconcile({ source:fileSource, missing:_missing, expected:_sourceHistory.length, applied:appliedCampCount, ts:Date.now(), scoped:_scoped });
     const msgParts = [`✓ Applied to ${appliedCampCount} campaign${appliedCampCount!==1?"s":""} · ${matchedRowCount}/${totalRowCount} rows matched`];
     if(unmatchedRowCount>0) msgParts.push(`⚠ ${unmatchedRowCount} row${unmatchedRowCount>1?"s":""} had no match — verify below`);
-    if(_missing.length>0) msgParts.push(`⚠ ${_missing.length} ${fileSource} campaign${_missing.length>1?"s":""} usually reported didn't update — see below`);
-    else if(_sourceHistory.length>0) msgParts.push(`✓ all ${_sourceHistory.length} ${fileSource} campaigns reported`);
+    if(_missing.length>0) msgParts.push(`⚠ ${_missing.length} ${fileSource} campaign${_missing.length>1?"s":""}${_scoped?" in your filter":""} usually reported didn't update — see below`);
+    else if(_sourceHistory.length>0) msgParts.push(`✓ all ${_sourceHistory.length} ${fileSource} campaigns${_scoped?" in your filter":""} reported`);
     msgParts.push(`${entries.length} mappings saved`);
     setSavedMsg(msgParts.join(" · "));
     setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setIsCreativeMode(false); setCreativeGroups({}); setConfirmApplyPending(false);
@@ -12075,10 +12191,10 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
             <span style={{fontSize:13}}>⚠</span>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:12,fontWeight:700,color:_lm?"#92400e":"#fcd34d"}}>
-                {reconcile.missing.length} {reconcile.source} campaign{reconcile.missing.length!==1?"s":""} usually reported didn't update in this file
+                {reconcile.missing.length} {reconcile.source} campaign{reconcile.missing.length!==1?"s":""}{reconcile.scoped?" in your current filter":""} usually reported didn't update in this file
               </div>
               <div style={{fontSize:10,color:_lm?"#a16207":"#caa15a",marginTop:1}}>
-                Went dark, paused, or dropped from the report — worth a look. ({reconcile.applied} of {reconcile.expected} expected {reconcile.source} campaigns updated)
+                Went dark, paused, or dropped from the report — worth a look. ({reconcile.applied} of {reconcile.expected} expected {reconcile.source} campaigns{reconcile.scoped?" in your filter":""} updated)
               </div>
             </div>
             <button onClick={()=>setReconcile(null)} title="Dismiss" style={{background:"none",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:5,color:_lm?"#92400e":"#fcd34d",fontSize:10,fontWeight:700,padding:"3px 9px",cursor:"pointer",flexShrink:0}}>Dismiss</button>
