@@ -2807,9 +2807,9 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 const metric=f.platform==="SEM"?"spend ($)":f.platform==="YT"?"views":"impressions";
                 return (
                   <div style={{marginBottom:12}}>
-                    <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Prior Delivery <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(before tracking — Lifetime only)</span></label>
-                    <input type="text" value={f.priorDelivered||""} onChange={e=>set("priorDelivered",e.target.value)} placeholder={`e.g. 120K — ${metric} delivered before ${lbl}`} style={iS}/>
-                    <div style={{fontSize:9,color:_lm?"#94a3b8":"#4d6e8a",marginTop:3}}>Total {metric} this contract delivered BEFORE {lbl} (the tracker's earliest data). Only for contracts that started before tracking — leave blank otherwise. Makes Lifetime pacing accurate now instead of waiting for months to close.</div>
+                    <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Prior Delivery <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(uncaptured — Lifetime only)</span></label>
+                    <input type="text" value={f.priorDelivered||""} onChange={e=>set("priorDelivered",e.target.value)} placeholder={`e.g. 120K — ${metric} the tracker didn't capture`} style={iS}/>
+                    <div style={{fontSize:9,color:_lm?"#94a3b8":"#4d6e8a",marginTop:3}}>Total {metric} this contract delivered that ISN'T already in the tracker — months before you started checking it in (earliest tracked month: {lbl}), or any month you didn't pull its data. It's ADDED on top of the tracked months, so don't include months you've already checked in. Makes Lifetime pacing accurate now instead of waiting for months to close.</div>
                   </div>
                 );
               })()}
@@ -6434,7 +6434,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // SORT_DEFAULT_DIR = each key's starting direction. EVERY key is direction-toggleable (click the
   // active key again to reverse); ctr defaults low-first (worst), $/impr default high-first, text A–Z.
   const METRIC_SORTS = { impr:"impressions", ctr:"ctr", cpm:"cpm", spend:"spend" };
-  const SORT_DEFAULT_DIR = { pacing:"asc", impr:"desc", ctr:"asc", cpm:"desc", spend:"desc", platform:"asc", partner:"asc", name:"asc" };
+  const SORT_DEFAULT_DIR = { pacing:"asc", impr:"desc", ctr:"asc", cpm:"desc", spend:"desc", ends:"asc", platform:"asc", partner:"asc", name:"asc" };
   const _initSortKey = _persisted.sortKey || "pacing";
   const [sortKey,        setSortKey]        = useState(_initSortKey);
   const [sortDir,        setSortDir]        = useState(_persisted.sortDir || SORT_DEFAULT_DIR[_initSortKey] || "asc");
@@ -6546,6 +6546,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(sortKey==="name")     return dir * a.c.campaignName.localeCompare(b.c.campaignName);
     if(sortKey==="partner")  return dir * a.c.mediaPartner.localeCompare(b.c.mediaPartner);
     if(sortKey==="platform") return dir * a.c.platform.localeCompare(b.c.platform);
+    if(sortKey==="ends"){
+      // Flight end date (ISO sorts lexicographically). asc = soonest-ending first (catches mid-month
+      // ends), desc = latest first. Campaigns with no end date sink to the bottom in both directions.
+      const ea=a.c.endDate||"", eb=b.c.endDate||"";
+      if(!ea!==!eb) return ea?-1:1;
+      if(ea===eb)   return 0;
+      return dir * (ea<eb?-1:1);
+    }
     if(METRIC_SORTS[sortKey]){
       const f=METRIC_SORTS[sortKey];
       // Campaigns with no delivery have nothing to evaluate → push them last in BOTH directions,
@@ -8412,11 +8420,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </div>
     )}
 
-    {/* Date bar */}
-    <div style={{background:lmBg,border:"1px solid "+lmBrd,borderRadius:9,padding:"10px 14px",marginBottom:10}}>
-      <PacingDateBar range={dateRange} setRange={setDateRange} lightMode={lightMode}/>
-    </div>
-
+    {/* Date-range bar removed (2026-06-16): Yesterday/Last-30 snapshots were never populated, so it did
+        nothing — dateRange stays defaulted to {preset:"mtd"}, which every resolveMetrics call reads. */}
     {/* Search + filters + sort */}
     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
       <input
@@ -8493,7 +8498,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </button>
       <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
         <span style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
-        {[["pacing","Pacing"],["impr","Impr"],["ctr","CTR"],["cpm","CPM"],["spend","Spend"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
+        {[["pacing","Pacing"],["impr","Impr"],["ctr","CTR"],["cpm","CPM"],["spend","Spend"],["ends","Ends"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
           <button key={k} onClick={()=>clickSort(k)}
             title={sortKey===k?"Click to reverse order":`Sort by ${l}`}
             style={{background:sortKey===k?(lightMode?"#dcfce7":"#002e24"):lmBgInp,border:"1px solid "+(sortKey===k?"#00c896":lmBrd),borderRadius:6,padding:"4px 10px",color:sortKey===k?"#00e5a0":lmTxtS,fontSize:11,fontWeight:sortKey===k?700:400,cursor:"pointer"}}>
@@ -17590,8 +17595,7 @@ export default function App() {
           </div>
         </div>
 
-        <DateBar range={dateRange} setRange={setDateRange}/>
-
+        {/* Date-range bar removed (2026-06-16) — see Pacing tab note; dateRange stays "mtd". */}
         {/* Filters */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…" style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"8px 14px",color:lightMode?"#0f172a":"#d8eaf8",fontSize:14,width:280}}/>
