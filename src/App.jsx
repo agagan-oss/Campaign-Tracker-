@@ -2798,21 +2798,6 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               {row("campaignName","Campaign Name")}
               {row("platform","Platform")}
               {row("goal","Goal")}
-              {/* Lifetime backfill — delivery from flight start UP TO the tracker's earliest recorded
-                  month. Lets a pre-tracking contract's Lifetime pacing be accurate now. Boundary is
-                  dynamic so the entered total never overlaps months already in the monthly backups. */}
-              {(()=>{
-                const tm=earliestTrackedMonth(); const [yy,mm]=tm.split("-");
-                const lbl=new Date(parseInt(yy),parseInt(mm)-1,1).toLocaleString("default",{month:"long",year:"numeric"});
-                const metric=f.platform==="SEM"?"spend ($)":f.platform==="YT"?"views":"impressions";
-                return (
-                  <div style={{marginBottom:12}}>
-                    <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Prior Delivery <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(uncaptured — Lifetime only)</span></label>
-                    <input type="text" value={f.priorDelivered||""} onChange={e=>set("priorDelivered",e.target.value)} placeholder={`e.g. 120K — ${metric} the tracker didn't capture`} style={iS}/>
-                    <div style={{fontSize:9,color:_lm?"#94a3b8":"#4d6e8a",marginTop:3}}>Total {metric} this contract delivered that ISN'T already in the tracker — months before you started checking it in (earliest tracked month: {lbl}), or any month you didn't pull its data. It's ADDED on top of the tracked months, so don't include months you've already checked in. Makes Lifetime pacing accurate now instead of waiting for months to close.</div>
-                  </div>
-                );
-              })()}
               {row("startDate","Start Date","date")}
               {row("endDate","End Date","date")}
               {row("status","Status")}
@@ -6426,6 +6411,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // `lifeStartsAfter` (ISO "YYYY-MM-DD" or ""=off). Lets Austin focus on campaigns starting from a date.
   const [lifeStartsAfter,setLifeStartsAfter]= useState(_persisted.lifeStartsAfter || "");
   function clickLifeSort(k){ if(lifeSort===k){ setLifeDir(d=>d==="asc"?"desc":"asc"); return; } setLifeSort(k); setLifeDir(LIFE_SORT_DEFAULT_DIR[k]||"asc"); }
+  // Collapse state for the Lifetime status sections (Behind / On Track / Goal Hit).
+  const [lifeCollapsed, setLifeCollapsed] = useState(()=>new Set());
+  const toggleLifeSection = k => setLifeCollapsed(s=>{ const n=new Set(s); n.has(k)?n.delete(k):n.add(k); return n; });
   const [showNoGoal,     setShowNoGoal]     = useState(false);
   const [search,         setSearch]         = useState(_persisted.search || "");
   const [fPartner,       setFPartner]       = useState(_persisted.fPartner || "all");
@@ -6540,6 +6528,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   });
 
   // Sort
+  // A "partial-month" flight doesn't span the FULL pacing month — it STARTED after the 1st OR ENDS
+  // before the last day — so its pacing bar is prorated and not directly comparable to full-month
+  // flights. The Ends sort groups these to one end (Austin's ask). pacingMonthStart also feeds the
+  // row's "↪ started M/D" badge (computed inline in TableRow).
+  const pacingMonthStart = (()=>{ const n=pacingNow(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-01`; })();
+  const pacingMonthEnd = (()=>{ const n=pacingNow(); const d=new Date(n.getFullYear(), n.getMonth()+1, 0); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+  const partialFlight = c => !!c && ((c.startDate && c.startDate > pacingMonthStart) || (c.endDate && c.endDate < pacingMonthEnd));
   const orderMap={"Behind":0,"No data":1,"On Track":2,"Ahead":3};
   const sortFn = (a,b) => {
     const dir = sortDir==="asc" ? 1 : -1; // every sort key is direction-toggleable
@@ -6547,8 +6542,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(sortKey==="partner")  return dir * a.c.mediaPartner.localeCompare(b.c.mediaPartner);
     if(sortKey==="platform") return dir * a.c.platform.localeCompare(b.c.platform);
     if(sortKey==="ends"){
-      // Flight end date (ISO sorts lexicographically). asc = soonest-ending first (catches mid-month
-      // ends), desc = latest first. Campaigns with no end date sink to the bottom in both directions.
+      // GROUP partial-month flights (don't span the full pacing month — mid-month start OR end) to one
+      // end, so all the campaigns WITHOUT a full monthly flight bar cluster together instead of mixing
+      // in with the regular monthly flights (Austin's ask). Direction-aware → toggle flips top/bottom.
+      const pa = partialFlight(a.c) ? 1 : 0, pb = partialFlight(b.c) ? 1 : 0;
+      if(pa !== pb) return dir * (pa - pb);
+      // then by flight end date (ISO sorts lexicographically). No end date sinks to the bottom.
       const ea=a.c.endDate||"", eb=b.c.endDate||"";
       if(!ea!==!eb) return ea?-1:1;
       if(ea===eb)   return 0;
@@ -7027,7 +7026,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const cpmCard     = parseFloat(disp.cpm)||0;
     const freqCard    = parseFloat(c.frequency||disp.frequency)||0;
     const perfBoxes=[];
-    if(ctrDispCard>0)    perfBoxes.push({label:"CTR",    val:ctrDispCard<1?ctrDispCard.toFixed(3)+"%":ctrDispCard.toFixed(2)+"%", color:ctrDisplayColor(c.platform,ctrDispCard)});
+    if(ctrDispCard>0)    perfBoxes.push({label:"CTR",    val:ctrDispCard.toFixed(2)+"%", color:ctrDisplayColor(c.platform,ctrDispCard)});
     if(vcrDispCard>0)    perfBoxes.push({label:isCTV?"Compl%":"VCR", val:vcrDispCard.toFixed(1)+"%",                              color:vcrDisplayColor(c.platform,vcrDispCard)});
     if(cpmCard>0)        perfBoxes.push({label:"CPM",    val:"$"+cpmCard.toFixed(2),                                             color:cpmColor(c.platform,cpmCard)});
     if(disp.spend)       perfBoxes.push({label:"Spend",  val:"$"+Math.round(parseFloat(disp.spend)).toLocaleString(),            color:"#f472b6"});
@@ -7319,7 +7318,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // CTR — normalize to display percent e.g. 0.25%
     const ctrRaw  = parseFloat(disp.ctr)||0;
     const ctrDisp = ctrRaw > 1 ? ctrRaw : ctrRaw * 100;
-    const ctrFmt  = ctrDisp < 1 ? ctrDisp.toFixed(3)+"%" : ctrDisp.toFixed(2)+"%";
+    const ctrFmt  = ctrDisp.toFixed(2)+"%"; // always 2 decimals (e.g. 0.15%) per Austin
     const ctrCol  = ctrDisplayColor(c.platform, ctrDisp);
 
     // VCR — display as 0-100; values > 100 are data errors (e.g. view count mistakenly stored)
@@ -7507,6 +7506,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             ? <span style={{fontSize:9,color:"#00d48a",fontWeight:700,background:lightMode?"#dcfce7":"#00200f",border:"1px solid #00d48a40",borderRadius:3,padding:"0px 4px",flexShrink:0}}>✓ today</span>
             : <span style={{fontSize:9,color:lmTxtS,fontWeight:400,flexShrink:0}}>{c.lastChecked?(([y,m,d])=>`${m}/${d}/${y}`)(c.lastChecked.split("-")):"—"}</span>
           }
+          {/* Mid-month START badge — flags WHY a later-starting flight's pacing window (and "expected by
+              now" tick) is shorter than full-month flights, so it's not mistaken for a mid-month END. */}
+          {(()=>{
+            const _moStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-01`;
+            if(!(c.startDate && c.startDate > _moStart)) return null;
+            return <span title={`Flight started ${fmtDate(c.startDate)} — partway through the month, so pacing is prorated to the days it actually ran this month (its "expected by now" is lower than full-month flights)`} style={{fontSize:9,color:lightMode?"#2563eb":"#7ec8ff",fontWeight:700,background:lightMode?"#dbeafe":"#0a2540",border:`1px solid ${lightMode?"#93c5fd":"#1e466e"}`,borderRadius:3,padding:"0px 4px",flexShrink:0}}>↪ started {(([y,m,d])=>`${m}/${d}`)(c.startDate.split("-"))}</span>;
+          })()}
+          {/* Flight end date — shown so the "Ends" sort is legible (color = days-left urgency) */}
+          {c.endDate && <span title={`Flight ends ${fmtDate(c.endDate)}${dr!=null?` · ${dr<0?"ended":dr===0?"ends today":dr+"d left"}`:""}`} style={{fontSize:9,color:drc,fontWeight:600,flexShrink:0}}>· ends {(([y,m,d])=>`${m}/${d}`)(c.endDate.split("-"))}</span>}
         </div>
       </div>
 
@@ -8153,47 +8161,40 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       if (v >= 1000)    return (v/1000).toFixed(1).replace(/\.0$/,"") + "K";
       return v.toLocaleString();
     };
-    const _trackStart = earliestTrackedMonth() + "-01"; // first day of the tracker's earliest data month
+    // Lifetime pacing covers contracts whose flight STARTS on/after the data-start (June 1, 2026).
+    // Earlier contracts are missing pre-tracking delivery so their % would mislead — excluded here.
+    const LIFETIME_START = "2026-06-01";
     const build = (rows, isOff) => rows.map(({c}) => {
-      const backfill = parseGoalNumber(c.priorDelivered) || 0; // manually-entered pre-tracking total
       const prior = priorMonthsDelivered(c);
       const live  = liveMonthDelivered(c);
-      const delivered = backfill + prior + live;
+      const delivered = prior + live;
       const goalNum = parseGoalNumber(c.goal);
       const lp = computeLifetimePacing(c, delivered, goalNum);
-      // "partial" = flight started BEFORE the tracker's earliest data AND not backfilled AND not yet at
-      // goal → the % is incomplete (more months could exist), so we flag it rather than calling it
-      // Behind/Missed. If it's ALREADY ≥100% on the data we have, it's definitively hit — missing
-      // months can only add more — so it's NOT partial.
-      const partial = !!(c.startDate && c.startDate < _trackStart && backfill <= 0 && lp.pct < 1);
-      return { c, backfill, prior, live, delivered, goalNum, lp, isOff, partial };
+      return { c, prior, live, delivered, goalNum, lp, isOff };
     });
     const all   = [...build(filtered, false), ...build(offFiltered, true)];
-    // Flight start-date filter: show only contracts starting on/after lifeStartsAfter (ISO strings sort
-    // lexicographically; a campaign with no start date is excluded when the bound is set). Narrows the
-    // whole view (counts + rows) so "started June onward" shows that cohort's true standing.
+    // Gate to June-2026-onward starts, plus the optional "Starts after" filter (ISO strings compare
+    // lexicographically; a campaign with no start date can't be confirmed June+, so it's excluded).
     const dateOk = c => {
-      if (lifeStartsAfter && (!c.startDate || c.startDate < lifeStartsAfter)) return false;
+      if (!c.startDate || c.startDate < LIFETIME_START) return false;
+      if (lifeStartsAfter && c.startDate < lifeStartsAfter) return false;
       return true;
     };
     const withG = all.filter(r => r.lp && dateOk(r.c));
     const noG   = all.filter(r => !r.lp && dateOk(r.c));
     const statusRank = { "Behind":0, "Missed":0, "Ended short":1, "Slightly behind":1, "On Track":2, "Ahead":2, "Ended ~at goal":3, "Goal hit":4 };
-    // Partial (pre-tracking, un-backfilled) rows aren't confidently "behind" — exclude from at-risk.
-    const atRiskOf = r => !r.partial && r.lp.pct < 1 && /Behind|Missed|short/i.test(r.lp.label);
-    // Counts reflect ALL goaled campaigns (the at-risk filter only changes which ROWS show).
-    const partialCount = withG.filter(r => r.partial).length;
-    const hitCount    = withG.filter(r => !r.partial && r.lp.pct >= 1).length;
+    const atRiskOf = r => r.lp.pct < 1 && /Behind|Missed|short/i.test(r.lp.label);
+    // Counts reflect ALL goaled campaigns in view (the at-risk filter only changes which ROWS show).
+    const hitCount    = withG.filter(r => r.lp.pct >= 1).length;
     const behindCount = withG.filter(atRiskOf).length;
-    const onPaceCount = withG.length - hitCount - behindCount - partialCount;
-    // Visible rows = optional at-risk filter, then the chosen sort (default "risk" = behind→hit, partial last).
+    const onPaceCount = withG.length - hitCount - behindCount;
+    // Visible rows = optional at-risk filter, then the chosen sort (default "risk" = behind→hit).
     const _dir = lifeDir==="asc" ? 1 : -1;
     const rows = (lifeAtRisk ? withG.filter(atRiskOf) : withG.slice()).sort((a,b)=>{
       if(lifeSort==="name") return _dir * a.c.campaignName.localeCompare(b.c.campaignName);
       if(lifeSort==="pct")  return _dir * (a.lp.pct - b.lp.pct);
       if(lifeSort==="goal") return _dir * (a.lp.goal - b.lp.goal);
       if(lifeSort==="days"){ const da=a.lp.daysLeft==null?Infinity:a.lp.daysLeft, db=b.lp.daysLeft==null?Infinity:b.lp.daysLeft; return _dir * (da - db); }
-      if(a.partial!==b.partial) return a.partial?1:-1; // "risk": partial (incomplete data) sinks to the bottom
       const ra=statusRank[a.lp.label]??2, rb=statusRank[b.lp.label]??2; // "risk"
       return _dir * (ra!==rb ? ra-rb : a.lp.pct-b.lp.pct);
     });
@@ -8208,7 +8209,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> {hitCount} hit</span>
           <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> {onPaceCount} on pace</span>
           <span><span style={{color:lmC("#fde047"),fontWeight:700}}>●</span> {behindCount} behind</span>
-          {partialCount>0 && <span title="Flight started before the tracker had data and isn't backfilled — % is incomplete"><span style={{color:lmTxtD,fontWeight:700}}>●</span> {partialCount} partial</span>}
           {noG.length>0 && <span style={{color:lmTxtD}}>· {noG.length} missing a Goal value</span>}
         </div>
         {/* Sort + filter controls (mirrors the monthly toolbar style) */}
@@ -8229,7 +8229,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             </div>
             <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
               <span style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
-              {[["risk","Risk"],["pct","% to goal"],["days","Days left"],["goal","Goal"],["name","Name"]].map(([k,l])=>(
+              {[["risk","Risk"],["pct","% to goal"],["days","Ends"],["goal","Goal"],["name","Name"]].map(([k,l])=>(
                 <button key={k} onClick={()=>clickLifeSort(k)}
                   title={lifeSort===k?"Click to reverse order":`Sort by ${l}`}
                   style={{background:lifeSort===k?(lightMode?"#dcfce7":"#002e24"):lmBgInp,border:"1px solid "+(lifeSort===k?"#00c896":lmBrd),borderRadius:6,padding:"4px 10px",color:lifeSort===k?"#00e5a0":lmTxtS,fontSize:11,fontWeight:lifeSort===k?700:400,cursor:"pointer"}}>
@@ -8241,26 +8241,18 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         )}
         {withG.length === 0 ? (
           <div style={{padding:"24px 16px",textAlign:"center",color:lmTxtS,fontSize:12,border:"1px dashed "+lmBrd,borderRadius:9}}>
-            No campaigns have a contract <b>Goal</b> set yet. Add a total like <code>1.2M</code> or <code>600K</code> to a campaign's Goal field (Add/Edit campaign), give it Start &amp; End dates, and it'll pace here against the full flight.
+            No contracts to show yet. Lifetime pacing covers campaigns that <b>started June 1, 2026 or later</b> and have a contract <b>Goal</b> — add a total like <code>1.2M</code> or <code>600K</code> plus Start &amp; End dates in Add/Edit campaign.
           </div>
-        ) : (
-          <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"hidden",background:lmBg}}>
-            {/* header */}
-            <div style={{display:"grid",gridTemplateColumns:GL,gap:8,padding:"7px 14px",borderBottom:"1px solid "+lmBrd,background:lmBgInp}}>
-              {["Campaign","Plt","Status","Lifetime Pacing","Goal","Impr / Views","Flight"].map((h,i)=>(
-                <div key={i} style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
-              ))}
-            </div>
-            {rows.length===0 && <div style={{padding:"16px",textAlign:"center",fontSize:11,color:lmTxtS}}>Nothing at risk right now — everything's on pace or hit. Toggle off “At risk only” to see all.</div>}
-            {rows.map(({c,delivered,backfill,prior,live,lp,isOff,partial}) => {
-              const col = partial ? (lightMode?"#94a3b8":"#7a9bbf") : lp.color; // neutral gray when data's incomplete
-              const expPct = lp.timeFrac != null ? Math.min(100, lp.timeFrac*100) : null;
-              const statusLabel = partial ? "Partial" : lp.label;
-              return (
+        ) : (()=>{
+          // Row renderer shared by every status section below.
+          const lifeRow = ({c,delivered,prior,live,lp,isOff}) => {
+            const col = lp.color;
+            const expPct = lp.timeFrac != null ? Math.min(100, lp.timeFrac*100) : null;
+            return (
                 <div key={c.id} style={{display:"grid",gridTemplateColumns:GL,gap:8,padding:"9px 14px",borderBottom:"1px solid "+lmBrdR,alignItems:"center",borderLeft:"3px solid "+lmC(col)}}>
-                  {/* Campaign + partner — name opens the edit modal (to set Goal / backfill Prior Delivery) */}
+                  {/* Campaign + partner — name opens the edit modal (to set the contract Goal) */}
                   <div style={{minWidth:0}}>
-                    <div onClick={()=>onEdit(c)} title="Edit campaign (set Goal / backfill Prior Delivery)" style={{fontSize:13,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer"}}>
+                    <div onClick={()=>onEdit(c)} title="Edit campaign (set the contract Goal)" style={{fontSize:13,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer"}}>
                       {isOff && <span title="Paused / off — shown so you can confirm a finished contract" style={{fontSize:9,fontWeight:700,color:lmTxtD,border:"1px solid "+lmBrd,borderRadius:3,padding:"0 4px",marginRight:5}}>OFF</span>}
                       {c.campaignName.trim()}
                     </div>
@@ -8273,20 +8265,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                   </div>
                   {/* Platform */}
                   <div><span style={{...vBadge(PLT_COLORS[c.platform]||PLT_COLORS.default),borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span></div>
-                  {/* Status pill — neutral "Partial" when pre-tracking data is incomplete */}
-                  <div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",gap:2}}>
-                    <span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 5px"}}>{statusLabel}</span>
-                    {partial && <span title="Started before the tracker had data — click the campaign name to backfill Prior Delivery" style={{fontSize:8,color:lmTxtD,whiteSpace:"nowrap"}}>pre-tracking</span>}
-                  </div>
+                  {/* Status pill */}
+                  <div><span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 5px"}}>{lp.label}</span></div>
                   {/* Lifetime pacing bar — same style as the monthly bar (electric-blue expected tick) */}
                   <div>
                     <div style={{position:"relative",background:lmBarTrk,borderRadius:4,height:10,overflow:"visible",marginBottom:2}}>
-                      <div style={{background:lmC(col),height:"100%",width:Math.min(100,lp.pct*100)+"%",borderRadius:4,opacity:partial?0.5:1}}/>
+                      <div style={{background:lmC(col),height:"100%",width:Math.min(100,lp.pct*100)+"%",borderRadius:4}}/>
                       {expPct!=null && !lp.ended && <div title={"Expected by now: "+Math.round(lp.expected||0).toLocaleString()+" ("+Math.round(expPct)+"%)"}
                         style={{position:"absolute",top:-4,left:Math.min(97,expPct)+"%",width:3,height:18,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>}
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:4}}>
-                      <span style={{fontSize:9,color:lmC(col),fontWeight:700}}>{(lp.pct*100).toFixed(1)}%{partial?"*":""}</span>
+                      <span style={{fontSize:9,color:lmC(col),fontWeight:700}}>{(lp.pct*100).toFixed(1)}%</span>
                       {expPct!=null && !lp.ended && <span style={{fontSize:8,color:"#38bdf8aa"}}>/{Math.round(expPct)}%</span>}
                     </div>
                   </div>
@@ -8295,14 +8284,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                     <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}} title={"Contract goal: "+lp.goal.toLocaleString()}>{fmtN(lp.goal,lp.metricKind)}</span>
                   </div>
                   {/* Impr / Views served (cumulative across the flight) — electric blue, matches monthly */}
-                  <div title="Total delivered across the flight (prior-entered + closed months + this month)">
+                  <div title="Total delivered across the flight (closed months + this month)">
                     <div style={{display:"flex",alignItems:"baseline",gap:3}}>
                       <span style={{fontSize:12,fontWeight:800,color:lmC("#7dd3fc"),letterSpacing:"-0.01em"}}>{fmtN(delivered,lp.metricKind)}</span>
                       <span style={{fontSize:9,color:lmTxtD}}>{lp.unit}</span>
                     </div>
-                    {backfill>0
-                      ? <div title="Backfilled prior delivery + tracked (closed months + this month)" style={{fontSize:9,color:lmTxtD,whiteSpace:"nowrap"}}>{fmtN(backfill,lp.metricKind)} prior + {fmtN(prior+live,lp.metricKind)} tracked</div>
-                      : prior>0 && <div title="Closed-month backups + this month so far" style={{fontSize:9,color:lmTxtD,whiteSpace:"nowrap"}}>{fmtN(prior,lp.metricKind)}+{fmtN(live,lp.metricKind)}</div>}
+                    {prior>0 && <div title="Closed-month backups + this month so far" style={{fontSize:9,color:lmTxtD,whiteSpace:"nowrap"}}>{fmtN(prior,lp.metricKind)}+{fmtN(live,lp.metricKind)}</div>}
                   </div>
                   {/* Flight — to the RIGHT of impressions/views */}
                   <div style={{...cell,flexDirection:"column",alignItems:"flex-start",gap:1}}>
@@ -8317,9 +8304,34 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                   </div>
                 </div>
               );
-            })}
-          </div>
-        )}
+          };
+          // Group the sorted rows into the monthly-style status sections.
+          const buckets = [
+            { key:"behind",  label:"Behind",   color:"#fde047", rows: rows.filter(r=>atRiskOf(r)) },
+            { key:"ontrack", label:"On Track", color:"#00d48a", rows: rows.filter(r=>!atRiskOf(r) && r.lp.pct<1) },
+            { key:"hit",     label:"Goal Hit", color:"#00e5c0", rows: rows.filter(r=>r.lp.pct>=1) },
+          ];
+          return (
+            <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"hidden",background:lmBg}}>
+              <div style={{display:"grid",gridTemplateColumns:GL,gap:8,padding:"7px 14px",borderBottom:"1px solid "+lmBrd,background:lmBgInp}}>
+                {["Campaign","Plt","Status","Lifetime Pacing","Goal","Impr / Views","Flight"].map((h,i)=>(
+                  <div key={i} style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
+                ))}
+              </div>
+              {!buckets.some(b=>b.rows.length>0) && <div style={{padding:"16px",textAlign:"center",fontSize:11,color:lmTxtS}}>Nothing at risk right now — everything's on pace or hit. Toggle off “At risk only” to see all.</div>}
+              {buckets.map(b => b.rows.length===0 ? null : (
+                <div key={b.key}>
+                  <div onClick={()=>toggleLifeSection(b.key)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 14px",cursor:"pointer",userSelect:"none",borderBottom:"1px solid "+lmBrdR,background:lmBgInp}}>
+                    <span style={{fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",color:lmC(b.color)}}>{b.label}</span>
+                    <span style={{fontSize:11,color:lmTxtD,fontWeight:700}}>({b.rows.length})</span>
+                    <span style={{marginLeft:"auto",color:lmTxtD,fontSize:10,display:"inline-block",transform:lifeCollapsed.has(b.key)?"none":"rotate(90deg)",transition:"transform .15s"}}>▶</span>
+                  </div>
+                  {!lifeCollapsed.has(b.key) && b.rows.map(lifeRow)}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
         {noG.length>0 && (
           <div style={{marginTop:10,fontSize:10,color:lmTxtD}}>
             {noG.length} campaign{noG.length!==1?"s":""} without a contract Goal: {noG.slice(0,6).map(r=>r.c.campaignName.trim()).join(" · ")}{noG.length>6?` · +${noG.length-6} more`:""}
@@ -8429,10 +8441,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         placeholder="Search campaigns, partners…"
         style={{background:lmBgInp,border:"1px solid "+(search?"#00c896":lmBrd),borderRadius:7,padding:"7px 12px",color:lmTxt,fontSize:12,width:220,outline:"none"}}
       />
-      <select value={fPartner} onChange={e=>setFPartner(e.target.value)}
-        style={{background:lmBgInp,border:"1px solid "+(fPartner!=="all"?"#00c896":lmBrd),borderRadius:7,padding:"7px 10px",color:fPartner!=="all"?"#00e5a0":lmTxtM,fontSize:12,cursor:"pointer"}}>
-        {partners.map(p=><option key={p} value={p}>{p==="all"?"All Partners":p}</option>)}
-      </select>
+      {/* Partner filter dropdown removed (2026-06-16, dash cleanup) — fPartner stays "all"; search + platform cover filtering. */}
       <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode}/>
       <div style={{display:"flex",borderRadius:7,overflow:"hidden",border:"1px solid "+lmBrd,flexShrink:0}}>
         <button onClick={()=>setTodayFilter(v=>v==="today"?"all":"today")} title="Show only campaigns updated today"
