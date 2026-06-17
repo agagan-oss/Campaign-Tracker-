@@ -6945,8 +6945,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if (baseDate && /^\d{4}-\d{2}-\d{2}$/.test(baseDate)) {
       const [by, bm, bd] = baseDate.split("-").map(Number);
       const baseD = new Date(by, bm - 1, bd);
-      const nowD = pacingNow();
-      gapDays = Math.max(1, Math.round((new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate()) - baseD) / 86400000));
+      // Span the gap to the LATEST CHECK-IN date — the date `delivered` actually runs to — NOT to
+      // "now". Otherwise just viewing the dashboard a day after the last check-in counts an extra day
+      // and halves the per-day number (a spurious "2d avg"). A genuinely skipped check-in still widens
+      // baseDate→lastChecked, so real skips are still averaged correctly.
+      const lateStr = (c.lastChecked && /^\d{4}-\d{2}-\d{2}$/.test(c.lastChecked)) ? c.lastChecked : null;
+      let lateD;
+      if (lateStr) { const [ly, lm, ld] = lateStr.split("-").map(Number); lateD = new Date(ly, lm - 1, ld); }
+      else { const n = pacingNow(); lateD = new Date(n.getFullYear(), n.getMonth(), n.getDate()); }
+      gapDays = Math.max(1, Math.round((lateD - baseD) / 86400000));
     }
     const deliveredPerDay = Math.round(delivered / gapDays);
     const pctOfNeeded = neededPerDay > 0 ? (deliveredPerDay / neededPerDay) * 100 : null;
@@ -7859,8 +7866,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       const yestGapDays = (() => {
         const raw = rowPriorDateRaw;
         if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-          const [y,m,d] = raw.split("-").map(Number); const b = new Date(y, m-1, d); const n = pacingNow();
-          return Math.max(1, Math.round((new Date(n.getFullYear(),n.getMonth(),n.getDate()) - b) / 86400000));
+          const [y,m,d] = raw.split("-").map(Number); const b = new Date(y, m-1, d);
+          // Span to the LATEST CHECK-IN (where the delta runs to), NOT "now" — see computeYesterdayDelivery.
+          const late = (c.lastChecked && /^\d{4}-\d{2}-\d{2}$/.test(c.lastChecked)) ? c.lastChecked : null;
+          let lateD;
+          if (late) { const [ly,lm,ld]=late.split("-").map(Number); lateD = new Date(ly,lm-1,ld); }
+          else { const n = pacingNow(); lateD = new Date(n.getFullYear(),n.getMonth(),n.getDate()); }
+          return Math.max(1, Math.round((lateD - b) / 86400000));
         }
         return 1;
       })();
