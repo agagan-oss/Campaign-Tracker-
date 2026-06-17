@@ -6945,11 +6945,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if (baseDate && /^\d{4}-\d{2}-\d{2}$/.test(baseDate)) {
       const [by, bm, bd] = baseDate.split("-").map(Number);
       const baseD = new Date(by, bm - 1, bd);
-      // Span the gap to the LATEST CHECK-IN date — the date `delivered` actually runs to — NOT to
-      // "now". Otherwise just viewing the dashboard a day after the last check-in counts an extra day
-      // and halves the per-day number (a spurious "2d avg"). A genuinely skipped check-in still widens
-      // baseDate→lastChecked, so real skips are still averaged correctly.
-      const lateStr = (c.lastChecked && /^\d{4}-\d{2}-\d{2}$/.test(c.lastChecked)) ? c.lastChecked : null;
+      // Span the gap to the date the CURRENT data was actually PULLED (lastQciDate) — the date
+      // `delivered` runs to — NOT lastChecked. "Mark All Checked" and manual metric edits advance
+      // lastChecked WITHOUT new delivery, so using it over-counts the gap and halves the per-day number
+      // (the spurious "2d avg" Austin saw: data through 6/16 but row marked checked 6/17 → gap read 2).
+      // lastQciDate pairs with baseDate=priorBreakdownDate (both are QCI drop dates) for the true span.
+      // Fall back to lastChecked (manual-only campaigns) then "now".
+      const lateStr = (c.lastQciDate && /^\d{4}-\d{2}-\d{2}$/.test(c.lastQciDate)) ? c.lastQciDate
+                    : (c.lastChecked && /^\d{4}-\d{2}-\d{2}$/.test(c.lastChecked)) ? c.lastChecked : null;
       let lateD;
       if (lateStr) { const [ly, lm, ld] = lateStr.split("-").map(Number); lateD = new Date(ly, lm - 1, ld); }
       else { const n = pacingNow(); lateD = new Date(n.getFullYear(), n.getMonth(), n.getDate()); }
@@ -8196,10 +8199,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const noG   = all.filter(r => !r.lp && dateOk(r.c));
     const statusRank = { "Behind":0, "Missed":0, "Ended short":1, "Slightly behind":1, "On Track":2, "Ahead":2, "Ended ~at goal":3, "Goal hit":4 };
     const atRiskOf = r => r.lp.pct < 1 && /Behind|Missed|short/i.test(r.lp.label);
+    // Classify into the SAME 3 sections as the monthly view: Behind / On Track / Ahead. Goal-hit and
+    // "ended at/above goal" contracts fold into Ahead (delivering at-or-past target); Behind = at risk.
+    const lifeBucket = r => atRiskOf(r) ? "behind" : ((r.lp.pct >= 1 || /Ahead|Goal hit|at goal/i.test(r.lp.label)) ? "ahead" : "ontrack");
     // Counts reflect ALL goaled campaigns in view (the at-risk filter only changes which ROWS show).
-    const hitCount    = withG.filter(r => r.lp.pct >= 1).length;
-    const behindCount = withG.filter(atRiskOf).length;
-    const onPaceCount = withG.length - hitCount - behindCount;
+    const behindCount  = withG.filter(r => lifeBucket(r)==="behind").length;
+    const onTrackCount = withG.filter(r => lifeBucket(r)==="ontrack").length;
+    const aheadCount   = withG.filter(r => lifeBucket(r)==="ahead").length;
     // Visible rows = optional at-risk filter, then the chosen sort (default "risk" = behind→hit).
     const _dir = lifeDir==="asc" ? 1 : -1;
     const rows = (lifeAtRisk ? withG.filter(atRiskOf) : withG.slice()).sort((a,b)=>{
@@ -8218,9 +8224,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:12,fontSize:11,color:lmTxtS}}>
           <span style={{fontWeight:700,color:lmTxt}}>{withG.length} with a contract goal</span>
           <span style={{color:lmBrd}}>·</span>
-          <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> {hitCount} hit</span>
-          <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> {onPaceCount} on pace</span>
           <span><span style={{color:lmC("#fde047"),fontWeight:700}}>●</span> {behindCount} behind</span>
+          <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> {onTrackCount} on track</span>
+          <span><span style={{color:lmC("#f97316"),fontWeight:700}}>●</span> {aheadCount} ahead</span>
           {noG.length>0 && <span style={{color:lmTxtD}}>· {noG.length} missing a Goal value</span>}
         </div>
         {/* Sort + filter controls (mirrors the monthly toolbar style) */}
@@ -8317,11 +8323,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                 </div>
               );
           };
-          // Group the sorted rows into the monthly-style status sections.
+          // Group the sorted rows into the monthly-style status sections: Behind / On Track / Ahead.
           const buckets = [
-            { key:"behind",  label:"Behind",   color:"#fde047", rows: rows.filter(r=>atRiskOf(r)) },
-            { key:"ontrack", label:"On Track", color:"#00d48a", rows: rows.filter(r=>!atRiskOf(r) && r.lp.pct<1) },
-            { key:"hit",     label:"Goal Hit", color:"#00e5c0", rows: rows.filter(r=>r.lp.pct>=1) },
+            { key:"behind",  label:"Behind",   color:"#fde047", rows: rows.filter(r=>lifeBucket(r)==="behind") },
+            { key:"ontrack", label:"On Track", color:"#00d48a", rows: rows.filter(r=>lifeBucket(r)==="ontrack") },
+            { key:"ahead",   label:"Ahead",    color:"#f97316", rows: rows.filter(r=>lifeBucket(r)==="ahead") },
           ];
           return (
             <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"hidden",background:lmBg}}>
@@ -16939,7 +16945,11 @@ export default function App() {
   const doExport = () => {
     try {
       downloadBackupFile(`campaign-tracker-${today}.json`, JSON.stringify(buildBackupPayload(), null, 2));
-      localStorage.setItem(EXPORT_KEY,Date.now().toString()); setShowExportReminder(false);
+      localStorage.setItem(EXPORT_KEY,Date.now().toString());
+      // A manual JSON export IS a full backup — record it as today's backup too, so the auto-backup
+      // daily trigger (which keys off lastBackupDate) doesn't re-nudge the banner on the next refresh.
+      saveBackupCfg({ lastBackupDate: getToday(), lastBackupAt: Date.now() });
+      setShowExportReminder(false);
     } catch(e){ alert("Export failed: "+e.message); }
   };
 
@@ -16987,6 +16997,10 @@ export default function App() {
     const cfg = readBackupCfg();
     if (!cfg.enabled) return;
     if (cfg.lastBackupDate === getToday()) return;
+    // Also skip if a manual export / "Remind me later" snooze already happened today (both set
+    // EXPORT_KEY) — otherwise the load-run keeps re-nudging the backup banner on every refresh.
+    const lastExp = parseInt(localStorage.getItem(EXPORT_KEY) || "0");
+    if (lastExp && new Date(lastExp).toDateString() === new Date().toDateString()) return;
     const t = setTimeout(() => { runBackup("load"); }, 1800);
     return () => clearTimeout(t);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
