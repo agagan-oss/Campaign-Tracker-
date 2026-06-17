@@ -8051,8 +8051,21 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     </div>;
   }
 
-  function Section({label,color,items,defaultOpen=true}){
+  function Section({label,color,items,defaultOpen=true,connected=false}){
     const [open,setOpen]=useState(defaultOpen); if(!items.length) return null;
+    // "connected" mode (used for the main Behind/On Track/Ahead buckets): flush divider-style header,
+    // no per-section column header (one lives at the top of the shared container) — matches the
+    // Lifetime view's connected look.
+    if(connected){
+      return <React.Fragment>
+        <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 16px",cursor:"pointer",userSelect:"none",borderBottom:"1px solid "+lmBrdR,background:lmBgInp}}>
+          <span style={{fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",color:lmC(color)}}>{label}</span>
+          <span style={{fontSize:11,color:lmTxtD,fontWeight:700}}>({items.length})</span>
+          <span style={{marginLeft:"auto",color:lmTxtD,fontSize:10,display:"inline-block",transform:open?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
+        </div>
+        {open&&items.map(r=><TableRow key={r.c.id} {...r}/>)}
+      </React.Fragment>;
+    }
     return <div style={{marginBottom:viewMode==="table"?2:18}}>
       <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:open?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
         <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",
@@ -8198,14 +8211,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const withG = all.filter(r => r.lp && dateOk(r.c));
     const noG   = all.filter(r => !r.lp && dateOk(r.c));
     const statusRank = { "Behind":0, "Missed":0, "Ended short":1, "Slightly behind":1, "On Track":2, "Ahead":2, "Ended ~at goal":3, "Goal hit":4 };
-    const atRiskOf = r => r.lp.pct < 1 && /Behind|Missed|short/i.test(r.lp.label);
-    // Classify into the SAME 3 sections as the monthly view: Behind / On Track / Ahead. Goal-hit and
-    // "ended at/above goal" contracts fold into Ahead (delivering at-or-past target); Behind = at risk.
-    const lifeBucket = r => atRiskOf(r) ? "behind" : ((r.lp.pct >= 1 || /Ahead|Goal hit|at goal/i.test(r.lp.label)) ? "ahead" : "ontrack");
+    const atRiskOf = r => !r.isOff && r.lp.pct < 1 && /Behind|Missed|short/i.test(r.lp.label);
+    // Classify into the SAME sections as the monthly view: Behind / On Track / Ahead, plus an Off
+    // section at the bottom for paused campaigns. Goal-hit/ended-at-goal fold into Ahead; Behind = at risk.
+    const lifeBucket = r => r.isOff ? "off" : (atRiskOf(r) ? "behind" : ((r.lp.pct >= 1 || /Ahead|Goal hit|at goal/i.test(r.lp.label)) ? "ahead" : "ontrack"));
     // Counts reflect ALL goaled campaigns in view (the at-risk filter only changes which ROWS show).
     const behindCount  = withG.filter(r => lifeBucket(r)==="behind").length;
     const onTrackCount = withG.filter(r => lifeBucket(r)==="ontrack").length;
     const aheadCount   = withG.filter(r => lifeBucket(r)==="ahead").length;
+    const offCount     = withG.filter(r => lifeBucket(r)==="off").length;
     // Visible rows = optional at-risk filter, then the chosen sort (default "risk" = behind→hit).
     const _dir = lifeDir==="asc" ? 1 : -1;
     const rows = (lifeAtRisk ? withG.filter(atRiskOf) : withG.slice()).sort((a,b)=>{
@@ -8227,6 +8241,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           <span><span style={{color:lmC("#fde047"),fontWeight:700}}>●</span> {behindCount} behind</span>
           <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> {onTrackCount} on track</span>
           <span><span style={{color:lmC("#f97316"),fontWeight:700}}>●</span> {aheadCount} ahead</span>
+          {offCount>0 && <span><span style={{color:lmTxtD,fontWeight:700}}>●</span> {offCount} off</span>}
           {noG.length>0 && <span style={{color:lmTxtD}}>· {noG.length} missing a Goal value</span>}
         </div>
         {/* Sort + filter controls (mirrors the monthly toolbar style) */}
@@ -8328,6 +8343,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             { key:"behind",  label:"Behind",   color:"#fde047", rows: rows.filter(r=>lifeBucket(r)==="behind") },
             { key:"ontrack", label:"On Track", color:"#00d48a", rows: rows.filter(r=>lifeBucket(r)==="ontrack") },
             { key:"ahead",   label:"Ahead",    color:"#f97316", rows: rows.filter(r=>lifeBucket(r)==="ahead") },
+            { key:"off",     label:"Off",      color:"#7a9bbf", rows: rows.filter(r=>lifeBucket(r)==="off") },
           ];
           return (
             <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"hidden",background:lmBg}}>
@@ -8730,9 +8746,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </div>
     )}
 
-    <Section label="Behind"         color="#fde047" items={behind}/>
-    <Section label="On Track"       color="#00d48a" items={onTrack}/>
-    <Section label="Ahead"          color="#f97316" items={ahead}/>
+    {(behind.length||onTrack.length||ahead.length)>0 && (
+      <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"hidden",background:lmBg,marginBottom:8}}>
+        <TableHeader/>
+        <Section connected label="Behind"   color="#fde047" items={behind}/>
+        <Section connected label="On Track" color="#00d48a" items={onTrack}/>
+        <Section connected label="Ahead"    color="#f97316" items={ahead}/>
+      </div>
+    )}
     {noActivityRows.length>0&&(
       <div style={{marginBottom:viewMode==="table"?4:14}}>
         <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:lightMode?"#fffbeb":"#1a1208",border:"1px solid #fde04740",borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
