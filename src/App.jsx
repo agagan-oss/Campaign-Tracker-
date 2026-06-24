@@ -11056,6 +11056,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if(f.includes("facebook")||f.includes("fbads")||f.includes("meta")) return "Facebook/Meta";
     if(f.includes("snapchat")||f.includes("snapads"))    return "Snapchat";
     if(f.includes("dspinternal")||f.includes("allreps")) return "DSP-Internal";
+    if(f.includes("mobile"))                             return "DSP"; // DSP "Mobile" device-targeting export
     return null;
   }
 
@@ -11068,6 +11069,9 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if (cols.includes("advertiser name") && cols.includes("impressions won") && cols.includes("data source")) return "TradeDesk";
     // Company-wide DSP / programmatic dump — has advertiser_name + campaign + impressions_won (snake_case)
     if (cols.includes("advertiser_name") && cols.includes("impressions_won")) return "DSP-Internal";
+    // DSP "Mobile" export (title-case): Advertiser Name + Campaign Name + Line Item Name + Impressions
+    // (no "Impressions Won", no spend). Multiple line items per advertiser; matched by advertiser name.
+    if (cols.includes("line item name") && cols.includes("advertiser name") && cols.includes("impressions")) return "DSP";
     // Google Ads / YouTube — "campaign" + impressions/clicks + cost, but NOT TradeDesk or Meta columns
     if (cols.includes("campaign") && (cols.includes("impressions")||cols.includes("clicks")) && (cols.includes("cost")||cols.includes("spend")) && !cols.includes("advertiser name") && !cols.includes("amount spent")) return "Google";
     if (cols.includes("campaign name")&&(cols.includes("impressions")||cols.includes("spend"))) return "Generic";
@@ -11097,6 +11101,15 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       completionRate = parseFloat(row["video_completion_rate"]||0)||0;
       const dspRawCtr = impressions>0 && clicks>0 ? (clicks/impressions) : (parseFloat((row["ctr"]||"0").toString().replace(/[%,]/g,""))||0);
       ctr = dspRawCtr > 1 ? dspRawCtr/100 : dspRawCtr; // normalize: if large percent (e.g. 35.3) convert to ratio
+
+    } else if (source==="DSP") {
+      // DSP "Mobile" export — Impressions / Clicks / CTR (decimal ratio). No spend in this file; DSP
+      // cost is modeled via the estimated CPM in the Revenue tab, so we only carry impr/clicks/ctr.
+      const clean = v => (v==null?"":v).toString().replace(/[$,%,\s]/g,"");
+      impressions = parseInt(clean(row["Impressions"]||row["impressions"]))||0;
+      clicks      = parseInt(clean(row["Clicks"]||row["clicks"]))||0;
+      ctr = impressions>0 && clicks>0 ? (clicks/impressions) : (parseFloat(clean(row["CTR"]||row["ctr"]||0))||0);
+      if (ctr > 1) ctr = ctr/100; // normalize if expressed as a whole percent
 
     } else if (source==="Snapchat") {
       impressions = parseFloat(row["Paid Impressions"]||0)||0;
@@ -11205,6 +11218,8 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       return acct || camp || "";
     }
     if (source==="DSP-Internal") return row["campaign"]||"";
+    // DSP "Mobile": display the Campaign Name; matching/memory key off the (stable) Advertiser Name.
+    if (source==="DSP") return row["Campaign Name"]||row["campaign name"]||"";
     // TradeDesk: use Campaign column for display; matching uses advertiser name (see matchTTDClientToTracker)
     if (source==="TradeDesk") return row["Campaign"]||row["campaign"]||"";
     if (source==="Google") return row["Campaign Name"]||row["Campaign"]||row["Campaign name"]||row["campaign_name"]||"";
@@ -11261,6 +11276,34 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     return "";
   }
 
+  // Exact-first matching for the DSP "Mobile" file: client name → DSP campaign (mirrors the FB/TTD matchers).
+  function matchDSPClientToTracker(clientName, camps){
+    if (!clientName) return "";
+    const cn = clientName.toLowerCase().trim().replace(/_/g," ").trim();
+    const dspCamps = camps.filter(c => c.platform === "DSP");
+    if (!dspCamps.length) return "";
+    const norm = s => s.trim().toLowerCase().replace(/_/g," ").trim();
+    const exact = dspCamps.find(c => norm(c.campaignName) === cn);
+    if (exact) return String(exact.id);
+    const sub = dspCamps.find(c => norm(c.campaignName).includes(cn));
+    if (sub) return String(sub.id);
+    const rev = dspCamps.find(c => norm(c.campaignName).length >= 8 && cn.includes(norm(c.campaignName)));
+    if (rev) return String(rev.id);
+    const generic = new Set(["credit","union","federal","bank","banking","financial","services","service","group","national","community","cooperative","corp","corporation","inc","llc","company","enterprise","partners","solutions","health","care","school","schools","university","college","institute","foundation","association","agency","department"]);
+    const clientWords = cn.split(/\s+/).filter(w => w.length > 3 && !generic.has(w));
+    if (clientWords.length > 0) {
+      let best = null, bestCount = 0;
+      dspCamps.forEach(c => {
+        const campLower = norm(c.campaignName);
+        const matches = clientWords.filter(w => campLower.includes(w)).length;
+        const ratio = matches / clientWords.length;
+        if (ratio > 0.7 && matches >= 1 && matches > bestCount) { best = c; bestCount = matches; }
+      });
+      if (best) return String(best.id);
+    }
+    return "";
+  }
+
   // For DSP-Internal: the advertiser_name field contains the rep initials suffix (_AG, _ZB, etc.)
   function getDSPAdvertiser(row){ return row["advertiser_name"]||""; }
   function getDSPInitials(advertiserName){
@@ -11303,6 +11346,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     "Facebook/Meta": new Set(["FB","FBV","IG"]),
     "Snapchat":      new Set(["SP"]),
     "DSP-Internal":  new Set(["DSP"]),
+    "DSP":           new Set(["DSP"]),
   };
 
   // Exact-first matching: given a TTD client name, find the tracker campaign.
@@ -11459,6 +11503,14 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       const legacyEntry = savedMappings[legacyKey];
       if(legacyEntry && campaigns.find(c=>String(c.id)===String(legacyEntry.campId))) return legacyEntry.campId;
     }
+    // For DSP "Mobile": key by the stable Advertiser Name (the DSP campaign name changes month to month).
+    if(source==="DSP" && row){
+      const advName = getTTDAdvertiserName(row);
+      if(advName){
+        const advEntry = savedMappings[`DSP||adv:${advName.trim().toLowerCase()}`];
+        if(advEntry && campaigns.find(c=>String(c.id)===String(advEntry.campId))) return advEntry.campId;
+      }
+    }
     // For Google: primary key is Account Name (stable — campaign names vary across ad sets)
     if(source==="Google" && row){
       const accName = getGoogleAccountName(row);
@@ -11507,6 +11559,10 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         // multiple tracker campaigns that share the same TTD advertiser.
         // We do NOT write the adv-only key here — that caused collision bugs.
         next[makeTTDNameKey(advertiserName, csvName)]={...payload,advertiserName,ttdCampName:csvName};
+      }
+      if(source==="DSP" && advertiserName){
+        // Stable per-advertiser key (DSP campaign names change monthly). One advertiser → one DSP campaign.
+        next[`DSP||adv:${advertiserName.trim().toLowerCase()}`]={...payload,advertiserName};
       }
       if(source==="Google" && accountName){
         // Primary stable key: account name (same across all future exports)
@@ -11774,6 +11830,20 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       }
     }
 
+    // ── DSP "Mobile" (company-wide export): filter to this rep's rows by the initials suffix on the
+    //    Advertiser Name (e.g. "WVR-Citynet_ks", "ALL-Pearl Hawaii_AG"). Same pattern as FB/Google.
+    if(source==="DSP"){
+      const looksCompanyWide = rows.slice(0,8).some(r => /_[A-Za-z]{2,4}\s*$/.test((r["Advertiser Name"]||"").toString()));
+      if(looksCompanyWide){
+        if(!userInitials){ setShowInitialsPrompt(true); setFileError("Please set your rep initials so we can filter this company-wide DSP file to just your campaigns."); return; }
+        const before = rows.length;
+        const initialsLower = userInitials.toLowerCase();
+        rows = rows.filter(row => { const adv=(row["Advertiser Name"]||"").toString().trim(); const m=adv.match(/_([A-Za-z]{2,4})\s*$/); return m && m[1].toLowerCase()===initialsLower; });
+        if(!rows.length){ setFileError(`No DSP rows found for initials _${userInitials}. The file had ${before.toLocaleString()} rows total but none matched your initials — check your initials (top-right of Quick Check-in) or verify the file contains your campaigns.`); return; }
+        setSavedMsg(`Filtered ${before.toLocaleString()} DSP rows → ${rows.length} rows for _${userInitials}`);
+      }
+    }
+
     // Build initial mapping: 1) per-name memory, 2) legacy whole-file memory, 3) source-aware auto-match
     let initMap={};
     const memMap={};   // ONLY rows restored from saved memory (steps 1+2) — drives the purple "remembered" check
@@ -11829,6 +11899,11 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         const clientName = getTTDClientName(advName);
         const matchedId = matchTTDClientToTracker(clientName, matchCandidates);
         // TTD matching is deterministic (exact/substring/word-overlap) — assign 0.8 base confidence
+        if(matchedId){ initMap[i]=matchedId; initConf[i]=0.8; autoCount++; }
+      } else if(source==="DSP"){
+        // DSP "Mobile": match by Advertiser Name → strip prefix/suffix to the client → DSP campaign.
+        const clientName = getTTDClientName(getTTDAdvertiserName(row));
+        const matchedId = matchDSPClientToTracker(clientName, matchCandidates);
         if(matchedId){ initMap[i]=matchedId; initConf[i]=0.8; autoCount++; }
       } else if(source==="Google"){
         // Google: match by Account Name (e.g. "COM-Envista Credit Union_LR" → "Envista Credit Union")
@@ -11948,7 +12023,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if(parseFloat(m.frequency)>0){ updates[campId].frequency+=parseFloat(m.frequency); updates[campId].freqCount++; }
       // Per-line breakdown — preserve each CSV row's stats so user can see what's happening
       // at the ad-set / line-item level (e.g. retargeting vs prospecting under one FB campaign)
-      const lineName = getCampName(row, fileSource) || `Line ${updates[campId].breakdown.length+1}`;
+      const lineName = (fileSource==="DSP" ? (row["Line Item Name"]||row["line item name"]||"") : getCampName(row, fileSource)) || `Line ${updates[campId].breakdown.length+1}`;
       // CTR displayed as percent (0-100); m.ctr is stored as ratio (0.003 = 0.3%)
       const lineCtr = m.ctr > 1 ? m.ctr : m.ctr * 100;
       updates[campId].breakdown.push({
@@ -12085,7 +12160,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         const row=fileRows[parseInt(idxStr)];
         const csvName=getCampName(row,fileSource);
         const campName=assignPool.find(c=>String(c.id)===String(campId))?.campaignName||"";
-        const advertiserName = fileSource==="TradeDesk" ? getTTDAdvertiserName(row) : undefined;
+        const advertiserName = (fileSource==="TradeDesk"||fileSource==="DSP") ? getTTDAdvertiserName(row) : undefined;
         // For Google AND Facebook (TapClicks format), save the Account field as a stable key
         // so future file drops match by account name even if campaign names change.
         const accountName = fileSource==="Google" ? getGoogleAccountName(row)
@@ -16812,6 +16887,25 @@ export default function App() {
       return cs.map(c=>c.id===u.id?u:c);
     });
   }
+  // Bulk archive the selected campaigns — same behavior as a single row's Archive action, looped.
+  async function bulkArchive() {
+    const toArchive = campaigns.filter(c => selectedIds.has(c.id));
+    if (!toArchive.length) return;
+    const n = toArchive.length;
+    if (!await confirm({ title:`Archive ${n} campaign${n!==1?"s":""}?`, message:`Moves the selected campaign${n!==1?"s":""} to the Archive tab (restorable later). Metric history is preserved.`, confirmLabel:"Archive" })) return;
+    const tod = getToday(); const [ay,am,ad] = tod.split("-"); const astamp = `${am}/${ad}/${ay}`;
+    const have = new Set(archive.map(a => String(a.id)));
+    const newEntries = toArchive.filter(c => !have.has(String(c.id))).map(c => {
+      const note = `${astamp} — Campaign manually archived (bulk)`;
+      return { ...c, archivedDate:tod, history: c.history&&c.history.trim() ? `${note}\n${c.history}` : note };
+    });
+    setArchive(prev => [...newEntries, ...prev]);
+    setCampaigns(cs => cs.filter(c => !selectedIds.has(c.id)));
+    addLog({ type:"deleted", campaignName:`${n} campaign${n!==1?"s":""}`, partner:"", platform:"", detail:`Bulk archived ${n} campaign${n!==1?"s":""}` });
+    setSelectedIds(new Set());
+    setShowBulkEdit(false);
+  }
+
   function applyBulkEdit() {
     const updates = {};
     if (bulkDraft.note1.trim())              updates.note1              = bulkDraft.note1.trim();
@@ -17498,6 +17592,7 @@ export default function App() {
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 <button onClick={()=>setShowBulkEdit(true)} style={{background:lightMode?"#059669":"#002e24",border:`1px solid ${lightMode?"#059669":"#00c89650"}`,borderRadius:7,padding:"7px 16px",color:"#ffffff",fontSize:13,fontWeight:700,cursor:"pointer"}}>✏️ Bulk Edit</button>
                 <button onClick={()=>{ setCampaigns(cs=>cs.map(c=>selectedIds.has(c.id)?{...c,lastChecked:today}:c)); setSelectedIds(new Set()); }} style={{background:lightMode?"#dcfce7":"#002018",border:`1px solid ${lightMode?"#22c55e":"#22c55e40"}`,borderRadius:7,padding:"7px 14px",color:lightMode?"#166534":"#00d48a",fontSize:13,fontWeight:600,cursor:"pointer"}}>✓ Mark All Checked</button>
+                <button onClick={bulkArchive} title="Move the selected campaigns to the Archive tab (restorable later)" style={{background:lightMode?"#fff7ed":"#1a1208",border:`1px solid ${lightMode?"#fdba74":"#f59e0b50"}`,borderRadius:7,padding:"7px 14px",color:lightMode?"#c2410c":"#fcd34d",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗃 Archive</button>
                 <button onClick={()=>setSelectedIds(new Set())} style={{background:"none",border:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"7px 12px",color:lightMode?"#64748b":"#4d6e8a",fontSize:13,cursor:"pointer"}}>Clear</button>
               </div>
             ) : (
