@@ -2227,7 +2227,10 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
             </div>
             {(()=>{
               const isCTV=[" CTV","OTT"].includes(c.platform)||c.platform==="CTV";
-              const isVideo=["FBV","YT","TT"].includes(c.platform)||isCTV;
+              // TDV/TDA (TradeDesk Video/Audio) carry a completion rate too — TradeDesk reports it in the
+              // "Video Completion Rate" column for audio lines as well. Treat them as completion platforms
+              // so the metric is visible/editable here (audio shows "Comp%", not "VCR%").
+              const isVideo=["FBV","YT","TT","TDV","TDA"].includes(c.platform)||isCTV;
               const isSocial=["FB","IG","TT","FBV"].includes(c.platform);
               const isSEM=c.platform==="SEM";
               const allFields=[
@@ -2238,8 +2241,8 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                 ...(isSocial||isSEM||["DSP","SP","TD"].includes(c.platform)?[{key:"clicks",label:"Clicks",color:"#38bdf8",prefix:"",suffix:"",w:72}]:[]),
                 ...(isSocial?[{key:"reach",label:"Reach",color:"#e879f9",prefix:"",suffix:"",w:75}]:[]),
                 ...(isSocial?[{key:"frequency",label:"Freq",color:"#f97316",prefix:"",suffix:"x",w:58}]:[]),
-                ...(isVideo&&!isCTV?[{key:"videoViews",label:"Views",color:"#a78bfa",prefix:"",suffix:"",w:72}]:[]),
-                ...(isVideo?[{key:"completionRate",label:isCTV?"Comp%":"VCR%",color:"#818cf8",prefix:"",suffix:"%",w:62}]:[]),
+                ...(isVideo&&!isCTV&&c.platform!=="TDV"&&c.platform!=="TDA"?[{key:"videoViews",label:"Views",color:"#a78bfa",prefix:"",suffix:"",w:72}]:[]),
+                ...(isVideo?[{key:"completionRate",label:(isCTV||c.platform==="TDA")?"Comp%":"VCR%",color:"#818cf8",prefix:"",suffix:"%",w:62}]:[]),
                 ...(isCTV||isSEM?[{key:"conversions",label:"Conv",color:"#34d399",prefix:"",suffix:"",w:65}]:[]),
               ];
               return (
@@ -3242,6 +3245,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV",     cpmWarn:25, cpmBad:45 },
     OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming",  cpmWarn:25, cpmBad:45 },
     TDV:   { metric:"VCR", warn:80,   bad:65,   unit:"%", label:"Completion Rate", desc:"TradeDesk Video",  cpmWarn:8,  cpmBad:15 },
+    TDA:   { metric:"VCR", warn:90,   bad:80,   unit:"%", label:"Completion Rate", desc:"TradeDesk Audio",  cpmWarn:8,  cpmBad:15 },
     YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube",          cpmWarn:8,  cpmBad:15 },
     TT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"Video Completion", desc:"TikTok",           cpmWarn:8,  cpmBad:14 },
     EMAIL: { metric:"CTR", warn:1.0,  bad:0.5,  unit:"%", label:"Click Rate",      desc:"Email",            cpmWarn:5,  cpmBad:10 },
@@ -6198,6 +6202,7 @@ const PLT_KPI = {
   CTV:   { primary:"VCR", good:0.95,   ok:0.85,   label:"Completion", tip:"Good >95% · OK >85%"     },
   OTT:   { primary:"VCR", good:0.95,   ok:0.85,   label:"Completion", tip:"Good >95% · OK >85%"     },
   TDV:   { primary:"VCR", good:0.80,   ok:0.65,   label:"Completion", tip:"Good >80% · OK >65%"     },
+  TDA:   { primary:"VCR", good:0.90,   ok:0.80,   label:"Completion", tip:"Good >90% · OK >80% (audio listen-through)" },
   SEM:   { primary:"CTR", good:0.05,   ok:0.02,   label:"CTR",        tip:"Good >5% · OK >2%"       },
   YT:    { primary:"VCR", good:0.35,   ok:0.20,   label:"View Rate",  tip:"Good >35% · OK >20%"     },
   EMAIL: { primary:"CTR", good:0.03,   ok:0.01,   label:"Click Rate", tip:"Good >3% · OK >1%"       },
@@ -6377,6 +6382,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV",     cpmWarn:25, cpmBad:45 },
       OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming",  cpmWarn:25, cpmBad:45 },
       TDV:   { metric:"VCR", warn:80,   bad:65,   unit:"%", label:"Completion Rate", desc:"TradeDesk Video",  cpmWarn:8,  cpmBad:15 },
+      TDA:   { metric:"VCR", warn:90,   bad:80,   unit:"%", label:"Completion Rate", desc:"TradeDesk Audio",  cpmWarn:8,  cpmBad:15 },
       YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube",          cpmWarn:8,  cpmBad:15 },
       TT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"Video Completion", desc:"TikTok",           cpmWarn:8,  cpmBad:14 },
       EMAIL: { metric:"CTR", warn:1.0,  bad:0.5,  unit:"%", label:"Click Rate",      desc:"Email",            cpmWarn:5,  cpmBad:10 },
@@ -11478,13 +11484,13 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       //    This correctly handles multiple tracker campaigns under the same TTD advertiser.
       const compoundKey  = makeTTDNameKey(advName, ttdCamp);
       const compoundEntry = savedMappings[compoundKey];
-      if(compoundEntry && campaigns.find(c=>String(c.id)===String(compoundEntry.campId))) return compoundEntry.campId;
+      if(compoundEntry && assignPool.find(c=>String(c.id)===String(compoundEntry.campId))) return compoundEntry.campId;
       // 2. Adv-only key — read-only backward compat for saves written before the compound key existed.
       //    Only trusted when there is exactly ONE tracker campaign mapped to this advertiser,
       //    so we don't silently perpetuate the same collision bug on old data.
       const advOnlyKey = makeTTDAdvOnlyKey(advName);
       const advOnlyEntry = savedMappings[advOnlyKey];
-      if(advOnlyEntry && campaigns.find(c=>String(c.id)===String(advOnlyEntry.campId))){
+      if(advOnlyEntry && assignPool.find(c=>String(c.id)===String(advOnlyEntry.campId))){
         // Only trust the adv-only key if just ONE active TD campaign matches this client name.
         // If multiple campaigns match (e.g. "Shining Star South" AND "Shining Star Christian School"
         // both under "SPI-Shining Star Schools_AG"), the adv-only key is ambiguous — skip it so
@@ -11501,14 +11507,14 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       // 3. Legacy campaign-name key (covers saves from before any TTD-specific keying)
       const legacyKey = makeNameKey(source, csvName);
       const legacyEntry = savedMappings[legacyKey];
-      if(legacyEntry && campaigns.find(c=>String(c.id)===String(legacyEntry.campId))) return legacyEntry.campId;
+      if(legacyEntry && assignPool.find(c=>String(c.id)===String(legacyEntry.campId))) return legacyEntry.campId;
     }
     // For DSP "Mobile": key by the stable Advertiser Name (the DSP campaign name changes month to month).
     if(source==="DSP" && row){
       const advName = getTTDAdvertiserName(row);
       if(advName){
         const advEntry = savedMappings[`DSP||adv:${advName.trim().toLowerCase()}`];
-        if(advEntry && campaigns.find(c=>String(c.id)===String(advEntry.campId))) return advEntry.campId;
+        if(advEntry && assignPool.find(c=>String(c.id)===String(advEntry.campId))) return advEntry.campId;
       }
     }
     // For Google: primary key is Account Name (stable — campaign names vary across ad sets)
@@ -11517,7 +11523,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if(accName){
         const accKey = makeGoogleNameKey(accName);
         const accEntry = savedMappings[accKey];
-        if(accEntry && campaigns.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
+        if(accEntry && assignPool.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
       }
     }
     // For Facebook TapClicks XLSX format: use a COMPOUND key (account + ad-set name)
@@ -11531,17 +11537,17 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         // 1. Compound (acc + campaign) — authoritative
         const compoundKey = `Facebook/Meta||acc:${accName.toLowerCase()}||camp:${fbCampSub.toLowerCase()}`;
         const compoundEntry = savedMappings[compoundKey];
-        if(compoundEntry && campaigns.find(c=>String(c.id)===String(compoundEntry.campId))) return compoundEntry.campId;
+        if(compoundEntry && assignPool.find(c=>String(c.id)===String(compoundEntry.campId))) return compoundEntry.campId;
         // 2. Acc-only fallback — older saves used this format
         const accKey = `Facebook/Meta||acc:${accName.toLowerCase()}`;
         const accEntry = savedMappings[accKey];
-        if(accEntry && campaigns.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
+        if(accEntry && assignPool.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
       }
     }
     // Fallback: key by campaign name (non-TTD/Google sources + TTD legacy)
     const key=makeNameKey(source,csvName);
     const entry=savedMappings[key];
-    if(entry && campaigns.find(c=>String(c.id)===String(entry.campId))) return entry.campId;
+    if(entry && assignPool.find(c=>String(c.id)===String(entry.campId))) return entry.campId;
     return null;
   }
 
@@ -11738,6 +11744,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // Filename detection wins — it's explicit. Fall back to header sniffing only if unknown.
     const source = detectSourceFromFilename(file.name) || detectSource(rows);
     setFileSource(source);
+    let dspHiddenLowImpr = 0; // DSP "Mobile" only — count of sub-100-impr rows hidden as prior-month bleed-over
 
     // ── TradeDesk export: filter to only _AG rows (this account's campaigns) ──
     if(source==="TradeDesk"){
@@ -11842,6 +11849,15 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         if(!rows.length){ setFileError(`No DSP rows found for initials _${userInitials}. The file had ${before.toLocaleString()} rows total but none matched your initials — check your initials (top-right of Quick Check-in) or verify the file contains your campaigns.`); return; }
         setSavedMsg(`Filtered ${before.toLocaleString()} DSP rows → ${rows.length} rows for _${userInitials}`);
       }
+      // Hide prior-month bleed-over: low-volume line items that trickle into the current export
+      // create dozens of junk rows to map. Drop anything under 100 impressions (per Austin). This
+      // also keeps those stragglers out of the per-line breakdown after Apply.
+      {
+        const beforeImpr = rows.length;
+        rows = rows.filter(row => extractMetrics(row, "DSP").impressions >= 100);
+        dspHiddenLowImpr = beforeImpr - rows.length;
+        if(!rows.length){ setFileError("Every DSP row in this file was under 100 impressions — likely all prior-month bleed-over. Nothing to map."); return; }
+      }
     }
 
     // Build initial mapping: 1) per-name memory, 2) legacy whole-file memory, 3) source-aware auto-match
@@ -11867,7 +11883,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         if(initMap[i]) return;
         const csvName=getCampName(row,source);
         const entry=legacySaved.find(e=>e.csvName===csvName);
-        if(entry&&campaigns.find(c=>String(c.id)===String(entry.campId))){ initMap[i]=String(entry.campId); savedCount++; memMap[i]=String(entry.campId); }
+        if(entry&&assignPool.find(c=>String(c.id)===String(entry.campId))){ initMap[i]=String(entry.campId); savedCount++; memMap[i]=String(entry.campId); }
       });
     }
 
@@ -11963,9 +11979,11 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     setMatchConf(initConf);
     setMemoryMap(memMap);
     setConfirmApplyPending(false);
-    if(savedCount>0 && autoCount>0) setSavedMsg(`✓ ${savedCount} remembered · ⚡ ${autoCount} auto-matched · ${totalMatched}/${rows.length} total`);
-    else if(savedCount>0) setSavedMsg(`✓ ${savedCount} of ${rows.length} remembered from past sessions`);
-    else if(autoCount>0) setSavedMsg(`⚡ Auto-matched ${autoCount} of ${rows.length} — review and apply to save for next time`);
+    const hiddenNote = dspHiddenLowImpr>0 ? ` · 🚫 ${dspHiddenLowImpr} row${dspHiddenLowImpr!==1?"s":""} under 100 impr hidden` : "";
+    if(savedCount>0 && autoCount>0) setSavedMsg(`✓ ${savedCount} remembered · ⚡ ${autoCount} auto-matched · ${totalMatched}/${rows.length} total${hiddenNote}`);
+    else if(savedCount>0) setSavedMsg(`✓ ${savedCount} of ${rows.length} remembered from past sessions${hiddenNote}`);
+    else if(autoCount>0) setSavedMsg(`⚡ Auto-matched ${autoCount} of ${rows.length} — review and apply to save for next time${hiddenNote}`);
+    else if(hiddenNote) setSavedMsg(`Loaded ${rows.length} row${rows.length!==1?"s":""}${hiddenNote}`);
     setView("split");
   }
 
@@ -12057,6 +12075,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                       : fileSource==="Facebook/Meta" ? "metaSnapshots"
                       : fileSource==="Snapchat"      ? "snapSnapshots"
                       : fileSource==="DSP-Internal"  ? "dspSnapshots"
+                      : fileSource==="DSP"           ? "dspSnapshots"
                       : null;
       // Roll over the existing breakdown into priorBreakdown ONLY if its date is
       // earlier than today — that's what lets us diff yesterday's per-line stats
