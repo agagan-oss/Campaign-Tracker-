@@ -625,11 +625,18 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
 
   const ratio = expected > 0 ? delivered / expected : null;
 
+  // Days left in the (flight-clipped) pacing window. A deficit that's easily catchable early in the
+  // month becomes unrecoverable near the end, so tighten the "Behind" cutoff as runway shrinks: being
+  // 17% short of pace is "On Track" on the 10th (20 days to recover) but "Behind" on the 28th with 2
+  // days left. Without this, a campaign at 77% of a 93%-expected pace reads On Track right up to the end.
+  const daysLeft = Math.max(0, Math.round((winEnd - today0) / _dayMs));
+  const behindCutoff = daysLeft <= 2 ? 0.95 : daysLeft <= 5 ? 0.90 : daysLeft <= 9 ? 0.85 : 0.80;
+
   let color, label;
-  if (ratio === null)       { color="#4d6e8a"; label="No data";  }
-  else if (ratio < 0.80)    { color="#fde047"; label="Behind";   }
-  else if (ratio < 1.05)    { color="#00d48a"; label="On Track"; }
-  else                      { color="#f97316"; label="Ahead";    }
+  if (ratio === null)         { color="#4d6e8a"; label="No data";  }
+  else if (ratio < behindCutoff) { color="#fde047"; label="Behind"; }
+  else if (ratio < 1.05)      { color="#00d48a"; label="On Track"; }
+  else                        { color="#f97316"; label="Ahead";    }
 
   // pct is clamped to 1.0 so the visual progress bar doesn't overflow past 100%.
   // pctRaw keeps the actual ratio (e.g. 3.26 for 326% delivery) for overserve
@@ -6420,6 +6427,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // Collapse state for the Lifetime status sections (Behind / On Track / Goal Hit).
   const [lifeCollapsed, setLifeCollapsed] = useState(()=>new Set());
   const toggleLifeSection = k => setLifeCollapsed(s=>{ const n=new Set(s); n.has(k)?n.delete(k):n.add(k); return n; });
+  // Which campaign rows have their per-line breakdown expanded — held HERE (keyed by campaign id),
+  // not inside TableRow. TableRow is redefined on every PacingDashboard render, so React remounts every
+  // row whenever any campaign changes (e.g. pausing one). Row-local expand state would reset on that
+  // remount (collapsing open breakdowns) AND the resulting height collapse bounced the page to the top.
+  // Parking it in the parent keeps breakdowns open across those re-renders, so the page stays put.
+  const [expandedRows, setExpandedRows] = useState(()=>new Set());
   const [showNoGoal,     setShowNoGoal]     = useState(false);
   const [search,         setSearch]         = useState(_persisted.search || "");
   const [fPartner,       setFPartner]       = useState(_persisted.fPartner || "all");
@@ -7209,7 +7222,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               <div style={{display:"flex",flexDirection:"column",gap:3,marginTop:6}}>
                 {sortedBreakdown.map(b=>{
                   const pctOfTotal = totalImpr>0 ? (b.impressions/totalImpr)*100 : 0;
-                  const isQuiet = b.impressions === 0 || pctOfTotal < 5;
+                  // Flag "not running" only on genuinely zero delivery — a small share of the
+                  // campaign isn't a problem (some lines are intentionally tiny-allocation). See PacingRow.
+                  const isQuiet = b.impressions === 0;
                   const prior = priorByName[b.name];
                   const yestImpr = prior ? Math.max(0, (b.impressions||0) - (prior.impressions||0)) : null;
                   const yestSpend = prior ? Math.max(0, (b.spend||0) - (prior.spend||0)) : null;
@@ -7226,7 +7241,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                               yest: {yestImpr.toLocaleString()} impr{yestSpend>0?` · $${Math.round(yestSpend).toLocaleString()}`:""}
                             </span>
                           </>}
-                          {isQuiet?" · ⚠ low / not running":""}
+                          {isQuiet?" · ⚠ not running":""}
                         </div>
                       </div>
                       <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
@@ -7289,7 +7304,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const GRID = "minmax(280px,1.4fr) 72px 82px 240px 80px 100px 84px 84px 84px 90px 68px 76px 76px 76px 62px 60px";
 
   function TableRow({c,disp,pacing,monthlyGoal}){
-    const [rowBreakdownOpen, setRowBreakdownOpen] = useState(false);
+    // Breakdown-expanded state is lifted to the parent (expandedRows Set, keyed by campaign id) so it
+    // survives the row remounts that happen whenever any campaign changes — see expandedRows comment.
+    // The shim preserves the existing setRowBreakdownOpen(bool) and setRowBreakdownOpen(v=>!v) calls.
+    const rowBreakdownOpen = expandedRows.has(c.id);
+    const setRowBreakdownOpen = (updater) => setExpandedRows(prev => {
+      const wasOpen = prev.has(c.id);
+      const nextOpen = typeof updater === "function" ? updater(wasOpen) : updater;
+      const s = new Set(prev);
+      if (nextOpen) s.add(c.id); else s.delete(c.id);
+      return s;
+    });
     const [creativesOpen, setCreativesOpen] = useState(false); // Creatives section — collapsed by default (one-off imports, not daily)
     // Weekly/Daily chart toggle. Per-row state (so toggling doesn't remount/collapse the row), but the
     // choice is persisted as the default — so every row you open uses your last-picked granularity.
@@ -7897,7 +7922,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             {sorted.map(b=>{
               const bLead = leadVal(b);
               const pctOfTotal = totalLead>0 ? (bLead/totalLead)*100 : 0;
-              const isQuiet = bLead === 0 || pctOfTotal < 5;
+              // Flag "not running" only on genuinely zero delivery. A small SHARE of the campaign
+              // doesn't mean a line is broken — some lines are intentionally tiny-allocation (e.g.
+              // a 1,000-impr/mo Precise Targeting line), so don't redline a line that's clearly live.
+              const isQuiet = bLead === 0;
               const prior = rowPriorByName[b.name];
               // Per-day averages (spread across any skipped check-in days) so they agree with the chart.
               const yestLead  = prior ? perDay(Math.max(0, bLead - (useViews ? (prior.videoViews||0) : (prior.impressions||0)))) : null;
@@ -7908,7 +7936,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                 <div key={b.id} style={{display:"flex",alignItems:"center",gap:10,background:lightMode?"#ffffff":"#0a1320",border:`1px solid ${isQuiet?(lightMode?"#fca5a5":"#7f1d1d"):(lightMode?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"6px 10px"}}>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:11,color:lightMode?"#334155":"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={b.name}>{b.name}</div>
-                    <div style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",marginTop:1}}>{pctOfTotal.toFixed(0)}% of total {leadLabel}{isQuiet?" · ⚠ low / not running":""}</div>
+                    <div style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",marginTop:1}}>{pctOfTotal.toFixed(0)}% of total {leadLabel}{isQuiet?" · ⚠ not running":""}</div>
                   </div>
                   {/* MTD column — every cell is a fixed slot so columns stay aligned
                       across lines. Empty values render as "—" instead of being skipped
@@ -17121,7 +17149,11 @@ export default function App() {
       } else if (reason==="load") {
         // Backup is due but the folder isn't writable silently (and we won't auto-download without a
         // click) → nudge via the existing "time to back up" reminder so one click completes it.
-        setShowExportReminder(true);
+        // Throttle to the SAME ~3-day cadence as the load-time reminder (keyed on EXPORT_KEY, which a
+        // manual export, "Remind me later", and silent backups all stamp) so it doesn't nag daily when
+        // there's no writable folder. Snoozing/exporting pushes the next nudge out 3 more days.
+        const lastExp = parseInt(localStorage.getItem(EXPORT_KEY) || "0");
+        if (!lastExp || (Date.now() - lastExp) / 86400000 >= 3) setShowExportReminder(true);
       }
       return method;
     } catch(e){ console.error("Auto-backup failed:", e); return null; }
@@ -17527,23 +17559,34 @@ export default function App() {
             onClearLine={(target) => clearBreakdownLine(target)}
             onEdit={(camp)=>setEditTarget(camp)}
             onClearMetrics={(id)=>{
+              // Clearing drops the campaign out of its pacing section, so the list height changes —
+              // capture the scroll position and restore it after the re-render so the page doesn't jump.
+              const sy = (typeof window!=="undefined") ? window.scrollY : 0;
+              const now = new Date();
               setCampaigns(cs=>cs.map(c=>{
                 if(c.id!==id) return c;
-                const cleared = {
+                return {
                   ...c,
                   impressions:"", clicks:"", ctr:"", cpm:"", spend:"",
-                  reach:"", frequency:"", videoViews:"", completionRate:"",
+                  reach:"", frequency:"", videoViews:"", completionRate:"", conversions:"",
                   checkInLog:"", lastCheckInImpr:"",
+                  // Drop the last-check-in markers too, so the cleared campaign isn't flagged in the
+                  // post-drop "what didn't update" reconciliation as a stale/missing report.
+                  lastQciSource:"", lastQciDate:"", lastQciAt:"",
                   goalHit: false, closeToGoal: false, goalHitDismissed: false, closeToGoalDismissed: false,
+                  // Delete the WHOLE snapshot objects (not just mtd) — leaving last30/yesterday/breakdown
+                  // behind let cleared metrics quietly reappear (and the per-line breakdown lingered).
+                  metaSnapshots: undefined, ttdSnapshots: undefined, dspSnapshots: undefined,
+                  googleSnapshots: undefined, snapSnapshots: undefined,
+                  // Drop THIS MONTH's check-in readings so the daily chart empties too; earlier months stay
+                  // intact so Reports/Revenue history survives a per-campaign clear.
+                  metricSeries: Array.isArray(c.metricSeries)
+                    ? c.metricSeries.filter(e => { const d = parseSeriesDate(e && e.d); return !(d && d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear()); })
+                    : c.metricSeries,
                 };
-                // Clear MTD snapshot data from each platform source, preserve config keys
-                if(c.ttdSnapshots)    cleared.ttdSnapshots    = {...c.ttdSnapshots,    mtd:undefined};
-                if(c.metaSnapshots)   cleared.metaSnapshots   = {...c.metaSnapshots,   mtd:undefined};
-                if(c.dspSnapshots)    cleared.dspSnapshots    = {...c.dspSnapshots,    mtd:undefined};
-                if(c.googleSnapshots) cleared.googleSnapshots = {...c.googleSnapshots, mtd:undefined};
-                if(c.snapSnapshots)   cleared.snapSnapshots   = {...c.snapSnapshots,   mtd:undefined};
-                return cleared;
               }));
+              if(typeof window!=="undefined" && typeof requestAnimationFrame==="function")
+                requestAnimationFrame(()=>requestAnimationFrame(()=>window.scrollTo(0, sy)));
               addLog({type:"checked", campaignName: campaigns.find(c=>c.id===id)?.campaignName||"", partner:"", platform:"", detail:"Metrics cleared from pacing tab"});
             }}/>
         ) : activeTab==="reports" ? (
