@@ -683,6 +683,86 @@ function computeDailyTarget(impressions, note1, startDate, endDate) {
   return { dailyTarget, neededPerDay, actualDailyRate, daysLeft, remaining, delivered, goal, status, color, daysInMonth: windowDays, dayOfMonth: daysSoFar + 1 };
 }
 
+// ── Per-day / per-week delivery spread — SINGLE source of truth ──────────────────────────────────
+// Diffs a campaign's MTD check-in history (metricSeries, current month only) into per-reading deltas,
+// then spreads each delta across the calendar days of the window it covers, PROPORTIONALLY to the
+// hours in each day. So a 1pm pull splits its delta between yesterday-afternoon and today-morning, and
+// a multi-day gap fans out across the days it spans — rather than dumping the whole inter-reading delta
+// onto one day. The chart bars, the "Yesterday" column, AND the yesterday chip all read this, so they
+// can never disagree (the bug where the chip showed the full last-24h delta as "yesterday").
+// Returns { weekly:[{k,i,c,s,vv,est}], daily:[{k,i,c,s,vv,est}] } where k = bucket-start ms.
+function buildDeliverySeries(metricSeries, startDate, now) {
+  const series = Array.isArray(metricSeries) ? metricSeries : [];
+  if (series.length < 1) return { weekly: [], daily: [] };
+  const parseD = parseSeriesDate; // tolerates ISO (what QCI writes) AND MM/DD/YYYY
+  const monday   = dt => { const x=new Date(dt); const dow=x.getDay(); x.setDate(x.getDate()-((dow+6)%7)); x.setHours(0,0,0,0); return x; };
+  const dayStart = dt => { const x=new Date(dt); x.setHours(0,0,0,0); return x; };
+  const DAY = 86400000;
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  // A campaign can't have delivered before its flight start date — clamp the first reading's spread to
+  // max(month start, start date) so a mid-month launch doesn't smear day-1's total across dead days.
+  const flightStartMs = (()=>{ const m=String(startDate||"").match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) return monthStart.getTime(); const d=new Date(+m[1],+m[2]-1,+m[3]); return isNaN(d.getTime())?monthStart.getTime():d.getTime(); })();
+  const seriesStartMs = Math.max(monthStart.getTime(), flightStartMs);
+  const rd = series.map(e=>({d:parseD(e.d), t:e.t, i:+e.i||0, ck:+e.c||0, s:+e.s||0, vv:+e.vv||0}))
+    .filter(e=>e.d && e.d.getMonth()===now.getMonth() && e.d.getFullYear()===now.getFullYear())
+    .sort((a,b)=>a.d-b.d);
+  if(!rd.length) return { weekly: [], daily: [] };
+  // Trim a corrupt LEADING reading whose MTD is higher than the next two (a stray total dated too early).
+  while (rd.length > 3 && rd[0].i > rd[1].i && rd[0].i > rd[2].i) rd.shift();
+  // Cap each reading at the LATEST MTD (spike guard); take NEW delivery beyond the running max (dip guard).
+  const last = rd[rd.length-1];
+  const capI=last.i, capC=last.ck, capS=last.s, capVV=last.vv;
+  const endOfDay = d => { const x=new Date(d); x.setHours(23,59,59,999); return x.getTime(); };
+  const readingMs = e => { if(e.t){ const tm=new Date(e.t).getTime(); if(!isNaN(tm)) return tm; } return endOfDay(e.d); };
+  const build = (keyFn, estThr) => {
+    const bk=new Map();
+    const spread = (startMs, endMs, i, c, s, vv) => {
+      if(!(endMs > startMs)){ const k=keyFn(new Date(endMs)).getTime(); const o=bk.get(k)||{i:0,c:0,s:0,vv:0,est:false}; o.i+=i;o.c+=c;o.s+=s;o.vv+=vv; bk.set(k,o); return; }
+      const total = endMs - startMs;
+      const est = total > estThr;
+      let cur = startMs;
+      while(cur < endMs){
+        const day0=new Date(cur); day0.setHours(0,0,0,0);
+        const segEnd = Math.min(endMs, day0.getTime()+DAY);
+        const frac = (segEnd - cur)/total;
+        const k=keyFn(new Date(cur)).getTime();
+        const o=bk.get(k)||{i:0,c:0,s:0,vv:0,est:false}; o.i+=i*frac; o.c+=c*frac; o.s+=s*frac; o.vv+=vv*frac; o.est=o.est||est; bk.set(k,o);
+        cur = segEnd;
+      }
+    };
+    let maxI=0, maxC=0, maxS=0, maxVV=0;
+    rd.forEach((e,idx)=>{
+      const ei=Math.min(e.i,capI), ec=Math.min(e.ck,capC), es=Math.min(e.s,capS), evv=Math.min(e.vv,capVV);
+      const di  = Math.max(0, ei  - maxI);
+      const dc  = Math.max(0, ec  - maxC);
+      const ds  = Math.max(0, es  - maxS);
+      const dvv = Math.max(0, evv - maxVV);
+      const endMs   = readingMs(e);
+      const startMs = idx===0 ? seriesStartMs : readingMs(rd[idx-1]);
+      spread(Math.min(startMs,endMs), endMs, di, dc, ds, dvv);
+      maxI=Math.max(maxI,ei); maxC=Math.max(maxC,ec); maxS=Math.max(maxS,es); maxVV=Math.max(maxVV,evv);
+    });
+    return [...bk.entries()].sort((a,b)=>a[0]-b[0]).map(([k,o])=>({k, i:Math.round(o.i), c:Math.round(o.c), s:Math.round(o.s*100)/100, vv:Math.round(o.vv), est:!!o.est}));
+  };
+  // Daily bars are "measured" if check-ins are ≤ ~1.5 days apart; weekly if ≤ ~8 days apart.
+  return { weekly: build(monday, 8*DAY), daily: build(dayStart, 1.5*DAY) };
+}
+
+// Calendar-yesterday delivery for one campaign, in its pacing metric (views / spend / impressions),
+// read off the shared daily spread above. Returns { value, est } or null when no bucket covers
+// yesterday. `now` defaults to the live pacing clock.
+function yesterdayFromSeries(c, now) {
+  const _now = now || pacingNow();
+  const ds = buildDeliverySeries(c.metricSeries, c.startDate, _now);
+  if (!ds.daily.length) return null;
+  const yStart = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate()-1); yStart.setHours(0,0,0,0);
+  const yb = ds.daily.find(b => b.k === yStart.getTime());
+  if (!yb) return null;
+  const kind = pacingMetricFor(c.platform);
+  const value = kind === "views" ? yb.vv : kind === "spend" ? yb.s : yb.i;
+  return { value, est: !!yb.est, dateKey: yStart };
+}
+
 
 // Flag a campaign as potentially stopped serving:
 // active status + within flight dates + zero/blank impressions
@@ -6282,7 +6362,7 @@ function quietAdsForReport(cr) {
 }
 
 // ─── Pacing Dashboard ─────────────────────────────────────────────────────
-function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{}, onActivate=()=>{}, onSetStatus=()=>{}, onReassignLine=()=>{}, onClearLine=()=>{} }) {
+function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{}, onActivate=()=>{}, onSetStatus=()=>{}, onReassignLine=()=>{}, onClearLine=()=>{}, quickCheckIn=false, onToggleQuickCheckIn=()=>{}, quickCheckInPanel=null }) {
   // ── Reassign-line modal state ──
   // When the user clicks the ↪ icon on a breakdown line, we open a search modal
   // that lets them move that line's data to a different campaign without redoing QCI.
@@ -6433,6 +6513,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // remount (collapsing open breakdowns) AND the resulting height collapse bounced the page to the top.
   // Parking it in the parent keeps breakdowns open across those re-renders, so the page stays put.
   const [expandedRows, setExpandedRows] = useState(()=>new Set());
+  // Collapse state for the MONTHLY pacing sections (Behind / On Track / Ahead / No Impressions / No Goal).
+  // Same reason as expandedRows: the Section component is redefined each render, so local open/closed
+  // state would reset on every campaign change — re-expanding a section you collapsed the instant you
+  // pause/clear/edit a campaign. Keyed by label; a stored value overrides that section's defaultOpen.
+  const [sectionOpen, setSectionOpen] = useState({});
   const [showNoGoal,     setShowNoGoal]     = useState(false);
   const [search,         setSearch]         = useState(_persisted.search || "");
   const [fPartner,       setFPartner]       = useState(_persisted.fPartner || "all");
@@ -6881,10 +6966,23 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     let delivered = null;
     let baseDate = null;
     let baseImpr = null;
+    let seriesYesterday = false;
 
-    // ── Strategy 1: Sum breakdown line deltas (most accurate) ───────────
+    // ── Strategy 0 (preferred): calendar-yesterday from the shared daily spread (matches the chart) ──
+    // Timestamp-aware, so today's partial delivery never gets counted as "yesterday" the way a raw
+    // last-reading-minus-prior-reading diff does. THIS is the fix for the chip showing the full ~24h
+    // delta (e.g. 6.3K) when the chart bar correctly shows only yesterday's share (~3.8K).
+    const _ys = yesterdayFromSeries(c, pacingNow());
+    if (_ys && _ys.value > 0) {
+      delivered = _ys.value;
+      const yd = _ys.dateKey;
+      baseDate = `${yd.getFullYear()}-${String(yd.getMonth()+1).padStart(2,"0")}-${String(yd.getDate()).padStart(2,"0")}`;
+      seriesYesterday = true; // already a single calendar day — don't divide by a gap below
+    }
+
+    // ── Strategy 1: Sum breakdown line deltas (fallback when the series can't place yesterday) ──
     // Scan all 5 snapshot sources for breakdown + priorBreakdown pair.
-    const sources = [c.metaSnapshots, c.ttdSnapshots, c.dspSnapshots, c.googleSnapshots, c.snapSnapshots];
+    const sources = delivered === null ? [c.metaSnapshots, c.ttdSnapshots, c.dspSnapshots, c.googleSnapshots, c.snapSnapshots] : [];
     for (const src of sources) {
       const mtd = src?.mtd;
       if (!mtd?.breakdown || !mtd?.priorBreakdown) continue;
@@ -6960,8 +7058,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // If check-ins were SKIPPED, `delivered` spans multiple days (baseDate → today), so grade the
     // PER-DAY average — otherwise a 2-day total reads as ~200% of a single day's target and disagrees
     // with the daily chart (which already spreads delivery across the gap).
+    // Strategy 0 already returns a single calendar day's delivery (the spread handled any gap), so it's
+    // never re-divided. The gap-average below only applies to the breakdown/checkInLog fallbacks.
     let gapDays = 1;
-    if (baseDate && /^\d{4}-\d{2}-\d{2}$/.test(baseDate)) {
+    if (!seriesYesterday && baseDate && /^\d{4}-\d{2}-\d{2}$/.test(baseDate)) {
       const [by, bm, bd] = baseDate.split("-").map(Number);
       const baseD = new Date(by, bm - 1, bd);
       // Span the gap to the date the CURRENT data was actually PULLED (lastQciDate) — the date
@@ -7447,80 +7547,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // Build BOTH a weekly (Monday-bucketed) and a daily (per-day) delivery series from the same
     // check-in history, so the dropdown can toggle between them. Same spike/dip-proof math for both;
     // only the bucket key differs (Monday-of-week vs the day itself).
-    const { weekly, daily } = (()=>{
-      const series = Array.isArray(c.metricSeries) ? c.metricSeries : [];
-      if(series.length < 1) return { weekly:[], daily:[] };
-      const parseD = parseSeriesDate; // tolerates ISO (what QCI writes) AND MM/DD/YYYY
-      const monday   = dt => { const x=new Date(dt); const dow=x.getDay(); x.setDate(x.getDate()-((dow+6)%7)); x.setHours(0,0,0,0); return x; };
-      const dayStart = dt => { const x=new Date(dt); x.setHours(0,0,0,0); return x; };
-      const DAY = 86400000;
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      // A campaign can't have delivered before its flight start date — so the first reading never
-      // spreads earlier than max(month start, start date). This stops a campaign that went live
-      // mid-month (e.g. dated 6/1 but live 6/9) from smearing its first total across days it wasn't
-      // running. Set the start date to the real live date and the chart lands it on the right days.
-      const flightStartMs = (()=>{ const m=String(c.startDate||"").match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m) return monthStart.getTime(); const d=new Date(+m[1],+m[2]-1,+m[3]); return isNaN(d.getTime())?monthStart.getTime():d.getTime(); })();
-      const seriesStartMs = Math.max(monthStart.getTime(), flightStartMs);
-      const rd = series.map(e=>({d:parseD(e.d), t:e.t, i:+e.i||0, ck:+e.c||0, s:+e.s||0, vv:+e.vv||0}))
-        .filter(e=>e.d && e.d.getMonth()===now.getMonth() && e.d.getFullYear()===now.getFullYear())
-        .sort((a,b)=>a.d-b.d);
-      if(!rd.length) return { weekly:[], daily:[] };
-      // Trim a corrupt LEADING reading whose MTD is higher than the readings that follow it. Within a
-      // month cumulative MTD can only rise, so a first reading that's higher than the next two is a
-      // stray/duplicate total dated too early — left in, it dumps the whole month onto day 1. (Dips and
-      // mid-series spikes are handled by the clamp + running-max below; this only removes a bogus head.)
-      while (rd.length > 3 && rd[0].i > rd[1].i && rd[0].i > rd[2].i) rd.shift();
-      // Cap each reading at the LATEST reading's MTD (spike guard), then take NEW delivery beyond the
-      // running max (dip guard) — so the bars sum to the real month-to-date regardless of spikes/dips.
-      const last = rd[rd.length-1];
-      const capI=last.i, capC=last.ck, capS=last.s, capVV=last.vv;
-      // The MOMENT a reading represents: the real "data as of" timestamp the user set on the check-in
-      // (t) when present; otherwise assume it's current through the END of its date (real-time, not a
-      // fixed 1-day lag). This is what makes delivery track real time instead of always shifting a day.
-      const endOfDay = d => { const x=new Date(d); x.setHours(23,59,59,999); return x.getTime(); };
-      const readingMs = e => { if(e.t){ const tm=new Date(e.t).getTime(); if(!isNaN(tm)) return tm; } return endOfDay(e.d); };
-      // build a bucket series given a key function (Monday-of-week for weekly, day-start for daily).
-      // estThr = how long a check-in gap can be before the buckets it fills are flagged ESTIMATED
-      // (interpolated). A bar is "measured" only if its delivery came from check-ins close enough to
-      // pin it down (≤ estThr apart); otherwise it's a smooth fill across a gap and gets hatched.
-      const build = (keyFn, estThr) => {
-        const bk=new Map();
-        // Spread a reading's NEW delivery across the calendar days of the actual time window it covers,
-        // PROPORTIONALLY to the hours falling in each day — so a morning pull lands mostly on yesterday,
-        // a late-night pull mostly on today, and a multi-day gap splits across the days it spans.
-        const spread = (startMs, endMs, i, c, s, vv) => {
-          if(!(endMs > startMs)){ const k=keyFn(new Date(endMs)).getTime(); const o=bk.get(k)||{i:0,c:0,s:0,vv:0,est:false}; o.i+=i;o.c+=c;o.s+=s;o.vv+=vv; bk.set(k,o); return; }
-          const total = endMs - startMs;
-          const est = total > estThr;        // gap longer than this bar's period → interpolated
-          let cur = startMs;
-          while(cur < endMs){
-            const day0=new Date(cur); day0.setHours(0,0,0,0);
-            const segEnd = Math.min(endMs, day0.getTime()+DAY);
-            const frac = (segEnd - cur)/total;
-            const k=keyFn(new Date(cur)).getTime();
-            const o=bk.get(k)||{i:0,c:0,s:0,vv:0,est:false}; o.i+=i*frac; o.c+=c*frac; o.s+=s*frac; o.vv+=vv*frac; o.est=o.est||est; bk.set(k,o);
-            cur = segEnd;
-          }
-        };
-        let maxI=0, maxC=0, maxS=0, maxVV=0;
-        rd.forEach((e,idx)=>{
-          const ei=Math.min(e.i,capI), ec=Math.min(e.ck,capC), es=Math.min(e.s,capS), evv=Math.min(e.vv,capVV);
-          const di  = Math.max(0, ei  - maxI);
-          const dc  = Math.max(0, ec  - maxC);
-          const ds  = Math.max(0, es  - maxS);
-          const dvv = Math.max(0, evv - maxVV);
-          // Window the delta over (previous reading's moment … this reading's moment]; the first reading
-          // covers from the 1st of the month. Real timestamps drive real-time, time-proportional spread.
-          const endMs   = readingMs(e);
-          const startMs = idx===0 ? seriesStartMs : readingMs(rd[idx-1]);
-          spread(Math.min(startMs,endMs), endMs, di, dc, ds, dvv);
-          maxI=Math.max(maxI,ei); maxC=Math.max(maxC,ec); maxS=Math.max(maxS,es); maxVV=Math.max(maxVV,evv);
-        });
-        return [...bk.entries()].sort((a,b)=>a[0]-b[0]).map(([k,o])=>({k, i:Math.round(o.i), c:Math.round(o.c), s:Math.round(o.s*100)/100, vv:Math.round(o.vv), est:!!o.est}));
-      };
-      // Daily bars are "measured" if check-ins are ≤ ~1.5 days apart; weekly bars if ≤ ~8 days apart.
-      return { weekly: build(monday, 8*DAY), daily: build(dayStart, 1.5*DAY) };
-    })();
+    // Daily/weekly delivery buckets from the shared spread (see buildDeliverySeries) — the chart, the
+    // Yesterday column, and the yesterday chip all read this same computation so they always agree.
+    const { weekly, daily } = buildDeliverySeries(c.metricSeries, c.startDate, now);
     const hasWeekly = weekly.length > 0 && weekly.some(w=>w.i>0 || w.c>0 || w.s>0 || w.vv>0);
     const hasCreatives = !!(c.creativeReport && Array.isArray(c.creativeReport.creatives) && c.creativeReport.creatives.length);
     const canExpand = !!rowBreakdown || hasWeekly || hasCreatives;
@@ -7911,11 +7940,29 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         return 1;
       })();
       const perDay = v => v == null ? null : Math.round(v / yestGapDays);
+      // Align per-line YEST with the chart's calendar-yesterday: take the chart's yesterday total
+      // (timestamp-spread, same as the chip) and distribute it across lines by each line's share of the
+      // inter-reading delta. So the column SUMS to the chart bar instead of showing the full ~24h delta.
+      const _yKey = (()=>{ const d=new Date(now.getFullYear(), now.getMonth(), now.getDate()-1); d.setHours(0,0,0,0); return d.getTime(); })();
+      const _yBucket = (daily||[]).find(b=>b.k===_yKey) || null;
+      const _campYestLead  = _yBucket ? (useViews ? _yBucket.vv : _yBucket.i) : null;
+      const _campYestClk   = _yBucket ? _yBucket.c : null;
+      const _campYestSpend = _yBucket ? _yBucket.s : null;
+      const _delLead  = b => { const p=rowPriorByName[b.name]; return p ? Math.max(0, leadVal(b) - (useViews?(p.videoViews||0):(p.impressions||0))) : 0; };
+      const _delClk   = b => { const p=rowPriorByName[b.name]; return p ? Math.max(0, (b.clicks||0)-(p.clicks||0)) : 0; };
+      const _delSpend = b => { const p=rowPriorByName[b.name]; return p ? Math.max(0, (b.spend||0)-(p.spend||0)) : 0; };
+      const _sumLead  = sorted.reduce((s,b)=>s+_delLead(b),0);
+      const _sumClk   = sorted.reduce((s,b)=>s+_delClk(b),0);
+      const _sumSpend = sorted.reduce((s,b)=>s+_delSpend(b),0);
+      const _leadScale  = (_campYestLead!=null  && _sumLead>0)  ? _campYestLead/_sumLead   : null;
+      const _clkScale   = (_campYestClk!=null   && _sumClk>0)   ? _campYestClk/_sumClk     : null;
+      const _spendScale = (_campYestSpend!=null && _sumSpend>0) ? _campYestSpend/_sumSpend : null;
+      const _usingChartYest = _leadScale != null;
       return (
         <div style={{background:lightMode?"#f8fafc":"#050b14",borderBottom:"1px solid "+lmBrdR,borderLeft:"3px solid "+col,padding:"6px 16px 10px 42px"}}>
           <div style={{fontSize:9,color:lightMode?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:5}}>
             Line breakdown — {sorted.length === 1 ? "1 ad set mapped to this campaign" : `${sorted.length} ad sets rolled up into this campaign`}
-            {hasPrior&&<span style={{color:lightMode?"#3b82f6":"#7ec8ff",marginLeft:6,textTransform:"none",letterSpacing:0}}>· {yestGapDays>1?`delivery/day vs ${rowPriorDate} · ${yestGapDays}-day avg (check-in skipped)`:`yesterday delivery vs ${rowPriorDate}`}</span>}
+            {hasPrior&&<span style={{color:lightMode?"#3b82f6":"#7ec8ff",marginLeft:6,textTransform:"none",letterSpacing:0}}>· {_usingChartYest ? `yesterday delivery vs ${rowPriorDate}${_yBucket&&_yBucket.est?" · estimated (check-in gap)":""}` : (yestGapDays>1?`delivery/day vs ${rowPriorDate} · ${yestGapDays}-day avg (check-in skipped)`:`yesterday delivery vs ${rowPriorDate}`)}</span>}
             {c.lastQciAt&&(()=>{ const d=new Date(c.lastQciAt); return isNaN(d.getTime())?null:<span title="When this campaign's data was last pulled in — handy when some pulls are real-time and others lag a day" style={{color:lightMode?"#94a3b8":"#4d6e8a",marginLeft:6,textTransform:"none",letterSpacing:0}}>· data as of {d.toLocaleDateString("en-US",{month:"short",day:"numeric"})}, {d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span>; })()}
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
@@ -7927,10 +7974,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               // a 1,000-impr/mo Precise Targeting line), so don't redline a line that's clearly live.
               const isQuiet = bLead === 0;
               const prior = rowPriorByName[b.name];
-              // Per-day averages (spread across any skipped check-in days) so they agree with the chart.
-              const yestLead  = prior ? perDay(Math.max(0, bLead - (useViews ? (prior.videoViews||0) : (prior.impressions||0)))) : null;
-              const yestSpend = prior ? Math.max(0, (b.spend||0)       - (prior.spend||0)) / yestGapDays : null;
-              const yestClk   = prior ? perDay(Math.max(0, (b.clicks||0)      - (prior.clicks||0)))      : null;
+              // Yesterday per line: scale the line's delta by the chart's yesterday total (so the column
+              // sums to the chart bar). Falls back to the per-day average only when the chart can't place
+              // yesterday (e.g. no in-month series yet).
+              const yestLead  = !prior ? null : (_leadScale  != null ? Math.round(_delLead(b)  * _leadScale)            : perDay(_delLead(b)));
+              const yestClk   = !prior ? null : (_clkScale   != null ? Math.round(_delClk(b)   * _clkScale)             : perDay(_delClk(b)));
+              const yestSpend = !prior ? null : (_spendScale != null ? Math.round(_delSpend(b) * _spendScale * 100)/100 : _delSpend(b) / yestGapDays);
               const yestColor = yestLead === 0 ? (lightMode?"#dc2626":"#ef4444") : (lightMode?"#059669":"#00d48a");
               return (
                 <div key={b.id} style={{display:"flex",alignItems:"center",gap:10,background:lightMode?"#ffffff":"#0a1320",border:`1px solid ${isQuiet?(lightMode?"#fca5a5":"#7f1d1d"):(lightMode?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"6px 10px"}}>
@@ -8086,7 +8135,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   }
 
   function Section({label,color,items,defaultOpen=true,connected=false}){
-    const [open,setOpen]=useState(defaultOpen); if(!items.length) return null;
+    if(!items.length) return null;
+    // Open/closed state lives in the parent (sectionOpen, keyed by label) so it survives the re-renders
+    // that remount this component on any campaign change. The shim preserves the setOpen(v=>!v) calls.
+    const open = sectionOpen[label] !== undefined ? sectionOpen[label] : defaultOpen;
+    const setOpen = (updater) => setSectionOpen(prev => {
+      const cur = prev[label] !== undefined ? prev[label] : defaultOpen;
+      const next = typeof updater === "function" ? updater(cur) : updater;
+      return { ...prev, [label]: next };
+    });
     // "connected" mode (used for the main Behind/On Track/Ahead buckets): flush divider-style header,
     // no per-section column header (one lives at the top of the shared container) — matches the
     // Lifetime view's connected look.
@@ -8416,19 +8473,32 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <div style={{fontSize:11,color:lmTxtS}}>{allActive.length} active · {withGoal.length} with goals{anyFilter?" · filtered":""}</div>
     </div>
 
-    {/* View switch: monthly-goal pacing vs lifetime/contract pacing */}
-    <div style={{display:"inline-flex",borderRadius:8,overflow:"hidden",border:"1px solid "+lmBrd,marginBottom:14}}>
-      {[["month","📅 This Month"],["lifetime","🎯 Lifetime"]].map(([k,l],i)=>(
-        <button key={k} onClick={()=>setPacingView(k)}
-          title={k==="month"?"Pace each campaign against its monthly goal (Note 1)":"Pace cumulative delivery against the total contract Goal across the whole flight"}
-          style={{padding:"6px 15px",fontSize:12,fontWeight:pacingView===k?700:500,cursor:"pointer",border:"none",
-            borderLeft: i>0 ? "1px solid "+lmBrd : "none",
-            background: pacingView===k ? (lightMode?"#dcfce7":"#002e24") : lmBgInp,
-            color: pacingView===k ? "#00e5a0" : lmTxtS}}>
-          {l}
-        </button>
-      ))}
+    {/* View switch (left) + Quick Check-in (far right) — same row so the check-in box lives in the
+        open space beside the This Month / Lifetime toggle instead of floating above the dashboard. */}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:14}}>
+      <div style={{display:"inline-flex",borderRadius:8,overflow:"hidden",border:"1px solid "+lmBrd}}>
+        {[["month","📅 This Month"],["lifetime","🎯 Lifetime"]].map(([k,l],i)=>(
+          <button key={k} onClick={()=>setPacingView(k)}
+            title={k==="month"?"Pace each campaign against its monthly goal (Note 1)":"Pace cumulative delivery against the total contract Goal across the whole flight"}
+            style={{padding:"6px 15px",fontSize:12,fontWeight:pacingView===k?700:500,cursor:"pointer",border:"none",
+              borderLeft: i>0 ? "1px solid "+lmBrd : "none",
+              background: pacingView===k ? (lightMode?"#dcfce7":"#002e24") : lmBgInp,
+              color: pacingView===k ? "#00e5a0" : lmTxtS}}>
+            {l}
+          </button>
+        ))}
+      </div>
+      <button onClick={onToggleQuickCheckIn}
+        style={{background:lightMode?(quickCheckIn?"#f0fdf9":"#f1f5f9"):(quickCheckIn?"#001a2e":"#0e1a2e"),
+          border:`1px solid ${quickCheckIn?"#00c896":(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:8,padding:"6px 15px",
+          color:quickCheckIn?(lightMode?"#059669":"#00e5a0"):(lightMode?"#475569":lmTxtS),
+          fontSize:12,fontWeight:quickCheckIn?700:600,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}
+        title="Quick Check-in — drop a CSV/XLSX to update pacing without leaving this tab">
+        {quickCheckIn?"✓ Quick Check-in":"⚡ Quick Check-in"}
+      </button>
     </div>
+    {/* Check-in drop box opens here, right under the toggle row, when active. */}
+    {quickCheckInPanel && <div style={{marginBottom:14}}>{quickCheckInPanel}</div>}
 
     {/* "Off" campaigns with recent data — click to expand into a list of
         candidates with per-row activate buttons (so the user can review each
@@ -10989,6 +11059,18 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   const [mapping,      setMapping]      = React.useState({});     // fileRowIdx -> campId (integers only)
   const [matchConf,    setMatchConf]    = React.useState({});     // fileRowIdx -> confidence (1.0=memory, 0.8=TTD, fuzzy score for others)
   const [memoryMap,    setMemoryMap]    = React.useState({});     // fileRowIdx -> campId that was RESTORED FROM SAVED MEMORY (a prior check-in). Drives the purple "remembered" check — shown ONLY while the current mapping still equals this. Never set by auto-match or manual picks.
+  // Assign a campaign to a row. For DSP, the file lists ONE ROW PER LINE ITEM but a DSP advertiser maps
+  // to exactly ONE tracker campaign — and the saved mapping memory is keyed per-advertiser. So a change
+  // on any one line-item row propagates to EVERY row of the same advertiser. Without this, correcting a
+  // mis-map only fixes the row you touched; a sibling row still holding the old (wrong) remembered value
+  // re-saves it on Apply (last sibling wins the shared key), so the wrong match returns on the next drop.
+  const assignRow = (i, val) => {
+    const advOf = j => (fileSource==="DSP" && Array.isArray(fileRows) && fileRows[j]) ? getTTDAdvertiserName(fileRows[j]).trim().toLowerCase() : "";
+    const adv = advOf(i);
+    const targets = (fileSource==="DSP" && adv) ? fileRows.map((_,j)=>j).filter(j=>advOf(j)===adv) : [i];
+    setMapping(mp=>{ const next={...mp}; targets.forEach(j=>{ next[j]=val; }); return next; });
+    setMatchConf(mc=>{ const n={...mc}; targets.forEach(j=>{ if(val) n[j]=1.0; else delete n[j]; }); return n; });
+  };
   // ── Creative (per-ad) report mode ──────────────────────────────────────────
   // A FB creative report is one row per AD/creative (it has an "Ads" column). It's purely informational
   // — it does NOT touch pacing/MTD numbers. We collapse it to one synthetic row per ad set (so the
@@ -12673,7 +12755,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                 const isMemory  = !!assigned && memoryMap[i] != null && String(memoryMap[i]) === String(assigned);
                 return (
                   <div key={i}
-                    onClick={isPickTarget ? ()=>{ setMapping(m=>({...m,[i]:String(leftPickCampId)})); setMatchConf(mc=>({...mc,[i]:1.0})); setLeftPickCampId(null); } : undefined}
+                    onClick={isPickTarget ? ()=>{ assignRow(i, String(leftPickCampId)); setLeftPickCampId(null); } : undefined}
                     style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`,
                       background:isPickTarget?(_lm?"#fffbeb":"#1a1000"):isLowConf?(_lm?"#fff7ed":"#100800"):assigned?(_lm?"#f0fdf9":"#001a0e"):isUnmatched?(_lm?"#fffbeb":"#130b00"):"transparent",
                       cursor:isPickTarget?"pointer":"default",
@@ -12781,7 +12863,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                                 </button>
                               )}
                             </div>
-                            <select value={assigned} onChange={e=>{setMapping(mp=>({...mp,[i]:e.target.value}));if(e.target.value)setMatchConf(mc=>({...mc,[i]:1.0}));else setMatchConf(mc=>{const n={...mc};delete n[i];return n;});}}
+                            <select value={assigned} onChange={e=>assignRow(i, e.target.value)}
                               style={{background:assigned?(_lm?"#f0fdf9":"#002e24"):isUnmatched?(_lm?"#fffbeb":"#1a0e00"):(_lm?"#f8fafc":"#0e1a2e"),border:`1px solid ${assigned?(_lm?"#00c896":"#00c89640"):isUnmatched?"#f59e0b40":(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:5,padding:"3px 7px",color:assigned?(_lm?"#059669":"#00e5a0"):isUnmatched?"#f59e0b":(_lm?"#64748b":"#4d6e8a"),fontSize:10,outline:"none",cursor:"pointer",width:"100%"}}>
                               <option value="">— assign to campaign —</option>
                               {displayList.map(c=>(
@@ -16866,6 +16948,17 @@ export default function App() {
         const vb = order[b.status||""] ?? 7;
         return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
       }
+      // Sort by pacing % (delivered vs the expected pace for the current period). Uses pctRaw so
+      // over-delivery (e.g. 130%) ranks above 100%. Campaigns with no goal / no delivery can't pace,
+      // so they always sink to the bottom regardless of direction.
+      if(sortKey==="pacing"){
+        const pp = c => { const p = computeMonthlyPacing(c, resolveMetrics(c, dateRange.preset), c.note1); return p ? p.pctRaw : null; };
+        const va = pp(a), vb = pp(b);
+        if(va===null && vb===null) return 0;
+        if(va===null) return 1;
+        if(vb===null) return -1;
+        return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
+      }
       let va=a[sortKey]||"",vb=b[sortKey]||"";
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
@@ -17549,6 +17642,9 @@ export default function App() {
           <ActivityLog log={activityLog} campaigns={campaigns} onUndo={handleUndo} onClear={async()=>{ if(await confirm({title:"Clear activity log?",message:"This cannot be undone.",confirmLabel:"Clear",danger:true})){ setActivityLog([]); try{localStorage.removeItem(ACTIVITY_KEY);}catch(e){} }}} />
         ) : activeTab==="pacing" ? (
           <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} lightMode={lightMode}
+            quickCheckIn={quickCheckIn}
+            onToggleQuickCheckIn={()=>setQuickCheckIn(v=>!v)}
+            quickCheckInPanel={quickCheckIn ? <QuickCheckInPanel campaigns={campaigns} archive={archive} setArchive={setArchive} filtered={filtered} setCampaigns={setCampaigns} onClose={()=>setQuickCheckIn(false)}/> : null}
             onActivate={(id)=>setCampaigns(cs=>cs.map(c=>c.id===id?{...c,status:"active"}:c))}
             onSetStatus={(id, status) => {
               setCampaigns(cs => cs.map(c => c.id === id ? { ...c, status } : c));
@@ -17933,7 +18029,7 @@ export default function App() {
                   <TH k="campaignName" label="Campaign"/>
                   <TH k="platform" label="Platform"/>
                   <TH k="status" label="Status"/>
-                  <TH k={null} label="Goal"/>
+                  <TH k="pacing" label="Goal · Pace"/>
                   <TH k="startDate" label="Start Date"/>
                   <TH k="endDate" label="End Date"/>
                   <TH k="lastChecked" label="Last Checked"/>
@@ -18060,7 +18156,7 @@ export default function App() {
                               </TD>
                               <TD><StatusBadge status={c.status}/></TD>
                               <TD><span style={{fontSize:12,color:(PLT[c.platform]||PLT.default),fontWeight:700}}>{c.platform}</span></TD>
-                              <TD><span style={{fontSize:11,color:lightMode?"#475569":"#7a9bbf"}}>{c.note1||"—"}</span></TD>
+                              <TD><span style={{fontSize:11,color:lightMode?"#475569":"#7a9bbf"}}>{c.note1||"—"}</span>{(()=>{ const p=computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:p.color,display:"block",marginTop:2}}>{Math.round(p.pct*100)}% mo pace</span> : null; })()}</TD>
                               <TD><span style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a"}}>{c.startDate||"—"}</span></TD>
                               <TD><EndChip d={c.endDate}/></TD>
                               <TD>
@@ -18197,7 +18293,10 @@ export default function App() {
                             {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
                           </select>
                         </TD>
-                        <TD style={{maxWidth:170}}><span style={{color:lightMode?"#475569":"#7a9bbf",fontSize:13,display:"block",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}} title={c.goal}>{c.goal}</span></TD>
+                        <TD style={{maxWidth:170}}>
+                          <span style={{color:lightMode?"#475569":"#7a9bbf",fontSize:13,display:"block",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}} title={c.goal}>{c.goal}</span>
+                          {(()=>{ const p=computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:p.color,display:"block",marginTop:2}}>{Math.round(p.pct*100)}% mo pace</span> : null; })()}
+                        </TD>
                         <TD>
                           {c.startDate ? (
                             <div>
