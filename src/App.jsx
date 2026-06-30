@@ -2183,7 +2183,10 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
     // Manually entering/editing metrics counts as checking the campaign today — so it
     // shows as "updated today" in both the Campaigns tab and the Pacing tab (same as a
     // CSV/QCI sync). Stamp lastChecked to today.
-    let patched = {...c, ...local, lastChecked: getToday()};
+    // lastMetricUpdate = a "real data changed" stamp (QCI drops set lastQciDate; this covers manual
+    // edits). The "Not Updated Recently" filter keys off it so hand-edits count as an update — but a
+    // plain "Mark All Checked" (which only bumps lastChecked) does NOT reset the stale clock.
+    let patched = {...c, ...local, lastChecked: getToday(), lastMetricUpdate: getToday()};
     // If the displayed metrics came from a synced snapshot, write the hand-edits back INTO that
     // snapshot key too. The Revenue tab (and this tab via resolveMetrics) read spend/impressions
     // from the snapshot FIRST, so without this the manual c.spend/c.impressions would be shadowed
@@ -2748,7 +2751,14 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     const newId = isNew ? Date.now() : f.id;
     // Strip the transient IO new-tactic flag so it never persists onto a real campaign.
     const { _newTactic, ...clean } = f;
-    const saved = isNew ? {...clean, id:newId} : clean;
+    let saved = isNew ? {...clean, id:newId} : clean;
+    // If this edit changed any metric value, stamp lastMetricUpdate so it counts as a data update in
+    // the "Not Updated Recently" filter (a config/note-only edit doesn't). New campaigns don't need it.
+    if(!isNew){
+      const _orig = initialFRef.current || {};
+      const _metricKeys = ["impressions","clicks","ctr","cpm","spend","reach","frequency","videoViews","completionRate","conversions"];
+      if(_metricKeys.some(k => String(saved[k]??"") !== String(_orig[k]??""))) saved = {...saved, lastMetricUpdate: getToday()};
+    }
     onSave(saved);
     // Link any pending reminders to the new campaign ID
     if (isNew && pendingReminders.length > 0) {
@@ -6312,6 +6322,52 @@ function StatusMultiSelect({ fStatuses, setFStatuses, lightMode=false }) {
                   {on && <span style={{color:"#000",fontSize:9,fontWeight:900,lineHeight:1}}>✓</span>}
                 </div>
                 <span style={{fontSize:12,color:on?col:(lightMode?"#475569":"#a8c4e0"),fontWeight:on?700:400}}>{v.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Multi-select quick-filters dropdown — each item independently toggles its own filter state, so the
+// user can stack several at once (e.g. Monthly Flights + Not Updated Recently). `items` is
+// [{key,label,active,toggle}]; the campaign filter already ANDs each one together.
+function QuickFiltersMultiSelect({ items, lightMode=false }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+  const activeItems = items.filter(i=>i.active);
+  const active = activeItems.length > 0;
+  const ACC = "#f59e0b";
+  const label = activeItems.length === 0 ? "Quick Filters" : activeItems.length === 1 ? activeItems[0].label.replace(/^\S+\s/,"") : `${activeItems.length} Filters`;
+  return (
+    <div ref={ref} style={{position:"relative",userSelect:"none",display:"flex",alignItems:"center"}}>
+      <button onClick={()=>setOpen(v=>!v)} style={{background:active?(lightMode?"#fef3c7":"#1a1208"):(lightMode?"#f8fafc":"#0e1a2e"),border:`1px solid ${active?ACC:(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:7,padding:"7px 13px",color:active?(lightMode?"#92400e":"#fbbf24"):(lightMode?"#64748b":"#7a9bbf"),fontSize:13,fontWeight:active?600:400,cursor:"pointer",display:"flex",alignItems:"center",gap:7,minWidth:150,justifyContent:"space-between"}}>
+        <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
+        <span style={{fontSize:9,opacity:0.5}}>{open?"▲":"▼"}</span>
+      </button>
+      {active && <span onClick={()=>{ items.forEach(i=>{ if(i.active) i.toggle(); }); setOpen(false); }} style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
+      {open && (
+        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:8,zIndex:100,minWidth:210,boxShadow:lightMode?"0 8px 32px rgba(0,0,0,.12)":"0 8px 32px rgba(0,0,0,.6)",overflow:"hidden"}}>
+          <div style={{padding:"7px 10px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#162236"}`}}>
+            <span style={{fontSize:10,color:lightMode?"#94a3b8":"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Quick Filters · stackable</span>
+          </div>
+          {items.map(i => {
+            const on = i.active;
+            return (
+              <div key={i.key} onClick={i.toggle} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",cursor:"pointer",background:on?(lightMode?ACC+"22":ACC+"14"):"transparent",transition:"background .1s"}}
+                onMouseEnter={e=>{ if(!on) e.currentTarget.style.background=lightMode?"#f1f5f9":"#162236"; }}
+                onMouseLeave={e=>{ if(!on) e.currentTarget.style.background="transparent"; }}>
+                <div style={{width:13,height:13,borderRadius:3,border:`2px solid ${on?ACC:(lightMode?"#cbd5e1":"#334155")}`,background:on?ACC:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .1s"}}>
+                  {on && <span style={{color:"#000",fontSize:9,fontWeight:900,lineHeight:1}}>✓</span>}
+                </div>
+                <span style={{fontSize:12,color:on?(lightMode?"#92400e":"#fbbf24"):(lightMode?"#475569":"#a8c4e0"),fontWeight:on?700:400,whiteSpace:"nowrap"}}>{i.label}</span>
               </div>
             );
           })}
@@ -16337,6 +16393,7 @@ export default function App() {
   const [pdfQueueOpen, setPdfQueueOpen] = useState(false); // whether the draft modal is currently shown
   const [pdfDraftIdx, setPdfDraftIdx] = useState(0); // which draft in the queue is currently shown
   const [pdfError, setPdfError] = useState("");
+  const [ioDropOpen, setIoDropOpen] = useState(false); // big drag-and-drop box for the IO PDF (opened from the header button)
   const [pdfProcessing, setPdfProcessing] = useState(false);
   useEffect(() => {
     try {
@@ -16636,7 +16693,7 @@ export default function App() {
   const [dragOverId, setDragOverId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showBulkEdit, setShowBulkEdit] = useState(false);
-  const [bulkDraft, setBulkDraft] = useState({ note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
+  const [bulkDraft, setBulkDraft] = useState({ goal:"", note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
   const [dateRange, setDateRange] = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
   const [activeTab, setActiveTab] = useState("campaigns");
   const [lightMode, setLightMode] = useState(()=>localStorage.getItem("zeus-light-mode")==="true");
@@ -16971,11 +17028,13 @@ export default function App() {
         if(daysAgo>fRecentDays) return false;
       }
       if(fStaleDays>0) {
-        // Show campaigns whose data hasn't refreshed in N+ days. "Last data update" = the last QCI drop
-        // date if present (real data), else lastChecked. New campaigns default lastChecked to today, so
-        // they don't show as stale until they actually go N days without an update.
-        const last = c.lastQciDate || c.lastChecked;
-        const days = last ? Math.floor((Date.now()-new Date(last).getTime())/86400000) : Infinity;
+        // "Last data update" = the most recent of a QCI drop (lastQciDate) and a manual metric edit
+        // (lastMetricUpdate). lastChecked is only a fallback for legacy records — we deliberately do NOT
+        // key off it directly, so a plain "Mark All Checked" (which bumps only lastChecked, no data
+        // change) can't hide a genuinely stale campaign. New campaigns fall back to lastChecked=today.
+        const ts = [c.lastQciDate, c.lastMetricUpdate].map(d=>d?new Date(d).getTime():NaN).filter(t=>!isNaN(t));
+        const lastMs = ts.length ? Math.max(...ts) : (c.lastChecked ? new Date(c.lastChecked).getTime() : null);
+        const days = lastMs ? Math.floor((Date.now()-lastMs)/86400000) : Infinity;
         if(days < fStaleDays) return false;
       }
       if(fNote2) {
@@ -17106,6 +17165,7 @@ export default function App() {
 
   function applyBulkEdit() {
     const updates = {};
+    if (bulkDraft.goal.trim())               updates.goal               = bulkDraft.goal.trim();
     if (bulkDraft.note1.trim())              updates.note1              = bulkDraft.note1.trim();
     if (bulkDraft.note2.trim())              updates.note2              = bulkDraft.note2.trim();
     if (bulkDraft.status)                    updates.status             = bulkDraft.status;
@@ -17140,7 +17200,7 @@ export default function App() {
     }));
     setSelectedIds(new Set());
     setShowBulkEdit(false);
-    setBulkDraft({ note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
+    setBulkDraft({ goal:"", note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
   }
 
   async function applyBulkClearMetrics() {
@@ -17167,7 +17227,7 @@ export default function App() {
     }));
     setShowBulkEdit(false);
     setSelectedIds(new Set());
-    setBulkDraft({ note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
+    setBulkDraft({ goal:"", note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
   }
 
   // One-click new-month reset (triggered by the "New month detected" banner): backs up
@@ -17503,7 +17563,8 @@ export default function App() {
                 advertiser, dates, impressions, CPM, budget from a Universal IO PDF and
                 creates draft campaigns for review. Mobile ID Integration services split
                 into DSP + FB/SP pairs automatically. */}
-            <label
+            <button
+              onClick={()=>{ if(!pdfProcessing) setIoDropOpen(true); }}
               onDragOver={e=>{ e.preventDefault(); if(!pdfProcessing){ e.currentTarget.style.background=lightMode?"#fde68a":"#2a1a00"; e.currentTarget.style.borderColor=lightMode?"#d97706":"#f59e0b"; } }}
               onDragLeave={e=>{ e.currentTarget.style.background=lightMode?"#fef3c7":"#1a1208"; e.currentTarget.style.borderColor=lightMode?"#f59e0b":"#f59e0b40"; }}
               onDrop={e=>{
@@ -17515,11 +17576,9 @@ export default function App() {
                 if (file) handleIOPdfDrop(file);
               }}
               style={{background:lightMode?"#fef3c7":"#1a1208",border:lightMode?"1px solid #f59e0b":"1px solid #f59e0b40",borderRadius:7,padding:"6px 13px",color:lightMode?"#92400e":"#fbbf24",fontWeight:700,fontSize:13,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,opacity:pdfProcessing?0.6:1,transition:"background .15s, border-color .15s"}}
-              title="Drop a Universal IO PDF here, or click to pick one">
+              title="Open the IO PDF drop box (or drop a PDF right here)">
               {pdfProcessing ? "⏳ Parsing…" : "📄 Drop IO PDF"}
-              <input type="file" accept=".pdf,application/pdf" style={{display:"none"}} disabled={pdfProcessing}
-                onChange={e=>{ handleIOPdfDrop(e.target.files[0]); e.target.value=""; }}/>
-            </label>
+            </button>
             {/* Pending IO drafts chip — appears when user closed the modal without
                 finishing the queue. One click reopens the next draft for review. */}
             {pdfDrafts && pdfDrafts.length > 0 && !pdfQueueOpen && (
@@ -17865,8 +17924,12 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* ── Row 3: Notes ── */}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                {/* ── Row 3: Goals + Note 2 ── */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,color:"#00F0FF",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🎯 Goal (contract)</label>
+                    <input value={bulkDraft.goal} onChange={e=>setBulkDraft(p=>({...p,goal:e.target.value}))} placeholder="e.g. 1.2M impressions" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.goal.trim()?"#00F0FF60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                  </div>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Goal</label>
                     <input value={bulkDraft.note1} onChange={e=>setBulkDraft(p=>({...p,note1:e.target.value}))} placeholder="e.g. 125K/Mo" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.note1.trim()?"#3B8FFF60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
@@ -17966,38 +18029,20 @@ export default function App() {
         {/* Filters */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…" style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"8px 14px",color:lightMode?"#0f172a":"#d8eaf8",fontSize:14,width:280}}/>
-          {/* Quick filters menu (statuses now live in the StatusMultiSelect beside it). */}
-          <select
-            value={fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":fGoalHit?"__goalHit__":fCloseToGoal?"__closeToGoal__":fRecentDays>0?"__recent__":fStaleDays>0?"__stale__":fNote2?"__note2__":fNoRetargeting?"__noRT__":fHasData==="yes"?"__hasData__":fHasData==="no"?"__noData__":"all"}
-            onChange={e=>{
-              const v=e.target.value;
-              setFMonthly(false); setFGoalHit(false); setFCloseToGoal(false); setGroupByClient(false); setFRecentDays(0); setFStaleDays(0); setFNote2(false); setFNoRetargeting(false); setFHasData("all");
-              if(v==="__monthly__"){setFMonthly(true);setSortKey("endDate");}
-              else if(v==="__reminder__"){setSortKey("reminder");}
-              else if(v==="__grouped__"){if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(true);}
-              else if(v==="__goalHit__"){if(sortKey==="reminder")setSortKey("endDate");setFGoalHit(true);setFExcludeGoalHit(false);}
-              else if(v==="__closeToGoal__"){if(sortKey==="reminder")setSortKey("endDate");setFCloseToGoal(true);}
-              else if(v==="__recent__"){if(sortKey==="reminder")setSortKey("endDate");setFRecentDays(7);}
-              else if(v==="__stale__"){if(sortKey==="reminder")setSortKey("endDate");setFStaleDays(3);}
-              else if(v==="__note2__"){if(sortKey==="reminder")setSortKey("endDate");setFNote2(true);}
-              else if(v==="__noRT__"){if(sortKey==="reminder")setSortKey("endDate");setFNoRetargeting(true);}
-              else if(v==="__hasData__"){if(sortKey==="reminder")setSortKey("endDate");setFHasData("yes");}
-              else if(v==="__noData__"){if(sortKey==="reminder")setSortKey("endDate");setFHasData("no");}
-            }}
-            style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#cbd5e1":fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":fGoalHit?"#00c896":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fStaleDays>0?"#f59e0b":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":fHasData==="yes"?"#00c896":fHasData==="no"?"#ef4444":"#162236"}`,borderRadius:7,padding:"7px 11px",color:lightMode?"#0f172a":fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":fGoalHit?"#00e5a0":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fStaleDays>0?"#f59e0b":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":fHasData==="yes"?"#00e5a0":fHasData==="no"?"#ef4444":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient||fGoalHit||fCloseToGoal||fRecentDays>0||fStaleDays>0||fNote2||fNoRetargeting||fHasData!=="all")?700:400}}>
-            <option value="all">Quick Filters…</option>
-            <option value="__stale__">🕒 Not Updated Recently</option>
-            <option value="__monthly__">★ Monthly Flights</option>
-            <option value="__reminder__">🔔 Has Reminder</option>
-            <option value="__goalHit__">🎯 Goal Hit</option>
-            <option value="__closeToGoal__">⏳ Close to Goal</option>
-            <option value="__recent__">🆕 Recently Added</option>
-            <option value="__note2__">⚠ Has Note 2</option>
-            <option value="__noRT__">⚠ RT Pixel Missing</option>
-            <option value="__grouped__">👥 Group by Client</option>
-            <option value="__hasData__">✓ Has Metrics</option>
-            <option value="__noData__">✗ No Metrics</option>
-          </select>
+          {/* Quick filters — stackable multi-select (each toggles its own filter; they AND together). */}
+          <QuickFiltersMultiSelect lightMode={lightMode} items={[
+            { key:"stale",    label:"🕒 Not Updated Recently", active:fStaleDays>0,         toggle:()=>setFStaleDays(d=>d>0?0:3) },
+            { key:"monthly",  label:"★ Monthly Flights",       active:fMonthly,             toggle:()=>setFMonthly(v=>!v) },
+            { key:"reminder", label:"🔔 Has Reminder",         active:sortKey==="reminder", toggle:()=>setSortKey(k=>k==="reminder"?"endDate":"reminder") },
+            { key:"goalHit",  label:"🎯 Goal Hit",             active:fGoalHit,             toggle:()=>{ setFGoalHit(v=>!v); setFExcludeGoalHit(false); } },
+            { key:"close",    label:"⏳ Close to Goal",         active:fCloseToGoal,         toggle:()=>setFCloseToGoal(v=>!v) },
+            { key:"recent",   label:"🆕 Recently Added",        active:fRecentDays>0,        toggle:()=>setFRecentDays(d=>d>0?0:7) },
+            { key:"note2",    label:"⚠ Has Note 2",            active:fNote2,               toggle:()=>setFNote2(v=>!v) },
+            { key:"noRT",     label:"⚠ RT Pixel Missing",      active:fNoRetargeting,       toggle:()=>setFNoRetargeting(v=>!v) },
+            { key:"grouped",  label:"👥 Group by Client",      active:groupByClient,        toggle:()=>setGroupByClient(v=>!v) },
+            { key:"hasData",  label:"✓ Has Metrics",           active:fHasData==="yes",     toggle:()=>setFHasData(v=>v==="yes"?"all":"yes") },
+            { key:"noData",   label:"✗ No Metrics",            active:fHasData==="no",      toggle:()=>setFHasData(v=>v==="no"?"all":"no") },
+          ]}/>
           <StatusMultiSelect fStatuses={fStatuses} setFStatuses={setFStatuses} lightMode={lightMode}/>
           {/* Inline day range picker — only shown when Recently Added is active */}
           {fRecentDays>0&&(
@@ -18440,6 +18485,28 @@ export default function App() {
         partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
       {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} focusCampaignId={typeof showReminderModal==="number"?showReminderModal:null} onClose={()=>setShowReminderModal(null)} onNavigate={(campId)=>{ setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; }); setSearch(""); setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },200); }}/>}
       {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
+      {/* ── IO PDF drop box — a focused drag-and-drop lightbox, opened from the "Drop IO PDF" header
+             button (mirrors the Quick Check-in drop zone). Drop or browse a PDF → it parses into review
+             drafts (the draft queue modal opens automatically). ── */}
+      {ioDropOpen && (
+        <div onClick={()=>setIoDropOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(3px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:14,width:"min(560px,94vw)",padding:18,boxShadow:"0 30px 80px rgba(0,0,0,.55)"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <span style={{fontSize:15,fontWeight:800,color:lightMode?"#92400e":"#fbbf24"}}>📄 Drop IO PDF</span>
+              <button onClick={()=>setIoDropOpen(false)} style={{background:"none",border:"none",color:lightMode?"#94a3b8":"#4d6e8a",fontSize:18,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+            <label style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:9,padding:"42px 20px",border:`2px dashed ${lightMode?"#f59e0b":"#f59e0b66"}`,borderRadius:12,background:lightMode?"#fffbeb":"#1a1208",cursor:"pointer",textAlign:"center"}}
+              onDragOver={e=>{e.preventDefault();e.currentTarget.style.background=lightMode?"#fde68a":"#2a1a00";e.currentTarget.style.borderColor="#f59e0b";}}
+              onDragLeave={e=>{e.currentTarget.style.background=lightMode?"#fffbeb":"#1a1208";e.currentTarget.style.borderColor=lightMode?"#f59e0b":"#f59e0b66";}}
+              onDrop={e=>{e.preventDefault();e.currentTarget.style.background=lightMode?"#fffbeb":"#1a1208";e.currentTarget.style.borderColor=lightMode?"#f59e0b":"#f59e0b66";const file=e.dataTransfer.files&&e.dataTransfer.files[0];if(file){ handleIOPdfDrop(file); setIoDropOpen(false); }}}>
+              <span style={{fontSize:34,lineHeight:1}}>📄</span>
+              <span style={{fontSize:14,fontWeight:700,color:lightMode?"#92400e":"#fbbf24"}}>Drag &amp; drop your IO PDF here</span>
+              <span style={{fontSize:11.5,color:lightMode?"#a16207":"#b08344"}}>or click to browse — auto-extracts campaigns into review drafts</span>
+              <input type="file" accept=".pdf,application/pdf" style={{display:"none"}} onChange={e=>{ const file=e.target.files[0]; e.target.value=""; if(file){ handleIOPdfDrop(file); setIoDropOpen(false); } }}/>
+            </label>
+          </div>
+        </div>
+      )}
       {/* ── IO PDF draft queue — opens the regular Add Campaign Modal for each draft ──
           When a PDF is dropped and drafts are parsed, pdfDrafts is set to an array
           of pending drafts. We walk through them one at a time: the FIRST draft
@@ -18456,9 +18523,12 @@ export default function App() {
         const displayIndex = consumed + safeIdx + 1;
         return (
           <Modal
-            // key forces the Modal to remount when switching drafts, so it re-inits
-            // its internal form state from the new `campaign` prop.
-            key={safeIdx}
+            // key forces the Modal to remount when the visible draft changes, so it re-inits its form
+            // state from the new `campaign`. Include pdfDrafts.length so SAVING a draft (which removes it
+            // but leaves the index the same) also remounts onto the next draft — without this, "Add
+            // campaign" left the same draft on screen instead of advancing. (Editing keeps length the
+            // same, so it doesn't remount mid-typing.)
+            key={`${pdfDrafts.length}-${safeIdx}`}
             isNew
             campaign={current}
             partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}
