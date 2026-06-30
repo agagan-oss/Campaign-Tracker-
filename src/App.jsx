@@ -6275,6 +6275,52 @@ function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms, lightMode=f
   );
 }
 
+// Multi-select status filter — mirrors PlatformMultiSelect so the user can show several statuses at
+// once (e.g. Active + Off). Backed by a Set; empty = all statuses.
+function StatusMultiSelect({ fStatuses, setFStatuses, lightMode=false }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+  const entries = Object.entries(STATUS_CFG);
+  const toggle = k => setFStatuses(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const label = fStatuses.size === 0 ? "All Statuses" : fStatuses.size === 1 ? (STATUS_CFG[[...fStatuses][0]]?.label || "1 Status") : `${fStatuses.size} Statuses`;
+  const active = fStatuses.size > 0;
+  return (
+    <div ref={ref} style={{position:"relative",userSelect:"none",display:"flex",alignItems:"center"}}>
+      <button onClick={()=>setOpen(v=>!v)} style={{background:active?(lightMode?"#dcfce7":"#0e2818"):(lightMode?"#f8fafc":"#0e1a2e"),border:`1px solid ${active?"#00c896":(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:7,padding:"7px 13px",color:active?"#00e5a0":(lightMode?"#64748b":"#7a9bbf"),fontSize:13,fontWeight:active?600:400,cursor:"pointer",display:"flex",alignItems:"center",gap:7,minWidth:145,justifyContent:"space-between"}}>
+        <span>{label}</span>
+        <span style={{fontSize:9,opacity:0.5}}>{open?"▲":"▼"}</span>
+      </button>
+      {active && <span onClick={()=>{ setFStatuses(new Set()); setOpen(false); }} style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
+      {open && (
+        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:8,zIndex:100,minWidth:180,boxShadow:lightMode?"0 8px 32px rgba(0,0,0,.12)":"0 8px 32px rgba(0,0,0,.6)",overflow:"hidden"}}>
+          <div style={{padding:"7px 10px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#162236"}`}}>
+            <span style={{fontSize:10,color:lightMode?"#94a3b8":"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Filter Statuses</span>
+          </div>
+          {entries.map(([k,v]) => {
+            const on = fStatuses.has(k);
+            const col = v.color || "#00c896";
+            return (
+              <div key={k} onClick={()=>toggle(k)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",cursor:"pointer",background:on?(lightMode?col+"25":col+"12"):"transparent",transition:"background .1s"}}
+                onMouseEnter={e=>{ if(!on) e.currentTarget.style.background=lightMode?"#f1f5f9":"#162236"; }}
+                onMouseLeave={e=>{ if(!on) e.currentTarget.style.background="transparent"; }}>
+                <div style={{width:13,height:13,borderRadius:3,border:`2px solid ${on?col:(lightMode?"#cbd5e1":"#334155")}`,background:on?col:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .1s"}}>
+                  {on && <span style={{color:"#000",fontSize:9,fontWeight:900,lineHeight:1}}>✓</span>}
+                </div>
+                <span style={{fontSize:12,color:on?col:(lightMode?"#475569":"#a8c4e0"),fontWeight:on?700:400}}>{v.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 
 // ─── Platform KPI benchmarks ──────────────────────────────────────────────
@@ -8503,7 +8549,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     {/* "Off" campaigns with recent data — click to expand into a list of
         candidates with per-row activate buttons (so the user can review each
         before activating — not all of them belong in Pacing). */}
-    {offWithData.length > 0 && (
+    {/* "off campaigns with data" banner hidden per Austin — keeps the Pacing view clean. (Set the
+        guard back to offWithData.length > 0 to bring it back. Those campaigns can still be activated
+        from the Campaigns tab.) */}
+    {false && offWithData.length > 0 && (
       <div style={{background:lightMode?"#fffbeb":"#1a1208",border:`1px solid ${lightMode?"#fcd34d":"#f59e0b40"}`,borderRadius:9,marginBottom:12,overflow:"hidden"}}>
         {/* Header row — clickable to toggle expand */}
         <div onClick={()=>setOffBannerOpen(v=>!v)}
@@ -16266,7 +16315,7 @@ export default function App() {
   const CAMPAIGNS_FILTER_KEY = "campaigns-filter-state";
   const _campPersisted = (()=>{ try{ return JSON.parse(localStorage.getItem(CAMPAIGNS_FILTER_KEY) || "{}"); } catch { return {}; } })();
   const [search, setSearch]       = useState(_campPersisted.search || "");
-  const [fStatus, setFStatus]     = useState(_campPersisted.fStatus || "all");
+  const [fStatuses, setFStatuses] = useState(()=> new Set(_campPersisted.fStatuses || []));  // multi-select status filter; empty = all
   const [fPlatforms, setFPlatforms] = useState(new Set(_campPersisted.fPlatforms || []));
   const [fMonthly, setFMonthly]   = useState(_campPersisted.fMonthly || false);
   const [sortKey, setSortKey]     = useState(_campPersisted.sortKey || "endDate");
@@ -16566,6 +16615,7 @@ export default function App() {
   const [fCloseToGoal, setFCloseToGoal]         = useState(_campPersisted.fCloseToGoal || false);
   const [fExcludeGoalHit, setFExcludeGoalHit]   = useState(_campPersisted.fExcludeGoalHit || false);
   const [fRecentDays, setFRecentDays]           = useState(_campPersisted.fRecentDays || 0);   // 0 = off, else show added within N days
+  const [fStaleDays, setFStaleDays]             = useState(_campPersisted.fStaleDays || 0);    // 0 = off, else show campaigns NOT data-updated in N+ days
   const [fNote2, setFNote2]                     = useState(_campPersisted.fNote2 || false); // show only campaigns with Note 2 filled
   const [fHasData, setFHasData]                 = useState(_campPersisted.fHasData || "all"); // all | yes | no — filter by whether campaign has metrics
   const [fNoRetargeting, setFNoRetargeting]     = useState(_campPersisted.fNoRetargeting || false); // show only campaigns without retargeting
@@ -16573,11 +16623,11 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem(CAMPAIGNS_FILTER_KEY, JSON.stringify({
-        search, fStatus, fPlatforms: [...fPlatforms], fMonthly, sortKey, sortDir,
-        groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fNote2, fHasData, fNoRetargeting,
+        search, fStatuses: [...fStatuses], fPlatforms: [...fPlatforms], fMonthly, sortKey, sortDir,
+        groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fStaleDays, fNote2, fHasData, fNoRetargeting,
       }));
     } catch {}
-  }, [search, fStatus, fPlatforms, fMonthly, sortKey, sortDir, groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fNote2, fHasData, fNoRetargeting]);
+  }, [search, fStatuses, fPlatforms, fMonthly, sortKey, sortDir, groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fStaleDays, fNote2, fHasData, fNoRetargeting]);
   const [showDailyGoal, setShowDailyGoal]       = useState(false);
   const [showPacingBar, setShowPacingBar]       = useState(false);
   const [quickCheckIn, setQuickCheckIn]         = useState(false);
@@ -16920,6 +16970,14 @@ export default function App() {
         const daysAgo = (Date.now()-createdMs)/86400000;
         if(daysAgo>fRecentDays) return false;
       }
+      if(fStaleDays>0) {
+        // Show campaigns whose data hasn't refreshed in N+ days. "Last data update" = the last QCI drop
+        // date if present (real data), else lastChecked. New campaigns default lastChecked to today, so
+        // they don't show as stale until they actually go N days without an update.
+        const last = c.lastQciDate || c.lastChecked;
+        const days = last ? Math.floor((Date.now()-new Date(last).getTime())/86400000) : Infinity;
+        if(days < fStaleDays) return false;
+      }
       if(fNote2) {
         if(!(c.note2&&c.note2.trim())) return false;
       }
@@ -16933,7 +16991,7 @@ export default function App() {
         if(fHasData==="yes" && !hasMetrics) return false;
         if(fHasData==="no"  &&  hasMetrics) return false;
       }
-      return ms&&(fStatus==="all"||(c.status||"")===fStatus)&&(fPlatforms.size===0||fPlatforms.has(c.platform))&&(!fMonthly||c.monthlyFlight);
+      return ms&&(fStatuses.size===0||fStatuses.has(c.status||""))&&(fPlatforms.size===0||fPlatforms.has(c.platform))&&(!fMonthly||c.monthlyFlight);
     });
     return [...list].sort((a,b)=>{
       if(sortKey==="reminder"){
@@ -16963,7 +17021,7 @@ export default function App() {
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
     });
-  },[campaigns,reminders,search,fStatus,fPlatforms,fMonthly,fGoalHit,fCloseToGoal,fExcludeGoalHit,fRecentDays,fNote2,fNoRetargeting,fHasData,sortKey,sortDir,dateRange.preset]);
+  },[campaigns,reminders,search,fStatuses,fPlatforms,fMonthly,fGoalHit,fCloseToGoal,fExcludeGoalHit,fRecentDays,fStaleDays,fNote2,fNoRetargeting,fHasData,sortKey,sortDir,dateRange.preset]);
 
   const stats = useMemo(()=>({
     total: campaigns.length,
@@ -17492,7 +17550,7 @@ export default function App() {
           <div style={{display:"flex",gap:0,flexWrap:"wrap"}}>
             {[
               {key:"campaigns", label:"📋 Campaigns"},
-              {key:"pacing",    label:"📈 Pacing", badge: behindCount},
+              {key:"pacing",    label:"📈 Pacing"},
               {key:"revenue",   label:"💰 Revenue"},
               {key:"reports",    label:"📄 Reports"},
               {key:"vault",     label:"🗃 Report Vault"},
@@ -17908,26 +17966,27 @@ export default function App() {
         {/* Filters */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…" style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"8px 14px",color:lightMode?"#0f172a":"#d8eaf8",fontSize:14,width:280}}/>
+          {/* Quick filters menu (statuses now live in the StatusMultiSelect beside it). */}
           <select
-            value={fStatus!=="all"?fStatus:(fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":fGoalHit?"__goalHit__":fCloseToGoal?"__closeToGoal__":fRecentDays>0?"__recent__":fNote2?"__note2__":fNoRetargeting?"__noRT__":fHasData==="yes"?"__hasData__":fHasData==="no"?"__noData__":"all")}
+            value={fMonthly?"__monthly__":sortKey==="reminder"?"__reminder__":groupByClient?"__grouped__":fGoalHit?"__goalHit__":fCloseToGoal?"__closeToGoal__":fRecentDays>0?"__recent__":fStaleDays>0?"__stale__":fNote2?"__note2__":fNoRetargeting?"__noRT__":fHasData==="yes"?"__hasData__":fHasData==="no"?"__noData__":"all"}
             onChange={e=>{
               const v=e.target.value;
-              setFMonthly(false); setFGoalHit(false); setFCloseToGoal(false); setGroupByClient(false); setFRecentDays(0); setFNote2(false); setFNoRetargeting(false); setFHasData("all");
-              if(v==="__monthly__"){setFMonthly(true);setFStatus("all");setSortKey("endDate");}
-              else if(v==="__reminder__"){setFStatus("all");setSortKey("reminder");}
-              else if(v==="__grouped__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(true);}
-              else if(v==="__goalHit__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFGoalHit(true);setFExcludeGoalHit(false);}
-              else if(v==="__closeToGoal__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFCloseToGoal(true);}
-              else if(v==="__recent__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFRecentDays(7);}
-              else if(v==="__note2__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFNote2(true);}
-              else if(v==="__noRT__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFNoRetargeting(true);}
-              else if(v==="__hasData__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFHasData("yes");}
-              else if(v==="__noData__"){setFStatus("all");if(sortKey==="reminder")setSortKey("endDate");setFHasData("no");}
-              else{setFStatus(v);if(sortKey==="reminder")setSortKey("endDate");setFHasData("all");}
+              setFMonthly(false); setFGoalHit(false); setFCloseToGoal(false); setGroupByClient(false); setFRecentDays(0); setFStaleDays(0); setFNote2(false); setFNoRetargeting(false); setFHasData("all");
+              if(v==="__monthly__"){setFMonthly(true);setSortKey("endDate");}
+              else if(v==="__reminder__"){setSortKey("reminder");}
+              else if(v==="__grouped__"){if(sortKey==="reminder")setSortKey("endDate");setGroupByClient(true);}
+              else if(v==="__goalHit__"){if(sortKey==="reminder")setSortKey("endDate");setFGoalHit(true);setFExcludeGoalHit(false);}
+              else if(v==="__closeToGoal__"){if(sortKey==="reminder")setSortKey("endDate");setFCloseToGoal(true);}
+              else if(v==="__recent__"){if(sortKey==="reminder")setSortKey("endDate");setFRecentDays(7);}
+              else if(v==="__stale__"){if(sortKey==="reminder")setSortKey("endDate");setFStaleDays(3);}
+              else if(v==="__note2__"){if(sortKey==="reminder")setSortKey("endDate");setFNote2(true);}
+              else if(v==="__noRT__"){if(sortKey==="reminder")setSortKey("endDate");setFNoRetargeting(true);}
+              else if(v==="__hasData__"){if(sortKey==="reminder")setSortKey("endDate");setFHasData("yes");}
+              else if(v==="__noData__"){if(sortKey==="reminder")setSortKey("endDate");setFHasData("no");}
             }}
-            style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#cbd5e1":fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":fGoalHit?"#00c896":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":fHasData==="yes"?"#00c896":fHasData==="no"?"#ef4444":"#162236"}`,borderRadius:7,padding:"7px 11px",color:lightMode?"#0f172a":fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":fGoalHit?"#00e5a0":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":fHasData==="yes"?"#00e5a0":fHasData==="no"?"#ef4444":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient||fGoalHit||fCloseToGoal||fRecentDays>0||fNote2||fNoRetargeting||fHasData!=="all")?700:400}}>
-            <option value="all">All Statuses</option>
-            {Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+            style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#cbd5e1":fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00c896":fGoalHit?"#00c896":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fStaleDays>0?"#f59e0b":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":fHasData==="yes"?"#00c896":fHasData==="no"?"#ef4444":"#162236"}`,borderRadius:7,padding:"7px 11px",color:lightMode?"#0f172a":fMonthly?"#00e5c0":sortKey==="reminder"?"#f59e0b":groupByClient?"#00e5a0":fGoalHit?"#00e5a0":fCloseToGoal?"#f59e0b":fRecentDays>0?"#7dd3fc":fStaleDays>0?"#f59e0b":fNote2?"#ef4444":fNoRetargeting?"#FF6B6B":fHasData==="yes"?"#00e5a0":fHasData==="no"?"#ef4444":"#7a9bbf",fontSize:13,fontWeight:(fMonthly||sortKey==="reminder"||groupByClient||fGoalHit||fCloseToGoal||fRecentDays>0||fStaleDays>0||fNote2||fNoRetargeting||fHasData!=="all")?700:400}}>
+            <option value="all">Quick Filters…</option>
+            <option value="__stale__">🕒 Not Updated Recently</option>
             <option value="__monthly__">★ Monthly Flights</option>
             <option value="__reminder__">🔔 Has Reminder</option>
             <option value="__goalHit__">🎯 Goal Hit</option>
@@ -17939,6 +17998,7 @@ export default function App() {
             <option value="__hasData__">✓ Has Metrics</option>
             <option value="__noData__">✗ No Metrics</option>
           </select>
+          <StatusMultiSelect fStatuses={fStatuses} setFStatuses={setFStatuses} lightMode={lightMode}/>
           {/* Inline day range picker — only shown when Recently Added is active */}
           {fRecentDays>0&&(
             <div style={{display:"flex",alignItems:"center",gap:6,background:lightMode?"#e0f2fe":"#06101f",border:`1px solid ${lightMode?"#7dd3fc":"#7dd3fc40"}`,borderRadius:7,padding:"4px 10px"}}>
@@ -17950,6 +18010,21 @@ export default function App() {
                 </button>
               ))}
               <button onClick={()=>setFRecentDays(0)}
+                style={{background:"none",border:"none",color:lightMode?"#64748b":"#3d5a72",fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1,marginLeft:2}}>×</button>
+            </div>
+          )}
+          {/* Inline day picker — only shown when "Not Updated Recently" is active. Shows campaigns whose
+              data hasn't refreshed in N+ days, so you can chase down anything that went quiet. */}
+          {fStaleDays>0&&(
+            <div style={{display:"flex",alignItems:"center",gap:6,background:lightMode?"#fffbeb":"#1a1208",border:`1px solid ${lightMode?"#fcd34d":"#f59e0b40"}`,borderRadius:7,padding:"4px 10px"}}>
+              <span style={{fontSize:11,color:lightMode?"#92400e":"#fbbf24",fontWeight:700,whiteSpace:"nowrap"}}>🕒 No update in</span>
+              {[2,3,5,7,14].map(d=>(
+                <button key={d} onClick={()=>setFStaleDays(d)}
+                  style={{background:fStaleDays===d?(lightMode?"#fcd34d":"#f59e0b22"):"none",border:`1px solid ${fStaleDays===d?(lightMode?"#92400e":"#f59e0b60"):"transparent"}`,borderRadius:5,padding:"2px 8px",color:fStaleDays===d?(lightMode?"#451a03":"#fbbf24"):(lightMode?"#475569":"#3d5a72"),fontSize:12,fontWeight:fStaleDays===d?700:400,cursor:"pointer",transition:"all .12s"}}>
+                  {d}d+
+                </button>
+              ))}
+              <button onClick={()=>setFStaleDays(0)}
                 style={{background:"none",border:"none",color:lightMode?"#64748b":"#3d5a72",fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1,marginLeft:2}}>×</button>
             </div>
           )}
@@ -18148,7 +18223,7 @@ export default function App() {
                                   const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
                                   return (
                                     <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,paddingLeft:12,flexWrap:"wrap"}}>
-                                      <div style={{fontSize:11,color:lightMode?"#059669":"#00ffb3",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
+                                      <div style={{fontSize:11,color:lightMode?"#0891b2":"#00F0FF",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
                                       {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                                     </div>
                                   );
@@ -18255,7 +18330,7 @@ export default function App() {
                             const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
                             return (
                               <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,flexWrap:"wrap"}}>
-                                <div style={{fontSize:11,color:lightMode?"#059669":"#00ffb3",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
+                                <div style={{fontSize:11,color:lightMode?"#0891b2":"#00F0FF",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
                                 {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:lightMode?"#7c3aed":"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                               </div>
                             );
