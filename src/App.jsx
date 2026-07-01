@@ -2399,7 +2399,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
           {/* ── GEO + CREATIVE — compact row ── */}
           <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:160}}>
-              <label style={{display:"block",fontSize:9,color:"#60a5fa",textTransform:"uppercase",letterSpacing:".07em",fontWeight:700,marginBottom:4}}>🌎 Geo</label>
+              <label style={{display:"block",fontSize:9,color:_lm?"#60a5fa":"#00d9ff",textTransform:"uppercase",letterSpacing:".07em",fontWeight:700,marginBottom:4}}>🌎 Geo</label>
               <input value={c.geoTarget||""} onChange={e=>onUpdate({...c,geoTarget:e.target.value})} placeholder="e.g. Florida statewide"
                 style={{width:"100%",background:_lm?"#f8fafc":"#060d18",border:`1px solid ${c.geoTarget?"#60a5fa40":(_lm?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",outline:"none"}}/>
             </div>
@@ -2445,7 +2445,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                   </div>
                   <textarea value={historyDraft} onChange={e=>{ setHistoryDraft(e.target.value); onUpdate({...c,history:e.target.value}); }}
                     placeholder="Your personal notes appear here…"
-                    style={{width:"100%",background:_lm?"#f8fafc":"#060d18",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:5,padding:"7px 10px",color:"#3B8FFF",fontSize:11,fontFamily:"inherit",whiteSpace:"pre-wrap",lineHeight:1.6,resize:"vertical",minHeight:70,boxSizing:"border-box",outline:"none"}}/>
+                    style={{width:"100%",background:_lm?"#f8fafc":"#060d18",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:5,padding:"7px 10px",color:_lm?"#3B8FFF":"#00d9ff",fontSize:11,fontFamily:"inherit",whiteSpace:"pre-wrap",lineHeight:1.6,resize:"vertical",minHeight:70,boxSizing:"border-box",outline:"none"}}/>
                 </>}
 
                 {histTab==="log"&&(
@@ -2902,11 +2902,11 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               {row("endDate","End Date","date")}
               {row("status","Status")}
               <div style={{marginBottom:12}}>
-                <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Goal</label>
+                <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Goal</label>
                 <input type="text" value={f["note1"]||""} onChange={e=>set("note1",e.target.value)} style={{...iS,borderColor:f["note1"]?"#3B8FFF60":"#334155"}}/>
               </div>
               <div style={{marginBottom:12}}>
-                <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 2</label>
+                <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 2</label>
                 <input type="text" value={f["note2"]||""} onChange={e=>set("note2",e.target.value)} style={{...iS,borderColor:f["note2"]?"#3B8FFF60":"#334155"}}/>
               </div>
               {row("lastChecked","Last Checked","date")}
@@ -3024,7 +3024,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 </div>
               </div>
               <div>
-                <label style={{display:"block",fontSize:10,color:"#60a5fa",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌎 Geo Targeting</label>
+                <label style={{display:"block",fontSize:10,color:_lm?"#60a5fa":"#00d9ff",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌎 Geo Targeting</label>
                 <input type="text" value={f.geoTarget||""} onChange={e=>set("geoTarget",e.target.value)} placeholder="e.g. Florida statewide"
                   style={{...iS,borderColor:f.geoTarget?"#60a5fa60":(_lm?"#e2e8f0":"#334155")}}/>
               </div>
@@ -3077,7 +3077,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
 
             {/* History */}
             <div>
-              <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#3B8FFF",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History</label>
+              <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History</label>
               <div style={{display:"flex",gap:6,marginBottom:6}}>
                 <button onClick={()=>{ const el=document.getElementById("modal-history-input"); const val=el?.value?.trim(); if(!val) return; const tod=getToday(); const [y,m,d]=tod.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${val}`; const updated=(f.history||"").trim()?`${line}\n${f.history}`:line; set("history",updated); el.value=""; }}
                   style={{background:"#3B8FFF",border:"none",borderRadius:5,padding:"0 10px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>+ Add</button>
@@ -3086,7 +3086,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                   style={{flex:1,background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${_lm?"#93c5fd":"#3B8FFF40"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
               </div>
               <textarea value={f.history||""} onChange={e=>set("history",e.target.value)} placeholder="Entries appear here…"
-                style={{width:"100%",background:_lm?"#f8fafc":"#060d18",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:6,padding:"8px 10px",color:"#3B8FFF",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:70,lineHeight:1.6}}/>
+                style={{width:"100%",background:_lm?"#f8fafc":"#060d18",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:6,padding:"8px 10px",color:_lm?"#3B8FFF":"#00d9ff",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:70,lineHeight:1.6}}/>
             </div>
 
             {/* Reminders — only on edit */}
@@ -12368,6 +12368,12 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         lastQciSource: fileSource,
         lastQciDate: stamp,
         lastQciAt: asOfIso, // the file's "data as of" time (user-selectable) — surfaces data freshness
+        // Fresh data re-opens the goal badges. "↺ Reset Goals" clears the badges by SUPPRESSING
+        // them (goalHitDismissed/closeToGoalDismissed=true); clearing those here on a new check-in
+        // makes Reset a momentary clear — once new numbers arrive, auto-detection is free to
+        // re-tag Goal Hit / Close again. (Manual dismissals also zero the manual goalHit flag, so
+        // clearing dismissed here can only re-surface an auto-detected badge, never a stale manual one.)
+        goalHitDismissed:false, closeToGoalDismissed:false,
       };
     };
     // Apply to live campaigns. Archived ids won't match here (ids are unique to one list).
@@ -14166,7 +14172,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           )}
           {(fmRevWithSpend>0||fmRev>0) && (
             <button onClick={()=>setShowPLReport(true)}
-              style={{background:_lm?"#f1f5f9":"#0d1a2e",border:`1px solid ${_lm?"#e2e8f0":"#3B8FFF60"}`,borderRadius:7,padding:"5px 12px",color:_lm?"#475569":"#7dd3fc",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+              style={{background:_lm?"#f1f5f9":"#0d1a2e",border:`1px solid ${_lm?"#e2e8f0":"#00d9ff60"}`,borderRadius:7,padding:"5px 12px",color:_lm?"#475569":"#00d9ff",fontSize:11,fontWeight:700,cursor:"pointer"}}>
               📊 Export P&L
             </button>
           )}
@@ -17927,11 +17933,11 @@ export default function App() {
                 {/* ── Row 3: Goals + Note 2 ── */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#00F0FF",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🎯 Goal (contract)</label>
-                    <input value={bulkDraft.goal} onChange={e=>setBulkDraft(p=>({...p,goal:e.target.value}))} placeholder="e.g. 1.2M impressions" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.goal.trim()?"#00F0FF60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                    <label style={{display:"block",fontSize:10,color:_lm?"#0891b2":"#00d9ff",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🎯 Goal (contract)</label>
+                    <input value={bulkDraft.goal} onChange={e=>setBulkDraft(p=>({...p,goal:e.target.value}))} placeholder="e.g. 1.2M impressions" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.goal.trim()?"#00d9ff60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
                   </div>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#3B8FFF",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Goal</label>
+                    <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Goal</label>
                     <input value={bulkDraft.note1} onChange={e=>setBulkDraft(p=>({...p,note1:e.target.value}))} placeholder="e.g. 125K/Mo" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.note1.trim()?"#3B8FFF60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
                   </div>
                   <div>
@@ -17943,7 +17949,7 @@ export default function App() {
                 {/* ── Row 4: URLs ── */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#60a5fa",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📎 Projection Sheet URL</label>
+                    <label style={{display:"block",fontSize:10,color:_lm?"#60a5fa":"#00d9ff",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📎 Projection Sheet URL</label>
                     <input type="url" value={bulkDraft.projectionUrl} onChange={e=>setBulkDraft(p=>({...p,projectionUrl:e.target.value}))} placeholder="https://docs.google.com/…" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.projectionUrl.trim()?"#60a5fa60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"monospace"}}/>
                   </div>
                   <div>
@@ -17955,7 +17961,7 @@ export default function App() {
                 {/* ── Row 5: Geo + Folder ── */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div>
-                    <label style={{display:"block",fontSize:10,color:"#60a5fa",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌎 Geo Target</label>
+                    <label style={{display:"block",fontSize:10,color:_lm?"#60a5fa":"#00d9ff",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌎 Geo Target</label>
                     <input value={bulkDraft.geoTarget} onChange={e=>setBulkDraft(p=>({...p,geoTarget:e.target.value}))} placeholder="e.g. West Virginia statewide" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.geoTarget.trim()?"#60a5fa60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
                   </div>
                   <div>
@@ -18014,9 +18020,21 @@ export default function App() {
             </div>
           ))}
           <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
-            {campaigns.some(c=>c.goalHit||c.closeToGoal||c.goalHitDismissed||c.closeToGoalDismissed) && (
+            {campaigns.some(c=>{
+              // Show the Reset button whenever ANY badge is actually on screen — mirror the exact
+              // badge-visibility logic used in the rows (auto-detected OR manually flagged), not just
+              // stored flags. A purely auto-detected badge (metrics-driven, no stored flag) must still
+              // surface the button, or you couldn't clear it.
+              const disp=resolveMetrics(c,dateRange.preset);
+              const pacing=computeMonthlyPacing(c, disp, c.note1);
+              const autoGoalHit=pacing&&pacing.pct>=1;
+              const autoClose=pacing&&pacing.pct>=0.8&&pacing.pct<1;
+              const showGoalHit=(autoGoalHit||c.goalHit)&&!c.goalHitDismissed;
+              const showClose=!showGoalHit&&(autoClose||c.closeToGoal)&&!c.closeToGoalDismissed;
+              return showGoalHit||showClose;
+            }) && (
               <button
-                onClick={async()=>{ if(await confirm({title:"Reset all goal badges?",message:"Clears 🎯 Goal Hit and ⏳ Close to Goal from all campaigns. Monthly Flight ★ and Reminders 🔔 are not affected.",confirmLabel:"Reset"})) setCampaigns(cs=>cs.map(c=>({...c,goalHit:false,closeToGoal:false,goalHitDismissed:false,closeToGoalDismissed:false}))); }}
+                onClick={async()=>{ if(await confirm({title:"Reset all goal badges?",message:"Clears 🎯 Goal Hit and ⏳ Close to Goal from all campaigns. Monthly Flight ★ and Reminders 🔔 are not affected.",confirmLabel:"Reset"})) setCampaigns(cs=>cs.map(c=>({...c,goalHit:false,closeToGoal:false,goalHitDismissed:true,closeToGoalDismissed:true}))); }}
                 title="Clear all Goal Hit and Close to Goal badges — use at the start of a new month"
                 style={{background:lightMode?"#f1f5f9":"#0e1a2e",border:`1px solid ${lightMode?"#cbd5e1":"#334155"}`,borderRadius:7,padding:"7px 13px",color:lightMode?"#475569":"#4d6e8a",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}
               >↺ Reset Goals</button>
@@ -18268,7 +18286,7 @@ export default function App() {
                                   const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
                                   return (
                                     <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,paddingLeft:12,flexWrap:"wrap"}}>
-                                      <div style={{fontSize:11,color:lightMode?"#0891b2":"#00F0FF",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
+                                      <div style={{fontSize:11,color:lightMode?"#0891b2":"#00d9ff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
                                       {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                                     </div>
                                   );
@@ -18375,7 +18393,7 @@ export default function App() {
                             const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
                             return (
                               <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,flexWrap:"wrap"}}>
-                                <div style={{fontSize:11,color:lightMode?"#0891b2":"#00F0FF",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
+                                <div style={{fontSize:11,color:lightMode?"#0891b2":"#00d9ff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
                                 {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:lightMode?"#7c3aed":"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                               </div>
                             );
