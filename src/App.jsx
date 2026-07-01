@@ -2435,13 +2435,13 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                   <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"stretch"}}>
                     <button onClick={()=>{ if(!newEntry.trim()) return; const today=getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${newEntry.trim()}`; const updated=historyDraft.trim()?`${line}\n${historyDraft}`:line; setHistoryDraft(updated); onUpdate({...c,history:updated}); setNewEntry(""); }}
                       disabled={!newEntry.trim()}
-                      style={{background:newEntry.trim()?"#3B8FFF":(_lm?"#f1f5f9":"#0a1422"),border:"none",borderRadius:5,padding:"0 12px",color:newEntry.trim()?"#fff":(_lm?"#94a3b8":"#3d5a72"),fontSize:11,fontWeight:700,cursor:newEntry.trim()?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
+                      style={{background:newEntry.trim()?(_lm?"#3B8FFF":"#00d9ff"):(_lm?"#f1f5f9":"#0a1422"),border:"none",borderRadius:5,padding:"0 12px",color:newEntry.trim()?(_lm?"#fff":"#06222b"):(_lm?"#94a3b8":"#3d5a72"),fontSize:11,fontWeight:700,cursor:newEntry.trim()?"pointer":"default",whiteSpace:"nowrap",flexShrink:0}}>
                       + Add
                     </button>
                     <input value={newEntry} onChange={e=>setNewEntry(e.target.value)}
                       onKeyDown={e=>{ if(e.key==="Enter"&&newEntry.trim()){ const today=getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${newEntry.trim()}`; const updated=historyDraft.trim()?`${line}\n${historyDraft}`:line; setHistoryDraft(updated); onUpdate({...c,history:updated}); setNewEntry(""); }}}
                       placeholder="Add a personal note…"
-                      style={{flex:1,background:_lm?"#f8fafc":"#0a1422",border:`1px solid ${newEntry.trim()?"#3B8FFF60":(_lm?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"5px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                      style={{flex:1,background:_lm?"#f8fafc":"#0a1422",border:`1px solid ${newEntry.trim()?(_lm?"#3B8FFF60":"#00d9ff60"):(_lm?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"5px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
                   </div>
                   <textarea value={historyDraft} onChange={e=>{ setHistoryDraft(e.target.value); onUpdate({...c,history:e.target.value}); }}
                     placeholder="Your personal notes appear here…"
@@ -3080,10 +3080,10 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>📋 Change History</label>
               <div style={{display:"flex",gap:6,marginBottom:6}}>
                 <button onClick={()=>{ const el=document.getElementById("modal-history-input"); const val=el?.value?.trim(); if(!val) return; const tod=getToday(); const [y,m,d]=tod.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${val}`; const updated=(f.history||"").trim()?`${line}\n${f.history}`:line; set("history",updated); el.value=""; }}
-                  style={{background:"#3B8FFF",border:"none",borderRadius:5,padding:"0 10px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>+ Add</button>
+                  style={{background:_lm?"#3B8FFF":"#00d9ff",border:"none",borderRadius:5,padding:"0 10px",color:_lm?"#fff":"#06222b",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>+ Add</button>
                 <input id="modal-history-input" placeholder="Note — Enter to add…"
                   onKeyDown={e=>{ if(e.key==="Enter"&&e.target.value.trim()){ const val=e.target.value.trim(); const tod=getToday(); const [y,m,d]=tod.split("-"); const stamp=`${m}/${d}/${y}`; const line=`${stamp} — ${val}`; const updated=(f.history||"").trim()?`${line}\n${f.history}`:line; set("history",updated); e.target.value=""; } }}
-                  style={{flex:1,background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${_lm?"#93c5fd":"#3B8FFF40"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                  style={{flex:1,background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${_lm?"#93c5fd":"#00d9ff40"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
               </div>
               <textarea value={f.history||""} onChange={e=>set("history",e.target.value)} placeholder="Entries appear here…"
                 style={{width:"100%",background:_lm?"#f8fafc":"#060d18",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:6,padding:"8px 10px",color:_lm?"#3B8FFF":"#00d9ff",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",minHeight:70,lineHeight:1.6}}/>
@@ -13351,7 +13351,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const moStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
   // Parse a YYYY-MM string into a local-midnight Date (not UTC) to avoid timezone display bugs
   const moDate = (mo) => new Date(parseInt(mo.slice(0,4)), parseInt(mo.slice(5,7))-1, 1);
-  const thisMonth = moStr(now);
+  // Anchor "current month" to the last UN-CLOSED month — the same anchor pacingNow() applies
+  // app-wide (Pacing/Campaigns tabs). Until the new-month close runs, campaigns still hold last
+  // month's FINAL spend/impressions; reading the raw calendar month here would attribute those
+  // closing numbers to the new month (e.g. June's totals shown as July MTD before any July check-in).
+  // Staying on the un-closed month keeps Revenue consistent with the rest of the dashboard; once the
+  // month-close runs, MONTH_RESET_KEY advances, pacingNow() returns the live date, and this rolls
+  // forward to the new month automatically — starting fresh as check-ins arrive.
+  const thisMonth = moStr(pacingNow());
   const activeMonth = focusMonth || thisMonth;
 
   function saveMonthLocks(locks) { setMonthLocks(locks); localStorage.setItem(MONTH_LOCK_KEY, JSON.stringify(locks)); }
@@ -14332,7 +14339,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                         {/* "Earned so far" (electric blue), just below the baseline — readable, distinct from
                             the green projected-finish number above the bar. */}
                         {projPos && posH > 0 && (
-                          <div title="Profit earned so far this month" style={{position:"absolute",top:3,left:0,right:0,textAlign:"center",fontSize:11,fontWeight:800,color:_lm?"#0066cc":"#00a3ff"}}>{(profit>=0?"+":"")+$fk(profit)}</div>
+                          <div title="Profit earned so far this month" style={{position:"absolute",top:3,left:0,right:0,textAlign:"center",fontSize:11,fontWeight:800,color:_lm?"#0066cc":"#00d9ff"}}>{(profit>=0?"+":"")+$fk(profit)}</div>
                         )}
                         {projNeg ? (
                           <div title={`${label} '${yr}: ${$f(profit)} so far → ${$f(projProfit)} projected loss at current pace`}
@@ -16673,7 +16680,11 @@ export default function App() {
   const [saved, setSaved]         = useState(false);
   const [saveError, setSaveError] = useState(false); // true when a localStorage write failed (e.g. quota full)
   const [expanded, setExpanded]   = useState(new Set());
-  const [groupByClient, setGroupByClient]       = useState(_campPersisted.groupByClient || false);
+  // Group-by-client was removed from the Quick Filters (2026-07 — it distorted the dashboard layout;
+  // the search bar covers the same need). Force it OFF regardless of any persisted `true`, so nobody
+  // is left stuck in a grouped view they can no longer toggle off. The grouped render path stays in
+  // place but is now unreachable. setGroupByClient is retained (unused) to avoid touching the persist effect.
+  const [groupByClient, setGroupByClient]       = useState(false);
   const [fGoalHit, setFGoalHit]                 = useState(_campPersisted.fGoalHit || false);
   const [fCloseToGoal, setFCloseToGoal]         = useState(_campPersisted.fCloseToGoal || false);
   const [fExcludeGoalHit, setFExcludeGoalHit]   = useState(_campPersisted.fExcludeGoalHit || false);
@@ -18057,7 +18068,6 @@ export default function App() {
             { key:"recent",   label:"🆕 Recently Added",        active:fRecentDays>0,        toggle:()=>setFRecentDays(d=>d>0?0:7) },
             { key:"note2",    label:"⚠ Has Note 2",            active:fNote2,               toggle:()=>setFNote2(v=>!v) },
             { key:"noRT",     label:"⚠ RT Pixel Missing",      active:fNoRetargeting,       toggle:()=>setFNoRetargeting(v=>!v) },
-            { key:"grouped",  label:"👥 Group by Client",      active:groupByClient,        toggle:()=>setGroupByClient(v=>!v) },
             { key:"hasData",  label:"✓ Has Metrics",           active:fHasData==="yes",     toggle:()=>setFHasData(v=>v==="yes"?"all":"yes") },
             { key:"noData",   label:"✗ No Metrics",            active:fHasData==="no",      toggle:()=>setFHasData(v=>v==="no"?"all":"no") },
           ]}/>
