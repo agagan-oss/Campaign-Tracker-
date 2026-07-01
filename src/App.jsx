@@ -447,6 +447,12 @@ function parseMonthlyGoal(note1, targetMonthIdx) {
   // ── Strategy 4: "95K March" = single named month
   const oneMonthMatch = s.match(/^([\d.,]+\s*[KkMm]?)\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)$/i);
   if (oneMonthMatch) return parseNum(oneMonthMatch[1]);
+  // ── Strategy 5: bare number, no /Mo tag ── the Monthly Goal field IS the monthly goal, so a
+  // value that's JUST a number ("100K", "100,000", "1.2M", "100") counts even without "/Mo".
+  // Whole-string match ONLY — so prose that merely CONTAINS a number ("spent 50K so far") is
+  // still not misread as a goal (that case has other words and won't match end-to-end).
+  const bareNumMatch = s.match(/^([\d.,]+\s*[KkMm]?)$/);
+  if (bareNumMatch) return parseNum(bareNumMatch[1]);
   return null;
 }
 
