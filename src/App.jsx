@@ -1321,6 +1321,14 @@ function buildDraftsFromIO(io) {
     ? (io.station ? `${io.partner} - ${io.station}` : io.partner)
     : (io.station || "");
 
+  // General IO notes (the free-text "Notes & Instructions") belong in a campaign's CHANGE HISTORY,
+  // not Note 2 — Note 2 is reserved for urgent warnings/flags. Stamp them like a manual history entry
+  // (MM/DD/YYYY from the IO's submission date, else today).
+  const ioStamp = (io.submitted && /^\d{1,2}\/\d{1,2}\/\d{4}/.test(io.submitted))
+    ? io.submitted.match(/^\d{1,2}\/\d{1,2}\/\d{4}/)[0]
+    : (()=>{ const [y,m,dd] = getToday().split("-"); return `${m}/${dd}/${y}`; })();
+  const noteToHistory = (notes) => notes && String(notes).trim() ? `${ioStamp} — From IO: ${String(notes).trim()}` : "";
+
   io.services.forEach(svc => {
     const d = svc.details;
     const startDate = parseDate(d.startDate);
@@ -1340,7 +1348,7 @@ function buildDraftsFromIO(io) {
       const isTikTok = /tiktok/i.test(socialPlat);
       const staticPlat = isTikTok ? "TT"  : "FB";
       const videoPlat  = isTikTok ? "TT"  : "FBV";
-      const socialNote2 = (d.notes || "").trim();  // note2 stays clean — IO # goes to its own field
+      const socialNote2 = "";  // Note 2 is warnings-only; the IO's notes go to change history (see noteToHistory)
       if (staticImpr > 0 || staticBudget > 0) {
         const monthlyImpr = Math.round(staticImpr / months);
         drafts.push({
@@ -1358,6 +1366,7 @@ function buildDraftsFromIO(io) {
           geoTarget: (d.geoBreakout || "").trim(),
           targetAudience: (d.targetAudience || "").trim(),
           ioNumber: io.reference || "",
+          history: noteToHistory(d.notes),
         });
       }
       if (videoImpr > 0 || videoBudget > 0) {
@@ -1377,6 +1386,7 @@ function buildDraftsFromIO(io) {
           geoTarget: (d.geoBreakout || "").trim(),
           targetAudience: (d.targetAudience || "").trim(),
           ioNumber: io.reference || "",
+          history: noteToHistory(d.notes),
         });
       }
       return;
@@ -1431,15 +1441,12 @@ function buildDraftsFromIO(io) {
       }
     }
 
-    // note2 is reserved for actionable flags — NOT auto-import boilerplate. The IO number now lives in
-    // its own `ioNumber` field, and the impressions / budget / CPM / fee are already captured in
-    // goal / contractValue / contractRate / managementFee. So note2 keeps only a data-integration
-    // review flag and any freeform notes from the IO itself (Snapchat-request & low-confidence warnings
-    // are appended elsewhere). Result: a clean note2 unless there's genuinely something to flag.
-    const baseNote2 = [
-      integrationNote ? "⚠ Data integration enabled — review CPM" : "",
-      (d.notes || "").trim(),
-    ].filter(Boolean).join(" · ");
+    // note2 is reserved for URGENT flags ONLY (Austin's call) — a big red warning chip. The IO's
+    // general free-text notes go to the campaign's CHANGE HISTORY (via noteToHistory), the IO number
+    // to `ioNumber`, and impressions/budget/CPM/fee to their own fields. So note2 stays EMPTY unless
+    // there's a real flag: a data-integration CPM review here, or the Snapchat-request / low-confidence
+    // VERIFY warnings appended elsewhere.
+    const baseNote2 = integrationNote ? "⚠ Data integration enabled — review CPM" : "";
 
     if (svc.splitPair) {
       // Arbitrary 50/50 split between two platforms (e.g. Performance CTV → CTV + OTT).
@@ -1459,6 +1466,7 @@ function buildDraftsFromIO(io) {
         ioNumber: io.reference || "",
         geoTarget: (d.geoBreakout || "").trim(),
         targetAudience: (d.targetAudience || "").trim(),
+        history: noteToHistory(d.notes),
         contractValue: halfBudget.toFixed(2),
       };
       drafts.push({ ...common, campaignName: `${advertiser} - ${platA}`, platform: platA });
@@ -1487,6 +1495,7 @@ function buildDraftsFromIO(io) {
         ioNumber: io.reference || "",
         geoTarget: (d.geoBreakout || "").trim(),
         targetAudience: (d.targetAudience || "").trim(),
+        history: noteToHistory(d.notes),
         contractValue: legBudget.toFixed(2),
       };
       legs.forEach(plat => drafts.push({ ...common, campaignName: `${advertiser} - ${plat}`, platform: plat }));
@@ -1523,6 +1532,7 @@ function buildDraftsFromIO(io) {
         ioNumber: io.reference || "",
         geoTarget: (d.geoBreakout || "").trim(),
         targetAudience: (d.targetAudience || "").trim(),
+        history: noteToHistory(d.notes),
         ...(newTactic ? { _newTactic: newTactic } : {}),
       });
     }
@@ -16691,11 +16701,15 @@ export default function App() {
         setPdfProcessing(false);
         return;
       }
-      // _initialCount stays constant as drafts are popped so the "Draft 2 of 3"
-      // indicator counts up correctly through the queue.
-      setPdfMeta({ reference: io.reference, partner: io.partner, advertiser: io.advertiser, submitted: io.submitted, fileName: file.name, _initialCount: drafts.length, lowConfidence });
-      setPdfDrafts(drafts);
-      setPdfDraftIdx(0);     // start at the first draft in the queue
+      // APPEND to any drafts already pending (a previous IO drop or a saved manual draft) instead of
+      // replacing them — dropping a second IO should ADD its campaigns to the queue, not wipe the first.
+      setPdfDrafts(prev => {
+        const base = Array.isArray(prev) ? prev : [];
+        const merged = [...base, ...drafts];
+        setPdfMeta({ reference: io.reference, partner: io.partner, advertiser: io.advertiser, submitted: io.submitted, fileName: file.name, _initialCount: merged.length, lowConfidence });
+        setPdfDraftIdx(base.length); // jump the viewer to the FIRST of the newly-added drafts
+        return merged;
+      });
       setPdfQueueOpen(true); // open the queue modal immediately
     } catch (e) {
       console.error("PDF parse failed:", e);
@@ -16706,7 +16720,8 @@ export default function App() {
   }
   function approveDraft(draft) {
     // Ensure the IO number lands on the campaign — prefer the per-draft value, fall back to the PDF's reference.
-    const newCamp = { id: Date.now() + Math.random(), ...draft, ioNumber: draft.ioNumber || pdfMeta?.reference || "", history: "", checkInLog: "" };
+    // Preserve any change-history the draft carries (the IO's general Notes & Instructions → history).
+    const newCamp = { id: Date.now() + Math.random(), ...draft, ioNumber: draft.ioNumber || pdfMeta?.reference || "", history: draft.history || "", checkInLog: "" };
     setCampaigns(cs => [...cs, newCamp]);
     addLog({ type:"added", campaignName: newCamp.campaignName, partner: newCamp.mediaPartner, platform: newCamp.platform, detail: `Added from IO #${pdfMeta?.reference||""}`, campaignId: newCamp.id, prevSnapshot: null });
   }
@@ -16914,11 +16929,18 @@ export default function App() {
     }
   }
   const [showAdd, setShowAdd]     = useState(false);
-  // Whether an unfinished Add Campaign draft is sitting in localStorage. Drives the
-  // "Resume draft" chip in the toolbar so a click-out doesn't silently strand work.
-  // A draft "counts" once it has a name or partner typed in.
-  const addDraftMeaningful = (s) => { try { const d = typeof s==="string"?JSON.parse(s):s; return !!(d && (String(d.campaignName||"").trim() || String(d.mediaPartner||"").trim())); } catch { return false; } };
-  const [hasAddDraft, setHasAddDraft] = useState(()=>{ try { return addDraftMeaningful(localStorage.getItem("campaign-tracker-add-draft")); } catch { return false; } });
+  // Manual "Add Campaign" drafts now feed the SAME unified pending-drafts queue as IO drops (pdfDrafts),
+  // so a manual draft and IO drafts ACCUMULATE together under one "📄 N drafts pending" chip — instead of
+  // the old single-slot "Resume draft" that only ever held one. A draft "counts" once it has a name or
+  // partner. addDraftRef holds the latest in-progress values so an X / click-out still saves the work.
+  const addDraftMeaningful = (d) => { try { const o = typeof d==="string"?JSON.parse(d):d; return !!(o && (String(o.campaignName||"").trim() || String(o.mediaPartner||"").trim())); } catch { return false; } };
+  const addDraftRef = React.useRef(null);
+  const stashManualDraft = (values) => {
+    if (!addDraftMeaningful(values)) { addDraftRef.current = null; return; }
+    const { _newTactic, id, ...clean } = values || {};
+    setPdfDrafts(prev => [...(Array.isArray(prev) ? prev : []), clean]);   // append to the unified queue
+    addDraftRef.current = null;
+  };
   const [showExportReminder, setShowExportReminder] = useState(false);
   const [showMonthReset, setShowMonthReset]         = useState(false); // banner open (user-initiated)
   const [monthResetAvailable, setMonthResetAvailable] = useState(false); // a new month is detected & unreset — surfaces a button, not an auto-banner
@@ -17824,18 +17846,8 @@ export default function App() {
               );
             })()}
             <button onClick={()=>setShowAdd(true)} style={{background:lightMode?"#059669":"#00200f",border:lightMode?"none":"1px solid #22c55e40",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#00d48a",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Add Campaign</button>
-            {/* Resume draft chip — appears when an unfinished Add Campaign draft is
-                stashed (e.g. you clicked out). One click reopens it; the × discards. */}
-            {hasAddDraft && !showAdd && (
-              <button onClick={()=>setShowAdd(true)}
-                title="You have an unfinished campaign saved as a draft — click to resume"
-                style={{background:lightMode?"#d1fae5":"#002e24",border:`1px solid ${lightMode?"#10b981":"#00c89660"}`,borderRadius:7,padding:"6px 11px",color:lightMode?"#059669":"#00d48a",fontWeight:700,fontSize:13,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}>
-                📝 Resume draft
-                <span onClick={(e)=>{ e.stopPropagation(); try{ localStorage.removeItem("campaign-tracker-add-draft"); }catch{} setHasAddDraft(false); }}
-                  title="Discard this draft"
-                  style={{fontSize:14,lineHeight:1,opacity:0.7,cursor:"pointer"}}>×</span>
-              </button>
-            )}
+            {/* Manual Add-Campaign drafts now go into the unified "📄 N drafts pending" queue below
+                (see stashManualDraft), so there's no separate "Resume draft" chip anymore. */}
             {/* 📄 IO PDF — drag-and-drop zone OR click to pick. Either way auto-extracts
                 advertiser, dates, impressions, CPM, budget from a Universal IO PDF and
                 creates draft campaigns for review. Mobile ID Integration services split
@@ -18756,22 +18768,21 @@ export default function App() {
         onClose={()=>setEditTarget(null)}
         partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}
         reminders={reminders} setReminders={setReminders} campaigns={campaigns}/>}
-      {/* Add Campaign: persist the in-progress draft to localStorage on every
-          keystroke so × close doesn't lose work. On reopen, pre-fill from the stash. */}
+      {/* Add Campaign: opens a fresh blank form. Track the latest values in addDraftRef so an X /
+          click-out saves the work as a draft into the unified pending-drafts queue (stashManualDraft);
+          "💾 Save as Draft" does the same explicitly; "Add Campaign" creates the campaign outright. */}
       {showAdd    && <Modal
         isNew
-        campaign={(()=>{ try{ const s=localStorage.getItem("campaign-tracker-add-draft"); return s?JSON.parse(s):null;}catch{return null;} })() || undefined}
-        onValuesChange={u => { try{ localStorage.setItem("campaign-tracker-add-draft", JSON.stringify(u)); }catch{} setHasAddDraft(addDraftMeaningful(u)); }}
+        onValuesChange={u => { addDraftRef.current = u; }}
         onSave={n=>{
           setCampaigns(cs=>[...cs,n]);
           addLog({type:"created",campaignName:n.campaignName,partner:n.mediaPartner,platform:n.platform,detail:`New campaign added`,campaignId:n.id,prevSnapshot:null});
-          try{ localStorage.removeItem("campaign-tracker-add-draft"); }catch{}
-          setHasAddDraft(false);
+          addDraftRef.current = null;
           setShowAdd(false);
         }}
-        onClose={()=>{ try{ setHasAddDraft(addDraftMeaningful(localStorage.getItem("campaign-tracker-add-draft"))); }catch{} setShowAdd(false); }}
-        onSaveDraft={()=>{ try{ setHasAddDraft(addDraftMeaningful(localStorage.getItem("campaign-tracker-add-draft"))); }catch{} setShowAdd(false); }}
-        onDiscardDraft={()=>{ try{ localStorage.removeItem("campaign-tracker-add-draft"); }catch{} setHasAddDraft(false); setShowAdd(false); }}
+        onClose={()=>{ stashManualDraft(addDraftRef.current); setShowAdd(false); }}
+        onSaveDraft={(f)=>{ stashManualDraft(f || addDraftRef.current); setShowAdd(false); }}
+        onDiscardDraft={()=>{ addDraftRef.current = null; setShowAdd(false); }}
         partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
       {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} focusCampaignId={typeof showReminderModal==="number"?showReminderModal:null} onClose={()=>setShowReminderModal(null)} onNavigate={(campId)=>{ setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; }); setSearch(""); setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },200); }}/>}
       {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
@@ -18806,11 +18817,10 @@ export default function App() {
         // Clamp the index in case pdfDrafts shrank (e.g. after a discard).
         const safeIdx = Math.min(Math.max(0, pdfDraftIdx), pdfDrafts.length - 1);
         const current = pdfDrafts[safeIdx];
-        const total = pdfMeta?._initialCount || pdfDrafts.length;
-        // The display index counts up as drafts are consumed: e.g. if we started
-        // with 4 and there are 3 left, the lowest remaining counts as draft 2.
-        const consumed = (pdfMeta?._initialCount || pdfDrafts.length) - pdfDrafts.length;
-        const displayIndex = consumed + safeIdx + 1;
+        // Live position in the (mutable, accumulating) queue — "Draft 2 of 5". The queue can grow when
+        // another IO is dropped and shrink as drafts are saved/skipped, so count the CURRENT array.
+        const total = pdfDrafts.length;
+        const displayIndex = safeIdx + 1;
         return (
           <Modal
             // key forces the Modal to remount when the visible draft changes, so it re-inits its form
@@ -18828,7 +18838,7 @@ export default function App() {
             draftQueueInfo={{
               index: displayIndex,
               total,
-              reference: pdfMeta?.reference,
+              reference: current.ioNumber || "",  // per-draft IO # (manual drafts have none → no IO # shown)
               canPrev: safeIdx > 0,
               canNext: safeIdx < pdfDrafts.length - 1,
               remaining: pdfDrafts.length,
