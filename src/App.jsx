@@ -13521,6 +13521,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   function lockMonth(month) {
     const campData = rows.map(r => ({
       id: r.c.id, name: r.c.campaignName.trim(), partner: r.c.mediaPartner, platform: r.c.platform,
+      // Freeze the flight dates so a lock is self-describing — lets the export/dashboard drop a campaign
+      // whose flight ended before the locked month without having to look it up by id later.
+      startDate: r.c.startDate || "", endDate: r.c.endDate || "",
       revenue: r.monthCells[month]?.rev || 0,
       // Keep null = "no spend recorded" (pending). Do NOT coerce to $0 — that would flip a
       // pending campaign into a "tracked, 100%-margin" one and make the headline revenue/profit
@@ -13691,6 +13694,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     }
     // Locked months: use the frozen snapshot — immune to future CSV drops
     if (monthLocks[mo]) {
+      // A campaign whose flight ended BEFORE the locked month has no spend that month. Some older locks
+      // were frozen (before the ended-before-month guard existed) with an ended campaign's leftover spend
+      // as PHANTOM month spend. Drop it here so a locked month's totals match the live dashboard.
+      if (c.endDate && c.endDate.slice(0, 7) < mo) return null;
       const lc = monthLocks[mo].campaigns?.find(r => String(r.id) === String(c.id));
       return lc ? lc.spend : null;
     }
@@ -14969,9 +14976,18 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       {/* ── P&L Export Modal ──────────────────────────────────── */}
       {showPLReport && (()=>{
         const lock = monthLocks[activeMonth];
-        // Use locked data if available, otherwise build from live rows
+        // Use locked data if available, otherwise build from live rows.
+        // Drop any campaign whose flight ended BEFORE the locked month — some older locks were frozen
+        // (before the ended-before-month guard existed) with an ended campaign's leftover spend as phantom
+        // month spend, which is why they showed on the P&L export but NOT the dashboard (dateVisibleRows
+        // already hides them there). The lock doesn't store end dates, so look each one up by id from the
+        // live active+archive set (archived records carry their capped end date).
+        const endedBeforeLocked = (lc) => {
+          const end = lc.endDate || campaigns.find(x => String(x.id) === String(lc.id))?.endDate;
+          return !!(end && end.slice(0, 7) < activeMonth);
+        };
         const reportRows = lock
-          ? lock.campaigns
+          ? lock.campaigns.filter(lc => !endedBeforeLocked(lc))
           : rows.filter(r=>r.monthCells[activeMonth]?.rev>0||r.monthCells[activeMonth]?.spend>0).map(r=>({
               name:r.c.campaignName.trim(), partner:r.c.mediaPartner, platform:r.c.platform,
               revenue:r.monthCells[activeMonth]?.rev||0,
