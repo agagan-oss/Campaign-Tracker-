@@ -13862,6 +13862,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           }
         }
       }
+      // Locked month: revenue is FROZEN in the lock (mirrors spendForMonth reading the lock for spend).
+      // Without this, a live recompute (e.g. a goal-parsing or rate change since the lock) drifts a closed
+      // month's dashboard revenue away from its frozen P&L export. A campaign not in the lock (restored
+      // after locking) contributes $0 until the month is re-locked — matching the export.
+      if (monthLocks[mo]) {
+        const _lk = monthLocks[mo].campaigns?.find(rr => String(rr.id) === String(c.id));
+        adjRev = _lk ? (_lk.revenue || 0) : 0;
+      }
       monthTotals[mo].revenue += adjRev;
       const s = spendForMonth(c, mo);
       if (s != null) {
@@ -13952,6 +13960,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             rev = 0; // spent but no views logged yet → nothing earned (keep goal only when pending/no-spend)
           }
         }
+      }
+      // Locked month: use the FROZEN lock revenue (mirrors spendForMonth reading the lock for spend), so
+      // the breakdown table can't drift from the frozen P&L export on a live recompute. Not in the lock
+      // (restored after locking) → $0 until re-locked.
+      if (monthLocks[mo]) {
+        const _lk = monthLocks[mo].campaigns?.find(rr => String(rr.id) === String(c.id));
+        rev = _lk ? (_lk.revenue || 0) : 0;
       }
       // Spend: ask the resolver directly (it already returns null when there's no data, and
       // pulls a closed month's actual spend from the backup even after live metrics are cleared).
@@ -14915,6 +14930,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                 <span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> = </span>
                                 <span style={{color:profitColor(profit),fontWeight:800}}>{(profit>=0?"+":"")+$fc(profit)}</span> profit so far
                               </div>
+                              {/* Spend entered but nothing delivered → $0 revenue. This trips people up on a
+                                  restored/ended campaign: revenue is billed on DELIVERY (impr/views × rate),
+                                  not on spend. Tell them exactly how to book it. */}
+                              {rev<=0 && rateNum>0 && spend!=null && !(delivered>0) && (
+                                <div style={{fontSize:12,color:_lm?"#b45309":"#fbbf24",marginTop:6,lineHeight:1.55}}>
+                                  ⚠ No delivered {isCPV?"views":"impressions"} logged for {focusLabelShort}, so there's <b>$0 revenue</b> to bill — this campaign earns on delivery ({isCPV?"views × $"+rateNum.toFixed(3)+"/view":"impr × $"+rateNum.toFixed(2)+" CPM"}), not on spend. Enter its delivered {isCPV?"views":"impressions"} in the campaign's metrics and the revenue will populate.
+                                </div>
+                              )}
                               {isCPV && costPer!=null && (
                                 <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
                                   Your cost <span style={{color:"#f59e0b",fontWeight:700}}>${costPer.toFixed(3)}/view</span> · billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(3)}/view</span> · margin <span style={{color:profitColor(rateNum-costPer),fontWeight:700}}>${(rateNum-costPer).toFixed(3)}/view</span>
