@@ -576,6 +576,55 @@ function pacingNow() {
   return new Date();
 }
 
+// Month-close status for the un-closed-month notice on the Revenue & Pacing tabs. When a new
+// calendar month has begun but the metrics reset hasn't run, those tabs stay anchored to the last
+// un-closed month (see pacingNow). This reports: which month you're still viewing (monthName/Short),
+// the month you'll advance to on close (nextName), and how many days you're into the new month
+// (daysInto = how overdue the close is). `anchored:false` once the month is closed (or nothing to close).
+function monthCloseStatus() {
+  const _mo = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  const anchor = pacingNow();          // last day of the un-reset month, or live date once closed
+  const real = new Date();
+  if (_mo(anchor) === _mo(real)) return { anchored: false };
+  return {
+    anchored:  true,
+    monthName: anchor.toLocaleDateString("en-US", { month:"long", year:"numeric" }),
+    monthShort:anchor.toLocaleDateString("en-US", { month:"long" }),
+    nextName:  real.toLocaleDateString("en-US", { month:"long" }),
+    daysInto:  real.getDate(),         // days since the new month began = how long the close is due
+  };
+}
+
+// Un-closed-month banner shared by the Revenue & Pacing tabs. Explains WHY you're still looking at
+// last month and offers one-click close. Escalates to amber once the close is 3+ days overdue so it
+// can't be quietly ignored. Reads the _lm global for light/dark, like the other prop-less helpers.
+function MonthNotClosedBanner({ status, onCloseMonth = () => {} }) {
+  if (!status || !status.anchored) return null;
+  const overdue = status.daysInto >= 3;
+  const accent = overdue ? "#f59e0b" : (_lm ? "#3b82f6" : "#38bdf8");
+  const bg  = _lm ? (overdue ? "#fffbeb" : "#eff6ff") : (overdue ? "#1a1200" : "#0a1626");
+  const bdr = _lm ? (overdue ? "#fcd34d" : "#93c5fd") : accent + "66";
+  const txt = _lm ? "#0f172a" : "#edf4ff";
+  const sub = _lm ? "#475569" : "#7a9bbf";
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",background:bg,border:`1px solid ${bdr}`,borderRadius:10,padding:"11px 16px",marginBottom:14}}>
+      <span style={{fontSize:18}}>🗓️</span>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:13,fontWeight:700,color:txt}}>
+          Showing {status.monthName} — last month isn't closed yet{overdue ? ` · ${status.daysInto} days into ${status.nextName}` : ""}
+        </div>
+        <div style={{fontSize:11,color:sub,marginTop:1}}>
+          These are {status.monthShort}'s numbers. Close the month to back them up and start {status.nextName} fresh.
+        </div>
+      </div>
+      <button onClick={onCloseMonth}
+        style={{background:accent,border:"none",borderRadius:7,padding:"7px 15px",color:overdue?"#000":(_lm?"#fff":"#06222b"),fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+        🗓️ Close out {status.monthShort}
+      </button>
+    </div>
+  );
+}
+
 function computeMonthlyPacing(arg1, arg2, arg3) {
   let delivered, note1, metricKind = "impressions", unit = "";
   // Detect new-style (campaign object) vs old-style (number)
@@ -978,6 +1027,45 @@ function parseIOPdf(text, uris = []) {
     return null;
   }
 
+  // Extract a FREE-TEXT field (Geographic Breakout, target-audience description, notes) — values that
+  // can run long and WRAP across several lines, sometimes with a long label that also wraps. `labelRe`
+  // is a RegExp for the label (not escaped). We match `<prefix>[:] <label>` allowing the label to span
+  // up to 3 PDF lines, take the rest of that line as the value start, then keep collecting following
+  // lines until the next labeled field (another "<prefix>:" line, an "Is X Included?" flag, or the PDF
+  // footer). `tailStripRe` optionally strips leftover label boilerplate off the front of the value.
+  function getFreeText(prefix, labelRe, tailStripRe) {
+    const prefixes = Array.isArray(prefix) ? prefix : [prefix];
+    for (const px of prefixes) {
+      const re = new RegExp("^" + escapeRe(px) + "(?:\\s+Inventory)?\\s*:?\\s*(?:" + labelRe.source + ")", "i");
+      for (let i = 0; i < lines.length; i++) {
+        // Join up to 3 lines so a label that wraps still matches fully; stop at the first span that matches.
+        let m = null, startLine = i;
+        for (let span = 0; span <= 2 && i + span < lines.length; span++) {
+          const mm = lines.slice(i, i + span + 1).join(" ").match(re);
+          if (mm) { m = mm; startLine = i + span; break; }
+        }
+        if (!m) continue;
+        const rest = lines.slice(i, startLine + 1).join(" ").slice(m[0].length).replace(/^[\s:()\-]+/, "");
+        const parts = [];
+        if (rest.trim()) parts.push(rest.trim());
+        for (let j = startLine + 1; j < lines.length; j++) {
+          const nl = lines[j];
+          if (new RegExp("^" + escapeRe(px) + "\\s*:", "i").test(nl)) break;          // next field on this service
+          if (/^Is\s+.+Included\s*\?/i.test(nl)) break;                                // next service flag
+          if (/^(Contact\s|Additional E-mail|Last Update|Start Time|Finish Time|IP\s|Browser|Device|Referrer|Powered by)/i.test(nl)) break; // PDF footer
+          parts.push(nl.trim());
+          if (parts.length > 15) break;                                               // safety cap
+        }
+        // Strip label boilerplate off the JOINED value (it can wrap past the first line, e.g. the
+        // "- Please … etc." tail on the AMB Notes field), then normalise whitespace.
+        let val = parts.join(" ").replace(/\s+/g, " ").trim();
+        if (tailStripRe) val = val.replace(tailStripRe, "").trim();
+        if (val) return val;
+      }
+    }
+    return null;
+  }
+
   function extractServiceBlock(prefix) {
     // `prefix` may be a single label or an array of candidate prefixes (see getField). getField/
     // tryFields accept the array directly; the notes parsing below only needs a single primary.
@@ -1044,7 +1132,16 @@ function parseIOPdf(text, uris = []) {
       // Data/device integration flag (CTV products). Value looks like
       // "Yes (additional $2.50 CPM - $21.50 CPM)" — the higher CPM is the billed rate.
       integration:   tryFields(prefix, "Integrating Data or Devices", "Integrating Data or Devices?"),
-      notes: getNotes(),
+      // Notes: the Radio-FM label is "<svc> - Notes/Instructions"; the AMB label is
+      // "<svc>: Notes & Instructions - Please … etc." → fall back to the free-text grabber, stripping
+      // the "- Please … etc." boilerplate off the front so only the real instructions remain.
+      notes: getNotes() || getFreeText(prefix, /Notes\s*[&/]\s*Instructions/, /^-?\s*Please\b[\s\S]*?etc\.?\)?:?\s*/i),
+      // Geographic breakout (zips / market list) → the campaign's 🌎 Geo field.
+      geoBreakout: getFreeText(prefix, /Geographic Breakout/),
+      // Target-audience description → its own field. Prefer the full label so its "in as much detail as
+      // possible" tail is consumed; fall back to the short label and strip that tail if it leaks in.
+      targetAudience: getFreeText(prefix, /Description of target audience in as much detail as possible/)
+        || getFreeText(prefix, /Description of target audience/, /^in as much detail as possible\s*/i),
     };
   }
 
@@ -1243,7 +1340,7 @@ function buildDraftsFromIO(io) {
       const isTikTok = /tiktok/i.test(socialPlat);
       const staticPlat = isTikTok ? "TT"  : "FB";
       const videoPlat  = isTikTok ? "TT"  : "FBV";
-      const baseNote2Header = `Auto-imported from IO #${io.reference || "?"}. ${svc.label}${d.socialPlatform?` (${d.socialPlatform})`:""}.`;
+      const socialNote2 = (d.notes || "").trim();  // note2 stays clean — IO # goes to its own field
       if (staticImpr > 0 || staticBudget > 0) {
         const monthlyImpr = Math.round(staticImpr / months);
         drafts.push({
@@ -1257,7 +1354,10 @@ function buildDraftsFromIO(io) {
           dealType: staticCpm ? "CPM" : "",
           contractValue: staticBudget.toFixed(2),
           note1: monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "",
-          note2: `${baseNote2Header} Static: ${staticImpr.toLocaleString()} impr · $${staticBudget.toFixed(2)} budget${staticCpm>0?` · $${staticCpm.toFixed(2)} CPM`:""}.${d.notes ? " " + d.notes : ""}`.trim(),
+          note2: socialNote2,
+          geoTarget: (d.geoBreakout || "").trim(),
+          targetAudience: (d.targetAudience || "").trim(),
+          ioNumber: io.reference || "",
         });
       }
       if (videoImpr > 0 || videoBudget > 0) {
@@ -1273,7 +1373,10 @@ function buildDraftsFromIO(io) {
           dealType: videoCpm ? "CPM" : "",
           contractValue: videoBudget.toFixed(2),
           note1: monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "",
-          note2: `${baseNote2Header} Video: ${videoImpr.toLocaleString()} impr · $${videoBudget.toFixed(2)} budget${videoCpm>0?` · $${videoCpm.toFixed(2)} CPM`:""}.${d.notes ? " " + d.notes : ""}`.trim(),
+          note2: socialNote2,
+          geoTarget: (d.geoBreakout || "").trim(),
+          targetAudience: (d.targetAudience || "").trim(),
+          ioNumber: io.reference || "",
         });
       }
       return;
@@ -1328,11 +1431,15 @@ function buildDraftsFromIO(io) {
       }
     }
 
-    const feeNote = managementFee > 0 ? ` · management fee $${managementFee.toFixed(2)}` : "";
-    const spendNote = mediaSpend > 0 ? ` · media spend $${mediaSpend.toFixed(2)}` : "";
-    const budgetNote = budgetDerived ? " (derived from impr × CPM)" : "";
-    const cpmNote = cpmDerived ? " (derived from $ ÷ impr)" : "";
-    const baseNote2 = `Auto-imported from IO #${io.reference || "?"}. ${svc.label}. Total: ${totalImpr.toLocaleString()} impr · $${totalBudget.toFixed(2)} budget${budgetNote}${feeNote}${spendNote}${cpm>0?` · $${cpm.toFixed(2)} CPM${cpmNote}`:""}${integrationNote}.${d.notes ? " " + d.notes : ""}`.trim();
+    // note2 is reserved for actionable flags — NOT auto-import boilerplate. The IO number now lives in
+    // its own `ioNumber` field, and the impressions / budget / CPM / fee are already captured in
+    // goal / contractValue / contractRate / managementFee. So note2 keeps only a data-integration
+    // review flag and any freeform notes from the IO itself (Snapchat-request & low-confidence warnings
+    // are appended elsewhere). Result: a clean note2 unless there's genuinely something to flag.
+    const baseNote2 = [
+      integrationNote ? "⚠ Data integration enabled — review CPM" : "",
+      (d.notes || "").trim(),
+    ].filter(Boolean).join(" · ");
 
     if (svc.splitPair) {
       // Arbitrary 50/50 split between two platforms (e.g. Performance CTV → CTV + OTT).
@@ -1349,6 +1456,9 @@ function buildDraftsFromIO(io) {
         contractRate: cpm ? String(cpm) : "",
         dealType: cpm ? "CPM" : "",
         note1, note2: baseNote2,
+        ioNumber: io.reference || "",
+        geoTarget: (d.geoBreakout || "").trim(),
+        targetAudience: (d.targetAudience || "").trim(),
         contractValue: halfBudget.toFixed(2),
       };
       drafts.push({ ...common, campaignName: `${advertiser} - ${platA}`, platform: platA });
@@ -1373,7 +1483,10 @@ function buildDraftsFromIO(io) {
         goal: legImpr > 0 ? String(legImpr) : "",
         contractRate: cpm ? String(cpm) : "",
         dealType: cpm ? "CPM" : "",
-        note1, note2: baseNote2 + splitNote,
+        note1, note2: (baseNote2 ? baseNote2 + splitNote : splitNote.replace(/^ · /, "")).trim(),
+        ioNumber: io.reference || "",
+        geoTarget: (d.geoBreakout || "").trim(),
+        targetAudience: (d.targetAudience || "").trim(),
         contractValue: legBudget.toFixed(2),
       };
       legs.forEach(plat => drafts.push({ ...common, campaignName: `${advertiser} - ${plat}`, platform: plat }));
@@ -1407,6 +1520,9 @@ function buildDraftsFromIO(io) {
         managementFee: managementFee > 0 ? managementFee.toFixed(2) : "",
         note1: monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "",
         note2: baseNote2,
+        ioNumber: io.reference || "",
+        geoTarget: (d.geoBreakout || "").trim(),
+        targetAudience: (d.targetAudience || "").trim(),
         ...(newTactic ? { _newTactic: newTactic } : {}),
       });
     }
@@ -1531,7 +1647,10 @@ function buildFallbackDraft(io) {
     contractValue: budget > 0 ? budget.toFixed(2) : "",
     clientWebsite: io.clientWebsite || "",
     projectionUrl: io.projectionUrl || "",
-    note2: `⚠ AUTO-DRAFT from an unrecognized IO format (#${io.reference || "?"}) — VERIFY every field before approving. Detected: ${found.join(" · ") || "no clear figures"}.${platform ? "" : " Platform not detected — set it manually."}`,
+    ioNumber: io.reference || "",
+    // Low-confidence draft: keep the VERIFY warning (this is a real flag, not import boilerplate) — but
+    // the IO number itself now lives in the ioNumber field, so it's dropped from the note text.
+    note2: `⚠ AUTO-DRAFT from an unrecognized IO format — VERIFY every field before approving. Detected: ${found.join(" · ") || "no clear figures"}.${platform ? "" : " Platform not detected — set it manually."}`,
   };
 }
 
@@ -2407,7 +2526,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
             <div style={{flex:1,minWidth:160}}>
               <label style={{display:"block",fontSize:9,color:_lm?"#60a5fa":"#00d9ff",textTransform:"uppercase",letterSpacing:".07em",fontWeight:700,marginBottom:4}}>🌎 Geo</label>
               <input value={c.geoTarget||""} onChange={e=>onUpdate({...c,geoTarget:e.target.value})} placeholder="e.g. Florida statewide"
-                style={{width:"100%",background:_lm?"#f8fafc":"#060d18",border:`1px solid ${c.geoTarget?"#60a5fa40":(_lm?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",outline:"none"}}/>
+                style={{width:"100%",background:_lm?"#f8fafc":"#060d18",border:`1px solid ${c.geoTarget?(_lm?"#60a5fa40":"#00d9ff40"):(_lm?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",outline:"none"}}/>
             </div>
             <div style={{flex:1,minWidth:160}}>
               <label style={{display:"block",fontSize:9,color:"#a855f7",textTransform:"uppercase",letterSpacing:".07em",fontWeight:700,marginBottom:4}}>🎨 Last Creative</label>
@@ -2419,6 +2538,13 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                 })()}
               </div>
             </div>
+          </div>
+
+          {/* ── TARGET AUDIENCE — editable; auto-filled from an IO's "Description of target audience" ── */}
+          <div style={{marginBottom:12}}>
+            <label style={{display:"block",fontSize:9,color:"#e879f9",textTransform:"uppercase",letterSpacing:".07em",fontWeight:700,marginBottom:4}}>🎯 Target Audience</label>
+            <textarea value={c.targetAudience||""} onChange={e=>onUpdate({...c,targetAudience:e.target.value})} placeholder="e.g. Female A45+, health & wellness, pain management…" rows={2}
+              style={{width:"100%",background:_lm?"#f8fafc":"#060d18",border:`1px solid ${c.targetAudience?"#e879f960":(_lm?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"6px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",boxSizing:"border-box",outline:"none",resize:"vertical",minHeight:38,lineHeight:1.5}}/>
           </div>
 
           {/* ── NOTES + CHECK-IN LOG ── */}
@@ -2623,7 +2749,7 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
 }
 
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null, onDiscardAllDrafts=null, onPrevDraft=null, onNextDraft=null, onValuesChange=null, onSaveDraft=null, onDiscardDraft=null }) {
-  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",managementFee:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",lastCreativeUpdate:"",clientWebsite:"",
+  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",ioNumber:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",managementFee:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",targetAudience:"",lastCreativeUpdate:"",clientWebsite:"",
     // Report data fields
     demoAge:"",       // JSON: [{label:"18-24",pct:32},{label:"25-34",pct:28}...]
     demoGender:"",    // JSON: [{label:"Female",pct:62},{label:"Male",pct:38}]
@@ -2908,12 +3034,16 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               {row("endDate","End Date","date")}
               {row("status","Status")}
               <div style={{marginBottom:12}}>
+                <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🧾 IO #</label>
+                <input type="text" value={f["ioNumber"]||""} onChange={e=>set("ioNumber",e.target.value)} placeholder="e.g. 16617480" style={iS}/>
+              </div>
+              <div style={{marginBottom:12}}>
                 <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Goal</label>
-                <input type="text" value={f["note1"]||""} onChange={e=>set("note1",e.target.value)} style={{...iS,borderColor:f["note1"]?"#3B8FFF60":"#334155"}}/>
+                <input type="text" value={f["note1"]||""} onChange={e=>set("note1",e.target.value)} style={{...iS,borderColor:f["note1"]?(_lm?"#3B8FFF60":"#00d9ff60"):"#334155"}}/>
               </div>
               <div style={{marginBottom:12}}>
                 <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 2</label>
-                <input type="text" value={f["note2"]||""} onChange={e=>set("note2",e.target.value)} style={{...iS,borderColor:f["note2"]?"#3B8FFF60":"#334155"}}/>
+                <input type="text" value={f["note2"]||""} onChange={e=>set("note2",e.target.value)} style={{...iS,borderColor:f["note2"]?(_lm?"#3B8FFF60":"#00d9ff60"):"#334155"}}/>
               </div>
               {row("lastChecked","Last Checked","date")}
               {/* Contract Value */}
@@ -3032,7 +3162,12 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               <div>
                 <label style={{display:"block",fontSize:10,color:_lm?"#60a5fa":"#00d9ff",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌎 Geo Targeting</label>
                 <input type="text" value={f.geoTarget||""} onChange={e=>set("geoTarget",e.target.value)} placeholder="e.g. Florida statewide"
-                  style={{...iS,borderColor:f.geoTarget?"#60a5fa60":(_lm?"#e2e8f0":"#334155")}}/>
+                  style={{...iS,borderColor:f.geoTarget?(_lm?"#60a5fa60":"#00d9ff60"):(_lm?"#e2e8f0":"#334155")}}/>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:10,color:"#e879f9",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🎯 Target Audience</label>
+                <textarea value={f.targetAudience||""} onChange={e=>set("targetAudience",e.target.value)} placeholder="e.g. Female A45+, health & wellness, pain management…" rows={2}
+                  style={{...iS,resize:"vertical",minHeight:38,lineHeight:1.5,borderColor:f.targetAudience?"#e879f960":(_lm?"#e2e8f0":"#334155")}}/>
               </div>
               <div>
                 <label style={{display:"block",fontSize:10,color:"#a855f7",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🎨 Last Creative Update</label>
@@ -5722,7 +5857,7 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
                 {buildingMemory?"⚡ Building…":"⚡ Build from tracker data"}
               </button>
               <button onClick={proposeFromChat} disabled={proposing}
-                style={{background:_lm?"#eff6ff":"#001a2e",border:`1px solid ${_lm?"#93c5fd":"#3B8FFF40"}`,borderRadius:6,padding:"5px 12px",color:proposing?"#3B8FFF80":"#3B8FFF",fontSize:11,fontWeight:700,cursor:proposing?"default":"pointer",whiteSpace:"nowrap"}}>
+                style={{background:_lm?"#eff6ff":"#001a2e",border:`1px solid ${_lm?"#93c5fd":"#00d9ff40"}`,borderRadius:6,padding:"5px 12px",color:proposing?(_lm?"#3B8FFF80":"#00d9ff80"):(_lm?"#3B8FFF":"#00d9ff"),fontSize:11,fontWeight:700,cursor:proposing?"default":"pointer",whiteSpace:"nowrap"}}>
                 {proposing?"⚡ Analyzing…":"💬 Learn from last chat"}
               </button>
             </div>
@@ -5730,11 +5865,11 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
 
           {/* ── Pending updates — one-click approve ── */}
           {pendingUpdates.length>0&&(
-            <div style={{background:_lm?"#eff6ff":"#0a1628",border:"1px solid #3B8FFF40",borderRadius:10,padding:"12px 14px"}}>
+            <div style={{background:_lm?"#eff6ff":"#0a1628",border:`1px solid ${_lm?"#3B8FFF40":"#00d9ff40"}`,borderRadius:10,padding:"12px 14px"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                <span style={{fontSize:11,fontWeight:700,color:"#3B8FFF"}}>⚡ {pendingUpdates.length} proposed memory update{pendingUpdates.length>1?"s":""}</span>
+                <span style={{fontSize:11,fontWeight:700,color:_lm?"#3B8FFF":"#00d9ff"}}>⚡ {pendingUpdates.length} proposed memory update{pendingUpdates.length>1?"s":""}</span>
                 <div style={{display:"flex",gap:6}}>
-                  <button onClick={applyAll} style={{background:"#3B8FFF",border:"none",borderRadius:5,padding:"4px 12px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Accept All</button>
+                  <button onClick={applyAll} style={{background:_lm?"#3B8FFF":"#00d9ff",border:"none",borderRadius:5,padding:"4px 12px",color:_lm?"#fff":"#06222b",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Accept All</button>
                   <button onClick={()=>setPendingUpdates([])} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:5,padding:"4px 10px",color:_lm?"#475569":"#4d6e8a",fontSize:11,cursor:"pointer"}}>✕ Dismiss All</button>
                 </div>
               </div>
@@ -5743,7 +5878,7 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
                   const cat = MEMORY_CATEGORIES.find(c=>c.key===u.category)||MEMORY_CATEGORIES[0];
                   return (
                     <div key={i} style={{display:"flex",alignItems:"center",gap:8,background:_lm?"#ffffff":"#07101c",boxShadow:_lm?"0 1px 2px rgba(0,0,0,0.04)":"none",borderRadius:6,padding:"7px 10px"}}>
-                      <span style={{fontSize:10,color:"#3B8FFF",background:"#3B8FFF18",border:"1px solid #3B8FFF30",borderRadius:4,padding:"1px 6px",flexShrink:0,whiteSpace:"nowrap"}}>{cat.label.replace(/^\S+\s/,"")}</span>
+                      <span style={{fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",background:_lm?"#3B8FFF18":"#00d9ff18",border:`1px solid ${_lm?"#3B8FFF30":"#00d9ff30"}`,borderRadius:4,padding:"1px 6px",flexShrink:0,whiteSpace:"nowrap"}}>{cat.label.replace(/^\S+\s/,"")}</span>
                       <span style={{fontSize:12,color:_lm?"#0f172a":"#d8eaf8",flex:1}}>{u.fact}</span>
                       <span style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",flexShrink:0}}>{u.source==="chat"?"from chat":"from data"}</span>
                       <button onClick={()=>applyUpdate(u)} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:4,padding:"3px 9px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>✓</button>
@@ -5774,8 +5909,8 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
                         <>
                           <input autoFocus value={editDraft} onChange={e=>setEditDraft(e.target.value)}
                             onKeyDown={e=>{if(e.key==="Enter")updateFact(cat.key,idx,editDraft);if(e.key==="Escape")setEditingFact(null);}}
-                            style={{flex:1,background:_lm?"#f8fafc":"#0e1a2e",border:"1px solid #3B8FFF60",borderRadius:5,padding:"4px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
-                          <button onClick={()=>updateFact(cat.key,idx,editDraft)} style={{background:"#3B8FFF",border:"none",borderRadius:4,padding:"3px 9px",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓</button>
+                            style={{flex:1,background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${_lm?"#3B8FFF60":"#00d9ff60"}`,borderRadius:5,padding:"4px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                          <button onClick={()=>updateFact(cat.key,idx,editDraft)} style={{background:_lm?"#3B8FFF":"#00d9ff",border:"none",borderRadius:4,padding:"3px 9px",color:_lm?"#fff":"#06222b",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓</button>
                           <button onClick={()=>setEditingFact(null)} style={{background:"none",border:"none",color:_lm?"#64748b":"#4d6e8a",fontSize:12,cursor:"pointer"}}>×</button>
                         </>
                       ) : (
@@ -6470,7 +6605,7 @@ function quietAdsForReport(cr) {
 }
 
 // ─── Pacing Dashboard ─────────────────────────────────────────────────────
-function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{}, onActivate=()=>{}, onSetStatus=()=>{}, onReassignLine=()=>{}, onClearLine=()=>{}, quickCheckIn=false, onToggleQuickCheckIn=()=>{}, quickCheckInPanel=null }) {
+function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{}, onActivate=()=>{}, onSetStatus=()=>{}, onReassignLine=()=>{}, onClearLine=()=>{}, quickCheckIn=false, onToggleQuickCheckIn=()=>{}, quickCheckInPanel=null, monthResetAvailable=false, onCloseMonth=()=>{} }) {
   // ── Reassign-line modal state ──
   // When the user clicks the ↪ icon on a breakdown line, we open a search modal
   // that lets them move that line's data to a different campaign without redoing QCI.
@@ -8580,6 +8715,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <div style={{fontSize:15,fontWeight:800,color:lmTxt,marginBottom:2}}>📈 Pacing Dashboard</div>
       <div style={{fontSize:11,color:lmTxtS}}>{allActive.length} active · {withGoal.length} with goals{anyFilter?" · filtered":""}</div>
     </div>
+
+    {/* Un-closed-month notice — pacing stays anchored to last month until you close it (see
+        pacingNow); this explains that and offers one-click close. */}
+    {monthResetAvailable && <MonthNotClosedBanner status={monthCloseStatus()} onCloseMonth={onCloseMonth}/>}
 
     {/* View switch (left) + Quick Check-in (far right) — same row so the check-in box lives in the
         open space beside the This Month / Lifetime toggle instead of floating above the dashboard. */}
@@ -12498,7 +12637,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                 next.has(p)?next.delete(p):next.add(p);
                 return next;
               })}
-              style={{background:active?(_lm?"#eff6ff":"#1a3a5c"):(_lm?"#f1f5f9":"#0a1628"),border:`1px solid ${active?(_lm?"#93c5fd":"#3B8FFF"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:4,padding:"2px 8px",color:active?(_lm?"#3B8FFF":"#7ec8ff"):(_lm?"#64748b":"#4d6e8a"),fontSize:11,fontWeight:active?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>
+              style={{background:active?(_lm?"#eff6ff":"#1a3a5c"):(_lm?"#f1f5f9":"#0a1628"),border:`1px solid ${active?(_lm?"#93c5fd":"#00d9ff"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:4,padding:"2px 8px",color:active?(_lm?"#3B8FFF":"#00d9ff"):(_lm?"#64748b":"#4d6e8a"),fontSize:11,fontWeight:active?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>
                 {p}
               </button>
             );
@@ -13312,7 +13451,7 @@ function ReportVault({ onAnalyzeWithZeus }) {
 }
 
 
-function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{}, onSetDeviceSurcharge=()=>{} }) {
+function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{}, onSetDeviceSurcharge=()=>{}, monthResetAvailable=false, onCloseMonth=()=>{} }) {
   // Revenue tab filter/sort state persists to localStorage so the view sticks
   // across sessions. Same pattern as Pacing/Campaigns tabs. focusMonth is
   // intentionally NOT persisted — it's typically the current month and would be
@@ -13484,6 +13623,51 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     const cm = closedMonthMetrics(c, mo);
     return cm && cm.views > 0 ? cm.views : null;
   }
+  // SEM overage is CUMULATIVE across the flight — the client's media budget accrues month over month,
+  // so a month that runs OVER budget can be won back by a later month that runs UNDER (Recrue only eats
+  // a SUSTAINED, flight-to-date overage, not a one-month spike). Returns the overage attributable to
+  // `mo` = the change in flight-to-date cumulative overage from the previous reported month to this one.
+  // Positive = fresh overage eating the fee; negative = recovery crediting back a prior month's overage.
+  // Only months with ACTUAL reported media spend count toward the cumulative (an unreported month can
+  // neither create nor mask an overage). Returns null when `mo` is outside the flight or in the future
+  // (not applicable / hasn't happened) — which also keeps not-yet-started SEM out of "with spend data".
+  function semOverageForMonth(c, mo) {
+    if (mo > thisMonth) return null;                          // hasn't happened yet
+    if (!c.startDate || !c.endDate) return 0;
+    const startMo = c.startDate.slice(0,7), endMo = c.endDate.slice(0,7);
+    if (mo < startMo || mo > endMo) return null;              // outside the flight (not started / ended)
+    const budgetPerMo = semMonthlyBudget(c);
+    if (!(budgetPerMo > 0)) return 0;                         // no budget set → no overage, full fee
+    // Reported media spend for a flight month: current → MTD, closed → backup/history, future → none.
+    const spendOf = (m) => {
+      if (m > thisMonth) return null;
+      if (m === thisMonth) { const a = getActualMtdSpend(c); return a != null ? a : (getManualSpend(c) || null); }
+      const cm = closedMonthMetrics(c, m);
+      return cm && cm.spend > 0 ? cm.spend : null;
+    };
+    // Budget for a flight month, prorated on partial first/last months (mirrors semFeeMap).
+    const budgetOf = (m) => {
+      const [y, mm] = m.split("-").map(Number);
+      const dim = new Date(y, mm, 0).getDate();
+      const mStart = new Date(Math.max(new Date(c.startDate+"T00:00:00"), new Date(y, mm-1, 1)));
+      const mEnd   = new Date(Math.min(new Date(c.endDate+"T00:00:00"),   new Date(y, mm, 0)));
+      const activeDays = Math.max(0, Math.round((mEnd - mStart)/86400000) + 1);
+      return budgetPerMo * (activeDays / dim);
+    };
+    const nextMo = (m) => { const [y, mm] = m.split("-").map(Number); const d = new Date(y, mm, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
+    // Walk flight months start→mo, accumulating budget+spend for REPORTED months only; capture the
+    // cumulative overage JUST BEFORE `mo` so we can return the incremental change attributable to it.
+    let cumB = 0, cumS = 0, prevCumOver = 0, moReported = false;
+    for (let m = startMo; m <= mo; m = nextMo(m)) {
+      const s = spendOf(m);
+      if (s == null) continue;                                // unreported month — skip
+      if (m === mo) { prevCumOver = Math.max(0, cumS - cumB); moReported = true; }
+      cumB += budgetOf(m);
+      cumS += s;
+    }
+    if (!moReported) return 0;                                // `mo` has no media spend yet → no overage
+    return Math.max(0, cumS - cumB) - prevCumOver;            // incremental (can be negative = recovery)
+  }
   // Per-campaign per-month spend resolver — locked months take priority.
   // Returns null when no spend data exists for that month.
   function spendForMonth(c, mo) {
@@ -13492,13 +13676,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     // Note 1). Within budget → 0 (profit = the full fee). Over budget → the overage, which the row's
     // profit (fee − overage) then absorbs. Future months are pending (null).
     if (c.platform === "SEM") {
-      if (mo > thisMonth) return null;
-      const budget = semMonthlyBudget(c);
-      let actual;
-      if (mo === thisMonth) { actual = getActualMtdSpend(c); if (actual == null) actual = getManualSpend(c); }
-      else { const cm = closedMonthMetrics(c, mo); actual = cm ? cm.spend : null; }
-      if (actual == null || actual <= 0) return 0;          // no media spend recorded → no overage
-      return budget > 0 ? Math.max(0, actual - budget) : 0; // over-budget media eats into the fee
+      // Overage is now flight-cumulative (recoverable across months) — see semOverageForMonth.
+      return semOverageForMonth(c, mo);
     }
     // Locked months: use the frozen snapshot — immune to future CSV drops
     if (monthLocks[mo]) {
@@ -13852,9 +14031,16 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const totMargin= totRevWithSpend>0?(totProfit/totRevWithSpend)*100:0;
   // Counts (subtitles): campaigns with any tracked spend within the window vs pending.
   const trackableCampaigns = filtered.filter(c => months.some(mo => spendForMonth(c, mo) != null));
-  const totPendingCampaigns = filtered.filter(c =>
+  // Campaigns with revenue in the window but no spend anywhere = "pending". Split OUT the ones whose
+  // flight hasn't STARTED yet as of the viewed month — those legitimately have no spend (they haven't
+  // begun), so lumping them into "pending" (which implies late/missing data) is misleading. They already
+  // carry $0 in the focus month, so the KPIs/confidence strip already exclude them; this just makes the
+  // subtitle honest and lets the breakdown label them as upcoming rather than a data gap.
+  const pendingCampaignList = filtered.filter(c =>
     !months.some(mo => spendForMonth(c, mo) != null) && months.some(mo => (revenueMapForCampaign(c)[mo]||0) > 0)
-  ).length;
+  );
+  const notStartedCampaigns = pendingCampaignList.filter(c => c.startDate && c.startDate.slice(0,7) > activeMonth).length;
+  const totPendingCampaigns = pendingCampaignList.length - notStartedCampaigns;
 
   // ── Month + quarter $ forecast ──────────────────────────────────────────────
   // Project the CURRENT month to month-end by extending each campaign's so-far delivery/spend at
@@ -13987,11 +14173,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
 
   return (
     <div style={{color:_lm?"#0f172a":"#d8eaf8", maxWidth:1500, margin:"0 auto"}}>
+      {/* Un-closed-month notice — the tab stays anchored to last month until you close it (see
+          thisMonth = moStr(pacingNow())); this explains that and offers one-click close. */}
+      {monthResetAvailable && <MonthNotClosedBanner status={monthCloseStatus()} onCloseMonth={onCloseMonth}/>}
       {/* ── Header ─────────────────────────────────────────────── */}
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:14}}>
         <div>
           <div style={{fontSize:15,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginBottom:2}}>💰 Revenue Dashboard</div>
-          <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a"}}>{withContract.length} campaigns · {trackableCampaigns.length} with spend data{totPendingCampaigns>0?` · ${totPendingCampaigns} pending`:""}</div>
+          <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a"}}>{withContract.length} campaigns · {trackableCampaigns.length} with spend data{totPendingCampaigns>0?` · ${totPendingCampaigns} pending`:""}{notStartedCampaigns>0?` · ${notStartedCampaigns} not started yet`:""}</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
           <button onClick={()=>setShowEnded(v=>!v)}
@@ -14224,6 +14413,38 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             </div>
           ))}
         </div>
+        {/* Current-month CONFIDENCE strip — how much of this month's projected revenue actually has
+            spend data behind it, so the Profit above isn't over-trusted early in the month. Revenue-
+            weighted (big campaigns dominate) and like-for-like: both sides are full-month projections,
+            so it's not skewed by MTD-vs-full-month. covered = liveForecast.projRev (all current-month
+            campaigns projected to month-end) minus the still-pending projection. Current month only;
+            hidden once nothing is pending (fmPendingRev==0 → the month is fully covered). */}
+        {isCurrentFocus && liveForecast && fmPendingRev > 0 && (()=>{
+          const totalProj = liveForecast.projRev || 0;
+          const pendingProj = Math.min(fmPendingRev, totalProj);
+          const pct = totalProj > 0 ? Math.max(0, Math.min(1, (totalProj - pendingProj) / totalProj)) : 1;
+          const pctN = Math.round(pct * 100);
+          const solid = pct >= 0.75;
+          const cc = solid ? "#00d48a" : "#f59e0b";
+          return (
+            <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:5}}>
+                <span style={{fontSize:11,fontWeight:700,color:_lm?"#475569":"#7a9bbf"}}>
+                  📊 {pctN}% of this month's projected revenue has spend data
+                </span>
+                <span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a"}}>{$fc(fmPendingRev)} still pending</span>
+              </div>
+              <div style={{height:6,borderRadius:3,background:_lm?"#e2e8f0":"#0e1a2e",overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${pctN}%`,background:cc,borderRadius:3,transition:"width .3s"}}/>
+              </div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:4}}>
+                {solid
+                  ? "Most of this month has reported — the profit above is solid."
+                  : "Part of this month hasn't reported spend yet — profit will firm up as check-ins come in."}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Forecast (on-demand) — generated only when the user opens it, to keep the tab clean ── */}
@@ -14486,7 +14707,18 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       <span style={{color:_lm?"#94a3b8":"#4d6e8a",fontSize:10}}>{isOpen?"▼":"▶"}</span>
                       {_lm?(()=>{const rc=r.pCol;const rr=parseInt(rc.slice(1,3),16)/255,rg=parseInt(rc.slice(3,5),16)/255,rb=parseInt(rc.slice(5,7),16)/255;const txt=(0.299*rr+0.587*rg+0.114*rb)>0.45?"#0a1a0a":"#ffffff";return<span style={{background:rc,color:txt,border:"none",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.c.platform}</span>;})():<span style={{background:r.pCol+"22",color:r.pCol,border:"1px solid "+r.pCol+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.c.platform}</span>}
                       <span style={{fontSize:13,fontWeight:600,color:_lm?"#0f172a":"#d8eaf8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{r.c.campaignName.trim()}</span>
-                      {!r.trackable && <span title="No spend data yet" style={{fontSize:10,color:"#f59e0b"}}>⏳</span>}
+                      {(()=>{
+                        // A campaign whose flight starts AFTER the viewed month hasn't begun — mark it as
+                        // upcoming ("🔜 Starts M/D"), not a data gap (⏳). Checked regardless of `trackable`
+                        // so SEM (which looks "trackable" via its future fee months) is labeled too.
+                        const notStarted = r.c.startDate && r.c.startDate.slice(0,7) > activeMonth;
+                        if (notStarted) {
+                          const [yy,mm,dd] = r.c.startDate.split("-");
+                          return <span title={`Hasn't started yet — flight begins ${parseInt(mm)}/${parseInt(dd)}/${yy}. No spend is expected until then.`} style={{fontSize:9,fontWeight:700,color:_lm?"#0369a1":"#7ec8ff",border:`1px solid ${_lm?"#bae6fd":"#38bdf855"}`,borderRadius:3,padding:"0 5px",whiteSpace:"nowrap"}}>🔜 Starts {parseInt(mm)}/{parseInt(dd)}</span>;
+                        }
+                        if (!r.trackable) return <span title="No spend data yet" style={{fontSize:10,color:"#f59e0b"}}>⏳</span>;
+                        return null;
+                      })()}
                       {r.c.deviceSurcharge && <span title={`Device targeting surcharge — $${(parseFloat(r.c.deviceSurchargeRate)||1).toFixed(2)}/1K on the device line${r.focusCell.deviceFee>0?` · $${Math.round(r.focusCell.deviceFee).toLocaleString()} ${focusLabelShort}`:""}`} style={{fontSize:8.5,fontWeight:700,color:"#e879a6",border:"1px solid "+(_lm?"#e879a688":"#e879a655"),borderRadius:3,padding:"0 4px",letterSpacing:"0.04em",whiteSpace:"nowrap",flexShrink:0}}>DT</span>}
                     </div>
                     <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",paddingLeft:16}}>{r.c.mediaPartner}</div>
@@ -14495,9 +14727,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                   <div style={{textAlign:"right",fontSize:14,fontWeight:700,color:r.focusCell.rev>0?(_lm?"#0ea5e9":"#7a9bbf"):(_lm?"#94a3b8":"#3d5a72")}}>
                     {r.focusCell.rev>0?$fk(r.focusCell.rev):"—"}
                   </div>
-                  {/* Spend */}
-                  <div style={{textAlign:"right",fontSize:14,fontWeight:700,color:r.focusCell.spend!=null?"#f59e0b":r.focusCell.pending?"#f59e0b88":(_lm?"#94a3b8":"#3d5a72")}}>
-                    {r.focusCell.spend!=null?$fk(r.focusCell.spend):r.focusCell.pending?"⏳":"—"}
+                  {/* Spend — a NEGATIVE value is a SEM recovery (under budget, winning back an earlier
+                      over-spend since SEM overage is cumulative across the flight); show it as a green credit. */}
+                  <div title={r.focusCell.spend!=null && r.focusCell.spend<0 ? "Under budget — winning back an earlier over-spend (SEM overage is cumulative across the flight)" : undefined}
+                    style={{textAlign:"right",fontSize:14,fontWeight:700,color:r.focusCell.spend!=null?(r.focusCell.spend<0?(_lm?"#059669":"#00d48a"):"#f59e0b"):r.focusCell.pending?"#f59e0b88":(_lm?"#94a3b8":"#3d5a72")}}>
+                    {r.focusCell.spend!=null?(r.focusCell.spend<0?`↩ ${$fk(-r.focusCell.spend)}`:$fk(r.focusCell.spend)):r.focusCell.pending?"⏳":"—"}
                   </div>
                   {/* Profit or Margin (toggled) */}
                   <div style={{textAlign:"right",fontSize:14,fontWeight:700,color:cellMode==="margin"?margCol:profCol}}>
@@ -14610,14 +14844,20 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                 <div style={{fontSize:13.5,lineHeight:1.75,color:_lm?"#334155":"#d8eaf8"}}>
                                   Management fee <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>{$fc(fee)}</span>
                                   {overage>0 && <><span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> − </span><span style={{color:"#f59e0b",fontWeight:700}}>{$fc(overage)}</span> over budget</>}
+                                  {overage<0 && <><span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> + </span><span style={{color:_lm?"#059669":"#00d48a",fontWeight:700}}>{$fc(-overage)}</span> recovered</>}
                                   <span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> = </span>
                                   <span style={{color:profitColor(prof),fontWeight:800}}>{(prof>=0?"+":"")+$fc(prof)}</span> profit
                                 </div>
                                 <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
-                                  Media spend <span style={{color:"#f59e0b",fontWeight:700}}>{$fc(actual||0)}</span> of <span style={{fontWeight:700}}>{budget?$fc(budget):"—"}</span> budget ·{" "}
+                                  Media spend <span style={{color:"#f59e0b",fontWeight:700}}>{$fc(actual||0)}</span> of <span style={{fontWeight:700}}>{budget?$fc(budget):"—"}</span> budget this month ·{" "}
                                   {overage>0
-                                    ? <span style={{color:"#ef4444",fontWeight:700}}>{$fc(overage)} over — eating into the fee</span>
+                                    ? <span style={{color:"#ef4444",fontWeight:700}}>{$fc(overage)} over flight-to-date — eating into the fee</span>
+                                    : overage<0
+                                    ? <span style={{color:_lm?"#059669":"#00d48a",fontWeight:700}}>under budget — winning back {$fc(-overage)} of an earlier over-spend</span>
                                     : <span style={{color:_lm?"#059669":"#00d48a"}}>within budget (pass-through)</span>}
+                                </div>
+                                <div style={{fontSize:10.5,color:_lm?"#94a3b8":"#3d5a72",marginTop:4,fontStyle:"italic"}}>
+                                  Over-budget is tracked across the whole flight — an over-spend one month can be won back by an under-spend later.
                                 </div>
                               </>
                             )}
@@ -16465,7 +16705,8 @@ export default function App() {
     }
   }
   function approveDraft(draft) {
-    const newCamp = { id: Date.now() + Math.random(), ...draft, history: "", checkInLog: "" };
+    // Ensure the IO number lands on the campaign — prefer the per-draft value, fall back to the PDF's reference.
+    const newCamp = { id: Date.now() + Math.random(), ...draft, ioNumber: draft.ioNumber || pdfMeta?.reference || "", history: "", checkInLog: "" };
     setCampaigns(cs => [...cs, newCamp]);
     addLog({ type:"added", campaignName: newCamp.campaignName, partner: newCamp.mediaPartner, platform: newCamp.platform, detail: `Added from IO #${pdfMeta?.reference||""}`, campaignId: newCamp.id, prevSnapshot: null });
   }
@@ -17563,12 +17804,25 @@ export default function App() {
             <button onClick={()=>{ setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today}))); addLog({type:"checked",campaignName:"All campaigns",partner:"",platform:"",detail:`Bulk marked all checked on ${today}`}); }} style={{background:lightMode?"#00c896":"#002e24",border:lightMode?"none":"1px solid #3b82f640",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#00e5a0",fontWeight:700,fontSize:13,cursor:"pointer"}}>✓ Mark All Checked</button>
             {/* New-month close-out — surfaces only when a new month is detected & last month
                 hasn't been cleared. A button you click (not an auto-banner). */}
-            {monthResetAvailable && !showMonthReset && (
-              <button onClick={()=>setShowMonthReset(true)} title="A new month has started — back up last month's numbers and clear metrics to start fresh"
-                style={{display:"flex",alignItems:"center",gap:6,background:lightMode?"#eff6ff":"#0a1626",border:`1px solid ${lightMode?"#3b82f6":"#3b82f680"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#1d4ed8":"#7ec8ff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
-                🗓️ Close out last month
-              </button>
-            )}
+            {monthResetAvailable && !showMonthReset && (()=>{
+              // Escalate once the close is 3+ days overdue so it can't be quietly missed — amber
+              // styling + a day count. Stays a one-click button (opens the close modal), never a nag.
+              const mcs = monthCloseStatus();
+              const overdue = mcs.anchored && mcs.daysInto >= 3;
+              const monthLbl = mcs.monthShort || "last month";
+              return (
+                <button onClick={()=>setShowMonthReset(true)}
+                  title={`A new month has started — back up ${monthLbl}'s numbers and clear metrics to start ${mcs.nextName||"the new month"} fresh`}
+                  style={{display:"flex",alignItems:"center",gap:6,
+                    background: overdue ? (lightMode?"#fef3c7":"#3a2800") : (lightMode?"#eff6ff":"#0a1626"),
+                    border:`1px solid ${overdue ? "#f59e0b" : (lightMode?"#3b82f6":"#3b82f680")}`,
+                    borderRadius:7,padding:"6px 13px",
+                    color: overdue ? (lightMode?"#b45309":"#fcd34d") : (lightMode?"#1d4ed8":"#7ec8ff"),
+                    fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                  🗓️ Close out {monthLbl}{overdue ? ` — ${mcs.daysInto}d overdue` : ""}
+                </button>
+              );
+            })()}
             <button onClick={()=>setShowAdd(true)} style={{background:lightMode?"#059669":"#00200f",border:lightMode?"none":"1px solid #22c55e40",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#00d48a",fontWeight:700,fontSize:13,cursor:"pointer"}}>+ Add Campaign</button>
             {/* Resume draft chip — appears when an unfinished Add Campaign draft is
                 stashed (e.g. you clicked out). One click reopens it; the × discards. */}
@@ -17782,6 +18036,7 @@ export default function App() {
           <ActivityLog log={activityLog} campaigns={campaigns} onUndo={handleUndo} onClear={async()=>{ if(await confirm({title:"Clear activity log?",message:"This cannot be undone.",confirmLabel:"Clear",danger:true})){ setActivityLog([]); try{localStorage.removeItem(ACTIVITY_KEY);}catch(e){} }}} />
         ) : activeTab==="pacing" ? (
           <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} lightMode={lightMode}
+            monthResetAvailable={monthResetAvailable} onCloseMonth={()=>setShowMonthReset(true)}
             quickCheckIn={quickCheckIn}
             onToggleQuickCheckIn={()=>setQuickCheckIn(v=>!v)}
             quickCheckInPanel={quickCheckIn ? <QuickCheckInPanel campaigns={campaigns} archive={archive} setArchive={setArchive} filtered={filtered} setCampaigns={setCampaigns} onClose={()=>setQuickCheckIn(false)}/> : null}
@@ -17875,7 +18130,8 @@ export default function App() {
                 : patch.deviceSurchargeDismissed ? `Dismissed device surcharge suggestion` : `Updated device surcharge`;
               addLog({ type:"edited", campaignName:camp.campaignName, partner:camp.mediaPartner, platform:camp.platform, detail, campaignId:id, prevSnapshot:null });
             }
-          }}/>
+          }}
+          monthResetAvailable={monthResetAvailable} onCloseMonth={()=>setShowMonthReset(true)}/>
         ) : (<>
         <ReminderAlertBanner reminders={reminders} onOpen={()=>setShowReminderModal(true)} onDismissAll={()=>setReminders(prev=>prev.map(r=>r.date<=today?{...r,dismissed:true}:r))}/>
 
@@ -17955,7 +18211,7 @@ export default function App() {
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Goal</label>
-                    <input value={bulkDraft.note1} onChange={e=>setBulkDraft(p=>({...p,note1:e.target.value}))} placeholder="e.g. 125K/Mo" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.note1.trim()?"#3B8FFF60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                    <input value={bulkDraft.note1} onChange={e=>setBulkDraft(p=>({...p,note1:e.target.value}))} placeholder="e.g. 125K/Mo" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.note1.trim()?(_lm?"#3B8FFF60":"#00d9ff60"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#ef4444",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>⚠ Note 2 (warning flag)</label>
@@ -17967,7 +18223,7 @@ export default function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div>
                     <label style={{display:"block",fontSize:10,color:_lm?"#60a5fa":"#00d9ff",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📎 Projection Sheet URL</label>
-                    <input type="url" value={bulkDraft.projectionUrl} onChange={e=>setBulkDraft(p=>({...p,projectionUrl:e.target.value}))} placeholder="https://docs.google.com/…" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.projectionUrl.trim()?"#60a5fa60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"monospace"}}/>
+                    <input type="url" value={bulkDraft.projectionUrl} onChange={e=>setBulkDraft(p=>({...p,projectionUrl:e.target.value}))} placeholder="https://docs.google.com/…" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.projectionUrl.trim()?(_lm?"#60a5fa60":"#00d9ff60"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,boxSizing:"border-box",fontFamily:"monospace"}}/>
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌐 Client Website</label>
@@ -17979,7 +18235,7 @@ export default function App() {
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div>
                     <label style={{display:"block",fontSize:10,color:_lm?"#60a5fa":"#00d9ff",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌎 Geo Target</label>
-                    <input value={bulkDraft.geoTarget} onChange={e=>setBulkDraft(p=>({...p,geoTarget:e.target.value}))} placeholder="e.g. West Virginia statewide" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.geoTarget.trim()?"#60a5fa60":(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
+                    <input value={bulkDraft.geoTarget} onChange={e=>setBulkDraft(p=>({...p,geoTarget:e.target.value}))} placeholder="e.g. West Virginia statewide" style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${bulkDraft.geoTarget.trim()?(_lm?"#60a5fa60":"#00d9ff60"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,boxSizing:"border-box",fontFamily:"inherit"}}/>
                   </div>
                   <div>
                     <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📁 Client Folder Path</label>
