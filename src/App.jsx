@@ -6185,8 +6185,8 @@ function CampaignArchive({ archive, onRestore, onClear }) {
                               : <span style={{background:pCol+"22",color:pCol,border:"1px solid "+pCol+"55",borderRadius:3,padding:"1px 6px",fontSize:10,fontWeight:700}}>{c.platform}</span>}
                             </td>
                             <td style={{padding:"9px 13px",borderBottom:cellBorder,fontSize:11,color:_lm?"#475569":"#4d6e8a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.goal||"—"}</td>
-                            <td style={{padding:"9px 13px",borderBottom:cellBorder,fontSize:11,color:_lm?"#475569":"#7a9bbf",whiteSpace:"nowrap"}}>{c.endDate||"—"}</td>
-                            <td style={{padding:"9px 13px",borderBottom:cellBorder,fontSize:11,color:_lm?"#94a3b8":"#3d5a72",whiteSpace:"nowrap"}}>{c.archivedDate||"—"}</td>
+                            <td style={{padding:"9px 13px",borderBottom:cellBorder,fontSize:11,color:_lm?"#475569":"#7a9bbf",whiteSpace:"nowrap"}}>{c.endDate?fmtDate(c.endDate):"—"}</td>
+                            <td style={{padding:"9px 13px",borderBottom:cellBorder,fontSize:11,color:_lm?"#94a3b8":"#3d5a72",whiteSpace:"nowrap"}}>{c.archivedDate?fmtDate(c.archivedDate):"—"}</td>
                             <td style={{padding:"9px 13px",borderBottom:cellBorder}}>
                               <button onClick={()=>toggleExpand(c.id)} style={{background:"none",border:"none",cursor:"pointer",color:c.impressions?(_lm?"#059669":"#00c896"):(_lm?"#cbd5e1":"#1e3048"),fontSize:11,padding:0}}>
                                 {isOpen?"▼ Hide":"▶ Show"}
@@ -7479,7 +7479,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {fp!==null&&<div style={{marginBottom:8}}>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:lmTxtD,marginBottom:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>
           <span>Flight Progress</span>
-          <span>{c.startDate} → {c.endDate}</span>
+          <span>{fmtDate(c.startDate)} → {fmtDate(c.endDate)}</span>
         </div>
         <div style={{background:lmBarTrk,borderRadius:3,height:4}}>
           <div style={{background:lightMode?"#cbd5e1":"#334155",height:"100%",width:Math.min(100,fp*100)+"%",borderRadius:3}}/>
@@ -7955,8 +7955,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         const chip = { color: baseCol, background: baseCol + (lightMode ? "14" : "22"), border: "1px solid " + baseCol + (lightMode ? "33" : "45") };
         return (
           <div title={multiDay
-            ? `${yest.delivered.toLocaleString()} impr over ${yest.gapDays} days (a check-in was skipped) = ${yest.deliveredPerDay.toLocaleString()}/day · Needed/day: ${yest.neededPerDay.toLocaleString()} · ${yest.status} (baseline ${yest.baseDate} → ${today})`
-            : `Yesterday: ${yest.delivered.toLocaleString()} impr · Needed/day: ${yest.neededPerDay.toLocaleString()} · ${yest.status} (baseline ${yest.baseDate} → ${today})`}>
+            ? `${yest.delivered.toLocaleString()} impr over ${yest.gapDays} days (a check-in was skipped) = ${yest.deliveredPerDay.toLocaleString()}/day · Needed/day: ${yest.neededPerDay.toLocaleString()} · ${yest.status} (baseline ${fmtDate(yest.baseDate)} → ${fmtDate(today)})`
+            : `Yesterday: ${yest.delivered.toLocaleString()} impr · Needed/day: ${yest.neededPerDay.toLocaleString()} · ${yest.status} (baseline ${fmtDate(yest.baseDate)} → ${fmtDate(today)})`}>
             <span style={{display:"inline-flex",alignItems:"baseline",gap:3,fontSize:11,fontWeight:800,borderRadius:5,padding:"2px 7px",...chip}}>
               {fmtY}
               {pctTxt&&<span style={{fontSize:9,fontWeight:700,opacity:.8}}>{pctTxt}</span>}
@@ -8802,7 +8802,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                       {impr > 0 && <span> · {impr.toLocaleString()} impr</span>}
                       {lastSync !== "—" && <span> · synced {lastSync}</span>}
                       {dr !== null && dr >= 0 && <span> · {dr === 0 ? "ends today" : `${dr}d left`}</span>}
-                      {c.endDate && dr !== null && dr < 0 && <span style={{color:lightMode?"#dc2626":"#fca5a5"}}> · ended {c.endDate}</span>}
+                      {c.endDate && dr !== null && dr < 0 && <span style={{color:lightMode?"#dc2626":"#fca5a5"}}> · ended {fmtDate(c.endDate)}</span>}
                     </div>
                   </div>
                   <button onClick={()=>onEdit(c)} title="Open campaign details"
@@ -13182,7 +13182,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                       <span style={{background:(PLT_COLORS[c.platform]||"#7a9bbf")+"22",color:PLT_COLORS[c.platform]||"#7a9bbf",borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700}}>{c.platform}</span>
                     </td>
                     <td style={{padding:"4px 8px",fontSize:10,borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`,color:isStale?"#f59e0b":(_lm?"#94a3b8":"#3d5a72"),whiteSpace:"nowrap"}}>
-                      {c.lastChecked?`${c.lastChecked}${daysAgo>=2?` (${daysAgo}d)`:""}`:"—"}
+                      {c.lastChecked?`${fmtDate(c.lastChecked)}${daysAgo>=2?` (${daysAgo}d)`:""}`:"—"}
                     </td>
                     {[{f:"impressions",cls:"qci-impr",w:86},{f:"clicks",cls:"qci-clk",w:65},{f:"ctr",cls:"qci-ctr",w:58,dec:true},{f:"spend",cls:"qci-spd",w:60,dec:true},{f:"cpm",cls:"qci-cpm",w:58,dec:true}].map(({f,cls,w,dec})=>(
                       <td key={f} style={{padding:"3px 5px",borderBottom:`1px solid ${_lm?"#f1f5f9":"#0a1018"}`,textAlign:"right"}}>
@@ -13461,7 +13461,41 @@ function ReportVault({ onAnalyzeWithZeus }) {
 }
 
 
-function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{}, onSetDeviceSurcharge=()=>{}, monthResetAvailable=false, onCloseMonth=()=>{} }) {
+// Inline "correct this month's numbers" editor shown inside a Revenue-tab campaign dropdown. Lets you
+// fix a campaign's delivered impressions/views and media spend for the focused month right there — even
+// a LOCKED month — and see the revenue/profit update live. onSave writes it through (see onSetMonthMetrics).
+function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, dspCpm, curImpr, curViews, curSpend, locked, onSave }) {
+  const [impr, setImpr]   = React.useState(curImpr>0?String(curImpr):"");
+  const [views, setViews] = React.useState(curViews>0?String(curViews):"");
+  const [spend, setSpend] = React.useState(curSpend!=null?String(curSpend):"");
+  const [dirty, setDirty] = React.useState(false);
+  const iS = {background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:6,padding:"6px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,width:118,fontFamily:"inherit",outline:"none"};
+  const lbl = {display:"block",fontSize:9,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:".05em",fontWeight:700,marginBottom:3,whiteSpace:"nowrap"};
+  const nImpr=parseInt(impr)||0, nViews=parseInt(views)||0, nSpend=String(spend).trim()===""?null:(parseFloat(spend)||0);
+  const rev  = isCPV ? nViews*rate : nImpr/1000*rate;
+  const cost = platform==="DSP" ? nImpr/1000*dspCpm : nSpend;
+  const profit = cost==null ? null : rev-cost;
+  const $r = n => "$"+Math.round(n).toLocaleString();
+  return (
+    <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+      <div style={{fontSize:10,color:_lm?"#0369a1":"#7dd3fc",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:8}}>✏️ Edit {monthLabel} numbers</div>
+      <div style={{display:"flex",gap:12,alignItems:"flex-end",flexWrap:"wrap"}}>
+        <div><label style={lbl}>{isCPV?"Views delivered":"Impressions delivered"}</label>
+          <input type="number" value={isCPV?views:impr} onChange={e=>{ isCPV?setViews(e.target.value):setImpr(e.target.value); setDirty(true); }} style={iS} placeholder="0"/></div>
+        {platform!=="DSP"
+          ? <div><label style={lbl}>Media spend $</label>
+              <input type="number" value={spend} onChange={e=>{ setSpend(e.target.value); setDirty(true); }} style={iS} placeholder="—"/></div>
+          : <div style={{fontSize:10,color:_lm?"#b45309":"#caa46a",paddingBottom:8,maxWidth:150}}>DSP cost is auto-modeled at ${dspCpm.toFixed(2)} CPM from impressions.</div>}
+        <button onClick={()=>{ onSave({ impr:nImpr, views:nViews, spend: platform==="DSP"?null:nSpend }); setDirty(false); }} disabled={!dirty}
+          style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"8px 18px",color:dirty?"#06222b":"#3b5070",fontSize:13,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>{dirty?"Save":"Saved ✓"}</button>
+        <span style={{fontSize:12,color:_lm?"#475569":"#9fb8d4",paddingBottom:8}}>= <b style={{color:_lm?"#059669":"#00e5a0"}}>{$r(rev)}</b> revenue{cost!=null&&<> − <b style={{color:"#f59e0b"}}>{$r(cost)}</b> = <b style={{color:profit>=0?(_lm?"#059669":"#00d48a"):"#ef4444"}}>{(profit>=0?"+":"−")+"$"+Math.round(Math.abs(profit)).toLocaleString()}</b> profit</>}</span>
+      </div>
+      <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:6,fontStyle:"italic"}}>Updates this month's P&amp;L right away{locked?" — including the 🔒 locked snapshot, no unlock needed":""}.</div>
+    </div>
+  );
+}
+
+function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{}, onSetDeviceSurcharge=()=>{}, onSetMonthMetrics=()=>{}, monthResetAvailable=false, onCloseMonth=()=>{} }) {
   // Revenue tab filter/sort state persists to localStorage so the view sticks
   // across sessions. Same pattern as Pacing/Campaigns tabs. focusMonth is
   // intentionally NOT persisted — it's typically the current month and would be
@@ -13518,6 +13552,31 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
 
   function saveMonthLocks(locks) { setMonthLocks(locks); localStorage.setItem(MONTH_LOCK_KEY, JSON.stringify(locks)); }
   function unlockMonth(month) { const next={...monthLocks}; delete next[month]; saveMonthLocks(next); }
+  // Commit a hand-corrected month's delivery/spend for a campaign from the Revenue-dropdown editor.
+  // The LOCK snapshot is patched HERE (this component owns monthLocks/saveMonthLocks) so a locked month
+  // updates instantly with no unlock needed; the campaign-record update (metricSeries + live fields) is
+  // handed to the parent via onSetMonthMetrics. Together they update every place the P&L reads the month.
+  function commitMonthMetrics(c, month, vals) {
+    const { impr, views, spend } = vals;
+    const rate = parseFloat(c.contractRate) || 0;
+    const dt = c.platform === "YT" ? (c.dealType || "") : "CPM";
+    const rev = c.platform === "SEM" ? (parseFloat(c.managementFee) || 0)
+      : dt === "CPV" ? (views || 0) * rate : (impr || 0) / 1000 * rate;
+    const sp = c.platform === "DSP" ? (impr || 0) / 1000 * dspCpm : spend;
+    if (monthLocks[month]) {
+      const lock = monthLocks[month];
+      const camps = [...(lock.campaigns || [])];
+      const i = camps.findIndex(x => String(x.id) === String(c.id));
+      const dev = i >= 0 ? (camps[i].deviceFee || 0) : 0;
+      const entry = { ...(i >= 0 ? camps[i] : {}), id: c.id, name: (c.campaignName || "").trim(), partner: c.mediaPartner, platform: c.platform,
+        revenue: rev || 0, spend: sp, profit: sp == null ? null : ((rev || 0) - sp - dev), deviceFee: dev, impressions: impr || 0, videoViews: views || 0 };
+      if (i >= 0) camps[i] = entry; else camps.push(entry);
+      const trk = camps.filter(x => x.spend != null && x.spend > 0);
+      const tR = trk.reduce((s, x) => s + (x.revenue || 0), 0), tS = trk.reduce((s, x) => s + x.spend, 0), tD = trk.reduce((s, x) => s + (x.deviceFee || 0), 0);
+      saveMonthLocks({ ...monthLocks, [month]: { ...lock, campaigns: camps, totalRevenue: tR, totalSpend: tS, totalDeviceFee: tD, totalProfit: tR - tS - tD, margin: tR > 0 ? ((tR - tS - tD) / tR * 100) : 0 } });
+    }
+    onSetMonthMetrics(c.id, month, vals);
+  }
   function lockMonth(month) {
     const campData = rows.map(r => ({
       id: r.c.id, name: r.c.campaignName.trim(), partner: r.c.mediaPartner, platform: r.c.platform,
@@ -13610,7 +13669,18 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       const day = ed.getDate();
       if (!best || day > best.day) best = { day, impressions: parseInt(e.i) || 0, spend: parseFloat(e.s) || 0, views: parseInt(e.vv) || 0 };
     }
-    return best ? { impressions: best.impressions, spend: best.spend, views: best.views } : null;
+    if (best) return { impressions: best.impressions, spend: best.spend, views: best.views };
+    // Fallback: a campaign whose flight ENDED in `mo` but has NO backup or check-in history for it — e.g.
+    // an archived campaign restored and hand-entered AFTER the month closed. Its live metrics ARE that
+    // month's final delivery (it can't have run in any later month), so use them here. This lets a
+    // restored/ended campaign book its revenue for the month it actually ran, updating live as you edit.
+    if (c.endDate && c.endDate.slice(0, 7) === mo) {
+      const impr = getActualMtdImpressions(c) || 0;
+      const spend = getManualSpend(c) || 0;
+      const views = parseInt(c.videoViews) || 0;
+      if (impr > 0 || spend > 0 || views > 0) return { impressions: impr, spend, views };
+    }
+    return null;
   }
   // Actual delivered impressions for a campaign in a month: live MTD for the current month,
   // the closed-month actuals for a past month, else null (no actuals → fall back to projection).
@@ -14977,8 +15047,20 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                         </div>
                       );
                     })()}
+                    {/* Inline "edit this month's numbers" — correct delivery/spend right here (works on a
+                        locked month too), so a missed/late campaign doesn't need the unlock/edit/relock dance. */}
+                    {r.c.platform!=="SEM" && parseFloat(r.c.contractRate)>0 && activeMonth<=thisMonth && (()=>{
+                      const isCPV = r.c.platform==="YT" && (r.c.dealType||"")==="CPV";
+                      const lk = monthLocks[activeMonth]?.campaigns?.find(x=>String(x.id)===String(r.c.id));
+                      const curImpr  = lk ? (parseInt(lk.impressions)||0) : (actualImprForMonth(r.c, activeMonth)||0);
+                      const curViews = lk ? (parseInt(lk.videoViews)||0)  : (actualViewsForMonth(r.c, activeMonth)||0);
+                      return <MonthMetricsEditor monthLabel={focusLabelShort} platform={r.c.platform} isCPV={isCPV}
+                        rate={parseFloat(r.c.contractRate)||0} dspCpm={dspCpm} curImpr={curImpr} curViews={curViews}
+                        curSpend={r.focusCell.spend} locked={!!monthLocks[activeMonth]}
+                        onSave={(vals)=>commitMonthMetrics(r.c, activeMonth, vals)}/>;
+                    })()}
                     <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-                      <span>{r.c.mediaPartner||"—"} · {r.c.startDate||"—"} → {r.c.endDate||"—"}</span>
+                      <span>{r.c.mediaPartner||"—"} · {r.c.startDate?fmtDate(r.c.startDate):"—"} → {r.c.endDate?fmtDate(r.c.endDate):"—"}</span>
                       <span>
                         {r.c.contractValue&&parseFloat(r.c.contractValue)>0&&<>Total contract: <span style={{color:_lm?"#0ea5e9":"#7a9bbf"}}>{$fc(parseFloat(r.c.contractValue))}</span> · </>}
                         <span style={{color:r.lifetimeProfit!=null?profitColor(r.lifetimeProfit):(_lm?"#94a3b8":"#3d5a72"),fontWeight:700}}>{r.lifetimeProfit==null?"⏳":((r.lifetimeProfit>=0?"+":"")+$f(r.lifetimeProfit))}</span> lifetime profit
@@ -16476,7 +16558,7 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
             </div>
             {isExtend && campaign.endDate && (
               <span style={{fontSize:11,color:_lm?"#94a3b8":"#3d5a72",whiteSpace:"nowrap"}}>
-                Currently: {campaign.endDate}
+                Currently: {fmtDate(campaign.endDate)}
               </span>
             )}
           </div>
@@ -18182,6 +18264,33 @@ export default function App() {
               addLog({ type:"edited", campaignName:camp.campaignName, partner:camp.mediaPartner, platform:camp.platform, detail, campaignId:id, prevSnapshot:null });
             }
           }}
+          onSetMonthMetrics={(id, month, vals)=>{
+            // Update the CAMPAIGN RECORD for a Revenue-tab correction (the lock snapshot is patched inside
+            // RevenueDashboard's commitMonthMetrics). Writes the month's check-in history (drives an UNLOCKED
+            // closed month) + live fields (current month, or a campaign that ended in `month`), in whichever
+            // list holds it (active or archive).
+            const { impr, views, spend } = vals;
+            const c = campaigns.find(x=>String(x.id)===String(id)) || archive.find(x=>String(x.id)===String(id));
+            if (!c) return;
+            const [y,m] = month.split("-").map(Number);
+            const lastDay = new Date(y, m, 0).getDate();
+            const dstamp = `${String(m).padStart(2,"0")}/${String(lastDay).padStart(2,"0")}/${y}`;
+            const curMo = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`;
+            const patch = (x)=>{
+              const series = (Array.isArray(x.metricSeries)?x.metricSeries:[]).filter(e=>{ const d=parseSeriesDate(e&&e.d); return !(d && d.getFullYear()===y && d.getMonth()===m-1); });
+              series.push({ d:dstamp, i:impr||0, s:(spend==null?0:spend), vv:views||0 });
+              const p = { ...x, metricSeries: series };
+              if (month===curMo || (x.endDate && x.endDate.slice(0,7)===month)) {
+                p.impressions = impr!=null?String(impr):x.impressions;
+                if (spend!=null) p.spend = String(spend);
+                if (views) p.videoViews = String(views);
+              }
+              return p;
+            };
+            setCampaigns(cs=>cs.map(x=>String(x.id)===String(id)?patch(x):x));
+            setArchive(as=>as.map(x=>String(x.id)===String(id)?patch(x):x));
+            addLog({ type:"edited", campaignName:c.campaignName, partner:c.mediaPartner, platform:c.platform, detail:`Corrected ${month} numbers from Revenue tab`, campaignId:id, prevSnapshot:null });
+          }}
           monthResetAvailable={monthResetAvailable} onCloseMonth={()=>setShowMonthReset(true)}/>
         ) : (<>
         <ReminderAlertBanner reminders={reminders} onOpen={()=>setShowReminderModal(true)} onDismissAll={()=>setReminders(prev=>prev.map(r=>r.date<=today?{...r,dismissed:true}:r))}/>
@@ -18363,7 +18472,7 @@ export default function App() {
                 style={{background:lightMode?"#f1f5f9":"#0e1a2e",border:`1px solid ${lightMode?"#cbd5e1":"#334155"}`,borderRadius:7,padding:"7px 13px",color:lightMode?"#475569":"#4d6e8a",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}
               >↺ Reset Goals</button>
             )}
-            <span style={{fontSize:11,color:lightMode?"#94a3b8":"#3d5a72"}}>Today: {today}</span>
+            <span style={{fontSize:11,color:lightMode?"#94a3b8":"#3d5a72"}}>Today: {fmtDate(today)}</span>
           </div>
         </div>
 
@@ -18618,7 +18727,7 @@ export default function App() {
                               <TD><StatusBadge status={c.status}/></TD>
                               <TD><span style={{fontSize:12,color:(PLT[c.platform]||PLT.default),fontWeight:700}}>{c.platform}</span></TD>
                               <TD><span style={{fontSize:11,color:lightMode?"#475569":"#7a9bbf"}}>{c.note1||"—"}</span>{(()=>{ const p=computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:p.color,display:"block",marginTop:2}}>{Math.round(p.pct*100)}% mo pace</span> : null; })()}</TD>
-                              <TD><span style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a"}}>{c.startDate||"—"}</span></TD>
+                              <TD><span style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a"}}>{c.startDate?fmtDate(c.startDate):"—"}</span></TD>
                               <TD><EndChip d={c.endDate}/></TD>
                               <TD>
                                 {(()=>{
