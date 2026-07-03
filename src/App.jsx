@@ -148,8 +148,8 @@ const LM_REMAP = {
   "#00d48a":"#059669","#00e5a0":"#059669","#00e19e":"#059669","#00c896":"#059669",
   "#00ffb3":"#059669","#34d399":"#059669","#6effd8":"#059669","#10b981":"#059669",
   "#00e5c0":"#0d9488",
-  // yellows / ambers → amber-700
-  "#fde047":"#a16207","#fff200":"#a16207","#fbbf24":"#b45309","#f59e0b":"#b45309","#fcd34d":"#a16207",
+  // yellows / ambers → amber-600 (vibrant gold that pops on white, not muddy brown)
+  "#fde047":"#d97706","#fff200":"#d97706","#fbbf24":"#d97706","#f59e0b":"#d97706","#fcd34d":"#d97706",
   // reds → red-600
   "#ef4444":"#dc2626","#fca5a5":"#dc2626",
   // oranges → burnt orange
@@ -2121,15 +2121,15 @@ function ReminderAlertBanner({ reminders, onOpen, onDismissAll }) {
             {overdue.length>0 && todayDue.length>0 && " · "}
             {todayDue.length>0 && `${todayDue.length} due today`}
           </div>
-          <div style={{color:_lm?"#92400e":"#92400e",fontSize:11,marginTop:1}}>
+          <div style={{color:_lm?"#d97706":"#92400e",fontSize:11,marginTop:1}}>
             {due.slice(0,2).map(r=>{ const rt=REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[0]; return <span key={r.id} style={{marginRight:10}}>{rt.label}{r.note?` — ${r.note.slice(0,40)}${r.note.length>40?"…":""}`:""}</span>; })}
-            {due.length>2 && <span style={{color:"#78350f"}}>+{due.length-2} more…</span>}
+            {due.length>2 && <span style={{color:_lm?"#d97706":"#78350f"}}>+{due.length-2} more…</span>}
           </div>
         </div>
       </div>
       <div style={{display:"flex",gap:8}}>
         <button onClick={onOpen} style={{background:"#f59e0b",border:"none",borderRadius:7,padding:"7px 16px",color:"#000",fontWeight:700,fontSize:12,cursor:"pointer"}}>View All</button>
-        <button onClick={onDismissAll} style={{background:_lm?"none":"none",border:"1px solid #92400e",borderRadius:7,padding:"7px 12px",color:"#92400e",fontWeight:600,fontSize:12,cursor:"pointer"}}>Dismiss All</button>
+        <button onClick={onDismissAll} style={{background:"none",border:`1px solid ${_lm?"#d97706":"#92400e"}`,borderRadius:7,padding:"7px 12px",color:_lm?"#d97706":"#92400e",fontWeight:600,fontSize:12,cursor:"pointer"}}>Dismiss All</button>
       </div>
     </div>
   );
@@ -2937,11 +2937,11 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 through PDF-parsed drafts. Shows "Draft 1 of 3 · IO #16617480" with
                 prev/next chevrons so the user can browse without saving each one. */}
             {draftQueueInfo && (
-              <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:700,color:_lm?"#92400e":"#fbbf24",background:_lm?"#fef3c7":"#1a1208",border:`1px solid ${_lm?"#f59e0b":"#f59e0b40"}`,borderRadius:6,padding:"3px 6px"}}>
+              <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:700,color:_lm?"#d97706":"#fbbf24",background:_lm?"#fef3c7":"#1a1208",border:`1px solid ${_lm?"#f59e0b":"#f59e0b40"}`,borderRadius:6,padding:"3px 6px"}}>
                 {onPrevDraft && (
                   <button onClick={onPrevDraft} disabled={!draftQueueInfo.canPrev}
                     title={draftQueueInfo.canPrev ? "Previous draft (edits auto-saved)" : "Already at first draft"}
-                    style={{background:"none",border:"none",padding:"0 4px",cursor:draftQueueInfo.canPrev?"pointer":"default",color:draftQueueInfo.canPrev?(_lm?"#92400e":"#fbbf24"):(_lm?"#fcd34d":"#7c5a18"),fontSize:14,fontWeight:700,lineHeight:1}}>
+                    style={{background:"none",border:"none",padding:"0 4px",cursor:draftQueueInfo.canPrev?"pointer":"default",color:draftQueueInfo.canPrev?(_lm?"#d97706":"#fbbf24"):(_lm?"#fcd34d":"#7c5a18"),fontSize:14,fontWeight:700,lineHeight:1}}>
                     ‹
                   </button>
                 )}
@@ -2949,7 +2949,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 {onNextDraft && (
                   <button onClick={onNextDraft} disabled={!draftQueueInfo.canNext}
                     title={draftQueueInfo.canNext ? "Next draft (edits auto-saved)" : "Already at last draft"}
-                    style={{background:"none",border:"none",padding:"0 4px",cursor:draftQueueInfo.canNext?"pointer":"default",color:draftQueueInfo.canNext?(_lm?"#92400e":"#fbbf24"):(_lm?"#fcd34d":"#7c5a18"),fontSize:14,fontWeight:700,lineHeight:1}}>
+                    style={{background:"none",border:"none",padding:"0 4px",cursor:draftQueueInfo.canNext?"pointer":"default",color:draftQueueInfo.canNext?(_lm?"#d97706":"#fbbf24"):(_lm?"#fcd34d":"#7c5a18"),fontSize:14,fontWeight:700,lineHeight:1}}>
                     ›
                   </button>
                 )}
@@ -3001,7 +3001,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
           {/* Low-confidence banner — this draft came from the whole-document fallback scan (unrecognized
               IO format), so every field is a guess and must be checked against the PDF. */}
           {draftQueueInfo?.lowConfidence && (
-            <div style={{marginBottom:16,padding:"11px 15px",background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#f59e0b":"#f59e0b66"}`,borderRadius:9,fontSize:12.5,color:_lm?"#92400e":"#fcd34d",lineHeight:1.55}}>
+            <div style={{marginBottom:16,padding:"11px 15px",background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#f59e0b":"#f59e0b66"}`,borderRadius:9,fontSize:12.5,color:_lm?"#d97706":"#fcd34d",lineHeight:1.55}}>
               <strong>⚠ Low-confidence draft — unrecognized IO format.</strong> These fields were guessed from a whole-document scan, not a known IO layout. <strong>Verify every value against the PDF</strong> — platform, dates, impressions, CPM, and budget — before approving. The "Detected:" summary is in Note 2.
             </div>
           )}
@@ -6499,7 +6499,7 @@ function QuickFiltersMultiSelect({ items, lightMode=false }) {
   const label = activeItems.length === 0 ? "Quick Filters" : activeItems.length === 1 ? activeItems[0].label.replace(/^\S+\s/,"") : `${activeItems.length} Filters`;
   return (
     <div ref={ref} style={{position:"relative",userSelect:"none",display:"flex",alignItems:"center"}}>
-      <button onClick={()=>setOpen(v=>!v)} style={{background:active?(lightMode?"#fef3c7":"#1a1208"):(lightMode?"#f8fafc":"#0e1a2e"),border:`1px solid ${active?ACC:(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:7,padding:"7px 13px",color:active?(lightMode?"#92400e":"#fbbf24"):(lightMode?"#64748b":"#7a9bbf"),fontSize:13,fontWeight:active?600:400,cursor:"pointer",display:"flex",alignItems:"center",gap:7,minWidth:150,justifyContent:"space-between"}}>
+      <button onClick={()=>setOpen(v=>!v)} style={{background:active?(lightMode?"#fef3c7":"#1a1208"):(lightMode?"#f8fafc":"#0e1a2e"),border:`1px solid ${active?ACC:(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:7,padding:"7px 13px",color:active?(lightMode?"#d97706":"#fbbf24"):(lightMode?"#64748b":"#7a9bbf"),fontSize:13,fontWeight:active?600:400,cursor:"pointer",display:"flex",alignItems:"center",gap:7,minWidth:150,justifyContent:"space-between"}}>
         <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
         <span style={{fontSize:9,opacity:0.5}}>{open?"▲":"▼"}</span>
       </button>
@@ -6518,7 +6518,7 @@ function QuickFiltersMultiSelect({ items, lightMode=false }) {
                 <div style={{width:13,height:13,borderRadius:3,border:`2px solid ${on?ACC:(lightMode?"#cbd5e1":"#334155")}`,background:on?ACC:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .1s"}}>
                   {on && <span style={{color:"#000",fontSize:9,fontWeight:900,lineHeight:1}}>✓</span>}
                 </div>
-                <span style={{fontSize:12,color:on?(lightMode?"#92400e":"#fbbf24"):(lightMode?"#475569":"#a8c4e0"),fontWeight:on?700:400,whiteSpace:"nowrap"}}>{i.label}</span>
+                <span style={{fontSize:12,color:on?(lightMode?"#d97706":"#fbbf24"):(lightMode?"#475569":"#a8c4e0"),fontWeight:on?700:400,whiteSpace:"nowrap"}}>{i.label}</span>
               </div>
             );
           })}
@@ -6659,12 +6659,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // equivalent (proper text-on-white contrast) without changing dark-mode at all.
   // All callers use `lmC(color)`; in dark mode it's a no-op pass-through.
   const LM_COLOR_MAP = {
-    // Yellows / amber — the worst offender. Was #fff200 (fluorescent), now a
-    // proper dark amber that's actually readable on white surfaces.
-    "#fde047": "#a16207",  // yellow-400 → yellow-700
-    "#fff200": "#a16207",
-    "#fbbf24": "#b45309",  // amber-400 → amber-700
-    "#f59e0b": "#b45309",  // amber-500 → amber-700
+    // Yellows / amber — the worst offender. Was remapped to muddy amber-700/800
+    // (#a16207/#b45309) which reads brown/olive on white. Now amber-600 #d97706:
+    // a vibrant golden amber that POPS like the dark-mode amber while staying
+    // readable on white for the bold pacing numbers. (Dark mode is unaffected —
+    // lmC is a pass-through in dark mode.)
+    "#fde047": "#d97706",  // yellow-400 → amber-600 (vibrant gold)
+    "#fff200": "#d97706",
+    "#fbbf24": "#d97706",  // amber-400 → amber-600
+    "#f59e0b": "#d97706",  // amber-500 → amber-600
     // Greens — neon mints become emerald-600
     "#00d48a": "#059669",
     "#00e5a0": "#059669",
@@ -7448,7 +7451,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             Useful after seeing a ✓ Goal Hit badge: one click to pause the campaign. */}
         {c.status === "active" && (
           <button onClick={()=>onSetStatus(c.id, "off")} title="Pause campaign (set status to off)"
-            style={{marginLeft:"auto",background:lightMode?"#fef3c7":"#1a1208",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b60"}`,borderRadius:5,color:lightMode?"#92400e":"#fbbf24",fontSize:11,padding:"3px 8px",cursor:"pointer",fontWeight:700,flexShrink:0}}>
+            style={{marginLeft:"auto",background:lightMode?"#fef3c7":"#1a1208",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b60"}`,borderRadius:5,color:lightMode?"#d97706":"#fbbf24",fontSize:11,padding:"3px 8px",cursor:"pointer",fontWeight:700,flexShrink:0}}>
             ⏸ Pause
           </button>
         )}
@@ -7914,7 +7917,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           const projected = dt.delivered + dt.actualDailyRate * dt.daysLeft;
           const pctF = dt.goal>0 ? projected/dt.goal : null;
           if (pctF==null) return null;
-          const col = pctF>=1 ? (lightMode?"#059669":"#00d48a") : pctF>=0.9 ? (lightMode?"#b45309":"#f59e0b") : (lightMode?"#dc2626":"#f87171");
+          const col = pctF>=1 ? (lightMode?"#059669":"#00d48a") : pctF>=0.9 ? (lightMode?"#d97706":"#f59e0b") : (lightMode?"#dc2626":"#f87171");
           return <div style={{fontSize:9,fontWeight:700,color:col,marginTop:2,whiteSpace:"nowrap"}}
             title={`Projected finish at current pace: ${Math.round(projected).toLocaleString()} of ${dt.goal.toLocaleString()} (${Math.round(pctF*100)}% of goal) by the flight end`}>
             proj {Math.round(pctF*100)}%
@@ -7934,7 +7937,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Need/Day — impr/views/$ required per remaining day to hit goal */}
       <div title={npd !== null ? `${npdFmt} ${metricKind==="spend"?"spend":metricKind==="views"?"views":"impr"}/day needed · ${npdDaysLeft}d left` : ""}>
         {npdFmt
-          ? <span style={{fontSize:11,fontWeight:700,color:npdCol}}>{npdFmt}</span>
+          ? <span style={{fontSize:11,fontWeight:700,color:lmC(npdCol)}}>{npdFmt}</span>
           : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
@@ -8022,7 +8025,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         {/* Quick pause/activate without opening the modal */}
         {c.status === "active" && (
           <button onClick={()=>onSetStatus(c.id, "off")} title="Pause campaign (set to off)"
-            style={{background:lightMode?"#fef3c7":"#1a1208",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b60"}`,borderRadius:4,color:lightMode?"#92400e":"#fbbf24",fontSize:11,padding:"2px 5px",cursor:"pointer",lineHeight:1,fontWeight:700}}>⏸</button>
+            style={{background:lightMode?"#fef3c7":"#1a1208",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b60"}`,borderRadius:4,color:lightMode?"#d97706":"#fbbf24",fontSize:11,padding:"2px 5px",cursor:"pointer",lineHeight:1,fontWeight:700}}>⏸</button>
         )}
         {c.status === "off" && (
           <button onClick={()=>onSetStatus(c.id, "active")} title="Activate campaign"
@@ -8770,7 +8773,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
           <span style={{fontSize:14}}>⏸</span>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:12,fontWeight:700,color:lightMode?"#92400e":"#fcd34d"}}>
+            <div style={{fontSize:12,fontWeight:700,color:lightMode?"#d97706":"#fcd34d"}}>
               {offWithData.length} "off" campaign{offWithData.length!==1?"s":""} {offWithData.length===1?"has":"have"} data but won't show in pacing
             </div>
             {!offBannerOpen && (
@@ -8780,7 +8783,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               </div>
             )}
           </div>
-          <span style={{fontSize:11,fontWeight:700,color:lightMode?"#92400e":"#fcd34d",whiteSpace:"nowrap"}}>
+          <span style={{fontSize:11,fontWeight:700,color:lightMode?"#d97706":"#fcd34d",whiteSpace:"nowrap"}}>
             {offBannerOpen ? "Hide list ▴" : "Review list ▾"}
           </span>
         </div>
@@ -8820,7 +8823,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             {offWithData.length > 1 && (
               <div style={{padding:"8px 14px",display:"flex",justifyContent:"flex-end",background:lightMode?"#fffbeb":"#1a1208"}}>
                 <button onClick={()=>{ offWithData.forEach(c=>onActivate(c.id)); setOffBannerOpen(false); }}
-                  style={{background:"none",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b66"}`,color:lightMode?"#92400e":"#fcd34d",borderRadius:5,padding:"4px 11px",fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                  style={{background:"none",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b66"}`,color:lightMode?"#d97706":"#fcd34d",borderRadius:5,padding:"4px 11px",fontSize:10,fontWeight:700,cursor:"pointer"}}>
                   Activate all {offWithData.length} →
                 </button>
               </div>
@@ -8843,11 +8846,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode}/>
       <div style={{display:"flex",borderRadius:7,overflow:"hidden",border:"1px solid "+lmBrd,flexShrink:0}}>
         <button onClick={()=>setTodayFilter(v=>v==="today"?"all":"today")} title="Show only campaigns updated today"
-          style={{background:todayFilter==="today"?(lightMode?"#dcfce7":"#001a14"):lmBgInp,padding:"5px 10px",color:todayFilter==="today"?"#00d48a":lmTxtS,fontSize:11,fontWeight:todayFilter==="today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none",borderRight:"1px solid "+lmBrd}}>
+          style={{background:todayFilter==="today"?(lightMode?"#dcfce7":"#001a14"):lmBgInp,padding:"5px 10px",color:todayFilter==="today"?lmC("#00d48a"):lmTxtS,fontSize:11,fontWeight:todayFilter==="today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none",borderRight:"1px solid "+lmBrd}}>
           ✓ Updated{updatedTodayCount>0?` (${updatedTodayCount})`:""}
         </button>
         <button onClick={()=>setTodayFilter(v=>v==="not-today"?"all":"not-today")} title="Show only campaigns not updated today"
-          style={{background:todayFilter==="not-today"?(lightMode?"#fff7ed":"#1a0e00"):lmBgInp,padding:"5px 10px",color:todayFilter==="not-today"?"#f97316":lmTxtS,fontSize:11,fontWeight:todayFilter==="not-today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none"}}>
+          style={{background:todayFilter==="not-today"?(lightMode?"#fff7ed":"#1a0e00"):lmBgInp,padding:"5px 10px",color:todayFilter==="not-today"?lmC("#f97316"):lmTxtS,fontSize:11,fontWeight:todayFilter==="not-today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none"}}>
           ✕ Not Updated{notUpdatedCount>0?` (${notUpdatedCount})`:""}
         </button>
       </div>
@@ -8957,7 +8960,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               </div>
               {lastMonthRows.map((r,idx)=>{
                 const pctTxt = r.pct!=null ? `${Math.round(r.pct*100)}%` : "—";
-                const pctCol = r.pct==null ? lmTxtD : r.pct>=1 ? (lightMode?"#059669":"#00d48a") : r.pct>=0.8 ? (lightMode?"#b45309":"#f59e0b") : (lightMode?"#dc2626":"#f87171");
+                const pctCol = r.pct==null ? lmTxtD : r.pct>=1 ? (lightMode?"#059669":"#00d48a") : r.pct>=0.8 ? (lightMode?"#d97706":"#f59e0b") : (lightMode?"#dc2626":"#f87171");
                 const unit = r.metricKind==="views"?"views":r.metricKind==="spend"?"":"impr";
                 return (
                   <div key={r.b.id||idx} style={{display:"grid",gridTemplateColumns:LM_GRID,gap:8,alignItems:"center",padding:"6px 10px",background:lmBg,border:`1px solid ${lmBrdR}`,borderRadius:7}}>
@@ -9037,7 +9040,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:momMovers.length?10:0,flexWrap:"wrap"}}>
           <span style={{fontSize:12,fontWeight:800,color:lightMode?"#1d4ed8":"#7ec8ff"}}>📅 Month-over-Month Watch</span>
           <span style={{fontSize:10,color:lmTxtS}}>vs {lastMonthInfo.label} · CTR / Freq / CPM / VCR swings of 25%+</span>
-          {momMovers.length>0 && <span style={{fontSize:10,fontWeight:700,color:lightMode?"#b45309":"#fbbf24",marginLeft:"auto"}}>{momMovers.length} campaign{momMovers.length!==1?"s":""} moving</span>}
+          {momMovers.length>0 && <span style={{fontSize:10,fontWeight:700,color:lightMode?"#d97706":"#fbbf24",marginLeft:"auto"}}>{momMovers.length} campaign{momMovers.length!==1?"s":""} moving</span>}
         </div>
         {momMovers.length===0
           ? <div style={{fontSize:11,color:lmTxtS,marginTop:8}}>
@@ -12713,14 +12716,14 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
           <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px"}}>
             <span style={{fontSize:13}}>⚠</span>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:12,fontWeight:700,color:_lm?"#92400e":"#fcd34d"}}>
+              <div style={{fontSize:12,fontWeight:700,color:_lm?"#d97706":"#fcd34d"}}>
                 {reconcile.missing.length} {reconcile.source} campaign{reconcile.missing.length!==1?"s":""}{reconcile.scoped?" in your current filter":""} usually reported didn't update in this file
               </div>
               <div style={{fontSize:10,color:_lm?"#a16207":"#caa15a",marginTop:1}}>
                 Went dark, paused, or dropped from the report — worth a look. ({reconcile.applied} of {reconcile.expected} expected {reconcile.source} campaigns{reconcile.scoped?" in your filter":""} updated)
               </div>
             </div>
-            <button onClick={()=>setReconcile(null)} title="Dismiss" style={{background:"none",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:5,color:_lm?"#92400e":"#fcd34d",fontSize:10,fontWeight:700,padding:"3px 9px",cursor:"pointer",flexShrink:0}}>Dismiss</button>
+            <button onClick={()=>setReconcile(null)} title="Dismiss" style={{background:"none",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:5,color:_lm?"#d97706":"#fcd34d",fontSize:10,fontWeight:700,padding:"3px 9px",cursor:"pointer",flexShrink:0}}>Dismiss</button>
           </div>
           <div style={{maxHeight:200,overflowY:"auto",borderTop:`1px solid ${_lm?"#fde68a":"#3a2a10"}`}}>
             {reconcile.missing.map(m=>(
@@ -13485,7 +13488,7 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, dspCpm, curImpr
         {platform!=="DSP"
           ? <div><label style={lbl}>Media spend $</label>
               <input type="number" value={spend} onChange={e=>{ setSpend(e.target.value); setDirty(true); }} style={iS} placeholder="—"/></div>
-          : <div style={{fontSize:10,color:_lm?"#b45309":"#caa46a",paddingBottom:8,maxWidth:150}}>DSP cost is auto-modeled at ${dspCpm.toFixed(2)} CPM from impressions.</div>}
+          : <div style={{fontSize:10,color:_lm?"#d97706":"#caa46a",paddingBottom:8,maxWidth:150}}>DSP cost is auto-modeled at ${dspCpm.toFixed(2)} CPM from impressions.</div>}
         <button onClick={()=>{ onSave({ impr:nImpr, views:nViews, spend: platform==="DSP"?null:nSpend }); setDirty(false); }} disabled={!dirty}
           style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"8px 18px",color:dirty?"#06222b":"#3b5070",fontSize:13,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>{dirty?"Save":"Saved ✓"}</button>
         <span style={{fontSize:12,color:_lm?"#475569":"#9fb8d4",paddingBottom:8}}>= <b style={{color:_lm?"#059669":"#00e5a0"}}>{$r(rev)}</b> revenue{cost!=null&&<> − <b style={{color:"#f59e0b"}}>{$r(cost)}</b> = <b style={{color:profit>=0?(_lm?"#059669":"#00d48a"):"#ef4444"}}>{(profit>=0?"+":"−")+"$"+Math.round(Math.abs(profit)).toLocaleString()}</b> profit</>}</span>
@@ -14306,8 +14309,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
             <span style={{fontSize:13}}>📊</span>
             <div style={{flex:1,minWidth:0}}>
-              <span style={{fontSize:12,fontWeight:700,color:_lm?"#92400e":"#fcd34d"}}>{missingRates.length} campaign{missingRates.length!==1?"s":""} still have estimated revenue</span>
-              <span style={{fontSize:11,color:_lm?"#b45309":"#caa46a",marginLeft:8}}>Add a rate to each and its revenue becomes exact (calculated from goal × rate).</span>
+              <span style={{fontSize:12,fontWeight:700,color:_lm?"#d97706":"#fcd34d"}}>{missingRates.length} campaign{missingRates.length!==1?"s":""} still have estimated revenue</span>
+              <span style={{fontSize:11,color:_lm?"#d97706":"#caa46a",marginLeft:8}}>Add a rate to each and its revenue becomes exact (calculated from goal × rate).</span>
             </div>
             <button onClick={()=>setShowRateFixer(v=>!v)}
               style={{background:_lm?"#f59e0b":"#3a2800",border:`1px solid ${_lm?"#f59e0b":"#f59e0b60"}`,borderRadius:7,padding:"5px 13px",color:_lm?"#ffffff":"#fcd34d",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
@@ -14938,7 +14941,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                           <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
                             <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>How this profit is calculated · management fee</div>
                             {feeMissing ? (
-                              <div style={{fontSize:12.5,color:_lm?"#b45309":"#f59e0b",lineHeight:1.6}}>
+                              <div style={{fontSize:12.5,color:_lm?"#d97706":"#f59e0b",lineHeight:1.6}}>
                                 No management fee set for this SEM campaign. Add the monthly fee in the campaign's <b>Management Fee</b> field — that's your profit. (Note 1's “${budget?budget.toLocaleString():"X"}/Mo” is the client's media budget, not the fee.)
                               </div>
                             ) : (
@@ -15004,7 +15007,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                   restored/ended campaign: revenue is billed on DELIVERY (impr/views × rate),
                                   not on spend. Tell them exactly how to book it. */}
                               {rev<=0 && rateNum>0 && spend!=null && !(delivered>0) && (
-                                <div style={{fontSize:12,color:_lm?"#b45309":"#fbbf24",marginTop:6,lineHeight:1.55}}>
+                                <div style={{fontSize:12,color:_lm?"#d97706":"#fbbf24",marginTop:6,lineHeight:1.55}}>
                                   ⚠ No delivered {isCPV?"views":"impressions"} logged for {focusLabelShort}, so there's <b>$0 revenue</b> to bill — this campaign earns on delivery ({isCPV?"views × $"+rateNum.toFixed(3)+"/view":"impr × $"+rateNum.toFixed(2)+" CPM"}), not on spend. Enter its delivered {isCPV?"views":"impressions"} in the campaign's metrics and the revenue will populate.
                                 </div>
                               )}
@@ -15035,7 +15038,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                 }
                                 if (activeMonth===thisMonth) {
                                   return (
-                                    <div style={{fontSize:11.5,color:_lm?"#b45309":"#caa46a",marginTop:5}}>
+                                    <div style={{fontSize:11.5,color:_lm?"#d97706":"#caa46a",marginTop:5}}>
                                       📱 Device surcharge on — no device line in the latest check-in yet ($0).
                                     </div>
                                   );
@@ -16061,7 +16064,7 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
           <span style={{fontSize:18,flexShrink:0}}>⚠️</span>
           <div>
             <div style={{fontSize:12,fontWeight:700,color:"#f59e0b",marginBottom:3}}>Snapchat API approval required before this will work</div>
-            <div style={{fontSize:11,color:_lm?"#92400e":"#92400e",lineHeight:1.5}}>Submit your app for review at <span style={{color:_lm?"#b45309":"#fbbf24"}}>developers.snap.com</span> → My Apps → New App. Request <strong>snapchat-marketing-api</strong> scope. Approval takes 2–5 business days. See the Snapchat API Setup Guide for full instructions.</div>
+            <div style={{fontSize:11,color:_lm?"#d97706":"#92400e",lineHeight:1.5}}>Submit your app for review at <span style={{color:_lm?"#d97706":"#fbbf24"}}>developers.snap.com</span> → My Apps → New App. Request <strong>snapchat-marketing-api</strong> scope. Approval takes 2–5 business days. See the Snapchat API Setup Guide for full instructions.</div>
           </div>
         </div>
 
@@ -16654,7 +16657,7 @@ function IODraftReviewModal({ drafts, meta, lightMode, existingPartners, onAppro
 
         {/* Low-confidence banner — shown when the draft came from the whole-document fallback scan. */}
         {meta?.lowConfidence && (
-          <div style={{margin:"12px 20px 0",padding:"10px 14px",background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#f59e0b":"#f59e0b55"}`,borderRadius:8,fontSize:12,color:_lm?"#92400e":"#fcd34d",lineHeight:1.5}}>
+          <div style={{margin:"12px 20px 0",padding:"10px 14px",background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#f59e0b":"#f59e0b55"}`,borderRadius:8,fontSize:12,color:_lm?"#d97706":"#fcd34d",lineHeight:1.5}}>
             <strong>⚠ Low-confidence draft.</strong> This IO format wasn't recognized, so these fields were guessed from a whole-document scan. <strong>Check every value</strong> — platform, dates, impressions, CPM, budget — against the PDF before approving.
           </div>
         )}
@@ -17932,7 +17935,7 @@ export default function App() {
             {dspSyncStatus==="done" && dspSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(dspSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dcfce7":"#001a10",border:`1px solid ${lightMode?"#86efac":"#34d39940"}`,color:lightMode?"#15803d":"#34d399",fontWeight:600,cursor:"default"}}>⬡ DSP: {dspSyncInfo.fetched_count} synced</span>}
             {dspSyncStatus==="error" && <span title={dspSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fee2e2":"#1a0808",border:`1px solid ${lightMode?"#fca5a5":"#ef444440"}`,color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ DSP sync —</span>}
             {googleSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dbeafe":"#0e1a2e",border:`1px solid ${lightMode?"#93c5fd":"#3b82f640"}`,color:lightMode?"#1d4ed8":"#60a5fa",fontWeight:600}}>⟳ Syncing Google…</span>}
-            {googleSyncStatus==="done" && googleSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(googleSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fef3c7":"#1a1000",border:`1px solid ${lightMode?"#fde68a":"#f59e0b40"}`,color:lightMode?"#b45309":"#f59e0b",fontWeight:600,cursor:"default"}}>⬡ Google: {googleSyncInfo.fetched_count} synced</span>}
+            {googleSyncStatus==="done" && googleSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(googleSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fef3c7":"#1a1000",border:`1px solid ${lightMode?"#fde68a":"#f59e0b40"}`,color:lightMode?"#d97706":"#f59e0b",fontWeight:600,cursor:"default"}}>⬡ Google: {googleSyncInfo.fetched_count} synced</span>}
             {googleSyncStatus==="error" && <span title={googleSyncInfo?.error} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fee2e2":"#1a0808",border:`1px solid ${lightMode?"#fca5a5":"#ef444440"}`,color:"#ef4444",fontWeight:600,cursor:"help"}}>⚠ Google sync —</span>}
             {snapSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dbeafe":"#0e1a2e",border:`1px solid ${lightMode?"#93c5fd":"#3b82f640"}`,color:lightMode?"#1d4ed8":"#60a5fa",fontWeight:600}}>⟳ Syncing Snap…</span>}
             {snapSyncStatus==="done" && snapSyncInfo?.fetched_count>0 && <span title={"Last updated: "+(snapSyncInfo.last_updated||"")} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#fdf2f8":"#1a0010",border:`1px solid ${lightMode?"#f9a8d4":"#f9a8d440"}`,color:lightMode?"#be185d":"#f9a8d4",fontWeight:600,cursor:"default"}}>⬡ Snap: {snapSyncInfo.fetched_count} synced</span>}
@@ -17940,7 +17943,7 @@ export default function App() {
             </>}
           </div>
           <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-            <button onClick={()=>setShowReminderModal(true)} style={{position:"relative",background:lightMode?(pendingReminders>0?"#fef3c7":"#f1f5f9"):(pendingReminders>0?"#130a00":"#0e1a2e"),border:`1px solid ${lightMode?(pendingReminders>0?"#fde68a":"#e2e8f0"):(pendingReminders>0?"#f59e0b60":"#1e293b")}`,borderRadius:7,padding:"6px 13px",color:lightMode?(pendingReminders>0?"#b45309":"#64748b"):(pendingReminders>0?"#f59e0b":"#4d6e8a"),fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            <button onClick={()=>setShowReminderModal(true)} style={{position:"relative",background:lightMode?(pendingReminders>0?"#fef3c7":"#f1f5f9"):(pendingReminders>0?"#130a00":"#0e1a2e"),border:`1px solid ${lightMode?(pendingReminders>0?"#fde68a":"#e2e8f0"):(pendingReminders>0?"#f59e0b60":"#1e293b")}`,borderRadius:7,padding:"6px 13px",color:lightMode?(pendingReminders>0?"#d97706":"#64748b"):(pendingReminders>0?"#f59e0b":"#4d6e8a"),fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
               🔔 Reminders
               {pendingReminders>0 && <span style={{background:"#ef4444",color:"#fff",borderRadius:10,padding:"0px 5px",fontSize:10,fontWeight:700,minWidth:16,textAlign:"center"}}>{pendingReminders}</span>}
             </button>
@@ -17960,7 +17963,7 @@ export default function App() {
                     background: overdue ? (lightMode?"#fef3c7":"#3a2800") : (lightMode?"#eff6ff":"#0a1626"),
                     border:`1px solid ${overdue ? "#f59e0b" : (lightMode?"#3b82f6":"#3b82f680")}`,
                     borderRadius:7,padding:"6px 13px",
-                    color: overdue ? (lightMode?"#b45309":"#fcd34d") : (lightMode?"#1d4ed8":"#7ec8ff"),
+                    color: overdue ? (lightMode?"#d97706":"#fcd34d") : (lightMode?"#1d4ed8":"#7ec8ff"),
                     fontWeight:700,fontSize:13,cursor:"pointer"}}>
                   🗓️ Close out {monthLbl}{overdue ? ` — ${mcs.daysInto}d overdue` : ""}
                 </button>
@@ -17985,7 +17988,7 @@ export default function App() {
                 const file = e.dataTransfer.files && e.dataTransfer.files[0];
                 if (file) handleIOPdfDrop(file);
               }}
-              style={{background:lightMode?"#fef3c7":"#1a1208",border:lightMode?"1px solid #f59e0b":"1px solid #f59e0b40",borderRadius:7,padding:"6px 13px",color:lightMode?"#92400e":"#fbbf24",fontWeight:700,fontSize:13,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,opacity:pdfProcessing?0.6:1,transition:"background .15s, border-color .15s"}}
+              style={{background:lightMode?"#fef3c7":"#1a1208",border:lightMode?"1px solid #f59e0b":"1px solid #f59e0b40",borderRadius:7,padding:"6px 13px",color:lightMode?"#d97706":"#fbbf24",fontWeight:700,fontSize:13,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,opacity:pdfProcessing?0.6:1,transition:"background .15s, border-color .15s"}}
               title="Open the IO PDF drop box (or drop a PDF right here)">
               {pdfProcessing ? "⏳ Parsing…" : "📄 Drop IO PDF"}
             </button>
@@ -17994,7 +17997,7 @@ export default function App() {
             {pdfDrafts && pdfDrafts.length > 0 && !pdfQueueOpen && (
               <button onClick={()=>setPdfQueueOpen(true)}
                 title={`${pdfDrafts.length} IO draft${pdfDrafts.length>1?"s":""} saved for later — click to resume reviewing`}
-                style={{background:lightMode?"#fef9c3":"#2a1a00",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b80"}`,borderRadius:7,padding:"6px 11px",color:lightMode?"#92400e":"#fbbf24",fontWeight:700,fontSize:12,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>
+                style={{background:lightMode?"#fef9c3":"#2a1a00",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b80"}`,borderRadius:7,padding:"6px 11px",color:lightMode?"#d97706":"#fbbf24",fontWeight:700,fontSize:12,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>
                 📄 {pdfDrafts.length} draft{pdfDrafts.length>1?"s":""} pending
                 <span style={{fontSize:10,opacity:.8}}>· resume →</span>
               </button>
@@ -18036,7 +18039,7 @@ export default function App() {
                   fontSize:13,fontWeight:activeTab===t.key?700:400,
                   cursor:"pointer",transition:"all .15s",marginBottom:-1,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
                 {t.label}
-                {t.badge>0&&<span style={{background:lightMode?"#fef3c7":"#f59e0b22",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b60"}`,borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,color:lightMode?"#92400e":"#f59e0b",lineHeight:1.4}}>{t.badge}</span>}
+                {t.badge>0&&<span style={{background:lightMode?"#fef3c7":"#f59e0b22",border:`1px solid ${lightMode?"#f59e0b":"#f59e0b60"}`,borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,color:lightMode?"#d97706":"#f59e0b",lineHeight:1.4}}>{t.badge}</span>}
               </button>
             ))}
           </div>
@@ -18095,7 +18098,7 @@ export default function App() {
             {(()=>{
               const used = getStorageBytes();
               const pct = Math.min(100, used / STORAGE_LIMIT_BYTES * 100);
-              const barCol = pct < 60 ? "#00d48a" : pct < 85 ? (lightMode?"#b45309":"#f59e0b") : "#ef4444";
+              const barCol = pct < 60 ? "#00d48a" : pct < 85 ? (lightMode?"#d97706":"#f59e0b") : "#ef4444";
               return (
                 <div style={{background:lightMode?"#ffffff":"#0c1625",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
                   <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",marginBottom:8}}>
@@ -18434,12 +18437,12 @@ export default function App() {
               <span style={{fontSize:18}}>💾</span>
               <div>
                 <div style={{color:"#f59e0b",fontWeight:700,fontSize:13}}>Time to back up your data!</div>
-                <div style={{color:lightMode?"#92400e":"#92400e",fontSize:11,marginTop:1}}>It's been 3+ days since your last export.</div>
+                <div style={{color:lightMode?"#d97706":"#92400e",fontSize:11,marginTop:1}}>It's been 3+ days since your last export.</div>
               </div>
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={doExport} style={{background:"#f59e0b",border:"none",borderRadius:7,padding:"7px 16px",color:"#000",fontWeight:700,fontSize:12,cursor:"pointer"}}>↓ Export Now</button>
-              <button onClick={()=>{localStorage.setItem(EXPORT_KEY,Date.now().toString());setShowExportReminder(false);}} style={{background:"none",border:"1px solid #92400e",borderRadius:7,padding:"7px 12px",color:"#92400e",fontWeight:600,fontSize:12,cursor:"pointer"}}>Remind me later</button>
+              <button onClick={()=>{localStorage.setItem(EXPORT_KEY,Date.now().toString());setShowExportReminder(false);}} style={{background:"none",border:`1px solid ${lightMode?"#d97706":"#92400e"}`,borderRadius:7,padding:"7px 12px",color:lightMode?"#d97706":"#92400e",fontWeight:600,fontSize:12,cursor:"pointer"}}>Remind me later</button>
             </div>
           </div>
         )}
@@ -18512,10 +18515,10 @@ export default function App() {
               data hasn't refreshed in N+ days, so you can chase down anything that went quiet. */}
           {fStaleDays>0&&(
             <div style={{display:"flex",alignItems:"center",gap:6,background:lightMode?"#fffbeb":"#1a1208",border:`1px solid ${lightMode?"#fcd34d":"#f59e0b40"}`,borderRadius:7,padding:"4px 10px"}}>
-              <span style={{fontSize:11,color:lightMode?"#92400e":"#fbbf24",fontWeight:700,whiteSpace:"nowrap"}}>🕒 No update in</span>
+              <span style={{fontSize:11,color:lightMode?"#d97706":"#fbbf24",fontWeight:700,whiteSpace:"nowrap"}}>🕒 No update in</span>
               {[2,3,5,7,14].map(d=>(
                 <button key={d} onClick={()=>setFStaleDays(d)}
-                  style={{background:fStaleDays===d?(lightMode?"#fcd34d":"#f59e0b22"):"none",border:`1px solid ${fStaleDays===d?(lightMode?"#92400e":"#f59e0b60"):"transparent"}`,borderRadius:5,padding:"2px 8px",color:fStaleDays===d?(lightMode?"#451a03":"#fbbf24"):(lightMode?"#475569":"#3d5a72"),fontSize:12,fontWeight:fStaleDays===d?700:400,cursor:"pointer",transition:"all .12s"}}>
+                  style={{background:fStaleDays===d?(lightMode?"#fcd34d":"#f59e0b22"):"none",border:`1px solid ${fStaleDays===d?(lightMode?"#d97706":"#f59e0b60"):"transparent"}`,borderRadius:5,padding:"2px 8px",color:fStaleDays===d?(lightMode?"#451a03":"#fbbf24"):(lightMode?"#475569":"#3d5a72"),fontSize:12,fontWeight:fStaleDays===d?700:400,cursor:"pointer",transition:"all .12s"}}>
                   {d}d+
                 </button>
               ))}
@@ -18538,10 +18541,10 @@ export default function App() {
             {fExcludeGoalHit?"🎯 Hiding Goal Hit":"🎯 Exclude Goal Hit"}
           </button>
           <button onClick={()=>setShowDailyGoal(v=>!v)}
-            style={{background:lightMode?(showDailyGoal?"#f0fdf9":"#f1f5f9"):(showDailyGoal?"#1a0a2e":"#0e1a2e"),
-              border:`1px solid ${showDailyGoal?(lightMode?"#00c896":"#a855f780"):(lightMode?"#cbd5e1":"#1e293b")}`,
+            style={{background:lightMode?(showDailyGoal?"#faf5ff":"#f1f5f9"):(showDailyGoal?"#1a0a2e":"#0e1a2e"),
+              border:`1px solid ${showDailyGoal?(lightMode?"#a855f7":"#a855f780"):(lightMode?"#cbd5e1":"#1e293b")}`,
               borderRadius:7,padding:"7px 11px",
-              color:showDailyGoal?(lightMode?"#059669":"#a855f7"):(lightMode?"#475569":"#4d6e8a"),
+              color:showDailyGoal?(lightMode?"#7c3aed":"#a855f7"):(lightMode?"#475569":"#4d6e8a"),
               fontSize:12,fontWeight:showDailyGoal?700:400,
               cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s",
             }} title={showDailyGoal?"Hide daily impression target":"Show daily impression target"}>
@@ -18719,14 +18722,14 @@ export default function App() {
                                   return (
                                     <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,paddingLeft:12,flexWrap:"wrap"}}>
                                       <div style={{fontSize:11,color:lightMode?"#0891b2":"#00d9ff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
-                                      {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
+                                      {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:lightMode?"#7c3aed":"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
                                     </div>
                                   );
                                 })()}
                               </TD>
                               <TD><StatusBadge status={c.status}/></TD>
                               <TD><span style={{fontSize:12,color:(PLT[c.platform]||PLT.default),fontWeight:700}}>{c.platform}</span></TD>
-                              <TD><span style={{fontSize:11,color:lightMode?"#475569":"#7a9bbf"}}>{c.note1||"—"}</span>{(()=>{ const p=computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:p.color,display:"block",marginTop:2}}>{Math.round(p.pct*100)}% mo pace</span> : null; })()}</TD>
+                              <TD><span style={{fontSize:11,color:lightMode?"#475569":"#7a9bbf"}}>{c.note1||"—"}</span>{(()=>{ const p=computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:lmCol(p.color),display:"block",marginTop:2}}>{Math.round(p.pct*100)}% mo pace</span> : null; })()}</TD>
                               <TD><span style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a"}}>{c.startDate?fmtDate(c.startDate):"—"}</span></TD>
                               <TD><EndChip d={c.endDate}/></TD>
                               <TD>
@@ -18841,10 +18844,10 @@ export default function App() {
                               <div style={{marginTop:4,width:140}} title={`${pacing.label}: ${pacingTipDel} of ${pacingTipGoal} goal`}>
                                 <div style={{position:"relative",background:lightMode?"#e2e8f0":"#0e1a2e",borderRadius:3,height:5,width:"100%",overflow:"visible",marginBottom:2}}>
                                   <div style={{position:"absolute",top:-2,left:`${Math.min(97,pacing.expectedPct*100)}%`,width:2,height:9,background:lightMode?"#94a3b8":"#334155",borderRadius:1,zIndex:2}}/>
-                                  <div style={{background:pacing.color,height:"100%",width:`${Math.min(100,pacing.pct*100)}%`,borderRadius:3,transition:"width .3s"}}/>
+                                  <div style={{background:lmCol(pacing.color),height:"100%",width:`${Math.min(100,pacing.pct*100)}%`,borderRadius:3,transition:"width .3s"}}/>
                                 </div>
                                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                                  <span style={{fontSize:9,color:pacing.color,fontWeight:700,letterSpacing:"0.03em"}}>{(pacing.pct*100).toFixed(0)}% of goal</span>
+                                  <span style={{fontSize:9,color:lmCol(pacing.color),fontWeight:700,letterSpacing:"0.03em"}}>{(pacing.pct*100).toFixed(0)}% of goal</span>
                                   <span style={{fontSize:9,color:lightMode?"#94a3b8":"#2a4060",fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>{getPeriodLabel(dateRange.preset)}</span>
                                 </div>
                               </div>
@@ -18865,7 +18868,7 @@ export default function App() {
                         </TD>
                         <TD style={{maxWidth:170}}>
                           <span style={{color:lightMode?"#475569":"#7a9bbf",fontSize:13,display:"block",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}} title={c.goal}>{c.goal}</span>
-                          {(()=>{ const p=computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:p.color,display:"block",marginTop:2}}>{Math.round(p.pct*100)}% mo pace</span> : null; })()}
+                          {(()=>{ const p=computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:lmCol(p.color),display:"block",marginTop:2}}>{Math.round(p.pct*100)}% mo pace</span> : null; })()}
                         </TD>
                         <TD>
                           {c.startDate ? (
@@ -18941,7 +18944,7 @@ export default function App() {
         <div onClick={()=>setIoDropOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(3px)"}}>
           <div onClick={e=>e.stopPropagation()} style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:14,width:"min(560px,94vw)",padding:18,boxShadow:"0 30px 80px rgba(0,0,0,.55)"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-              <span style={{fontSize:15,fontWeight:800,color:lightMode?"#92400e":"#fbbf24"}}>📄 Drop IO PDF</span>
+              <span style={{fontSize:15,fontWeight:800,color:lightMode?"#d97706":"#fbbf24"}}>📄 Drop IO PDF</span>
               <button onClick={()=>setIoDropOpen(false)} style={{background:"none",border:"none",color:lightMode?"#94a3b8":"#4d6e8a",fontSize:18,cursor:"pointer",lineHeight:1}}>×</button>
             </div>
             <label style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:9,padding:"42px 20px",border:`2px dashed ${lightMode?"#f59e0b":"#f59e0b66"}`,borderRadius:12,background:lightMode?"#fffbeb":"#1a1208",cursor:"pointer",textAlign:"center"}}
@@ -18949,7 +18952,7 @@ export default function App() {
               onDragLeave={e=>{e.currentTarget.style.background=lightMode?"#fffbeb":"#1a1208";e.currentTarget.style.borderColor=lightMode?"#f59e0b":"#f59e0b66";}}
               onDrop={e=>{e.preventDefault();e.currentTarget.style.background=lightMode?"#fffbeb":"#1a1208";e.currentTarget.style.borderColor=lightMode?"#f59e0b":"#f59e0b66";const file=e.dataTransfer.files&&e.dataTransfer.files[0];if(file){ handleIOPdfDrop(file); setIoDropOpen(false); }}}>
               <span style={{fontSize:34,lineHeight:1}}>📄</span>
-              <span style={{fontSize:14,fontWeight:700,color:lightMode?"#92400e":"#fbbf24"}}>Drag &amp; drop your IO PDF here</span>
+              <span style={{fontSize:14,fontWeight:700,color:lightMode?"#d97706":"#fbbf24"}}>Drag &amp; drop your IO PDF here</span>
               <span style={{fontSize:11.5,color:lightMode?"#a16207":"#b08344"}}>or click to browse — auto-extracts campaigns into review drafts</span>
               <input type="file" accept=".pdf,application/pdf" style={{display:"none"}} onChange={e=>{ const file=e.target.files[0]; e.target.value=""; if(file){ handleIOPdfDrop(file); setIoDropOpen(false); } }}/>
             </label>
