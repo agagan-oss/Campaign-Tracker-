@@ -7664,13 +7664,21 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // survives the row remounts that happen whenever any campaign changes — see expandedRows comment.
     // The shim preserves the existing setRowBreakdownOpen(bool) and setRowBreakdownOpen(v=>!v) calls.
     const rowBreakdownOpen = expandedRows.has(c.id);
-    const setRowBreakdownOpen = (updater) => setExpandedRows(prev => {
-      const wasOpen = prev.has(c.id);
-      const nextOpen = typeof updater === "function" ? updater(wasOpen) : updater;
-      const s = new Set(prev);
-      if (nextOpen) s.add(c.id); else s.delete(c.id);
-      return s;
-    });
+    const setRowBreakdownOpen = (updater) => {
+      // TableRow is redefined every render, so toggling expand remounts the whole list; during the
+      // remount the document briefly collapses and the window scroll clamps to the top. Capture the
+      // scroll position and restore it after the remount paints so the page doesn't jump up.
+      const sy = (typeof window!=="undefined") ? window.scrollY : 0;
+      setExpandedRows(prev => {
+        const wasOpen = prev.has(c.id);
+        const nextOpen = typeof updater === "function" ? updater(wasOpen) : updater;
+        const s = new Set(prev);
+        if (nextOpen) s.add(c.id); else s.delete(c.id);
+        return s;
+      });
+      if (typeof window!=="undefined" && typeof requestAnimationFrame==="function")
+        requestAnimationFrame(()=>requestAnimationFrame(()=>window.scrollTo(0, sy)));
+    };
     const [creativesOpen, setCreativesOpen] = useState(false); // Creatives section — collapsed by default (one-off imports, not daily)
     // Weekly/Daily chart toggle. Per-row state (so toggling doesn't remount/collapse the row), but the
     // choice is persisted as the default — so every row you open uses your last-picked granularity.
@@ -11368,9 +11376,57 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     setShowInitialsPrompt(false);
   }
 
+  // ── Ignore list ─────────────────────────────────────────────────────────────
+  // CSV campaign names to ALWAYS skip on check-in — e.g. a campaign a colleague runs that shows up
+  // in the same company-wide file every day (Austin runs Pearl Hawaii display; his boss runs the
+  // Netflix line, which kept auto-matching). Persisted, so ignored rows are auto-skipped on every
+  // future drop. Un-ignore any time from the list up top to map it again.
+  const QCI_IGNORE_KEY = "qci-ignored-names";
+  const IGNORE_TTL_DAYS = 30; // auto-drop an ignored campaign that hasn't appeared in a dropped file this long
+  const normIgnore = s => String(s||"").trim().toLowerCase();
+  // Entries are {name, addedAt, lastSeenAt} (ms). Legacy plain-string entries are migrated on load.
+  const [ignoredNames, setIgnoredNames] = React.useState(()=>{
+    try{
+      const a=JSON.parse(localStorage.getItem(QCI_IGNORE_KEY)||"[]");
+      if(!Array.isArray(a)) return [];
+      const now=Date.now(), cutoff=now-IGNORE_TTL_DAYS*86400000;
+      return a.map(e=> typeof e==="string" ? {name:e, addedAt:now, lastSeenAt:now} : e)
+              .filter(e=> e && e.name && Number(e.lastSeenAt||e.addedAt||now) >= cutoff);
+    } catch{ return []; }
+  });
+  const _persistIgnored = (arr)=>{ try{ localStorage.setItem(QCI_IGNORE_KEY, JSON.stringify(arr)); }catch{} };
+  const isIgnoredName = (name)=> !!name && ignoredNames.some(e=>normIgnore(e.name)===normIgnore(name));
+  const addIgnore = (name)=>{ const nm=String(name||"").trim(); if(!nm) return; const now=Date.now(); setIgnoredNames(prev=>{ if(prev.some(e=>normIgnore(e.name)===normIgnore(nm))) return prev; const next=[...prev,{name:nm,addedAt:now,lastSeenAt:now}]; _persistIgnored(next); return next; }); };
+  const removeIgnore = (name)=> setIgnoredNames(prev=>{ const next=prev.filter(e=>normIgnore(e.name)!==normIgnore(name)); _persistIgnored(next); return next; });
+  const clearAllIgnored = ()=>{ setIgnoredNames([]); _persistIgnored([]); };
+  const [showIgnoredList, setShowIgnoredList] = React.useState(false); // collapsed by default — small dropdown
+  // On each file drop: refresh lastSeen for ignored names present in the file, then prune any that
+  // haven't shown up in IGNORE_TTL_DAYS days — so the ignore list self-cleans and never grows unbounded.
+  React.useEffect(()=>{
+    if(!Array.isArray(fileRows) || !fileRows.length) return;
+    const now=Date.now(), cutoff=now-IGNORE_TTL_DAYS*86400000;
+    const present=new Set(fileRows.map(r=>normIgnore(getCampName(r, fileSource))));
+    setIgnoredNames(prev=>{
+      let changed=false;
+      const bumped=prev.map(e=>{ if(present.has(normIgnore(e.name))){ changed=true; return {...e,lastSeenAt:now}; } return e; });
+      const pruned=bumped.filter(e=> Number(e.lastSeenAt||e.addedAt||now) >= cutoff);
+      if(pruned.length!==bumped.length) changed=true;
+      if(!changed) return prev;
+      _persistIgnored(pruned);
+      return pruned;
+    });
+  }, [fileRows, fileSource]);
+  // Write the migrated/pruned shape back to storage once on mount, so localStorage matches what's
+  // shown (legacy strings → objects, already-stale entries dropped) instead of lingering until a drop.
+  React.useEffect(()=>{ _persistIgnored(ignoredNames); }, []);
+
   const qciPlatformList = [...new Set(activeCamps.map(c=>c.platform).filter(Boolean))].sort();
   const selectedCamps = activeCamps.filter(c=>selected.has(c.id));
-  const mappedCount = Object.values(mapping).filter(Boolean).length;
+  // A file row is ignored when its CSV campaign name is on the ignore list — skipped everywhere
+  // (mapped-count, low-confidence review, apply, and the mapping list itself).
+  const isRowIgnored = (i)=> Array.isArray(fileRows) && fileRows[i] && isIgnoredName(getCampName(fileRows[i], fileSource));
+  const ignoredInFileCount = Array.isArray(fileRows) ? fileRows.filter(r=>isIgnoredName(getCampName(r, fileSource))).length : 0;
+  const mappedCount = Object.entries(mapping).filter(([i,v])=> v && !isRowIgnored(parseInt(i))).length;
 
   const visibleCamps = activeCamps.filter(c=>{
     const q=qciSearch.toLowerCase();
@@ -12377,6 +12433,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       Object.entries(mapping).forEach(([idxStr,campId])=>{
         if(!campId) return;
         const row=fileRows[parseInt(idxStr)]; if(!row) return;
+        if(isRowIgnored(parseInt(idxStr))) return;   // skip ignored campaigns
         const adSet=getCampName(row,fileSource);
         const grp=creativeGroups[adSet]; if(!grp) return;
         const key=String(campId);
@@ -12402,6 +12459,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     Object.entries(mapping).forEach(([idxStr,campId])=>{
       if(!campId) return;
       const row=fileRows[parseInt(idxStr)]; if(!row) return;
+      if(isRowIgnored(parseInt(idxStr))) return;   // never apply data for an ignored campaign
       const m=extractMetrics(row,fileSource);
       if(!updates[campId]) updates[campId]={impressions:0,clicks:0,spend:0,reach:0,videoViews:0,completionRate:0,frequency:0,freqCount:0,breakdown:[]};
       updates[campId].impressions+=m.impressions;
@@ -12630,6 +12688,12 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
 
   return (
     <div style={{background:_lm?"#ffffff":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#00c89640"}`,borderRadius:10,marginBottom:14,overflow:"hidden"}}>
+      {/* Soft pulsing glow for the key action buttons (Apply / Done) — draws the eye without being loud. */}
+      <style>{`
+        @keyframes qciGlow{0%,100%{box-shadow:0 0 5px rgba(0,200,150,.45)}50%{box-shadow:0 0 15px rgba(0,200,150,.9),0 0 26px rgba(0,200,150,.4)}}
+        .qci-glow{animation:qciGlow 1.8s ease-in-out infinite}
+        .qci-glow:hover{animation:none;box-shadow:0 0 16px rgba(0,200,150,.95)}
+      `}</style>
 
       {/* ── Header bar ── */}
       <div style={{background:_lm?"#f8fafc":"#001a2e",padding:"9px 14px",display:"flex",alignItems:"center",gap:12,borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,flexWrap:"wrap"}}>
@@ -12699,13 +12763,52 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
 
       {/* ── Status / messages ── */}
       {(fileError||savedMsg)&&(
-        <div style={{padding:"5px 14px",background:fileError?(_lm?"#fee2e2":"#1a0808"):(_lm?"#f0fdf9":"#001a0e"),fontSize:10,color:fileError?"#ef4444":(_lm?"#059669":"#00e5a0"),borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",alignItems:"center",gap:8}}>
+        <div style={{padding:savedMsg&&!fileError?"10px 14px":"5px 14px",background:fileError?(_lm?"#fee2e2":"#1a0808"):(_lm?"#f0fdf9":"#001a0e"),fontSize:savedMsg&&!fileError?12.5:10,fontWeight:savedMsg&&!fileError?700:400,color:fileError?"#ef4444":(_lm?"#059669":"#00e5a0"),borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",alignItems:"center",gap:10}}>
           <span style={{flex:1}}>{fileError||savedMsg}</span>
           {fileError&&fileError.includes("initials")&&(
             <button onClick={()=>setShowInitialsPrompt(true)}
               style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:4,padding:"2px 8px",color:"#f59e0b",fontSize:10,cursor:"pointer"}}>
               Set Initials
             </button>
+          )}
+          {savedMsg&&!fileError&&(
+            <button onClick={onClose} className="qci-glow"
+              style={{background:"#00c896",border:"none",borderRadius:7,padding:"7px 22px",color:"#06222b",fontSize:12.5,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+              ✓ Done
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Ignored campaigns ── small collapsible dropdown (CSV names to always skip, e.g. a colleague's
+           line in your daily file). Collapsed by default; expand to review / "Map it" to un-ignore. */}
+      {ignoredNames.length>0&&(
+        <div style={{padding:"6px 14px",background:_lm?"#f8fafc":"#0a1018",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+          <button onClick={()=>setShowIgnoredList(v=>!v)}
+            style={{background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:6,color:_lm?"#64748b":"#7a9bbf",fontSize:11,fontWeight:700,padding:0}}>
+            <span style={{fontSize:9,display:"inline-block",transform:showIgnoredList?"rotate(90deg)":"none",transition:"transform .15s"}}>▸</span>
+            🚫 Ignored on check-in ({ignoredNames.length})
+            {ignoredInFileCount>0&&<span style={{fontSize:10,fontWeight:400,color:_lm?"#94a3b8":"#3d5a72"}}>· {ignoredInFileCount} skipped in this file</span>}
+          </button>
+          {showIgnoredList&&(
+            <div style={{marginTop:8}}>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {ignoredNames.map((e,idx)=>{
+                  const seenDays=Math.floor((Date.now()-Number(e.lastSeenAt||e.addedAt||Date.now()))/86400000);
+                  return (
+                    <span key={idx} style={{display:"inline-flex",alignItems:"center",gap:7,background:_lm?"#eef2f7":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:6,padding:"3px 5px 3px 9px",fontSize:10.5,color:_lm?"#475569":"#a8c4e0",maxWidth:280}}
+                      title={`${e.name} · last seen ${seenDays<=0?"today":seenDays+"d ago"} · auto-removed after ${IGNORE_TTL_DAYS}d unseen`}>
+                      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.name}</span>
+                      <button onClick={()=>removeIgnore(e.name)} title="Stop ignoring — map this campaign again on check-in"
+                        style={{background:_lm?"#00c896":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:4,color:_lm?"#ffffff":"#00e5a0",fontSize:9,fontWeight:700,padding:"2px 7px",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>↩ Map it</button>
+                    </span>
+                  );
+                })}
+              </div>
+              <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:6}}>
+                Auto-removed after {IGNORE_TTL_DAYS} days without appearing in a dropped file · <button onClick={clearAllIgnored} style={{background:"none",border:"none",color:_lm?"#dc2626":"#f87171",fontSize:9,fontWeight:700,cursor:"pointer",padding:0,textDecoration:"underline"}}>Clear all</button>
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -12866,8 +12969,10 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
             )}
             <div style={{padding:"6px 12px",background:_lm?"#f8fafc":"#060d18",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <span style={{fontSize:11,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{isCreativeMode?`🎨 ${fileSource==="Snapchat"?"Snapchat":"FB"} Creative Report — ${fileRows.length} ad set${fileRows.length!==1?"s":""}`:`${fileSource==="Generic"?"📊 Generic CSV":fileSource==="TradeDesk"?"📡 TradeDesk (_AG only)":fileSource} — ${fileRows.length} rows`}</span>
-              <span style={{fontSize:10,color:mappedCount<fileRows.length?"#f59e0b":(_lm?"#059669":"#00e5a0"),fontWeight:600}}>{mappedCount}/{fileRows.length} matched</span>
-              {mappedCount<fileRows.length&&<span style={{fontSize:10,color:"#f59e0b"}}>⚠ assign unmatched rows below</span>}
+              {(()=>{ const total=fileRows.length-ignoredInFileCount; return <>
+                <span style={{fontSize:10,color:mappedCount<total?"#f59e0b":(_lm?"#059669":"#00e5a0"),fontWeight:600}}>{mappedCount}/{total} matched{ignoredInFileCount>0?` · ${ignoredInFileCount} ignored`:""}</span>
+                {mappedCount<total&&<span style={{fontSize:10,color:"#f59e0b"}}>⚠ assign unmatched rows below</span>}
+              </>; })()}
               <div style={{display:"flex",gap:5}}>
                 {/* Forget memory: clears all saved mappings for this source, then re-runs auto-match.
                     Useful when a previous broken drop poisoned localStorage (e.g. all rows → Pearl Hawaii). */}
@@ -12916,6 +13021,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                   // Count low-confidence auto-matches (not manually assigned, not memory)
                   const lowConfCount = Object.entries(mapping).filter(([idxStr,campId])=>{
                     if(!campId) return false;
+                    if(isRowIgnored(parseInt(idxStr))) return false;
                     const conf = matchConf[parseInt(idxStr)];
                     return conf !== undefined && conf < 0.7;
                   }).length;
@@ -12925,7 +13031,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                     setConfirmApplyPending(false);
                     applyMapping();
                   }
-                }} disabled={!mappedCount}
+                }} disabled={!mappedCount} className={mappedCount&&!confirmApplyPending?"qci-glow":undefined}
                   style={{background:mappedCount?(_lm?"#00e19e":"#002e24"):(_lm?"#f1f5f9":"#162236"),border:`1px solid ${mappedCount?(_lm?"#00c896":"#00c89640"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:5,padding:"5px 12px",color:mappedCount?(_lm?"#0a1a0a":"#00e5a0"):(_lm?"#94a3b8":"#3d5a72"),fontSize:11,fontWeight:700,cursor:mappedCount?"pointer":"default",whiteSpace:"nowrap"}}>
                   {confirmApplyPending?"⚠ Review below":(isCreativeMode?"🎨 Save creatives":"✓ Apply")} {mappedCount}
                 </button>
@@ -12951,6 +13057,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
             {confirmApplyPending && (()=>{
               const lowRows = Object.entries(mapping).filter(([idxStr,campId])=>{
                 if(!campId) return false;
+                if(isRowIgnored(parseInt(idxStr))) return false;
                 const conf = matchConf[parseInt(idxStr)];
                 return conf !== undefined && conf < 0.7;
               });
@@ -13000,6 +13107,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
               {fileRows.map((row,i)=>{
                 const m=extractMetrics(row,fileSource);
                 const name=getCampName(row,fileSource);
+                if(isIgnoredName(name)) return null;   // hidden — managed in the "🚫 Ignored" list up top
                 // For TradeDesk rows, show the advertiser name (client name) as the primary label
                 const ttdAdvName = fileSource==="TradeDesk" ? getTTDAdvertiserName(row) : "";
                 const ttdClientName = fileSource==="TradeDesk" ? getTTDClientName(ttdAdvName) : "";
@@ -13132,9 +13240,10 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                                 </button>
                               )}
                             </div>
-                            <select value={assigned} onChange={e=>assignRow(i, e.target.value)}
+                            <select value={assigned} onChange={e=>{ const v=e.target.value; if(v==="__ignore__"){ addIgnore(name); assignRow(i,""); } else { assignRow(i, v); } }}
                               style={{background:assigned?(_lm?"#f0fdf9":"#002e24"):isUnmatched?(_lm?"#fffbeb":"#1a0e00"):(_lm?"#f8fafc":"#0e1a2e"),border:`1px solid ${assigned?(_lm?"#00c896":"#00c89640"):isUnmatched?"#f59e0b40":(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:5,padding:"3px 7px",color:assigned?(_lm?"#059669":"#00e5a0"):isUnmatched?"#f59e0b":(_lm?"#64748b":"#4d6e8a"),fontSize:10,outline:"none",cursor:"pointer",width:"100%"}}>
-                              <option value="">— assign to campaign —</option>
+                              <option value="">— leave unassigned —</option>
+                              <option value="__ignore__" style={{color:"#ef4444"}}>🚫 Ignore this campaign</option>
                               {displayList.map(c=>(
                                 <option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}{archivedIds.has(String(c.id))?" · (archived)":""}</option>
                               ))}
@@ -13217,10 +13326,10 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         </div>
       )}
 
-      {/* ── Footer ── */}
-      <div style={{padding:"7px 14px",background:_lm?"#f8fafc":"#060d18",borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      {/* ── Footer ── just the supported-formats hint now; the "✓ Done" button lives in the success
+           banner up top (appears the moment Apply succeeds), so there's no second Done down here. */}
+      <div style={{padding:"7px 14px",background:_lm?"#f8fafc":"#060d18",borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
         <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72"}}>Supports FB CSV · Snapchat XLSX/CSV · any generic CSV with Campaign Name + metrics columns · CTR auto-computed from clicks ÷ impressions</span>
-        <button onClick={onClose} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:6,padding:"5px 14px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Done</button>
       </div>
     </div>
   );
