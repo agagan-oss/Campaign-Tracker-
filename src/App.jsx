@@ -617,7 +617,7 @@ function MonthNotClosedBanner({ status, onCloseMonth = () => {} }) {
           These are {status.monthShort}'s numbers. Close the month to back them up and start {status.nextName} fresh.
         </div>
       </div>
-      <button onClick={onCloseMonth}
+      <button onClick={onCloseMonth} className="glow-btn-amber"
         style={{background:accent,border:"none",borderRadius:7,padding:"7px 15px",color:overdue?"#000":(_lm?"#fff":"#06222b"),fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
         🗓️ Close out {status.monthShort}
       </button>
@@ -2146,7 +2146,7 @@ function ConfirmDialog({ dialog, onResolve }) {
         {!dialog.message && <div style={{marginBottom:20}}/>}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
           <button onClick={()=>onResolve(false)} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"8px 18px",color:_lm?"#475569":"#7a9bbf",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancel</button>
-          <button onClick={()=>onResolve(true)} style={{background:dialog.danger?(_lm?"#fee2e2":"#7f1d1d"):(_lm?"#00e19e":"#002e24"),border:`1px solid ${dialog.danger?(_lm?"#fca5a5":"#ef444460"):(_lm?"#00c896":"#00c89650")}`,borderRadius:7,padding:"8px 18px",color:dialog.danger?"#ef4444":(_lm?"#0a1a0a":"#00e5a0"),fontSize:13,fontWeight:700,cursor:"pointer"}}>{dialog.confirmLabel||"OK"}</button>
+          <button onClick={()=>onResolve(true)} className={dialog.danger?"glow-btn-danger":"glow-btn"} style={{background:dialog.danger?(_lm?"#fee2e2":"#7f1d1d"):(_lm?"#00e19e":"#002e24"),border:`1px solid ${dialog.danger?(_lm?"#fca5a5":"#ef444460"):(_lm?"#00c896":"#00c89650")}`,borderRadius:7,padding:"8px 18px",color:dialog.danger?"#ef4444":(_lm?"#0a1a0a":"#00e5a0"),fontSize:13,fontWeight:700,cursor:"pointer"}}>{dialog.confirmLabel||"OK"}</button>
         </div>
       </div>
     </div>
@@ -3332,7 +3332,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               <span style={{fontSize:11,color:"#ef4444",fontWeight:700}}>⚠ RT Pixel Not Placed</span>
             </div>
           )}
-          <button onClick={submit} style={{flex:1,background:"#00e19e",border:"none",borderRadius:7,padding:"11px 0",color:"#0a1a0a",fontWeight:700,fontSize:14,cursor:"pointer"}}>{isNew?"Add Campaign":"Save Changes"}</button>
+          <button onClick={submit} className="glow-btn" style={{flex:1,background:"#00e19e",border:"none",borderRadius:7,padding:"11px 0",color:"#0a1a0a",fontWeight:700,fontSize:14,cursor:"pointer"}}>{isNew?"Add Campaign":"Save Changes"}</button>
           {/* Add Campaign (not the IO draft queue) gets explicit draft controls:
               "Save as Draft" closes but keeps the in-progress work; "Discard" clears
               it after a two-step confirm so a stray click can't wipe your work. */}
@@ -12688,13 +12688,6 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
 
   return (
     <div style={{background:_lm?"#ffffff":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#00c89640"}`,borderRadius:10,marginBottom:14,overflow:"hidden"}}>
-      {/* Soft pulsing glow for the key action buttons (Apply / Done) — draws the eye without being loud. */}
-      <style>{`
-        @keyframes qciGlow{0%,100%{box-shadow:0 0 5px rgba(0,200,150,.45)}50%{box-shadow:0 0 15px rgba(0,200,150,.9),0 0 26px rgba(0,200,150,.4)}}
-        .qci-glow{animation:qciGlow 1.8s ease-in-out infinite}
-        .qci-glow:hover{animation:none;box-shadow:0 0 16px rgba(0,200,150,.95)}
-      `}</style>
-
       {/* ── Header bar ── */}
       <div style={{background:_lm?"#f8fafc":"#001a2e",padding:"9px 14px",display:"flex",alignItems:"center",gap:12,borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,flexWrap:"wrap"}}>
         <span style={{fontSize:13,fontWeight:700,color:_lm?"#059669":"#00e5a0",flexShrink:0}}>⚡ Quick Check-in</span>
@@ -12772,7 +12765,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
             </button>
           )}
           {savedMsg&&!fileError&&(
-            <button onClick={onClose} className="qci-glow"
+            <button onClick={onClose} className="glow-btn"
               style={{background:"#00c896",border:"none",borderRadius:7,padding:"7px 22px",color:"#06222b",fontSize:12.5,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
               ✓ Done
             </button>
@@ -13031,7 +13024,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                     setConfirmApplyPending(false);
                     applyMapping();
                   }
-                }} disabled={!mappedCount} className={mappedCount&&!confirmApplyPending?"qci-glow":undefined}
+                }} disabled={!mappedCount} className={mappedCount&&!confirmApplyPending?"glow-btn":undefined}
                   style={{background:mappedCount?(_lm?"#00e19e":"#002e24"):(_lm?"#f1f5f9":"#162236"),border:`1px solid ${mappedCount?(_lm?"#00c896":"#00c89640"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:5,padding:"5px 12px",color:mappedCount?(_lm?"#0a1a0a":"#00e5a0"):(_lm?"#94a3b8":"#3d5a72"),fontSize:11,fontWeight:700,cursor:mappedCount?"pointer":"default",whiteSpace:"nowrap"}}>
                   {confirmApplyPending?"⚠ Review below":(isCreativeMode?"🎨 Save creatives":"✓ Apply")} {mappedCount}
                 </button>
@@ -17207,6 +17200,7 @@ export default function App() {
   const [showDailyGoal, setShowDailyGoal]       = useState(false);
   const [showPacingBar, setShowPacingBar]       = useState(false);
   const [quickCheckIn, setQuickCheckIn]         = useState(false);
+  const [showStats, setShowStats]               = useState(()=>{ try{ return localStorage.getItem("campaigns-show-stats")==="1"; }catch{ return false; } }); // stat tiles collapsed by default
   const [collapsedClients, setCollapsedClients] = useState(new Set());
   const [dragId, setDragId]       = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
@@ -18025,6 +18019,18 @@ export default function App() {
         button{font-family:inherit;}
         .xbtn{transition:transform .18s ease;}
         td,th{font-variant-numeric:tabular-nums;}
+        /* Reusable soft pulsing glow for primary "commit" buttons (Apply, Save, Done…).
+           Three color variants so the glow matches the button: green (go/save), amber
+           (attention — e.g. close the month), red (destructive confirm — e.g. delete). */
+        @keyframes glowPulse{0%,100%{box-shadow:0 0 5px rgba(0,200,150,.45)}50%{box-shadow:0 0 15px rgba(0,200,150,.9),0 0 26px rgba(0,200,150,.4)}}
+        .glow-btn{animation:glowPulse 1.8s ease-in-out infinite;}
+        .glow-btn:hover{animation:none;box-shadow:0 0 16px rgba(0,200,150,.95);}
+        @keyframes glowPulseAmber{0%,100%{box-shadow:0 0 5px rgba(245,158,11,.45)}50%{box-shadow:0 0 15px rgba(245,158,11,.9),0 0 26px rgba(245,158,11,.4)}}
+        .glow-btn-amber{animation:glowPulseAmber 1.8s ease-in-out infinite;}
+        .glow-btn-amber:hover{animation:none;box-shadow:0 0 16px rgba(245,158,11,.95);}
+        @keyframes glowPulseRed{0%,100%{box-shadow:0 0 5px rgba(239,68,68,.45)}50%{box-shadow:0 0 15px rgba(239,68,68,.9),0 0 26px rgba(239,68,68,.4)}}
+        .glow-btn-danger{animation:glowPulseRed 1.8s ease-in-out infinite;}
+        .glow-btn-danger:hover{animation:none;box-shadow:0 0 16px rgba(239,68,68,.95);}
       `}</style>
 
       {/* Header */}
@@ -18056,7 +18062,7 @@ export default function App() {
               🔔 Reminders
               {pendingReminders>0 && <span style={{background:"#ef4444",color:"#fff",borderRadius:10,padding:"0px 5px",fontSize:10,fontWeight:700,minWidth:16,textAlign:"center"}}>{pendingReminders}</span>}
             </button>
-            <button onClick={()=>{ setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today}))); addLog({type:"checked",campaignName:"All campaigns",partner:"",platform:"",detail:`Bulk marked all checked on ${today}`}); }} style={{background:lightMode?"#00c896":"#002e24",border:lightMode?"none":"1px solid #3b82f640",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#00e5a0",fontWeight:700,fontSize:13,cursor:"pointer"}}>✓ Mark All Checked</button>
+            <button onClick={async()=>{ if(await confirm({title:"Mark every campaign as checked?",message:"This stamps today's date as the “last checked” on ALL campaigns — there's no undo. Only do this if you've genuinely reviewed everything.",confirmLabel:"Yes, mark all checked"})){ setCampaigns(cs=>cs.map(c=>({...c,lastChecked:today}))); addLog({type:"checked",campaignName:"All campaigns",partner:"",platform:"",detail:`Bulk marked all checked on ${today}`}); } }} style={{background:lightMode?"#00c896":"#002e24",border:lightMode?"none":"1px solid #3b82f640",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#00e5a0",fontWeight:700,fontSize:13,cursor:"pointer"}}>✓ Mark All Checked</button>
             {/* New-month close-out — surfaces only when a new month is detected & last month
                 hasn't been cleared. A button you click (not an auto-banner). */}
             {monthResetAvailable && !showMonthReset && (()=>{
@@ -18066,7 +18072,7 @@ export default function App() {
               const overdue = mcs.anchored && mcs.daysInto >= 3;
               const monthLbl = mcs.monthShort || "last month";
               return (
-                <button onClick={()=>setShowMonthReset(true)}
+                <button onClick={()=>setShowMonthReset(true)} className="glow-btn-amber"
                   title={`A new month has started — back up ${monthLbl}'s numbers and clear metrics to start ${mcs.nextName||"the new month"} fresh`}
                   style={{display:"flex",alignItems:"center",gap:6,
                     background: overdue ? (lightMode?"#fef3c7":"#3a2800") : (lightMode?"#eff6ff":"#0a1626"),
@@ -18556,12 +18562,18 @@ export default function App() {
           </div>
         )}
 
-        {/* Stats */}
-        <div style={{display:"flex",gap:9,flexWrap:"wrap",marginBottom:14,alignItems:"center"}}>
-          {[{label:"Total",val:stats.total,color:"#7a9bbf"},{label:"Active",val:stats.active,color:"#00d48a"},{label:"Ahead",val:stats.ahead,color:"#f97316"},{label:"Behind",val:stats.behind,color:"#f59e0b"},{label:"Close to Goal",val:stats.closeToGoal,color:"#00e5c0"},{label:"Off",val:stats.off,color:"#ef4444"},{label:"≤14d End",val:stats.soon,color:"#f87171"},{label:"★ Monthly",val:stats.monthlyFlights,color:"#00e5c0"}].map(s=>(
-            <div key={s.label} style={{background:lightMode?"#ffffff":"#0e1a2e",border:lightMode?"1px solid #e2e8f0":`1px solid ${s.color}30`,borderRadius:8,padding:"9px 15px",minWidth:75,boxShadow:lightMode?"0 1px 2px rgba(15,23,42,0.06)":"none"}}>
-              <div style={{fontSize:22,fontWeight:800,color:lightMode?lmCol(s.color):s.color,lineHeight:1,letterSpacing:"-0.02em"}}>{s.val}</div>
-              <div style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a",marginTop:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>{s.label}</div>
+        {/* Stats — collapsed by default (Austin rarely uses these); small toggle reveals the compact strip. */}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+          <button onClick={()=>setShowStats(v=>{ const nv=!v; try{localStorage.setItem("campaigns-show-stats", nv?"1":"0");}catch{} return nv; })}
+            title={showStats?"Hide the campaign stat counts":"Show campaign stat counts"}
+            style={{display:"flex",alignItems:"center",gap:5,background:lightMode?"#f8fafc":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:6,padding:"3px 9px",color:lightMode?"#64748b":"#7a9bbf",fontSize:10,fontWeight:700,cursor:"pointer",textTransform:"uppercase",letterSpacing:"0.04em",whiteSpace:"nowrap"}}>
+            <span style={{fontSize:8,display:"inline-block",transform:showStats?"rotate(90deg)":"none",transition:"transform .15s"}}>▸</span>
+            📊 Stats
+          </button>
+          {showStats && [{label:"Total",val:stats.total,color:"#7a9bbf"},{label:"Active",val:stats.active,color:"#00d48a"},{label:"Ahead",val:stats.ahead,color:"#f97316"},{label:"Behind",val:stats.behind,color:"#f59e0b"},{label:"Close to Goal",val:stats.closeToGoal,color:"#00e5c0"},{label:"Off",val:stats.off,color:"#ef4444"},{label:"≤14d End",val:stats.soon,color:"#f87171"},{label:"★ Monthly",val:stats.monthlyFlights,color:"#00e5c0"}].map(s=>(
+            <div key={s.label} style={{display:"flex",alignItems:"baseline",gap:4,background:lightMode?"#ffffff":"#0e1a2e",border:lightMode?"1px solid #e2e8f0":`1px solid ${s.color}30`,borderRadius:6,padding:"3px 8px",boxShadow:lightMode?"0 1px 2px rgba(15,23,42,0.05)":"none"}}>
+              <div style={{fontSize:13,fontWeight:800,color:lightMode?lmCol(s.color):s.color,lineHeight:1,letterSpacing:"-0.02em"}}>{s.val}</div>
+              <div style={{fontSize:8.5,color:lightMode?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.04em"}}>{s.label}</div>
             </div>
           ))}
           <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
@@ -18657,7 +18669,7 @@ export default function App() {
               fontSize:12,fontWeight:showDailyGoal?700:400,
               cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s",
             }} title={showDailyGoal?"Hide daily impression target":"Show daily impression target"}>
-            {showDailyGoal?"📊 Daily Goal":"📊 Daily Goal"}
+            {showDailyGoal?"📅 Daily Goal":"📅 Daily Goal"}
           </button>
           <button onClick={()=>setShowPacingBar(v=>!v)}
             style={{background:lightMode?(showPacingBar?"#f0fdf9":"#f1f5f9"):(showPacingBar?"#001a2e":"#0e1a2e"),
@@ -18667,7 +18679,7 @@ export default function App() {
               fontSize:12,fontWeight:showPacingBar?700:400,
               cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s",
             }} title={showPacingBar?"Hide pacing bars":"Show pacing bars"}>
-            {showPacingBar?"📊 Pacing Bar":"📊 Pacing Bar"}
+            {showPacingBar?"📈 Pacing Bar":"📈 Pacing Bar"}
           </button>
           <button onClick={()=>setQuickCheckIn(v=>!v)}
             style={{background:lightMode?(quickCheckIn?"#f0fdf9":"#f1f5f9"):(quickCheckIn?"#001a2e":"#0e1a2e"),
