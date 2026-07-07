@@ -481,6 +481,46 @@ function parseGoalNumber(raw) {
   return n > 0 ? Math.round(n) : null;
 }
 
+// Prorate a TOTAL (flight-spanning) contract goal down to a single month, by how many of the
+// campaign's flight days fall in that month. This lets the "This Month" pacing view work for a flight
+// that spans multiple months WITHOUT a monthly goal — e.g. 85.5K over 7/6–8/10 → ~61.75K in July,
+// ~23.75K in August. Assumes even delivery across the flight (same assumption as the daily target).
+function proratedMonthlyGoalFromTotal(totalGoal, startDate, endDate, monthDate) {
+  if (!(totalGoal > 0) || !startDate || !endDate || !monthDate) return 0;
+  const p = s => (s && /^\d{4}-\d{2}-\d{2}/.test(s)) ? (()=>{ const [Y,M,D]=s.slice(0,10).split("-").map(Number); return new Date(Y, M-1, D); })() : null;
+  const start = p(startDate), end = p(endDate);
+  if (!start || !end || end < start) return 0;
+  const dayMs = 86400000;
+  const totalDays = Math.round((end - start) / dayMs) + 1;
+  if (totalDays <= 0) return 0;
+  const y = monthDate.getFullYear(), m = monthDate.getMonth();
+  const monStart = new Date(y, m, 1), monEnd = new Date(y, m + 1, 0);
+  const s = new Date(Math.max(start.getTime(), monStart.getTime()));
+  const e = new Date(Math.min(end.getTime(), monEnd.getTime()));
+  const monDays = Math.max(0, Math.round((e - s) / dayMs) + 1);
+  if (monDays <= 0) return 0;
+  return Math.round(totalGoal * (monDays / totalDays));
+}
+
+// The effective monthly pacing goal for a campaign: the explicit monthly goal from Note 1 (e.g.
+// "125K/Mo") if present, otherwise the current pacing month's prorated share of the TOTAL contract
+// Goal (for flight-spanning campaigns entered with a total Goal + flight dates but no monthly goal).
+function effectiveMonthlyGoal(c) {
+  if (!c) return 0;
+  const explicit = parseMonthlyGoal(c.note1, pacingNow().getMonth());
+  if (explicit && explicit > 0) return explicit;
+  return proratedMonthlyGoalFromTotal(parseGoalNumber(c.goal), c.startDate, c.endDate, pacingNow()) || 0;
+}
+// True when the pacing goal is DERIVED from the total contract Goal spread across the flight (no
+// explicit monthly goal in Note 1) — drives the small "flight" tag so it's clear the shown target is
+// this month's prorated share, not a hard monthly number.
+function monthlyGoalIsFromFlight(c) {
+  if (!c) return false;
+  const explicit = parseMonthlyGoal(c.note1, pacingNow().getMonth());
+  if (explicit && explicit > 0) return false;
+  return proratedMonthlyGoalFromTotal(parseGoalNumber(c.goal), c.startDate, c.endDate, pacingNow()) > 0;
+}
+
 // Earliest month the tracker has CLOSING data for (smallest monthly-backup key, "YYYY-MM"); falls back
 // to the current month when no backups exist yet. Lifetime pacing uses this to (a) decide which
 // contracts are "partial" — flight started before we have data — and (b) label the backfill field's
@@ -629,6 +669,7 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
   let delivered, note1, metricKind = "impressions", unit = "";
   // Detect new-style (campaign object) vs old-style (number)
   const looksLikeCampaign = arg1 && typeof arg1 === "object" && ("platform" in arg1 || "campaignName" in arg1);
+  const camp = looksLikeCampaign ? arg1 : null;
   if (looksLikeCampaign) {
     const c = arg1, disp = arg2 || {};
     note1 = arg3;
@@ -653,7 +694,10 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
   const now = pacingNow();
   // Resolve the goal for the month we're actually pacing (handles multi-phase note1 like
   // "94K/Mo Mar/Apr/May 47K/Mo June" → uses 47K in June).
-  const goal = parseMonthlyGoal(note1, now.getMonth());
+  let goal = parseMonthlyGoal(note1, now.getMonth());
+  // No explicit monthly goal? Fall back to the prorated share of the TOTAL contract Goal across the
+  // flight, so a flight-spanning campaign (total Goal + dates, no "X/Mo") paces in the This-Month view.
+  if ((!goal || goal <= 0) && camp) goal = proratedMonthlyGoalFromTotal(parseGoalNumber(camp.goal), camp.startDate, camp.endDate, now);
   if (!goal || goal <= 0 || !delivered) return null;
 
   const _y = now.getFullYear(), _mo = now.getMonth();
@@ -700,7 +744,7 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
 }
 
 // Daily target breakdown — for morning check against yesterday's stats
-function computeDailyTarget(impressions, note1, startDate, endDate) {
+function computeDailyTarget(impressions, note1, startDate, endDate, totalGoalRaw) {
   const now = pacingNow(); now.setHours(0,0,0,0);
   const _y = now.getFullYear(), _mo = now.getMonth();
   const _dayMs = 86400000;
@@ -716,7 +760,9 @@ function computeDailyTarget(impressions, note1, startDate, endDate) {
   const daysSoFar  = Math.max(0, Math.min(windowDays - 1, Math.round((now - winStart) / _dayMs))); // completed, excl today
   const daysLeft   = Math.max(0, Math.min(windowDays, Math.round((winEnd - now) / _dayMs) + 1));    // remaining, incl today
 
-  const goal = parseMonthlyGoal(note1, _mo);
+  let goal = parseMonthlyGoal(note1, _mo);
+  // No explicit monthly goal? Prorate the TOTAL contract Goal across the flight for this month's share.
+  if ((!goal || goal <= 0) && totalGoalRaw) goal = proratedMonthlyGoalFromTotal(parseGoalNumber(totalGoalRaw), startDate, endDate, now);
   const delivered = parseInt(impressions) || 0;
   if (!goal || goal <= 0) return null;
 
@@ -1837,7 +1883,7 @@ function ReminderCalendar({ reminders, setReminders, onAdd, campaigns=[] }) {
                           <textarea value={editCalDraft.note} onChange={e=>setEditCalDraft(p=>({...p,note:e.target.value}))} placeholder="Note (optional)" rows={3} style={{...calIS,resize:"vertical",lineHeight:1.6,minHeight:64}}/>
                         </div>
                         <div style={{display:"flex",gap:6}}>
-                          <button onClick={()=>saveCalEdit(r.id)} disabled={!editCalDraft.date} style={{flex:1,background:editCalDraft.date?"#00e19e":(_lm?"#f1f5f9":"#162236"),border:"none",borderRadius:5,padding:"6px 0",color:editCalDraft.date?"#0a1a0a":(_lm?"#94a3b8":"#3d5a72"),fontSize:12,fontWeight:700,cursor:editCalDraft.date?"pointer":"default"}}>Save</button>
+                          <button onClick={()=>saveCalEdit(r.id)} disabled={!editCalDraft.date} className={editCalDraft.date?"glow-btn":undefined} style={{flex:1,background:editCalDraft.date?"#00e19e":(_lm?"#f1f5f9":"#162236"),border:"none",borderRadius:5,padding:"6px 0",color:editCalDraft.date?"#0a1a0a":(_lm?"#94a3b8":"#3d5a72"),fontSize:12,fontWeight:700,cursor:editCalDraft.date?"pointer":"default"}}>Save</button>
                           <button onClick={cancelCalEdit} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px 0",color:_lm?"#475569":"#7a9bbf",fontSize:12,cursor:"pointer"}}>Cancel</button>
                         </div>
                       </div>
@@ -2064,7 +2110,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
               </select>
             </div>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={save} disabled={!form.date} style={{flex:1,background:form.date?"#00e19e":(_lm?"#f1f5f9":"#162236"),border:"none",borderRadius:7,padding:"10px 0",color:form.date?"#0a1a0a":(_lm?"#94a3b8":"#3d5a72"),fontWeight:700,fontSize:14,cursor:form.date?"pointer":"default"}}>
+              <button onClick={save} disabled={!form.date} className={form.date?"glow-btn":undefined} style={{flex:1,background:form.date?"#00e19e":(_lm?"#f1f5f9":"#162236"),border:"none",borderRadius:7,padding:"10px 0",color:form.date?"#0a1a0a":(_lm?"#94a3b8":"#3d5a72"),fontWeight:700,fontSize:14,cursor:form.date?"pointer":"default"}}>
                 {form.id?"Update Reminder":"Save Reminder"}
               </button>
               <button onClick={()=>{ setForm(blank); setView("list"); }} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"10px 0",color:_lm?"#475569":"#7a9bbf",fontWeight:600,fontSize:14,cursor:"pointer"}}>Cancel</button>
@@ -2145,7 +2191,7 @@ function ConfirmDialog({ dialog, onResolve }) {
         {dialog.message && <div style={{fontSize:12,color:_lm?"#64748b":"#7a9bbf",marginBottom:20,lineHeight:1.6}}>{dialog.message}</div>}
         {!dialog.message && <div style={{marginBottom:20}}/>}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-          <button onClick={()=>onResolve(false)} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"8px 18px",color:_lm?"#475569":"#7a9bbf",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancel</button>
+          {!dialog.okOnly && <button onClick={()=>onResolve(false)} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"8px 18px",color:_lm?"#475569":"#7a9bbf",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancel</button>}
           <button onClick={()=>onResolve(true)} className={dialog.danger?"glow-btn-danger":"glow-btn"} style={{background:dialog.danger?(_lm?"#fee2e2":"#7f1d1d"):(_lm?"#00e19e":"#002e24"),border:`1px solid ${dialog.danger?(_lm?"#fca5a5":"#ef444460"):(_lm?"#00c896":"#00c89650")}`,borderRadius:7,padding:"8px 18px",color:dialog.danger?"#ef4444":(_lm?"#0a1a0a":"#00e5a0"),fontSize:13,fontWeight:700,cursor:"pointer"}}>{dialog.confirmLabel||"OK"}</button>
         </div>
       </div>
@@ -2156,10 +2202,10 @@ function ConfirmDialog({ dialog, onResolve }) {
 function useConfirm() {
   const [dialog, setDialog] = useState(null);
   const resolveRef = useRef(null);
-  function confirm({ title, message, confirmLabel="Confirm", danger=false }) {
+  function confirm({ title, message, confirmLabel="Confirm", danger=false, okOnly=false }) {
     return new Promise(resolve => {
       resolveRef.current = resolve;
-      setDialog({ title, message, confirmLabel, danger });
+      setDialog({ title, message, confirmLabel, danger, okOnly });
     });
   }
   function onResolve(val) {
@@ -2428,7 +2474,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
                       +{days}d
                     </button>
                   ))}
-                  <button onClick={()=>saveEditReminder(r.id)} style={{background:"#f59e0b",border:"none",borderRadius:5,padding:"5px 12px",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>Save</button>
+                  <button onClick={()=>saveEditReminder(r.id)} className="glow-btn-amber" style={{background:"#f59e0b",border:"none",borderRadius:5,padding:"5px 12px",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>Save</button>
                   <button onClick={cancelEditReminder} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px 10px",color:_lm?"#475569":"#7a9bbf",fontSize:11,cursor:"pointer",flexShrink:0}}>Cancel</button>
                 </div>
                 <textarea value={editReminderDraft.note||""} onChange={e=>setEditReminderDraft(p=>({...p,note:e.target.value}))}
@@ -2500,7 +2546,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
 
           {/* ── DAILY PACING ── */}
           {(()=>{
-            const dt = computeDailyTarget(local.impressions||c.impressions, c.note1, c.startDate, c.endDate);
+            const dt = computeDailyTarget(local.impressions||c.impressions, c.note1, c.startDate, c.endDate, c.goal);
             if (!dt) return null;
             const hasDelivery = dt.delivered > 0;
             return (
@@ -3273,7 +3319,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                               <textarea value={editReminderDraft.note} onChange={e=>setEditReminderDraft(p=>({...p,note:e.target.value}))} rows={2} style={{width:"100%",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"inherit",boxSizing:"border-box",resize:"vertical",lineHeight:1.5,outline:"none"}}/>
                             </div>
                             <div style={{display:"flex",gap:6}}>
-                              <button onClick={()=>saveEditReminder(r.id)} disabled={!editReminderDraft.date} style={{flex:1,background:editReminderDraft.date?"#f59e0b":(_lm?"#f1f5f9":"#162236"),border:"none",borderRadius:5,padding:"7px 0",color:editReminderDraft.date?"#000":(_lm?"#94a3b8":"#3d5a72"),fontSize:12,fontWeight:700,cursor:editReminderDraft.date?"pointer":"default"}}>Update</button>
+                              <button onClick={()=>saveEditReminder(r.id)} disabled={!editReminderDraft.date} className={editReminderDraft.date?"glow-btn-amber":undefined} style={{flex:1,background:editReminderDraft.date?"#f59e0b":(_lm?"#f1f5f9":"#162236"),border:"none",borderRadius:5,padding:"7px 0",color:editReminderDraft.date?"#000":(_lm?"#94a3b8":"#3d5a72"),fontSize:12,fontWeight:700,cursor:editReminderDraft.date?"pointer":"default"}}>Update</button>
                               <button onClick={cancelEditReminder} style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"7px 12px",color:_lm?"#475569":"#7a9bbf",fontSize:12,cursor:"pointer"}}>Cancel</button>
                               <button onClick={()=>removeReminder(r.id)} style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444440"}`,borderRadius:5,padding:"7px 10px",color:"#ef4444",fontSize:12,cursor:"pointer"}}>Delete</button>
                             </div>
@@ -3695,7 +3741,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       // `delivered / dayOfMonth` understated any campaign that didn't start on the 1st (e.g. a flight
       // that began the 15th was divided by 20 on the 20th instead of by 5), making projections — and
       // the Zeus AI's "at risk/critical" calls — wrong and inconsistent with the per-row forecast.
-      const dt = computeDailyTarget(pacing.delivered, c.note1, c.startDate, c.endDate);
+      const dt = computeDailyTarget(pacing.delivered, c.note1, c.startDate, c.endDate, c.goal);
       if (!dt || dt.actualDailyRate == null || dt.daysLeft <= 0) return null;
       const dailyRate = dt.actualDailyRate;
       const daysRemaining = dt.daysLeft;
@@ -4086,7 +4132,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
 
       // Build daily pacing snapshot for all active campaigns with goals
       const dailySnap = ctx.campaigns.filter(c=>c.note1).map(c => {
-        const dt = computeDailyTarget(c.impressions, c.note1, c.startDate, c.endDate);
+        const dt = computeDailyTarget(c.impressions, c.note1, c.startDate, c.endDate, c.goal);
         return dt ? { campaign:c.campaign, partner:c.partner, platform:c.platform,
           dailyTarget:dt.dailyTarget, neededPerDay:dt.neededPerDay,
           delivered:dt.delivered, goal:dt.goal, pct:Math.round(dt.delivered/dt.goal*100),
@@ -6803,6 +6849,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     setSortDir(SORT_DEFAULT_DIR[k] || "asc");
   }
   const todayStr = getToday(); // YYYY-MM-DD — matches c.lastChecked format
+  // ── "Updated today" in the Pacing tab = fresh DATA arrived today ────────────────────────────────
+  // A Quick Check-in / CSV sync stamps lastQciDate; a hand-edit that changed metrics stamps
+  // lastMetricUpdate. The pacing "updated" flags key off THOSE — NOT lastChecked — so a plain
+  // "Mark All Checked" (which only bumps lastChecked to mean "I reviewed it") no longer lights up
+  // every campaign here. `lastDataDate` = the most recent real data date, for the row's date display.
+  const dataUpdatedToday = (c) => c.lastMetricUpdate===todayStr || c.lastQciDate===todayStr;
+  const lastDataDate = (c) => [c.lastMetricUpdate, c.lastQciDate].filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x)).sort().pop() || c.lastChecked || "";
   const viewMode = "table"; // table-only — card view removed
 
   // Flight progress helpers
@@ -6836,7 +6889,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const allRows = allActive.map(c=>{
     const disp=resolveMetrics(c,dateRange.preset);
     const pacing=computeMonthlyPacing(c, disp, c.note1);
-    const monthlyGoal=parseMonthlyGoal(c.note1);
+    const monthlyGoal=effectiveMonthlyGoal(c);
     return {c,disp,pacing,monthlyGoal};
   });
 
@@ -6846,7 +6899,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const offRows = campaigns.filter(c => c.status === "off").map(c => {
     const disp = resolveMetrics(c, dateRange.preset);
     const pacing = computeMonthlyPacing(c, disp, c.note1);
-    const monthlyGoal = parseMonthlyGoal(c.note1);
+    const monthlyGoal = effectiveMonthlyGoal(c);
     return { c, disp, pacing, monthlyGoal };
   });
 
@@ -6855,11 +6908,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // Updated/Not-Updated counts include OFF campaigns too — off campaigns still
   // show in the Pacing tab (Off Campaigns section) so the user wants visibility
   // into their sync status alongside active ones.
-  const updatedTodayCount = campaigns.filter(c=>c.lastChecked===todayStr).length;
-  const notUpdatedCount   = campaigns.filter(c=>c.lastChecked!==todayStr).length;
-  // Most recent check-in date across all campaigns (ISO sorts lexicographically),
-  // shown as a "Last update" chip in mm/dd/yyyy.
-  const lastUpdateISO = campaigns.reduce((mx,c)=>(c.lastChecked && c.lastChecked>mx ? c.lastChecked : mx), "");
+  const updatedTodayCount = campaigns.filter(c=>dataUpdatedToday(c)).length;
+  const notUpdatedCount   = campaigns.filter(c=>!dataUpdatedToday(c)).length;
+  // Most recent real DATA update across all campaigns (not lastChecked — so "Mark All Checked"
+  // doesn't make this jump to today), shown as a "Last update" chip in mm/dd/yyyy.
+  const lastUpdateISO = campaigns.reduce((mx,c)=>{ const d=[c.lastMetricUpdate,c.lastQciDate].filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x)).sort().pop(); return (d&&d>mx)?d:mx; }, "");
   const lastUpdateDisp = lastUpdateISO && /^\d{4}-\d{2}-\d{2}$/.test(lastUpdateISO)
     ? (()=>{ const [y,m,d]=lastUpdateISO.split("-"); return `${m}/${d}/${y}`; })()
     : (lastUpdateISO || "—");
@@ -6867,8 +6920,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
-    if(todayFilter==="today"     && c.lastChecked!==todayStr) return false; // updated today only
-    if(todayFilter==="not-today" && c.lastChecked===todayStr) return false; // not updated only
+    if(todayFilter==="today"     && !dataUpdatedToday(c)) return false; // data updated today only
+    if(todayFilter==="not-today" && dataUpdatedToday(c)) return false; // no new data today
     return true;
   });
 
@@ -6882,8 +6935,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
     // Updated/Not-updated-today filter applies to Off campaigns too (same as the active sections).
-    if(todayFilter==="today"     && c.lastChecked!==todayStr) return false;
-    if(todayFilter==="not-today" && c.lastChecked===todayStr) return false;
+    if(todayFilter==="today"     && !dataUpdatedToday(c)) return false;
+    if(todayFilter==="not-today" && dataUpdatedToday(c)) return false;
     return true;
   });
 
@@ -7468,7 +7521,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Monthly pacing bar */}
       {pacing&&<div style={{marginBottom:6}}>
         <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:lmTxtD,marginBottom:2,textTransform:"uppercase",letterSpacing:"0.05em"}}>
-          <span>Monthly Pacing ({cardMetricLabel})</span><span>Goal: {fmtGoal(monthlyGoal)}</span>
+          <span>Monthly Pacing ({cardMetricLabel})</span><span>Goal: {fmtGoal(monthlyGoal)}{monthlyGoalIsFromFlight(c)&&<span title="This month's share of the total contract Goal spread across the flight dates (no monthly goal set)" style={{marginLeft:4,color:lightMode?"#2563eb":"#7ec8ff",fontWeight:700}}>· ✈ flight</span>}</span>
         </div>
         <div style={{position:"relative",background:lmBarTrk,borderRadius:3,height:6,marginBottom:2,overflow:"visible"}}>
           <div title={"Expected: "+(exp?fmtGoal(exp):"")} style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:14,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
@@ -7836,9 +7889,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         </div>
         <div style={{display:"flex",alignItems:"center",gap:5,overflow:"hidden"}}>
           <div style={{fontSize:10,color:lmTxtS,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
-          {c.lastChecked===todayStr
+          {dataUpdatedToday(c)
             ? <span style={{fontSize:9,color:"#00d48a",fontWeight:700,background:lightMode?"#dcfce7":"#00200f",border:"1px solid #00d48a40",borderRadius:3,padding:"0px 4px",flexShrink:0}}>✓ today</span>
-            : <span style={{fontSize:9,color:lmTxtS,fontWeight:400,flexShrink:0}}>{c.lastChecked?(([y,m,d])=>`${m}/${d}/${y}`)(c.lastChecked.split("-")):"—"}</span>
+            : <span style={{fontSize:9,color:lmTxtS,fontWeight:400,flexShrink:0}}>{(()=>{ const d=lastDataDate(c); return d&&/^\d{4}-\d{2}-\d{2}$/.test(d)?(([y,m,dd])=>`${m}/${dd}/${y}`)(d.split("-")):"—"; })()}</span>
           }
           {/* Mid-month START badge — flags WHY a later-starting flight's pacing window (and "expected by
               now" tick) is shorter than full-month flights, so it's not mistaken for a mid-month END. */}
@@ -7897,14 +7950,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Monthly Goal — impressions / views / spend goal, standalone (budget moved to its own column) */}
       <div>
         {monthlyGoal
-          ? <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}} title={`Exact goal: ${monthlyGoal.toLocaleString()}`}>
-              {metricKind==="spend"
-                ? "$"+(monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"k":monthlyGoal.toFixed(0))
-                // Use one decimal place (not zero) so a goal like 41,667 displays
-                // as "41.7K" not "42K". Matches the precision of the Delivered column
-                // so users can directly compare "41.8K delivered vs 41.7K goal".
-                : monthlyGoal>=1000000?(monthlyGoal/1000000).toFixed(2)+"M":monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"K":String(monthlyGoal)}
-            </span>
+          ? <div style={{display:"flex",flexDirection:"column",gap:1,alignItems:"flex-start"}}>
+              <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}} title={monthlyGoalIsFromFlight(c)?`This month's prorated share of the ${(parseGoalNumber(c.goal)||0).toLocaleString()} flight goal (${fmtDate(c.startDate)}–${fmtDate(c.endDate)}) — no monthly goal set`:`Exact goal: ${monthlyGoal.toLocaleString()}`}>
+                {metricKind==="spend"
+                  ? "$"+(monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"k":monthlyGoal.toFixed(0))
+                  // Use one decimal place (not zero) so a goal like 41,667 displays
+                  // as "41.7K" not "42K". Matches the precision of the Delivered column
+                  // so users can directly compare "41.8K delivered vs 41.7K goal".
+                  : monthlyGoal>=1000000?(monthlyGoal/1000000).toFixed(2)+"M":monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"K":String(monthlyGoal)}
+              </span>
+              {monthlyGoalIsFromFlight(c) && <span title="This month's share of the total contract Goal, spread across the flight dates (no monthly goal in Note 1)" style={{fontSize:8,fontWeight:700,color:lightMode?"#2563eb":"#7ec8ff",background:lightMode?"#dbeafe":"#0a2540",border:`1px solid ${lightMode?"#93c5fd":"#1e466e"}`,borderRadius:3,padding:"0px 4px",whiteSpace:"nowrap",letterSpacing:"0.02em"}}>✈ flight</span>}
+            </div>
           : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
@@ -7920,7 +7976,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
         {/* Projected end-of-month finish (toggle) — current pace × remaining flight days */}
         {showForecast && monthlyGoal>0 && (()=>{
-          const dt = computeDailyTarget(primaryRaw, c.note1, c.startDate, c.endDate);
+          const dt = computeDailyTarget(primaryRaw, c.note1, c.startDate, c.endDate, c.goal);
           if (!dt || dt.actualDailyRate == null) return <div style={{fontSize:9,color:lmTxtD,marginTop:2,whiteSpace:"nowrap"}}>proj —</div>;
           const projected = dt.delivered + dt.actualDailyRate * dt.daysLeft;
           const pctF = dt.goal>0 ? projected/dt.goal : null;
@@ -8069,7 +8125,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       // match computeDailyTarget / the pacing status. goal ÷ calendar-days understated the target for
       // campaigns that start or end mid-month (the line sat too low, so a behind campaign looked on-pace).
       // Identical to goal/dim for full-month flights.
-      const perDay=(()=>{ const _dt=computeDailyTarget(0, c.note1, c.startDate, c.endDate); return _dt && _dt.dailyTarget>0 ? _dt.dailyTarget : (monthlyGoal>0 ? monthlyGoal/dim : 0); })();   // expected delivery per DAY
+      const perDay=(()=>{ const _dt=computeDailyTarget(0, c.note1, c.startDate, c.endDate, c.goal); return _dt && _dt.dailyTarget>0 ? _dt.dailyTarget : (monthlyGoal>0 ? monthlyGoal/dim : 0); })();   // expected delivery per DAY
       const goalPerBucket=perDay*(isDaily?1:7);            // expected per bar (1 day in daily view, 7 in weekly)
       const barMax=Math.max(...chartData.map(val), goalPerBucket, 1); // include the goal so its line is always visible
       const clkMax=Math.max(...chartData.map(w=>w.c),1);
@@ -8444,11 +8500,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const offWithData = campaigns.filter(c => {
     if (c.status !== "off") return false;
     const impr = parseInt(c.impressions) || 0;
-    const recent = c.lastChecked && c.lastChecked >= (() => {
-      // "recent" = within last 7 days
-      const d = new Date(); d.setDate(d.getDate() - 7);
-      return d.toISOString().slice(0, 10);
-    })();
+    // "recent" = real data (QCI/metric edit) within the last 7 days — not lastChecked, so a plain
+    // "Mark All Checked" doesn't make every off campaign look like it's freshly running.
+    const cutoff = (() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10); })();
+    const dd = [c.lastMetricUpdate, c.lastQciDate].filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x)).sort().pop();
+    const recent = dd && dd >= cutoff;
     return impr > 0 || recent;
   });
 
@@ -8544,9 +8600,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       if (v >= 1000)    return (v/1000).toFixed(1).replace(/\.0$/,"") + "K";
       return v.toLocaleString();
     };
-    // Lifetime pacing covers contracts whose flight STARTS on/after the data-start (June 1, 2026).
-    // Earlier contracts are missing pre-tracking delivery so their % would mislead — excluded here.
-    const LIFETIME_START = "2026-06-01";
+    // Lifetime pacing covers contracts whose flight STARTS on/after the data-start month (dynamic —
+    // see getDataStartMonth). Earlier contracts are missing pre-tracking delivery so their % would
+    // mislead — excluded here.
+    const LIFETIME_START = getDataStartMonth() + "-01";
     const build = (rows, isOff) => rows.map(({c}) => {
       const prior = priorMonthsDelivered(c);
       const live  = liveMonthDelivered(c);
@@ -8646,9 +8703,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:5,overflow:"hidden"}}>
                       <div style={{fontSize:10,color:lmTxtS,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
-                      {c.lastChecked===todayStr
+                      {dataUpdatedToday(c)
                         ? <span style={{fontSize:9,color:"#00d48a",fontWeight:700,background:lightMode?"#dcfce7":"#00200f",border:"1px solid #00d48a40",borderRadius:3,padding:"0px 4px",flexShrink:0}}>✓ today</span>
-                        : <span style={{fontSize:9,color:lmTxtS,fontWeight:400,flexShrink:0}}>{c.lastChecked?(([y,m,d])=>`${m}/${d}/${y}`)(c.lastChecked.split("-")):"—"}</span>}
+                        : <span style={{fontSize:9,color:lmTxtS,fontWeight:400,flexShrink:0}}>{(()=>{ const d=lastDataDate(c); return d&&/^\d{4}-\d{2}-\d{2}$/.test(d)?(([y,m,dd])=>`${m}/${dd}/${y}`)(d.split("-")):"—"; })()}</span>}
                     </div>
                   </div>
                   {/* Platform */}
@@ -8853,11 +8910,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Partner filter dropdown removed (2026-06-16, dash cleanup) — fPartner stays "all"; search + platform cover filtering. */}
       <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode}/>
       <div style={{display:"flex",borderRadius:7,overflow:"hidden",border:"1px solid "+lmBrd,flexShrink:0}}>
-        <button onClick={()=>setTodayFilter(v=>v==="today"?"all":"today")} title="Show only campaigns updated today"
+        <button onClick={()=>setTodayFilter(v=>v==="today"?"all":"today")} title="Show only campaigns that got NEW data today (a check-in / CSV sync or a metric edit) — not just 'Mark All Checked'"
           style={{background:todayFilter==="today"?(lightMode?"#dcfce7":"#001a14"):lmBgInp,padding:"5px 10px",color:todayFilter==="today"?lmC("#00d48a"):lmTxtS,fontSize:11,fontWeight:todayFilter==="today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none",borderRight:"1px solid "+lmBrd}}>
           ✓ Updated{updatedTodayCount>0?` (${updatedTodayCount})`:""}
         </button>
-        <button onClick={()=>setTodayFilter(v=>v==="not-today"?"all":"not-today")} title="Show only campaigns not updated today"
+        <button onClick={()=>setTodayFilter(v=>v==="not-today"?"all":"not-today")} title="Show only campaigns with NO new data today (still need a check-in / fresh metrics)"
           style={{background:todayFilter==="not-today"?(lightMode?"#fff7ed":"#1a0e00"):lmBgInp,padding:"5px 10px",color:todayFilter==="not-today"?lmC("#f97316"):lmTxtS,fontSize:11,fontWeight:todayFilter==="not-today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none"}}>
           ✕ Not Updated{notUpdatedCount>0?` (${notUpdatedCount})`:""}
         </button>
@@ -9204,7 +9261,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         or aren't configured to pace), so they belong at the bottom of the page. */}
     <Section label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>
     {noGoalRows.length>0&&(()=>{
-      const syncedToday = noGoalRows.filter(r => r.c.lastChecked === todayStr);
+      const syncedToday = noGoalRows.filter(r => dataUpdatedToday(r.c));
       const open = showNoGoal || syncedToday.length > 0;
       const hasSyncedToday = syncedToday.length > 0;
       return (
@@ -10116,7 +10173,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   // ── Identity ─────────────────────────────────────────────────────────────────
   const [clientName,    setClientName]    = useState("");  // editable top-level name
   const [reportTitle,   setReportTitle]   = useState("");
-  const [preparedBy,    setPreparedBy]    = useState("Recrue Media");
+  const [preparedBy,    setPreparedBy]    = useState(""); // agency/preparer name — blank by default (third-party contractors don't brand client reports)
   const [editingField,  setEditingField]  = useState(null); // "clientName"|"reportTitle"|"preparedBy"
 
   // ── Branding ─────────────────────────────────────────────────────────────────
@@ -10551,8 +10608,8 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
     </div>
   </div>
   <div style="text-align:right;flex-shrink:0">
-    <div style="font-size:10px;color:${headerMuted};text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px">Prepared by</div>
-    <div style="font-size:15px;font-weight:700;color:${headerText}">${preparedBy}</div>
+    ${preparedBy ? `<div style="font-size:10px;color:${headerMuted};text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px">Prepared by</div>
+    <div style="font-size:15px;font-weight:700;color:${headerText}">${preparedBy}</div>` : ""}
     <div style="font-size:10px;color:${headerFaint};margin-top:2px">${rows.length} campaign tactic${rows.length!==1?"s":""}</div>
   </div>
 </div>
@@ -10728,7 +10785,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
               </div>
               <div>
                 <label style={{display:"block",fontSize:9,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:3}}>Prepared By</label>
-                <input value={preparedBy} onChange={e=>setPreparedBy(e.target.value)} placeholder="Recrue Media"
+                <input value={preparedBy} onChange={e=>setPreparedBy(e.target.value)} placeholder="Optional — leave blank"
                   style={{...iS,width:"100%"}}/>
               </div>
               <div>
@@ -11247,7 +11304,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
               {/* Footer — only one, inside the body */}
               <div style={{borderTop:`1px solid ${accentMid}`,marginTop:16,paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <span style={{fontSize:9,color:"#aaa"}}>{preparedBy} · {displayTitle} · {dr.label}</span>
+                <span style={{fontSize:9,color:"#aaa"}}>{preparedBy?`${preparedBy} · `:""}{displayTitle} · {dr.label}</span>
                 <span style={{fontSize:9,color:"#aaa"}}>Confidential — For Client Use Only</span>
               </div>
 
@@ -11304,10 +11361,11 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   // Always use ALL campaigns as the matching pool — never restrict by the dashboard's current platform/search filter
   // For CSV mapping: include ALL campaigns regardless of status (off/paused/pending campaigns still need data imports)
   const activeCamps = campaigns;
-  // Recently-archived campaigns (archived within the past ~31 days) can still receive ONE
-  // final data import so their closing impressions/spend land in the Revenue tab. They're
-  // tagged "(archived)" in the assign dropdown and routed back to the archive list on Apply.
-  // Auto-match intentionally ignores these — the user picks them manually via "show all".
+  // Recently-archived campaigns (archived within the past ~31 days) can still receive final data
+  // imports so their closing impressions/spend land in the Revenue tab — e.g. a campaign cancelled
+  // mid-cycle whose platform still reports a day or two of trailing delivery. They're tagged
+  // "(archived)" in the assign dropdown, AUTO-MATCH like active campaigns (active wins ties), and are
+  // routed back to the archive list on Apply so they never re-activate.
   const recentlyArchived = React.useMemo(()=>{
     const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate()-31);
     const cutoffStr = cutoff.toISOString().slice(0,10);
@@ -12325,10 +12383,13 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     rows.forEach((row,i)=>{
       if(initMap[i]) return;
 
-      // Layer 1: respect the user's active platform filter in the QCI panel
+      // Layer 1: respect the user's active platform filter in the QCI panel.
+      // Pool = active PLUS recently-archived (assignPool) so a just-cancelled/archived campaign still
+      // auto-matches its final trailing delivery. Active campaigns are listed first, and ties keep the
+      // first match, so an active campaign always wins over an archived one of the same name (renewals).
       const qciFiltered = qciPlatforms.size > 0
-        ? activeCamps.filter(c => qciPlatforms.has(c.platform))
-        : activeCamps;
+        ? assignPool.filter(c => qciPlatforms.has(c.platform))
+        : assignPool;
 
       // Layer 2: SOURCE_PLATFORMS — hard constraint by file type.
       // A Google file can ONLY match SEM/YT campaigns; a TradeDesk file can ONLY match TD/TDV/etc.
@@ -13600,7 +13661,7 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, dspCpm, curImpr
   );
 }
 
-function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{}, onSetDeviceSurcharge=()=>{}, onSetMonthMetrics=()=>{}, monthResetAvailable=false, onCloseMonth=()=>{} }) {
+function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{}, onSetDeviceSurcharge=()=>{}, onSetMonthMetrics=()=>{}, monthResetAvailable=false, onCloseMonth=()=>{}, confirm=async()=>true }) {
   // Revenue tab filter/sort state persists to localStorage so the view sticks
   // across sessions. Same pattern as Pacing/Campaigns tabs. focusMonth is
   // intentionally NOT persisted — it's typically the current month and would be
@@ -13610,13 +13671,15 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const [filterPartner, setFilterPartner]   = useState(_revPersisted.filterPartner || "all");
   const [revSearch, setRevSearch]           = useState(""); // free-text filter for the per-month breakdown table
   const [expandedRow, setExpandedRow]       = useState(null);
+  const [auditOpen, setAuditOpen]           = useState(true); // pre-close data-gap audit panel (open by default)
   const [sortKey, setSortKey]               = useState(_revPersisted.sortKey || "profit"); // "profit" | "loss" | "contract" | "name" | "pending"
   const [focusMonth, setFocusMonth]         = useState(null); // YYYY-MM, null = current (NOT persisted — see comment above)
   const [cellMode, setCellMode]             = useState(_revPersisted.cellMode || "dollar"); // "dollar" | "margin"
   // Fresh-start cutoff: clean spend tracking begins June 2026, so everything before it is hidden
-  // everywhere in Revenue (graph, month strip, per-month grid, totals). Fixed — May and earlier
-  // were projected/incomplete and threw the numbers off, so there's no toggle.
-  const dataStartMonth = "2026-06";
+  // everywhere in Revenue (graph, month strip, per-month grid, totals). Now DYNAMIC (see
+  // getDataStartMonth): resolves to the earliest month with real data (Austin → June), or the
+  // current month for a fresh copy, or an explicit Config override — so a new user starts clean.
+  const dataStartMonth = getDataStartMonth();
   // DSP estimated cost CPM — user-editable in Config (per tracker); falls back to the DSP_EST_CPM
   // default. Read on each render so switching back from the Config tab picks up changes.
   const dspCpm = (() => {
@@ -13824,8 +13887,6 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     if (!c.startDate || !c.endDate) return 0;
     const startMo = c.startDate.slice(0,7), endMo = c.endDate.slice(0,7);
     if (mo < startMo || mo > endMo) return null;              // outside the flight (not started / ended)
-    const budgetPerMo = semMonthlyBudget(c);
-    if (!(budgetPerMo > 0)) return 0;                         // no budget set → no overage, full fee
     // Reported media spend for a flight month: current → MTD, closed → backup/history, future → none.
     const spendOf = (m) => {
       if (m > thisMonth) return null;
@@ -13833,6 +13894,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       const cm = closedMonthMetrics(c, m);
       return cm && cm.spend > 0 ? cm.spend : null;
     };
+    // The management fee is only REALIZED profit once the campaign is actually live (media is running).
+    // A current-month SEM campaign with nothing spent yet — not launched, or cancelled before it spent —
+    // stays PENDING (null) so its fee isn't booked as profit prematurely. Only the CURRENT month is
+    // gated this way: past/closed months keep their recorded outcome so history & locked months never move.
+    if (mo === thisMonth && spendOf(mo) == null) return null;
+    const budgetPerMo = semMonthlyBudget(c);
+    if (!(budgetPerMo > 0)) return 0;                         // no budget set → no overage, full fee
     // Budget for a flight month, prorated on partial first/last months (mirrors semFeeMap).
     const budgetOf = (m) => {
       const [y, mm] = m.split("-").map(Number);
@@ -14172,6 +14240,37 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     };
   });
 
+  // ── Pre-close data-gap audit ─────────────────────────────────────────────────
+  // Catch campaigns (running in the focused month) that would lock into the P&L as $0 revenue or a
+  // pure loss because they're missing something: a SEM management fee, a contract rate, or delivered
+  // impressions/views for spend that's already logged. Surfaced above the KPIs / Lock so the report
+  // Austin sends his boss is airtight — these are the exact gaps we've been fixing by hand.
+  const dataGaps = rows.reduce((acc, r) => {
+    const c = r.c, fc = r.focusCell;
+    const endedBefore = c.endDate && c.endDate.slice(0,7) < activeMonth;
+    const notStarted  = c.startDate && c.startDate.slice(0,7) > activeMonth;
+    if (endedBefore || notStarted) return acc;                 // not running in the focused month
+    const rate = parseFloat(c.contractRate)||0;
+    const fee  = parseFloat(c.managementFee)||0;
+    const spend = fc.spend;                                    // null = no spend data yet
+    const rev   = fc.rev || 0;
+    const isSEM = c.platform==="SEM", isDSP = c.platform==="DSP";
+    const unit  = (c.platform==="YT" && (c.dealType||"")==="CPV") ? "views" : "impressions";
+    let issue = null;
+    if (isSEM) {
+      if (fee <= 0) issue = (spend!=null && spend>0)
+        ? "SEM spend/overage logged but no management fee — books as a loss"
+        : "SEM campaign with no management fee — no revenue booked";
+    } else if (!isDSP && rate <= 0 && spend != null) {
+      issue = "Spend logged but no contract rate — revenue can't be calculated";
+    } else if (!isSEM && rate > 0 && spend != null && spend > 0 && rev <= 0) {
+      issue = `Spend logged but 0 delivered ${unit} — $0 revenue`;
+    }
+    if (issue) acc.push({ c, issue });
+    return acc;
+  }, []);
+  const showAudit = (isCurrentFocus || isPastFocus);          // relevant when viewing a month you'd close/lock
+
   // Sort
   const sortedRows = [...rows].sort((a,b)=>{
     if (sortKey==="profit") {
@@ -14266,7 +14365,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       if (actualImpr != null && actualImpr > 0) {
         // Has delivered something this month → cur.rev is actual-so-far; extend it to month-end at
         // the current daily pace (flight-aware), capped at 4× so very-early-month noise can't blow up.
-        const dt = computeDailyTarget(actualImpr, r.c.note1, r.c.startDate, r.c.endDate);
+        const dt = computeDailyTarget(actualImpr, r.c.note1, r.c.startDate, r.c.endDate, r.c.goal);
         const windowDays = dt ? dt.daysInMonth : 30;
         const elapsed = dt ? Math.max(1, dt.dayOfMonth) : 1;
         const scale = Math.min(4, Math.max(1, windowDays / elapsed));
@@ -14586,10 +14685,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             </button>
           )}
           {isPastFocus && !isLockedFocus && fmRevWithSpend>0 && (
-            <button onClick={()=>lockMonth(activeMonth)}
-              style={{background:_lm?"#f0fdf9":"#0d1a0a",border:`1px solid ${_lm?"#00c896":"#00d48a60"}`,borderRadius:7,padding:"5px 12px",color:_lm?"#059669":"#00d48a",fontSize:11,fontWeight:700,cursor:"pointer"}}
-              title={`Freeze ${focusLabel} spend data so future CSV drops don't overwrite it`}>
-              🔒 Lock {focusLabelShort} Final Data
+            <button onClick={async()=>{ if(dataGaps.length>0 && !(await confirm({title:`Lock ${focusLabel} with ${dataGaps.length} data gap${dataGaps.length>1?"s":""}?`,message:"Some running campaigns are missing a rate, fee, or delivered impressions — they'll lock in as $0 revenue or a loss. Fix them first for an accurate P&L.",confirmLabel:"Lock anyway",danger:true}))) return; lockMonth(activeMonth); }}
+              style={{background:dataGaps.length>0?(_lm?"#fffbeb":"#1a1200"):(_lm?"#f0fdf9":"#0d1a0a"),border:`1px solid ${dataGaps.length>0?"#f59e0b":(_lm?"#00c896":"#00d48a60")}`,borderRadius:7,padding:"5px 12px",color:dataGaps.length>0?(_lm?"#b45309":"#fbbf24"):(_lm?"#059669":"#00d48a"),fontSize:11,fontWeight:700,cursor:"pointer"}}
+              title={dataGaps.length>0?`${dataGaps.length} data gap${dataGaps.length>1?"s":""} — review before locking`:`Freeze ${focusLabel} spend data so future CSV drops don't overwrite it`}>
+              {dataGaps.length>0?"⚠ ":"🔒 "}Lock {focusLabelShort} Final Data
             </button>
           )}
           {isPastFocus && isLockedFocus && (
@@ -14600,6 +14699,34 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             </button>
           )}
         </div>
+        {/* Pre-close data-gap audit — flags campaigns that would lock in as $0 revenue or a loss. */}
+        {showAudit && dataGaps.length>0 && (
+          <div style={{marginBottom:12,background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#fcd34d":"#f59e0b55"}`,borderRadius:9,overflow:"hidden"}}>
+            <button onClick={()=>setAuditOpen(v=>!v)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:"9px 12px",textAlign:"left",flexWrap:"wrap"}}>
+              <span style={{fontSize:9,color:_lm?"#b45309":"#fcd34d",display:"inline-block",transform:auditOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>▸</span>
+              <span style={{fontSize:12.5,fontWeight:800,color:_lm?"#b45309":"#fcd34d"}}>⚠ {dataGaps.length} data gap{dataGaps.length>1?"s":""} in {focusLabelShort}</span>
+              <span style={{fontSize:10.5,color:_lm?"#a16207":"#caa15a"}}>— fix before you {isPastFocus?"lock":"close"} the month so the P&amp;L is accurate</span>
+            </button>
+            {auditOpen && (
+              <div style={{padding:"0 12px 10px 12px",display:"flex",flexDirection:"column",gap:5}}>
+                {dataGaps.map((g,i)=>(
+                  <div key={i} onClick={()=>onEdit(g.c)} title="Click to open this campaign and fix it"
+                    style={{display:"flex",alignItems:"center",gap:8,background:_lm?"#fff7ed":"#130b00",border:`1px solid ${_lm?"#fcd34d":"#f59e0b30"}`,borderRadius:6,padding:"6px 10px",cursor:"pointer"}}>
+                    <span style={{background:(PLT_COLORS[g.c.platform]||"#7a9bbf")+"22",color:PLT_COLORS[g.c.platform]||"#7a9bbf",borderRadius:3,padding:"0 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{g.c.platform}</span>
+                    <span style={{fontSize:11.5,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",flexShrink:0,maxWidth:190,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.c.campaignName.trim()}</span>
+                    <span style={{fontSize:11,color:_lm?"#b45309":"#fbbf24",flex:1,minWidth:60}}>{g.issue}</span>
+                    <span style={{fontSize:10,fontWeight:700,color:_lm?"#059669":"#00e5a0",whiteSpace:"nowrap",flexShrink:0}}>Fix →</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {showAudit && dataGaps.length===0 && rows.some(r=>r.focusCell.spend!=null) && (
+          <div style={{marginBottom:12,fontSize:11,fontWeight:700,color:_lm?"#059669":"#00d48a",display:"flex",alignItems:"center",gap:6}}>
+            ✓ No data gaps in {focusLabelShort} — every running campaign with spend has revenue booked
+          </div>
+        )}
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
           {[
             {label:"Revenue", val:$fc(fmRevWithSpend), color:"#7a9bbf", sub: fmPendingRev>0?`+ ${$fk(fmPendingRev)} pending (no spend yet)`:"campaigns with spend"},
@@ -15290,7 +15417,7 @@ tr.tot td{border-top:2px solid #e2e8f0;font-weight:800;font-size:13px;background
 </div>
 ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th class="r">Campaigns</th><th class="r">Revenue</th><th class="r">Spend</th>${showDevFee?'<th class="r">Dev Fee</th>':''}<th class="r">Profit</th><th class="r">Margin</th><th class="r">% of Profit</th></tr></thead><tbody>${partnerRows}</tbody></table>`:""}
 <h2>By Campaign</h2><table><thead><tr><th>Partner</th><th>Campaign</th><th>Plt</th><th class="r">Revenue</th><th class="r">Spend</th>${showDevFee?'<th class="r">Dev Fee</th>':''}<th class="r">Profit</th><th class="r">Margin</th></tr></thead><tbody>${campRows}${totalsRow}</tbody></table>
-<div class="foot"><span>Recrue Media · ${esc(focusLabel)} P&L</span><span>Generated ${esc(new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}))}</span></div>
+<div class="foot"><span>${esc(focusLabel)} P&L</span><span>Generated ${esc(new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}))}</span></div>
 <script>window.onload=()=>setTimeout(()=>window.print(),350)</script>
 </body></html>`;
                     const w = window.open("","_blank","width=1000,height=800");
@@ -15392,7 +15519,7 @@ ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th cla
                   </tbody>
                 </table>
                 <div style={{marginTop:14,fontSize:10,color:_lm?"#64748b":"#3d5a72",display:"flex",justifyContent:"space-between"}}>
-                  <span>Recrue Media · {focusLabel} P&L{lock?" · 🔒 Locked "+lock.lockedAt:" · Live data (not locked)"}</span>
+                  <span>{focusLabel} P&L{lock?" · 🔒 Locked "+lock.lockedAt:" · Live data (not locked)"}</span>
                   <span>Generated {new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span>
                 </div>
               </div>
@@ -15405,6 +15532,48 @@ ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th cla
 }
 
 const CONFIG_KEY = "campaign-tracker-platform-config";
+
+// ── Data-start month (shared by the Revenue tab + Lifetime pacing) ─────────────
+// The first month those views begin showing. Resolved DYNAMICALLY so the tracker can be handed to a
+// new manager cleanly, instead of the old hardcoded "2026-06":
+//   1. an explicit Config override (config.dataStartMonth = "YYYY-MM") wins;
+//   2. otherwise the EARLIEST month that actually holds data — a closed-month backup, a month lock,
+//      or a check-in in any campaign's metricSeries;
+//   3. a brand-new EMPTY tracker falls back to the CURRENT month and grows from there.
+// Austin's tracker still resolves to June (his earliest real data) with nothing moved; a fresh copy
+// starts whenever the new user begins adding data.
+function getDataStartMonth() {
+  let cfg = {};
+  try { cfg = JSON.parse(localStorage.getItem(CONFIG_KEY) || "{}") || {}; } catch {}
+  if (cfg.dataStartMonth && /^\d{4}-\d{2}$/.test(cfg.dataStartMonth)) return cfg.dataStartMonth;
+  const now = new Date();
+  const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const monthOf = (ds) => {
+    if (!ds || typeof ds !== "string") return null;
+    let m = ds.match(/^(\d{4})-(\d{2})/);            if (m) return `${m[1]}-${m[2]}`;
+    m = ds.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);  if (m) return `${m[3]}-${String(m[1]).padStart(2, "0")}`;
+    return null;
+  };
+  let earliest = null;
+  const consider = (mo) => { if (mo && /^\d{4}-\d{2}$/.test(mo) && (!earliest || mo < earliest)) earliest = mo; };
+  try {
+    Object.keys(JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY) || "{}") || {}).forEach(consider);
+    Object.keys(JSON.parse(localStorage.getItem(MONTH_LOCK_KEY) || "{}") || {}).forEach(consider);
+    for (const key of [STORAGE_KEY, ARCHIVE_KEY]) {
+      const arr = JSON.parse(localStorage.getItem(key) || "[]");
+      (Array.isArray(arr) ? arr : []).forEach(c => {
+        if (c && Array.isArray(c.metricSeries)) c.metricSeries.forEach(e => consider(monthOf(e && e.d)));
+      });
+    }
+  } catch {}
+  if (!earliest) return curMonth; // empty tracker → current month; grows as data is added
+  // Floor established data at the clean-tracking epoch. Nothing before June 2026 has COMPLETE data
+  // (pre-June was partial/projected and threw the numbers off), so an existing tracker with older rows
+  // still starts at June — but any tracker whose data begins later (a fresh copy) starts at its own
+  // first month. This floor is invisible to anyone who never had pre-June-2026 data.
+  const DATA_EPOCH = "2026-06";
+  return earliest < DATA_EPOCH ? DATA_EPOCH : earliest;
+}
 
 // ─── Platform Config Tab ───────────────────────────────────────────────────
 // ─── PrefixPartnerSettings ────────────────────────────────────────────────
@@ -15854,6 +16023,30 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
       <div style={{marginBottom:20}}>
         <div style={{fontSize:15,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginBottom:4}}>⚙️ Platform Config</div>
         <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a"}}>Connect your ad platforms so campaign metrics sync automatically via GitHub Actions. Fill in credentials and IDs below, then download the config files to drop into your repo.</div>
+      </div>
+
+      {/* Tracker data-start month — always-visible tracker setting (not platform-specific). Blank =
+          auto-detect (earliest month with data, or the current month for a fresh tracker). Written to
+          CONFIG_KEY.dataStartMonth, read by getDataStartMonth(). */}
+      <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"14px 18px",marginBottom:16,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",display:"flex",alignItems:"flex-start",gap:18,flexWrap:"wrap"}}>
+        <div style={{flex:"1 1 260px",minWidth:240}}>
+          <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:4,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            📅 Tracker Data Start
+            <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",fontWeight:400}}>which month the Revenue tab &amp; Lifetime pacing begin</span>
+          </div>
+          <div style={{fontSize:10.5,color:_lm?"#94a3b8":"#3d5a72",lineHeight:1.55}}>Leave blank to <b>auto-detect</b> — the earliest month with data, or the current month for a brand-new tracker. Set a month to force where those tabs start (handy when sharing a fresh copy).</div>
+        </div>
+        <div style={{flexShrink:0}}>
+          <label style={labelS}>Data starts</label>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <input type="month" value={getVal("dataStartMonth","")} onChange={e=>setVal("dataStartMonth", e.target.value)}
+              style={{background:_lm?"#f8fafc":"#162236",border:`1px solid ${getVal("dataStartMonth","")?(_lm?"#00c896":"#00c89660"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none",fontFamily:"inherit"}}/>
+            {getVal("dataStartMonth","")
+              ? <button onClick={()=>setVal("dataStartMonth","")} title="Clear the override and go back to auto-detect"
+                  style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"6px 11px",color:_lm?"#475569":"#7a9bbf",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>↺ Auto</button>
+              : <span style={{fontSize:10,fontWeight:700,color:_lm?"#059669":"#00a884",whiteSpace:"nowrap"}}>Auto ✓</span>}
+          </div>
+        </div>
       </div>
 
       {/* Section switcher + download */}
@@ -16889,6 +17082,8 @@ export default function App() {
   const [pdfDraftIdx, setPdfDraftIdx] = useState(0); // which draft in the queue is currently shown
   const [pdfError, setPdfError] = useState("");
   const [ioDropOpen, setIoDropOpen] = useState(false); // big drag-and-drop box for the IO PDF (opened from the header button)
+  const [jsonDropOpen, setJsonDropOpen] = useState(false); // drag-and-drop box for JSON backup import (mirrors the IO drop)
+  const [jsonFile, setJsonFile] = useState(null);          // staged JSON file awaiting the glowing "Import" click
   const [pdfProcessing, setPdfProcessing] = useState(false);
   useEffect(() => {
     try {
@@ -17895,8 +18090,8 @@ export default function App() {
     return () => clearTimeout(t);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const doImport = (e) => {
-    const file=e.target.files[0]; if(!file) return;
+  const doImport = (file) => {
+    if(!file) return;
     const reader=new FileReader();
     reader.onload=async evt=>{
       try {
@@ -17958,17 +18153,16 @@ export default function App() {
         setReminders(reminderData);
         if (logData.length > 0) setActivityLog(logData);
 
-        const hadRevenue = !!(p.monthLocks || p.monthlyBackups);
-        alert(`✅ Import successful!\n\n${summary}${hadRevenue ? "\n\nReloading to apply revenue data (locked months & backups)…" : ""}`);
-        // Revenue locks/backups are read once on load, so reload to make sure everything —
-        // including pacing history and locked revenue — shows correctly.
-        setTimeout(() => { try { location.reload(); } catch {} }, 150);
+        // Branded, on-brand success acknowledgment (was a plain white browser alert()).
+        await confirm({ title:"✅ Import successful", confirmLabel:"Done", okOnly:true });
+        // Revenue locks/backups + pacing history are read once on load, so reload after the
+        // user acknowledges to make sure everything shows correctly.
+        try { location.reload(); } catch {}
       } catch(parseErr) {
         alert("❌ Couldn't read file — it may be corrupted or not a valid tracker export.\n\n" + parseErr.message);
       }
     };
     reader.readAsText(file);
-    e.target.value="";
   };
 
   const doExportCSV = () => {
@@ -18119,9 +18313,15 @@ export default function App() {
             )}
             <button onClick={doExport} style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ JSON</button>
             <button onClick={doExportCSV} style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ CSV</button>
-            <label style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>
-              ↑ Import<input type="file" accept=".json" style={{display:"none"}} onChange={doImport}/>
-            </label>
+            <button
+              onClick={()=>setJsonDropOpen(true)}
+              onDragOver={e=>{ e.preventDefault(); e.currentTarget.style.background=lightMode?"#dcfce7":"#00200f"; e.currentTarget.style.borderColor="#00c896"; }}
+              onDragLeave={e=>{ e.currentTarget.style.background=lightMode?"#f1f5f9":"#162236"; e.currentTarget.style.borderColor=lightMode?"#e2e8f0":"#334155"; }}
+              onDrop={e=>{ e.preventDefault(); e.currentTarget.style.background=lightMode?"#f1f5f9":"#162236"; e.currentTarget.style.borderColor=lightMode?"#e2e8f0":"#334155"; const f=e.dataTransfer.files&&e.dataTransfer.files[0]; if(f){ setJsonFile(f); setJsonDropOpen(true); } }}
+              title="Open the JSON import box (or drop a .json backup right here)"
+              style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer",whiteSpace:"nowrap",transition:"background .15s, border-color .15s"}}>
+              ↑ Import
+            </button>
             <button onClick={()=>setLightMode(v=>!v)} title={lightMode?"Switch to dark mode":"Switch to light mode"}
               style={{background:lightMode?"#1e293b":"#162236",border:"none",borderRadius:7,padding:"6px 13px",color:lightMode?"#f1f5f9":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>
               {lightMode?"🌙 Dark":"☀️ Light"}
@@ -18409,7 +18609,7 @@ export default function App() {
             setArchive(as=>as.map(x=>String(x.id)===String(id)?patch(x):x));
             addLog({ type:"edited", campaignName:c.campaignName, partner:c.mediaPartner, platform:c.platform, detail:`Corrected ${month} numbers from Revenue tab`, campaignId:id, prevSnapshot:null });
           }}
-          monthResetAvailable={monthResetAvailable} onCloseMonth={()=>setShowMonthReset(true)}/>
+          monthResetAvailable={monthResetAvailable} onCloseMonth={()=>setShowMonthReset(true)} confirm={confirm}/>
         ) : (<>
         <ReminderAlertBanner reminders={reminders} onOpen={()=>setShowReminderModal(true)} onDismissAll={()=>setReminders(prev=>prev.map(r=>r.date<=today?{...r,dismissed:true}:r))}/>
 
@@ -18839,7 +19039,7 @@ export default function App() {
                                 </div>
                                 {c.note1&&c.note1.trim()&&(()=>{
                                   const disp=resolveMetrics(c,dateRange.preset);
-                                  const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
+                                  const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate,c.goal);
                                   return (
                                     <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,paddingLeft:12,flexWrap:"wrap"}}>
                                       <div style={{fontSize:11,color:lightMode?"#0891b2":"#00d9ff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
@@ -18946,7 +19146,7 @@ export default function App() {
                           </div>
                           {c.note1&&c.note1.trim()&&(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
-                            const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate);
+                            const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate,c.goal);
                             return (
                               <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,flexWrap:"wrap"}}>
                                 <div style={{fontSize:11,color:lightMode?"#0891b2":"#00d9ff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
@@ -19077,6 +19277,33 @@ export default function App() {
               <span style={{fontSize:11.5,color:lightMode?"#a16207":"#b08344"}}>or click to browse — auto-extracts campaigns into review drafts</span>
               <input type="file" accept=".pdf,application/pdf" style={{display:"none"}} onChange={e=>{ const file=e.target.files[0]; e.target.value=""; if(file){ handleIOPdfDrop(file); setIoDropOpen(false); } }}/>
             </label>
+          </div>
+        </div>
+      )}
+      {/* ── JSON backup import drop box — mirrors the IO drop lightbox. Drop or browse a .json backup,
+             then click the glowing Import button (which runs the same replace-all confirmation). ── */}
+      {jsonDropOpen && (
+        <div onClick={()=>{ setJsonDropOpen(false); setJsonFile(null); }} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,backdropFilter:"blur(3px)"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:14,width:"min(560px,94vw)",padding:18,boxShadow:"0 30px 80px rgba(0,0,0,.55)"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <span style={{fontSize:15,fontWeight:800,color:lightMode?"#059669":"#00e5a0"}}>💾 Import JSON backup</span>
+              <button onClick={()=>{ setJsonDropOpen(false); setJsonFile(null); }} style={{background:"none",border:"none",color:lightMode?"#94a3b8":"#4d6e8a",fontSize:18,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+            <label style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:9,padding:"42px 20px",border:`2px dashed ${jsonFile?"#00c896":(lightMode?"#00c896":"#00c89666")}`,borderRadius:12,background:lightMode?"#f0fdf9":"#001a0e",cursor:"pointer",textAlign:"center"}}
+              onDragOver={e=>{e.preventDefault();e.currentTarget.style.background=lightMode?"#dcfce7":"#00200f";e.currentTarget.style.borderColor="#00c896";}}
+              onDragLeave={e=>{e.currentTarget.style.background=lightMode?"#f0fdf9":"#001a0e";e.currentTarget.style.borderColor=jsonFile?"#00c896":(lightMode?"#00c896":"#00c89666");}}
+              onDrop={e=>{e.preventDefault();e.currentTarget.style.background=lightMode?"#f0fdf9":"#001a0e";const file=e.dataTransfer.files&&e.dataTransfer.files[0];if(file) setJsonFile(file);}}>
+              <span style={{fontSize:34,lineHeight:1}}>💾</span>
+              <span style={{fontSize:14,fontWeight:700,color:lightMode?"#059669":"#00e5a0"}}>{jsonFile?`Ready: ${jsonFile.name}`:"Drag & drop your JSON backup here"}</span>
+              <span style={{fontSize:11.5,color:lightMode?"#0f766e":"#5ba892"}}>or click to browse — replaces all current data</span>
+              <input type="file" accept=".json" style={{display:"none"}} onChange={e=>{ const file=e.target.files[0]; e.target.value=""; if(file) setJsonFile(file); }}/>
+            </label>
+            {jsonFile && (
+              <button className="glow-btn" onClick={()=>{ const f=jsonFile; setJsonDropOpen(false); setJsonFile(null); doImport(f); }}
+                style={{marginTop:14,width:"100%",background:"#00c896",border:"none",borderRadius:9,padding:"11px 0",color:"#06222b",fontWeight:800,fontSize:14,cursor:"pointer"}}>
+                💾 Import this backup
+              </button>
+            )}
           </div>
         </div>
       )}
