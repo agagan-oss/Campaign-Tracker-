@@ -1059,6 +1059,17 @@ function parseIOPdf(text, uris = []) {
         }
       }
     }
+    // Inverted layout (some Formsite renders float the VALUE before its own label):
+    //   "<prefix>:" / "<value>" / "<label>:"   — e.g. Spinnaker's "…FB&IG VIDEO:" / "276190" /
+    //   "Gross Impressions (#):". Runs only after the normal passes fail, and requires a prefix-ONLY
+    //   line, a value, then the target label — so it can't misread a normal layout.
+    for (const px of prefixes) {
+      const pxOnly = new RegExp("^" + escapeRe(px) + "(?:\\s+Inventory)?\\s*:?\\s*$", "i");
+      const lblRe  = new RegExp("^" + escapeRe(label) + "\\b", "i");
+      for (let i = 0; i + 2 < lines.length; i++) {
+        if (pxOnly.test(lines[i]) && looksLikeValue(lines[i+1]) && lblRe.test(lines[i+2].replace(/^[()\#$\s]+/, ""))) return lines[i+1];
+      }
+    }
     return null;
   }
 
@@ -1112,11 +1123,15 @@ function parseIOPdf(text, uris = []) {
     return null;
   }
 
-  function extractServiceBlock(prefix) {
+  function extractServiceBlock(prefix, dateFallback = []) {
     // `prefix` may be a single label or an array of candidate prefixes (see getField). getField/
     // tryFields accept the array directly; the notes parsing below only needs a single primary.
     const prefixes = Array.isArray(prefix) ? prefix : [prefix];
     const primary = prefixes[0];
+    // Date-only fallback prefixes (e.g. a sub-product's PARENT flag): tried ONLY for Start/End Date so a
+    // sub-line inherits the parent's shared flight dates — NEVER for impr/CPM/budget, which must come
+    // from the sub-line's own label (else a "…FB&IG VIDEO" line would grab the parent's impressions).
+    const datePrefixes = [...prefixes, ...dateFallback];
     // Notes block may span multiple lines — collect everything until the next labeled field
     function getNotes() {
       const fullLabel = `${primary} - Notes/Instructions`.toLowerCase();
@@ -1149,8 +1164,8 @@ function parseIOPdf(text, uris = []) {
     }
 
     return {
-      startDate: getField(prefix, "Start Date"),
-      endDate:   getField(prefix, "End Date"),
+      startDate: getField(datePrefixes, "Start Date"),
+      endDate:   getField(datePrefixes, "End Date"),
       // Single-value fields. Try multiple label aliases per category since the
       // AMB form labels vary per product:
       //   - Impressions:  "Gross Impressions" (most), "Gross Views" (YouTube Trueview / video)
@@ -1158,8 +1173,13 @@ function parseIOPdf(text, uris = []) {
       //   - Budget:       "Gross Dollar..." (most),    "Gross Budget from Client" (SEM),
       //                   "Media Spend" (SEM fallback)
       impressions: tryFields(prefix, "Gross Impressions", "Gross Views"),
-      cpm:         tryFields(prefix, "CPM Rate to Recrue Media", "Hard Cost to Recrue Media", "Hard Cost"),
-      budget:      tryFields(prefix, "Gross Dollar", "Gross Budget from Client", "Gross Budget", "Media Spend"),
+      // CPM/CPV aliases also cover the Spinnaker "Universal IO" / tvScientific format:
+      //   "CPM Rate - Recrue ($)" (tvScientific CTV/OTT) and "CPV Rate to Recrue Media" (YouTube TrueView).
+      cpm:         tryFields(prefix, "CPM Rate to Recrue Media", "CPM Rate - Recrue", "CPV Rate to Recrue Media", "Hard Cost to Recrue Media", "Hard Cost"),
+      // Budget aliases also cover tvScientific's "Cost - Recrue" line (CTV) and YouTube's
+      // "Views Gross Dollar($) Budget" (CPV) — the "Views" prefix would otherwise block the plain
+      // "Gross Dollar" match, leaving the CPV budget to a wrong CPM-style derivation.
+      budget:      tryFields(prefix, "Gross Dollar", "Views Gross Dollar", "Gross Budget from Client", "Gross Budget", "Cost - Recrue", "Media Spend"),
       // Static/Video split fields (AMB Social Media + similar) — when these exist,
       // the service produced two ad-creative types with separate budgets/impressions.
       staticImpr:   getField(prefix, "Gross Impressions - Static"),
@@ -1271,6 +1291,23 @@ function parseIOPdf(text, uris = []) {
     { label: "Mobile to Social Snapchat",    key: "mob_to_social_sc",     split: "SP" },
     { label: "Mobile to Social",             key: "mob_to_social",       split: "FB" },
     { label: "Device Integration to Social", key: "device_int_to_social", split: "FB" },
+    // ── Spinnaker Media / "Universal IO" (tvScientific) format ───────────────────
+    // Sub-products that DON'T have their own "Included?" flag share a parent flag via `flag:` —
+    // the def is detected when isIncluded(flag) is true, and its FIELDS are still prefixed by `label`.
+    // The VIDEO sub-line rides the same "Mobile to Social Integration w/ FB&IG" flag → FBV. It's listed
+    // FIRST so it's created before the non-video split (order only; the anchored field prefixes don't
+    // collide — "…FB&IG:" never matches "…FB&IG VIDEO:" lines and vice-versa).
+    { label: "Mobile to Social Integration w/ FB&IG VIDEO", key: "mts_int_fbig_video", platform: "FBV", flag: "Mobile to Social Integration w/ FB&IG" },
+    { label: "Mobile to Social Integration w/ FB&IG",       key: "mts_int_fbig",       split: "FB" },
+    // tvScientific streaming — one "tvScientific Included?" flag, three sub-lines (CTV/OTT/Display).
+    // CTV/OTT are Austin's TVsci platforms (NOT Madhive). Zero-impression sub-lines are auto-skipped.
+    { label: "tvScientific CTV",     key: "tvsci_ctv",  platform: "CTV", flag: "tvScientific" },
+    { label: "tvScientific OTT",     key: "tvsci_ott",  platform: "OTT", flag: "tvScientific" },
+    { label: "tvScientific Display", key: "tvsci_disp", platform: "DSP", flag: "tvScientific" },
+    // Device-ID display line rides the "Display Included?" flag → its own DSP campaign (device surcharge).
+    { label: "Device ID with Display", key: "device_id_display", platform: "DSP", flag: "Display" },
+    // Spinnaker YouTube is a TrueView CPV buy: goal is VIEWS, rate is a CPV ($/view), dealType CPV.
+    { label: "YouTube",              key: "youtube_io", platform: "YT", dealType: "CPV" },
     // Programmatic display
     { label: "Mobile Targeting",             key: "mobile_targeting",  platform: "DSP" },
     { label: "Targeted Display",             key: "targeted_display",  platform: "TD" },   // TradeDesk Display
@@ -1304,7 +1341,10 @@ function parseIOPdf(text, uris = []) {
   ];
 
   const services = serviceDefs
-    .filter(sd => isIncluded(sd.label))
+    // Detect via the service's own "Included?" flag, OR a shared PARENT flag (`flag:`) for sub-products
+    // that don't carry their own flag (e.g. "tvScientific CTV/OTT" ride "tvScientific Included?", and the
+    // "…FB&IG VIDEO" line rides "…FB&IG Included?"). Fields are still read from the service's own label.
+    .filter(sd => isIncluded(sd.flag || sd.label))
     .map(sd => ({
       key: sd.key,
       label: sd.label,
@@ -1312,9 +1352,11 @@ function parseIOPdf(text, uris = []) {
       split: sd.split,
       splitPair: sd.splitPair,
       socialSplit: sd.socialSplit,
-      // Try the service's own label as the field prefix, plus any aliases (some AMB services label
-      // their fields with a shorter/different prefix than their inclusion flag).
-      details: extractServiceBlock([sd.label, ...(sd.prefixAliases || [])]),
+      dealType: sd.dealType,     // e.g. YouTube TrueView → "CPV" (goal is views, rate is $/view)
+      // Fields read from the service's own label (+ any prefix aliases). The PARENT flag is passed as a
+      // DATE-ONLY fallback so a sub-product (tvScientific CTV/OTT, the …FB&IG VIDEO line) inherits the
+      // parent's shared Start/End dates without ever pulling the parent's impressions/CPM/budget.
+      details: extractServiceBlock([sd.label, ...(sd.prefixAliases || [])], sd.flag && sd.flag !== sd.label ? [sd.flag] : []),
     }));
 
   return { reference, partner, advertiser, submitted, station, services, clientWebsite, projectionUrl, rawText: text };
@@ -1567,7 +1609,9 @@ function buildDraftsFromIO(io) {
         status: "off",
         goal: effectiveImpr > 0 ? String(effectiveImpr) : "",
         contractRate: effectiveCpm ? String(effectiveCpm) : "",
-        dealType: effectiveCpm ? "CPM" : "",
+        // Honor an explicit deal type from the service def (YouTube TrueView → CPV: goal is views, rate
+        // is $/view). Everything else bills CPM.
+        dealType: svc.dealType || (effectiveCpm ? "CPM" : ""),
         contractValue: totalBudget.toFixed(2),
         // Management fee is a separate field — only relevant for SEM. The Edit
         // modal shows the input ONLY when platform === "SEM" but we set it here
@@ -3097,6 +3141,45 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Goal</label>
                 <input type="text" value={f["note1"]||""} onChange={e=>set("note1",e.target.value)} style={{...iS,borderColor:f["note1"]?(_lm?"#3B8FFF60":"#00d9ff60"):"#334155"}}/>
               </div>
+              {/* ── Extend helper ── When a campaign is extended but the MONTHLY goal is unchanged, recompute
+                  the total Goal (monthly × flight months), the Goal string's date range, and the Contract
+                  Value from the new flight length. Flight dates come from the Start/End date fields, falling
+                  back to the "(m/d/yy - m/d/yy)" range baked into the Goal string. One click, non-destructive
+                  (disabled when nothing would change), with a live preview of the result. */}
+              {(()=>{
+                const monthly = parseMonthlyGoal(f.note1);
+                const gm = (f.goal||"").match(/\(([\d/]+)\s*[-–]\s*([\d/]+)\)/);
+                const toISO = s => { const m=(s||"").match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/); if(!m) return ""; const yr=m[3].length===2?"20"+m[3]:m[3]; return `${yr}-${String(m[1]).padStart(2,"0")}-${String(m[2]).padStart(2,"0")}`; };
+                const startISO = f.startDate || (gm?toISO(gm[1]):"");
+                const endISO   = f.endDate   || (gm?toISO(gm[2]):"");
+                const sm=startISO.match(/^(\d{4})-(\d{2})-(\d{2})/), em=endISO.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                const months = (sm&&em) ? Math.max(1,(parseInt(em[1])-parseInt(sm[1]))*12+(parseInt(em[2])-parseInt(sm[2]))+1) : 0;
+                if(!monthly || !months) return null; // need a monthly goal + both flight dates
+                const totalImpr = Math.round(monthly*months);
+                const fmtK = n => n>=1000000 ? (+(n/1000000).toFixed(2))+"M" : n>=1000 ? (+(n/1000).toFixed(n>=10000?0:1))+"K" : String(n);
+                const dISP = iso => { const m=iso.match(/^(\d{4})-(\d{2})-(\d{2})/); return m?`${parseInt(m[2])}/${parseInt(m[3])}/${m[1].slice(2)}`:""; };
+                const parseGoalNum = s => { const m=(s||"").match(/([\d.]+)\s*([MK])?/i); if(!m) return 0; const n=parseFloat(m[1])||0; const u=(m[2]||"").toUpperCase(); return u==="M"?n*1e6:u==="K"?n*1e3:n; };
+                const newGoal = `${fmtK(totalImpr)} (${dISP(startISO)} - ${dISP(endISO)})`;
+                const rate = parseFloat(f.contractRate)||0;
+                const curCV = parseFloat(f.contractValue)||0;
+                const oldTotal = parseGoalNum(f.goal);
+                // Contract value: from CPM × new impressions if a rate is set; else scale the existing
+                // contract value by the total-impression change (works for SEM/no-CPM campaigns too).
+                let newCV = null;
+                if(rate>0) newCV = ((totalImpr/1000)*rate).toFixed(2);
+                else if(curCV>0 && oldTotal>0) newCV = (curCV*(totalImpr/oldTotal)).toFixed(2);
+                const changed = newGoal!==(f.goal||"") || (newCV!==null && newCV!==String(f.contractValue||"") && Math.abs(parseFloat(newCV)-curCV) >= 0.5);
+                return (
+                  <div style={{gridColumn:"1 / -1",marginBottom:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",background:_lm?"#f0fdf9":"#04120e",border:`1px solid ${_lm?"#a7f3d0":"#065f4655"}`,borderRadius:8,padding:"7px 11px"}}>
+                    <span style={{fontSize:10,color:_lm?"#047857":"#00e5a0",fontWeight:700,whiteSpace:"nowrap"}}>↻ Extend / recalc totals</span>
+                    <span style={{fontSize:10,color:_lm?"#475569":"#7a9bbf"}}>{fmtK(monthly)}/mo × {months} mo{months!==1?"s":""} → {fmtK(totalImpr)}{newCV!==null?` · $${(+newCV).toLocaleString("en-US",{maximumFractionDigits:0})}`:""}</span>
+                    <button type="button" disabled={!changed} onClick={()=>{ set("goal",newGoal); if(newCV!==null) set("contractValue",newCV); }}
+                      style={{marginLeft:"auto",background:changed?(_lm?"#00e19e":"#002e24"):(_lm?"#f1f5f9":"#0e1a2e"),border:`1px solid ${changed?(_lm?"#00c896":"#00c89660"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,color:changed?(_lm?"#0a1a0a":"#00e5a0"):(_lm?"#94a3b8":"#3d5a72"),fontSize:10,fontWeight:700,padding:"3px 10px",cursor:changed?"pointer":"default",whiteSpace:"nowrap"}}>
+                      {changed?"Recalculate totals":"Totals up to date"}
+                    </button>
+                  </div>
+                );
+              })()}
               <div style={{marginBottom:12}}>
                 <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note 2</label>
                 <input type="text" value={f["note2"]||""} onChange={e=>set("note2",e.target.value)} style={{...iS,borderColor:f["note2"]?(_lm?"#3B8FFF60":"#00d9ff60"):"#334155"}}/>
@@ -7037,34 +7120,38 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // from at least 1 calendar day ago. Same-day re-imports of the same CSV will NOT trigger this.
   // Reads the checkInLog (timestamped lines) to find the most recent prior-day entry.
   const today = getToday();
-  const dismissedStallKey = "campaign-tracker-dismissed-stalls";
-  const [dismissedStalls, setDismissedStalls] = useState(()=>{
-    try { return new Set(JSON.parse(localStorage.getItem(dismissedStallKey)||"[]")); } catch { return new Set(); }
+  // ── Persistent alert dismissals (stalls · quiet lines/ads · KPI anomalies) ──────────────────
+  // Keyed by the alert's DATA SIGNATURE, not the calendar day, so a dismissal STICKS across drops
+  // instead of re-firing every time (the old `|${today}` scheme expired nightly, so daily drops kept
+  // re-surfacing the same alerts). Each signature embeds the value that defines the alert:
+  //   • stall  — the campaign's current MTD impressions (unchanged while stalled → stays dismissed;
+  //              grows then stalls again at a new level → re-alerts).
+  //   • qline  — the line's current MTD impressions (same idea, per breakdown line).
+  //   • qad    — the CREATIVE REPORT's identity (importedAt). Since creative reports are dropped
+  //              rarely, this persists across every regular MTD drop and only re-evaluates when a NEW
+  //              creative report is imported — fixes quiet-ad alerts nagging on every non-creative drop.
+  //   • anom   — the metric + direction (spike/drop); persists while that same anomaly holds, re-alerts
+  //              on a different metric or the opposite direction.
+  // Stale signatures never match again, so they're harmless; a one-time migration drops the old
+  // day-stamped keys from the two legacy stores.
+  const dismissedAlertsKey = "campaign-tracker-dismissed-alerts";
+  const [dismissedAlerts, setDismissedAlerts] = useState(()=>{
+    try { return new Set(JSON.parse(localStorage.getItem(dismissedAlertsKey)||"[]")); } catch { return new Set(); }
   });
-  function dismissStall(id) {
-    const next = new Set(dismissedStalls);
-    next.add(`${id}|${today}`); // dismissal expires automatically the next day
-    setDismissedStalls(next);
-    try { localStorage.setItem(dismissedStallKey, JSON.stringify([...next])); } catch {}
-  }
-
-  // Per-line "gone quiet" dismissals — same per-day-expiry pattern as campaign stalls.
-  const dismissedQuietKey = "campaign-tracker-dismissed-quiet-lines";
-  const [dismissedQuietLines, setDismissedQuietLines] = useState(()=>{
-    try { return new Set(JSON.parse(localStorage.getItem(dismissedQuietKey)||"[]")); } catch { return new Set(); }
-  });
-  function dismissQuietLine(id) {
-    const next = new Set(dismissedQuietLines);
-    next.add(`${id}|${today}`);
-    setDismissedQuietLines(next);
-    try { localStorage.setItem(dismissedQuietKey, JSON.stringify([...next])); } catch {}
-  }
-  function dismissAllQuietLines(ids) {
-    const next = new Set(dismissedQuietLines);
-    ids.forEach(id => next.add(`${id}|${today}`));
-    setDismissedQuietLines(next);
-    try { localStorage.setItem(dismissedQuietKey, JSON.stringify([...next])); } catch {}
-  }
+  const isDismissed = (key) => dismissedAlerts.has(key);
+  const persistDismissed = (next) => { try { localStorage.setItem(dismissedAlertsKey, JSON.stringify([...next])); } catch {} };
+  function dismissAlert(key) { const next = new Set(dismissedAlerts); next.add(key); setDismissedAlerts(next); persistDismissed(next); }
+  function dismissAlerts(keys) { const next = new Set(dismissedAlerts); keys.forEach(k=>next.add(k)); setDismissedAlerts(next); persistDismissed(next); }
+  // Signature builders — the SAME builder is used by both the flag check and the dismiss button so
+  // they always agree on the key.
+  const stallKey = (c) => `stall::${c.id}::${parseInt(c.impressions)||0}`;
+  const qlineKey = (cid, name, curImpr) => `qline::${cid}::${name}::${curImpr}`;
+  const qadKey   = (cid, name, sig) => `qad::${cid}::${name}::${sig}`;
+  const anomKey  = (cid, metric, type) => `anom::${cid}::${metric}::${type}`;
+  // Back-compat shims so existing call sites keep working; each builds the right signature key.
+  const dismissStall = (c) => dismissAlert(stallKey(c));
+  const dismissQuietItem = (key) => dismissAlert(key);
+  const dismissAll = (keys) => dismissAlerts(keys);
   // Find the snapshot holding per-line breakdown for a campaign (checks all 5 platform fields).
   function findBreakdownSnap(c) {
     const fields = ["metaSnapshots","ttdSnapshots","dspSnapshots","googleSnapshots","snapSnapshots"];
@@ -7151,7 +7238,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   const noActivityRows = filtered.filter(r => {
     const c = r.c;
-    if (dismissedStalls.has(`${c.id}|${today}`)) return false;
+    if (isDismissed(stallKey(c))) return false;
     if (c.status !== "active" && c.status !== "behind" && c.status !== "ahead") return false;
     if (!c.checkInLog) return false;
     const logLines = c.checkInLog.split("\n").filter(Boolean);
@@ -7196,8 +7283,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         const priorImpr = prior.impressions || 0, curImpr = b.impressions || 0;
         if (priorImpr < 500) return;          // wasn't meaningfully running before — ignore
         if (curImpr - priorImpr > 0) return;  // still delivering
-        if (dismissedQuietLines.has(`${c.id}::${b.name}|${today}`)) return;
-        out.push({ c, lineName: b.name, curImpr, share: totalImpr > 0 ? (curImpr / totalImpr * 100) : 0, daysFlat, sinceDisp });
+        const key = qlineKey(c.id, b.name, curImpr);
+        if (isDismissed(key)) return;
+        out.push({ c, lineName: b.name, curImpr, share: totalImpr > 0 ? (curImpr / totalImpr * 100) : 0, daysFlat, sinceDisp, key });
       });
     });
     // Most days-flat first, then biggest share of the campaign
@@ -7224,9 +7312,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         const now = new Date(); now.setHours(0,0,0,0);
         daysFlat = Math.round((now - prev) / 86400000); sinceDisp = `${m}/${d}`;
       }
+      // Signature = the creative report's identity, so a dismissal persists until a NEW creative
+      // report is imported (regular MTD drops don't change it → no repeat nagging).
+      const reportSig = cr.importedAt || cr.dateEnd || "";
       ads.forEach(ad => {
-        if (dismissedQuietLines.has(`${c.id}::ad::${ad.name}|${today}`)) return;
-        out.push({ c, adName: ad.name, curImpr: ad.curImpr, daysFlat, sinceDisp });
+        const key = qadKey(c.id, ad.name, reportSig);
+        if (isDismissed(key)) return;
+        out.push({ c, adName: ad.name, curImpr: ad.curImpr, daysFlat, sinceDisp, key });
       });
     });
     out.sort((a, b) => (b.daysFlat || 0) - (a.daysFlat || 0) || (b.curImpr || 0) - (a.curImpr || 0));
@@ -7238,7 +7330,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const deliveryAnomalies = (() => {
     const out = [];
     filtered.forEach(({ c }) => {
-      const items = campaignAnomalies(c);
+      // Tag each item with its dismiss signature (metric + spike/drop direction) and drop dismissed ones.
+      const items = campaignAnomalies(c)
+        .map(it => ({ ...it, key: anomKey(c.id, it.metric, it.type) }))
+        .filter(it => !isDismissed(it.key));
       if (items.length) {
         // most severe metric first within each campaign
         items.sort((a, b) => Math.abs(Math.log(b.ratio || 1)) - Math.abs(Math.log(a.ratio || 1)));
@@ -9059,8 +9154,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           <span style={{fontSize:12,fontWeight:800,color:lightMode?"#c2410c":"#fb923c"}}>🔌 Lines &amp; Ads Gone Quiet ({quietLines.length+quietAds.length})</span>
           <span style={{fontSize:10,color:lmTxtS}}>A line or ad stopped delivering while its campaign keeps running. Counts are since your last check-in (lines) or last creative import (ads).</span>
         </div>
-        {(quietLines.length+quietAds.length)===0 && <div style={{fontSize:11,color:lmTxtS}}>Nothing has gone quiet — every line and ad is still delivering since its last check-in. (Dismissed alerts return tomorrow if it's still dark.)</div>}
-        {quietLines.length>0 && <div style={{fontSize:10,fontWeight:700,color:lightMode?"#9a3412":"#fdba74",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4,display:"flex",alignItems:"center",gap:8}}>Lines ({quietLines.length}){quietLines.length>1 && <button onClick={()=>dismissAllQuietLines(quietLines.map(q=>`${q.c.id}::${q.lineName}`))} title="Dismiss all lines for today" style={{background:"none",border:`1px solid ${lightMode?"#fdba74":"#f9731660"}`,borderRadius:5,color:lightMode?"#c2410c":"#fb923c",fontSize:9,fontWeight:700,padding:"1px 8px",cursor:"pointer",textTransform:"none",letterSpacing:0}}>Dismiss all</button>}</div>}
+        {(quietLines.length+quietAds.length)===0 && <div style={{fontSize:11,color:lmTxtS}}>Nothing has gone quiet — every line and ad is still delivering since its last check-in. (Dismissed alerts stay hidden until that line/ad delivers again or a new creative report is dropped.)</div>}
+        {quietLines.length>0 && <div style={{fontSize:10,fontWeight:700,color:lightMode?"#9a3412":"#fdba74",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4,display:"flex",alignItems:"center",gap:8}}>Lines ({quietLines.length}){quietLines.length>1 && <button onClick={()=>dismissAll(quietLines.map(q=>q.key))} title="Dismiss all these lines until they deliver again" style={{background:"none",border:`1px solid ${lightMode?"#fdba74":"#f9731660"}`,borderRadius:5,color:lightMode?"#c2410c":"#fb923c",fontSize:9,fontWeight:700,padding:"1px 8px",cursor:"pointer",textTransform:"none",letterSpacing:0}}>Dismiss all</button>}</div>}
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
           {quietLines.map((q)=>(
             <div key={q.c.id+"::"+q.lineName} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:lmBg,border:`1px solid ${lmBrdR}`,borderRadius:7}}>
@@ -9072,13 +9167,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                 0 new impr{q.daysFlat!=null&&q.daysFlat>=1?` · ${q.daysFlat} day${q.daysFlat!==1?"s":""} quiet`:""}{q.sinceDisp?` · since ${q.sinceDisp}`:""}
               </span>
               <span style={{fontSize:9,color:lmTxtD,whiteSpace:"nowrap"}}>{q.share.toFixed(0)}% of campaign</span>
-              <button onClick={()=>dismissQuietLine(`${q.c.id}::${q.lineName}`)} title="Dismiss for today"
+              <button onClick={()=>dismissQuietItem(q.key)} title="Dismiss — stays hidden until this line delivers again"
                 style={{marginLeft:"auto",background:"none",border:`1px solid ${lmBrd}`,borderRadius:5,color:lmTxtM,fontSize:10,padding:"2px 8px",cursor:"pointer",flexShrink:0}}>Dismiss</button>
             </div>
           ))}
         </div>
         {/* Ads gone quiet — individual creatives that stopped serving since the last creative import. */}
-        {quietAds.length>0 && <div style={{fontSize:10,fontWeight:700,color:lightMode?"#9a3412":"#fdba74",textTransform:"uppercase",letterSpacing:"0.06em",margin:"10px 0 4px",display:"flex",alignItems:"center",gap:8}}>Ads ({quietAds.length}){quietAds.length>1 && <button onClick={()=>dismissAllQuietLines(quietAds.map(q=>`${q.c.id}::ad::${q.adName}`))} title="Dismiss all ads for today" style={{background:"none",border:`1px solid ${lightMode?"#fdba74":"#f9731660"}`,borderRadius:5,color:lightMode?"#c2410c":"#fb923c",fontSize:9,fontWeight:700,padding:"1px 8px",cursor:"pointer",textTransform:"none",letterSpacing:0}}>Dismiss all</button>}</div>}
+        {quietAds.length>0 && <div style={{fontSize:10,fontWeight:700,color:lightMode?"#9a3412":"#fdba74",textTransform:"uppercase",letterSpacing:"0.06em",margin:"10px 0 4px",display:"flex",alignItems:"center",gap:8}}>Ads ({quietAds.length}){quietAds.length>1 && <button onClick={()=>dismissAll(quietAds.map(q=>q.key))} title="Dismiss all these ads until the next creative report" style={{background:"none",border:`1px solid ${lightMode?"#fdba74":"#f9731660"}`,borderRadius:5,color:lightMode?"#c2410c":"#fb923c",fontSize:9,fontWeight:700,padding:"1px 8px",cursor:"pointer",textTransform:"none",letterSpacing:0}}>Dismiss all</button>}</div>}
         {quietAds.length>0 && <div style={{display:"flex",flexDirection:"column",gap:6}}>
           {quietAds.map((q)=>(
             <div key={q.c.id+"::ad::"+q.adName} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:lmBg,border:`1px solid ${lmBrdR}`,borderRadius:7}}>
@@ -9089,7 +9184,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               <span style={{fontSize:10,fontWeight:700,color:lightMode?"#dc2626":"#f87171",background:lightMode?"#fee2e2":"#3a0010",border:`1px solid ${lightMode?"#fca5a5":"#7f1d1d"}`,borderRadius:5,padding:"2px 7px",whiteSpace:"nowrap"}}>
                 0 new impr{q.daysFlat!=null&&q.daysFlat>=1?` · ${q.daysFlat} day${q.daysFlat!==1?"s":""} quiet`:""}{q.sinceDisp?` · since ${q.sinceDisp}`:""}
               </span>
-              <button onClick={()=>dismissQuietLine(`${q.c.id}::ad::${q.adName}`)} title="Dismiss for today"
+              <button onClick={()=>dismissQuietItem(q.key)} title="Dismiss — stays hidden until the next creative report"
                 style={{marginLeft:"auto",background:"none",border:`1px solid ${lmBrd}`,borderRadius:5,color:lmTxtM,fontSize:10,padding:"2px 8px",cursor:"pointer",flexShrink:0}}>Dismiss</button>
             </div>
           ))}
@@ -9140,7 +9235,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <div style={{background:lightMode?"#fdf4ff":"#1a0f20",border:`1px solid ${lightMode?"#f0abfc":"#a21caf55"}`,borderRadius:9,padding:"10px 14px",marginBottom:12}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:deliveryAnomalies.length?8:0,flexWrap:"wrap"}}>
           <span style={{fontSize:12,fontWeight:800,color:lightMode?"#a21caf":"#e879f9"}}>🔍 KPI Anomalies ({anomalyCount})</span>
-          <span style={{fontSize:10,color:lmTxtS}}>KPIs (delivery, CTR, CPM, VCR) that swung far from each campaign's own usual daily rate — learned from check-in history.</span>
+          <span style={{fontSize:10,color:lmTxtS}}>KPIs (delivery, CTR, CPM, VCR) that swung far from each campaign's own usual daily rate — learned from check-in history. Dismissed anomalies stay hidden until that KPI swings a different way.</span>
+          {anomalyCount>1 && <button onClick={()=>dismissAll(deliveryAnomalies.flatMap(a=>a.items.map(it=>it.key)))} title="Dismiss all these anomalies until a KPI swings a different way"
+            style={{marginLeft:"auto",background:"none",border:`1px solid ${lightMode?"#f0abfc":"#a21caf66"}`,borderRadius:5,color:lightMode?"#a21caf":"#e879f9",fontSize:9,fontWeight:700,padding:"1px 8px",cursor:"pointer"}}>Dismiss all</button>}
         </div>
         {(()=>{
           // Format an anomaly's value by its unit so the tooltip reads in the metric's real terms.
@@ -9170,6 +9267,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                           </span>
                         );
                       })}
+                      <button onClick={()=>dismissAll(a.items.map(it=>it.key))} title="Dismiss this campaign's anomalies until a KPI swings a different way"
+                        style={{background:"none",border:`1px solid ${lmBrd}`,borderRadius:5,color:lmTxtM,fontSize:10,padding:"2px 8px",cursor:"pointer",flexShrink:0}}>Dismiss</button>
                     </div>
                   </div>
               ))}
@@ -9190,8 +9289,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <div style={{marginBottom:viewMode==="table"?4:14}}>
         <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:lightMode?"#fffbeb":"#1a1208",border:"1px solid #fde04740",borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
           <span style={{fontSize:11,fontWeight:800,color:lmC("#fde047"),textTransform:"uppercase",letterSpacing:"0.07em"}}>⏸ Possibly Stalled ({noActivityRows.length})</span>
-          <span style={{fontSize:10,color:lmTxtM,flex:1}}>Delivery hasn't grown since a previous-day check-in. Could be paused, finished, or just a slow day — verify, then dismiss.</span>
-          <button onClick={()=>noActivityRows.forEach(r=>dismissStall(r.c.id))}
+          <span style={{fontSize:10,color:lmTxtM,flex:1}}>Delivery hasn't grown since a previous-day check-in. Could be paused, finished, or just a slow day — verify, then dismiss. Dismissed stalls stay hidden until the campaign delivers again.</span>
+          <button onClick={()=>dismissAll(noActivityRows.map(r=>stallKey(r.c)))}
             style={{background:lightMode?"#fef9c3":"#1a2a1a",border:"1px solid #fde04760",borderRadius:4,color:lmC("#fde047"),fontSize:10,padding:"2px 10px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>
             Dismiss All
           </button>
@@ -9210,7 +9309,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                   <span style={{fontSize:9,color:lmC("#fde047"),fontWeight:700,background:lightMode?"#fef9c3":"#1a1208",border:"1px solid #fde04740",borderRadius:3,padding:"1px 5px",whiteSpace:"nowrap"}}>
                     flat @ {stalledAt}
                   </span>
-                  <button onClick={(e)=>{e.stopPropagation(); dismissStall(r.c.id);}} title="Dismiss for today"
+                  <button onClick={(e)=>{e.stopPropagation(); dismissStall(r.c);}} title="Dismiss — stays hidden until it delivers again"
                     style={{background:lightMode?"#f8fafc":"#162236",border:"1px solid "+(lightMode?"#cbd5e1":"#334155"),borderRadius:3,color:lmTxtM,fontSize:9,padding:"1px 6px",cursor:"pointer",fontWeight:600}}>
                     Dismiss
                   </button>
@@ -9222,7 +9321,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                   <span style={{fontSize:10,color:lmC("#fde047"),fontWeight:700,background:lightMode?"#fef9c3":"#1a1208",border:"1px solid #fde04740",borderRadius:4,padding:"2px 8px"}}>
                     flat @ {stalledAt}
                   </span>
-                  <button onClick={(e)=>{e.stopPropagation(); dismissStall(r.c.id);}} title="Dismiss for today"
+                  <button onClick={(e)=>{e.stopPropagation(); dismissStall(r.c);}} title="Dismiss — stays hidden until it delivers again"
                     style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:4,color:lightMode?"#475569":"#7a9bbf",fontSize:10,padding:"2px 8px",cursor:"pointer",fontWeight:600}}>
                     Dismiss
                   </button>
@@ -11371,9 +11470,16 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     const cutoffStr = cutoff.toISOString().slice(0,10);
     return (archive||[]).filter(a=>a.archivedDate && String(a.archivedDate)>=cutoffStr);
   },[archive]);
-  const archivedIds = React.useMemo(()=>new Set(recentlyArchived.map(a=>String(a.id))),[recentlyArchived]);
-  // Pool used ONLY by the assign dropdown — active campaigns plus recently-archived ones.
+  // Pool used for AUTO-MATCH candidates — active campaigns plus recently-archived ones (kept lean on
+  // purpose: fresh fuzzy/client matches should never guess into the deep archive).
   const assignPool = React.useMemo(()=>[...activeCamps, ...recentlyArchived],[activeCamps,recentlyArchived]);
+  // Full universe for RESOLUTION + MANUAL mapping — active plus the ENTIRE archive (not just 31 days).
+  // Used to (a) resolve a mapped/remembered id to its campaign so it displays instead of going blank
+  // when a campaign ages past the 31-day window, and (b) let the user manually pick/search ANY archived
+  // campaign so its trailing delivery still lands for accurate monthly revenue. Active is listed first
+  // so it wins ties over a same-named archived campaign (renewals).
+  const fullPool = React.useMemo(()=>[...activeCamps, ...(archive||[])],[activeCamps,archive]);
+  const allArchivedIds = React.useMemo(()=>new Set((archive||[]).map(a=>String(a.id))),[archive]);
 
   const [qciSearch,    setQciSearch]    = React.useState("");
   const [qciPlatforms, setQciPlatforms] = React.useState(new Set()); // empty = all platforms
@@ -12033,13 +12139,13 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       //    This correctly handles multiple tracker campaigns under the same TTD advertiser.
       const compoundKey  = makeTTDNameKey(advName, ttdCamp);
       const compoundEntry = savedMappings[compoundKey];
-      if(compoundEntry && assignPool.find(c=>String(c.id)===String(compoundEntry.campId))) return compoundEntry.campId;
+      if(compoundEntry && fullPool.find(c=>String(c.id)===String(compoundEntry.campId))) return compoundEntry.campId;
       // 2. Adv-only key — read-only backward compat for saves written before the compound key existed.
       //    Only trusted when there is exactly ONE tracker campaign mapped to this advertiser,
       //    so we don't silently perpetuate the same collision bug on old data.
       const advOnlyKey = makeTTDAdvOnlyKey(advName);
       const advOnlyEntry = savedMappings[advOnlyKey];
-      if(advOnlyEntry && assignPool.find(c=>String(c.id)===String(advOnlyEntry.campId))){
+      if(advOnlyEntry && fullPool.find(c=>String(c.id)===String(advOnlyEntry.campId))){
         // Only trust the adv-only key if just ONE active TD campaign matches this client name.
         // If multiple campaigns match (e.g. "Shining Star South" AND "Shining Star Christian School"
         // both under "SPI-Shining Star Schools_AG"), the adv-only key is ambiguous — skip it so
@@ -12056,14 +12162,14 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       // 3. Legacy campaign-name key (covers saves from before any TTD-specific keying)
       const legacyKey = makeNameKey(source, csvName);
       const legacyEntry = savedMappings[legacyKey];
-      if(legacyEntry && assignPool.find(c=>String(c.id)===String(legacyEntry.campId))) return legacyEntry.campId;
+      if(legacyEntry && fullPool.find(c=>String(c.id)===String(legacyEntry.campId))) return legacyEntry.campId;
     }
     // For DSP "Mobile": key by the stable Advertiser Name (the DSP campaign name changes month to month).
     if(source==="DSP" && row){
       const advName = getTTDAdvertiserName(row);
       if(advName){
         const advEntry = savedMappings[`DSP||adv:${advName.trim().toLowerCase()}`];
-        if(advEntry && assignPool.find(c=>String(c.id)===String(advEntry.campId))) return advEntry.campId;
+        if(advEntry && fullPool.find(c=>String(c.id)===String(advEntry.campId))) return advEntry.campId;
       }
     }
     // For Google: primary key is Account Name (stable — campaign names vary across ad sets)
@@ -12072,7 +12178,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if(accName){
         const accKey = makeGoogleNameKey(accName);
         const accEntry = savedMappings[accKey];
-        if(accEntry && assignPool.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
+        if(accEntry && fullPool.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
       }
     }
     // For Facebook TapClicks XLSX format: use a COMPOUND key (account + ad-set name)
@@ -12086,17 +12192,17 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         // 1. Compound (acc + campaign) — authoritative
         const compoundKey = `Facebook/Meta||acc:${accName.toLowerCase()}||camp:${fbCampSub.toLowerCase()}`;
         const compoundEntry = savedMappings[compoundKey];
-        if(compoundEntry && assignPool.find(c=>String(c.id)===String(compoundEntry.campId))) return compoundEntry.campId;
+        if(compoundEntry && fullPool.find(c=>String(c.id)===String(compoundEntry.campId))) return compoundEntry.campId;
         // 2. Acc-only fallback — older saves used this format
         const accKey = `Facebook/Meta||acc:${accName.toLowerCase()}`;
         const accEntry = savedMappings[accKey];
-        if(accEntry && assignPool.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
+        if(accEntry && fullPool.find(c=>String(c.id)===String(accEntry.campId))) return accEntry.campId;
       }
     }
     // Fallback: key by campaign name (non-TTD/Google sources + TTD legacy)
     const key=makeNameKey(source,csvName);
     const entry=savedMappings[key];
-    if(entry && assignPool.find(c=>String(c.id)===String(entry.campId))) return entry.campId;
+    if(entry && fullPool.find(c=>String(c.id)===String(entry.campId))) return entry.campId;
     return null;
   }
 
@@ -12432,7 +12538,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         if(initMap[i]) return;
         const csvName=getCampName(row,source);
         const entry=legacySaved.find(e=>e.csvName===csvName);
-        if(entry&&assignPool.find(c=>String(c.id)===String(entry.campId))){ initMap[i]=String(entry.campId); savedCount++; memMap[i]=String(entry.campId); }
+        if(entry&&fullPool.find(c=>String(c.id)===String(entry.campId))){ initMap[i]=String(entry.campId); savedCount++; memMap[i]=String(entry.campId); }
       });
     }
 
@@ -12573,7 +12679,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         const grp=creativeGroups[adSet]; if(!grp) return;
         const key=String(campId);
         (byCamp[key]=byCamp[key]||[]).push(...grp.creatives);
-        memEntries.push({ csvName:adSet, campId:key, campName: assignPool.find(c=>String(c.id)===key)?.campaignName||"" });
+        memEntries.push({ csvName:adSet, campId:key, campName: fullPool.find(c=>String(c.id)===key)?.campaignName||"" });
       });
       const campKeys=Object.keys(byCamp);
       if(!campKeys.length){ setSavedMsg("Map at least one ad set to a campaign before saving."); return; }
@@ -12729,9 +12835,10 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     };
     // Apply to live campaigns. Archived ids won't match here (ids are unique to one list).
     setCampaigns(cs=>cs.map(c=>{ const u=updates[c.id]||updates[String(c.id)]; return u?buildUpdated(c,u):c; }));
-    // Apply to recently-archived campaigns too — keeps them archived but records their final
-    // numbers so the Revenue tab reflects the closing impressions/spend.
-    if (typeof setArchive === "function" && Object.keys(updates).some(id=>archivedIds.has(String(id)))) {
+    // Apply to archived campaigns too — keeps them archived but records their final numbers so the
+    // Revenue tab reflects the closing impressions/spend. Uses the FULL archive (allArchivedIds), not
+    // just the 31-day window, so a manually-mapped older archived campaign still gets its data.
+    if (typeof setArchive === "function" && Object.keys(updates).some(id=>allArchivedIds.has(String(id)))) {
       setArchive(as=>as.map(c=>{ const u=updates[c.id]||updates[String(c.id)]; return u?buildUpdated(c,u):c; }));
     }
     // Save per-name memory (persists across future file drops even if file contents change)
@@ -12750,7 +12857,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       .map(([idxStr,campId])=>{
         const row=fileRows[parseInt(idxStr)];
         const csvName=getCampName(row,fileSource);
-        const campName=assignPool.find(c=>String(c.id)===String(campId))?.campaignName||"";
+        const campName=fullPool.find(c=>String(c.id)===String(campId))?.campaignName||"";
         const advertiserName = (fileSource==="TradeDesk"||fileSource==="DSP") ? getTTDAdvertiserName(row) : undefined;
         // For Google AND Facebook (TapClicks format), save the Account field as a stable key
         // so future file drops match by account name even if campaign names change.
@@ -13245,7 +13352,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                 // match can point to a campaign that's since been deleted or archived past the 31-day
                 // window — that id no longer resolves, the data has nowhere to land, so we treat the
                 // row as UNMATCHED (orange) instead of falsely showing it green/mapped.
-                const assignedCamp=assignedId?assignPool.find(x=>String(x.id)===String(assignedId)):null;
+                const assignedCamp=assignedId?fullPool.find(x=>String(x.id)===String(assignedId)):null;
                 const assigned=assignedCamp?assignedId:"";
                 const isUnmatched=!assigned;
                 const computedCtr=m.impressions>0&&m.clicks>0?m.clicks/m.impressions*100:0;
@@ -13310,12 +13417,18 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
 
                         const showingAll = showAllMap[i];
 
+                        // Base pool is the lean auto-match pool (active + recently-archived). When the
+                        // user is SEARCHING or has clicked "show all", widen to the FULL archive so any
+                        // archived campaign is reachable/mappable (needed for accurate monthly revenue on
+                        // campaigns archived more than 31 days ago).
+                        const dropdownBase = (showingAll || qciSearch) ? fullPool : assignPool;
                         // Respect the user's left-panel selection + platform + search filters in the
                         // assign dropdown. "show all" bypasses these to reveal every campaign.
-                        const qciPool = showingAll ? assignPool : assignPool.filter(c => {
+                        const qciPool = showingAll ? dropdownBase : dropdownBase.filter(c => {
                           // If the user has CHECKED campaigns on the left, they've told us exactly which
-                          // campaign(s) this file is for — restrict the dropdown to just those.
-                          if (selected.size > 0 && !selected.has(c.id)) return false;
+                          // campaign(s) this file is for — restrict the dropdown to just those. A typed
+                          // search overrides this so the archive is always reachable by name.
+                          if (selected.size > 0 && !selected.has(c.id) && !qciSearch) return false;
                           if (qciPlatforms.size > 0 && !qciPlatforms.has(c.platform)) return false;
                           if (qciSearch) {
                             const q = qciSearch.toLowerCase();
@@ -13373,7 +13486,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                               <option value="">— leave unassigned —</option>
                               <option value="__ignore__" style={{color:"#ef4444"}}>🚫 Ignore this campaign</option>
                               {displayList.map(c=>(
-                                <option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}{archivedIds.has(String(c.id))?" · (archived)":""}</option>
+                                <option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}{allArchivedIds.has(String(c.id))?" · (archived)":""}</option>
                               ))}
                             </select>
                           </div>
@@ -13381,8 +13494,8 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                       })()}
                     </div>
                     {assigned&&(()=>{
-                      const c=assignPool.find(x=>String(x.id)===String(assigned));
-                      return c?<div style={{fontSize:9,color:_lm?"#059669":"#00e5a0",paddingLeft:10,paddingBottom:4}}>→ {c.campaignName.trim()} ({c.platform} · {c.mediaPartner}){archivedIds.has(String(c.id))?<span style={{color:"#f59e0b"}}> · archived</span>:null}</div>:null;
+                      const c=fullPool.find(x=>String(x.id)===String(assigned));
+                      return c?<div style={{fontSize:9,color:_lm?"#059669":"#00e5a0",paddingLeft:10,paddingBottom:4}}>→ {c.campaignName.trim()} ({c.platform} · {c.mediaPartner}){allArchivedIds.has(String(c.id))?<span style={{color:"#f59e0b"}}> · archived</span>:null}</div>:null;
                     })()}
                   </div>
                 );
