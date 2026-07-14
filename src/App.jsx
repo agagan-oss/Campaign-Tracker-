@@ -11478,7 +11478,17 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   // shown (legacy strings → objects, already-stale entries dropped) instead of lingering until a drop.
   React.useEffect(()=>{ _persistIgnored(ignoredNames); }, []);
 
-  const qciPlatformList = [...new Set(activeCamps.map(c=>c.platform).filter(Boolean))].sort();
+  // Group the QCI platform chips by the export/vendor they come from so related drops sit together
+  // (Google: SEM/YT · Meta: FB/FBV/IG · TradeDesk: TD/TDV/TDA · TVsci CTV: CTV/OTT/OTTD · Madhive CTV:
+  // GCTV/PCTV · then DSP/Snapchat/TikTok/Email). Unknown platforms fall to the end, alphabetically.
+  const QCI_PLATFORM_ORDER = ["SEM","YT","FB","FBV","IG","TD","TDV","TDA","CTV","OTT","OTTD","GCTV","PCTV","DSP","SP","TT","EMAIL"];
+  const qciPlatformList = [...new Set(activeCamps.map(c=>c.platform).filter(Boolean))].sort((a,b)=>{
+    const ia=QCI_PLATFORM_ORDER.indexOf(a), ib=QCI_PLATFORM_ORDER.indexOf(b);
+    if(ia===-1&&ib===-1) return a.localeCompare(b);
+    if(ia===-1) return 1;
+    if(ib===-1) return -1;
+    return ia-ib;
+  });
   const selectedCamps = activeCamps.filter(c=>selected.has(c.id));
   // A file row is ignored when its CSV campaign name is on the ignore list — skipped everywhere
   // (mapped-count, low-confidence review, apply, and the mapping list itself).
@@ -11567,6 +11577,9 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if (cols.includes("line item name") && cols.includes("advertiser name") && cols.includes("impressions")) return "DSP";
     // Google Ads / YouTube — "campaign" + impressions/clicks + cost, but NOT TradeDesk or Meta columns
     if (cols.includes("campaign") && (cols.includes("impressions")||cols.includes("clicks")) && (cols.includes("cost")||cols.includes("spend")) && !cols.includes("advertiser name") && !cols.includes("amount spent")) return "Google";
+    // Madhive CTV delivery export — "Line Item Name" + "Completed View Rate" + "Campaign Name" (no
+    // Advertiser/spend columns). Each client has a general line item and a "Premium" line item.
+    if (cols.includes("line item name") && cols.includes("completed view rate") && cols.includes("campaign name")) return "Madhive";
     if (cols.includes("campaign name")&&(cols.includes("impressions")||cols.includes("spend"))) return "Generic";
     return "Generic";
   }
@@ -11603,6 +11616,14 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       clicks      = parseInt(clean(row["Clicks"]||row["clicks"]))||0;
       ctr = impressions>0 && clicks>0 ? (clicks/impressions) : (parseFloat(clean(row["CTR"]||row["ctr"]||0))||0);
       if (ctr > 1) ctr = ctr/100; // normalize if expressed as a whole percent
+
+    } else if (source==="Madhive") {
+      // Madhive CTV delivery: Impressions + Completed View Rate (VCR). No spend/clicks in the export —
+      // CTV revenue is CPM on impressions (the contract rate on the PCTV/GCTV campaign in the tracker).
+      const clean = v => (v==null?"":v).toString().replace(/[$,%\s]/g,"");
+      impressions = parseInt(clean(row["Impressions"]))||0;
+      const rawVcr = parseFloat(clean(row["Completed View Rate"]))||0;
+      completionRate = rawVcr > 0 && rawVcr <= 1 ? rawVcr*100 : rawVcr; // normalize 0-1 → 0-100
 
     } else if (source==="Snapchat") {
       impressions = parseFloat(row["Paid Impressions"]||0)||0;
@@ -11716,6 +11737,9 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // TradeDesk: use Campaign column for display; matching uses advertiser name (see matchTTDClientToTracker)
     if (source==="TradeDesk") return row["Campaign"]||row["campaign"]||"";
     if (source==="Google") return row["Campaign Name"]||row["Campaign"]||row["Campaign name"]||row["campaign_name"]||"";
+    // Madhive CTV: show the Campaign Name (client + audience-tier label). Matching routes by client +
+    // Premium/General → PCTV/GCTV (see matchMadhiveToTracker), not this display name.
+    if (source==="Madhive") return row["Campaign Name"]||row["Line Item Name"]||"";
     // Generic — try common campaign name columns
     return findCol(row, ["campaign name","campaign","name","ad campaign","campaign title"])||"";
   }
@@ -11797,6 +11821,43 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     return "";
   }
 
+  // ── Madhive (CTV) helpers ────────────────────────────────────────────────────
+  // Client column looks like "ALMB-KDRV - Lippert's Carpet One" (agency-station prefix + " - " + client).
+  function getMadhiveClient(row){
+    let s = (row["Client"]||"").toString().trim();
+    // Strip leading agency/station prefixes — two shapes appear in the export:
+    //   parent-station:  "ALMB-KDRV - Lippert's Carpet One", "ALMB-KIMT- Clear Lake Bank and Trust"
+    //   single code:     "BTM - Mountwest CTC", "CMG - Harvey's Furniture", "COM - ...", "WVR - ..."
+    s = s.replace(/^ALMB-[A-Za-z0-9]+\s*-\s*/i, "");           // parent-station (dash spacing varies)
+    s = s.replace(/^[A-Z]{2,5}(-[A-Za-z0-9]{2,6})?\s+-\s+/, ""); // single/other code with " - "
+    return s.trim() || (row["Client"]||"").toString().trim();  // never strip down to empty
+  }
+  // A Madhive line item is the PREMIUM tier when its Line Item / Campaign name says "Premium".
+  function isMadhivePremium(row){
+    return /\bpremium\b/i.test(((row["Line Item Name"]||"")+" "+(row["Campaign Name"]||"")).toString());
+  }
+  // Route a Madhive row to the client's CTV campaign: Premium → PCTV, everything else → GCTV. Falls
+  // back to the OTHER CTV platform if the preferred one has no matching campaign for that client.
+  function matchMadhiveToTracker(clientName, isPremium, camps){
+    if (!clientName) return "";
+    const cn = clientName.toLowerCase().trim();
+    const tryPlat = (plat) => {
+      const pool = camps.filter(c => c.platform === plat);
+      if (!pool.length) return "";
+      const exact = pool.find(c => c.campaignName.trim().toLowerCase() === cn);
+      if (exact) return String(exact.id);
+      const sub = pool.find(c => c.campaignName.trim().toLowerCase().includes(cn));
+      if (sub) return String(sub.id);
+      const rev = pool.find(c => c.campaignName.trim().length >= 8 && cn.includes(c.campaignName.trim().toLowerCase()));
+      if (rev) return String(rev.id);
+      const generic = new Set(["credit","union","federal","bank","financial","services","service","group","national","community","corp","inc","llc","company","audience","ctv","premium","general","extension","july"]);
+      const words = cn.split(/\s+/).filter(w => w.length > 3 && !generic.has(w));
+      if (words.length){ let best=null,bestC=0; pool.forEach(c=>{ const cl=c.campaignName.toLowerCase(); const m=words.filter(w=>cl.includes(w)).length; if(m/words.length>0.6 && m>=1 && m>bestC){best=c;bestC=m;} }); if(best) return String(best.id); }
+      return "";
+    };
+    return tryPlat(isPremium ? "PCTV" : "GCTV") || tryPlat(isPremium ? "GCTV" : "PCTV");
+  }
+
   // For DSP-Internal: the advertiser_name field contains the rep initials suffix (_AG, _ZB, etc.)
   function getDSPAdvertiser(row){ return row["advertiser_name"]||""; }
   function getDSPInitials(advertiserName){
@@ -11840,6 +11901,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     "Snapchat":      new Set(["SP"]),
     "DSP-Internal":  new Set(["DSP"]),
     "DSP":           new Set(["DSP"]),
+    "Madhive":       new Set(["PCTV","GCTV"]),  // Madhive is GCTV/PCTV only — plain CTV/OTT belong to TVsci
   };
 
   // Exact-first matching: given a TTD client name, find the tracker campaign.
@@ -12411,6 +12473,18 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         const clientName = getTTDClientName(getTTDAdvertiserName(row));
         const matchedId = matchDSPClientToTracker(clientName, matchCandidates);
         if(matchedId){ initMap[i]=matchedId; initConf[i]=0.8; autoCount++; }
+      } else if(source==="Madhive"){
+        // Madhive CTV: route by client + Premium/General → PCTV / GCTV (matchCandidates is already
+        // restricted to PCTV/GCTV via SOURCE_PLATFORMS, so this never touches TVsci's plain CTV/OTT).
+        // Fuzzy-fallback on the Campaign Name only at a HIGH bar (≥0.80) — Madhive campaign names are
+        // bare small-business names that collide on category words ("X Furniture" vs "Y Furniture" = 0.50),
+        // so a low threshold produced false matches. 0.80 keeps only near-exact name recoveries.
+        const matchedId = matchMadhiveToTracker(getMadhiveClient(row), isMadhivePremium(row), matchCandidates);
+        if(matchedId){ initMap[i]=matchedId; initConf[i]=0.8; autoCount++; }
+        else {
+          const csvName=getCampName(row,source);
+          if(csvName){ let bestId="",bestScore=0; matchCandidates.forEach(c=>{ const score=fuzzyScore(csvName,c.campaignName); if(score>bestScore&&score>=0.80){ bestScore=score; bestId=String(c.id); } }); if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; } }
+        }
       } else if(source==="Google"){
         // Google: match by Account Name (e.g. "COM-Envista Credit Union_LR" → "Envista Credit Union")
         // Account names are stable across exports; campaign names change per ad set/keyword group
@@ -12533,7 +12607,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if(parseFloat(m.frequency)>0){ updates[campId].frequency+=parseFloat(m.frequency); updates[campId].freqCount++; }
       // Per-line breakdown — preserve each CSV row's stats so user can see what's happening
       // at the ad-set / line-item level (e.g. retargeting vs prospecting under one FB campaign)
-      const lineName = (fileSource==="DSP" ? (row["Line Item Name"]||row["line item name"]||"") : getCampName(row, fileSource)) || `Line ${updates[campId].breakdown.length+1}`;
+      const lineName = ((fileSource==="DSP"||fileSource==="Madhive") ? (row["Line Item Name"]||row["line item name"]||"") : getCampName(row, fileSource)) || `Line ${updates[campId].breakdown.length+1}`;
       // CTR displayed as percent (0-100); m.ctr is stored as ratio (0.003 = 0.3%)
       const lineCtr = m.ctr > 1 ? m.ctr : m.ctr * 100;
       updates[campId].breakdown.push({
