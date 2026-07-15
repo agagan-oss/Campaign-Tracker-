@@ -9783,6 +9783,68 @@ function suggestRate(platform, learnedMap) {
   return null;
 }
 
+// Return a FRESH duplicate of a campaign: keeps the SETUP (name/partner/platform/goal/dates/rates/etc.)
+// but WIPES every field that holds DELIVERY or check-in HISTORY — live metrics, the daily metricSeries,
+// ALL platform snapshots (meta/ttd/dsp/google/snap), the per-line/creative breakdown, and the check-in
+// log. Without this a copy inherits the source campaign's delivery, and if you then change its tactic
+// you get the source's data on the wrong platform (e.g. FB ad-set breakdown showing on a YouTube copy).
+function freshCampaignCopy(c) {
+  const {
+    metricSeries, checkInLog, lastCheckInImpr, lastQciSource, lastQciDate, lastQciAt,
+    metaSnapshots, ttdSnapshots, dspSnapshots, googleSnapshots, snapSnapshots, creativeReport,
+    ...rest
+  } = c;
+  return {
+    ...rest,
+    id: Date.now(),
+    campaignName: (c.campaignName || "") + " (copy)",
+    impressions: "", ctr: "", cpm: "", spend: "", clicks: "", reach: "", frequency: "",
+    videoViews: "", completionRate: "", conversions: "",
+    lastChecked: getToday(),
+    goalHitDismissed: false, closeToGoalDismissed: false,
+  };
+}
+
+// Which platforms can legitimately produce each snapshot store. A snapshot on ANY other platform is
+// inherited pollution — the fingerprint of the old duplicate bug that copied delivery data onto a copy
+// whose tactic was then changed (e.g. an FB copy retasked to YT keeps FB's metaSnapshots/breakdown).
+const SNAPSHOT_PLATFORMS = {
+  metaSnapshots:   ["FB","FBV","IG"],
+  ttdSnapshots:    ["TD","TDV","TDA","CTV","OTT","OTTD"],
+  dspSnapshots:    ["DSP"],
+  googleSnapshots: ["SEM","YT"],
+  snapSnapshots:   ["SP"],
+};
+const CREATIVE_REPORT_PLATFORMS = ["FB","FBV","IG","SP"];
+// One-time cleanup: strip delivery data that provably belongs to a DIFFERENT platform than the campaign's
+// own. Returns a cleaned copy if anything was wrong, else null (unchanged). If the ONLY delivery data was
+// the wrong-platform kind (no legit snapshot for its own tactic), the whole campaign is reset to fresh so
+// its chart/metrics/line-breakdown aren't left showing another tactic's numbers.
+function cleanInheritedDelivery(c) {
+  if (!c || !c.platform) return null;
+  const plat = c.platform;
+  let cleaned = c, removed = false;
+  for (const field in SNAPSHOT_PLATFORMS) {
+    if (c[field] && !SNAPSHOT_PLATFORMS[field].includes(plat)) {
+      if (cleaned === c) cleaned = { ...c };
+      delete cleaned[field]; removed = true;
+    }
+  }
+  if (c.creativeReport && !CREATIVE_REPORT_PLATFORMS.includes(plat)) {
+    if (cleaned === c) cleaned = { ...c };
+    delete cleaned.creativeReport; removed = true;
+  }
+  if (!removed) return null;
+  const ownField = Object.keys(SNAPSHOT_PLATFORMS).find(f => SNAPSHOT_PLATFORMS[f].includes(plat));
+  const hasLegitSnapshot = ownField && cleaned[ownField];
+  if (!hasLegitSnapshot) {
+    // purely inherited → wipe the rest of the delivery data too (like a fresh campaign)
+    ["metricSeries","checkInLog","lastCheckInImpr","lastQciSource","lastQciDate","lastQciAt"].forEach(f => delete cleaned[f]);
+    ["impressions","ctr","cpm","spend","clicks","reach","frequency","videoViews","completionRate","conversions"].forEach(f => { cleaned[f] = ""; });
+  }
+  return cleaned;
+}
+
 // Monthly revenue for a rate-based campaign. Pass `monthIdx` (0-11) to use that month's goal
 // for a multi-phase flight (e.g. June → 47K for "94K/Mo Mar/Apr/May 47K/Mo June"); omit for the
 // flat/headline figure.
@@ -11556,21 +11618,28 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   // mid-cycle whose platform still reports a day or two of trailing delivery. They're tagged
   // "(archived)" in the assign dropdown, AUTO-MATCH like active campaigns (active wins ties), and are
   // routed back to the archive list on Apply so they never re-activate.
+  // De-collide the archive for check-in: an id that exists in BOTH active and archive (a JSON-import
+  // artifact — two DIFFERENT campaigns wrongly sharing an id) must be treated as ACTIVE here. Otherwise
+  // check-in resolves the active campaign but tags/writes it as "archived" (its id is also in the
+  // archive), which is exactly the "it only maps to the archived copy" bug. Dropping the colliding
+  // archive rows from the check-in pools makes the live campaign the sole target for that id.
+  const activeIdSet = React.useMemo(()=>new Set(activeCamps.map(c=>String(c.id))),[activeCamps]);
+  const qciArchive = React.useMemo(()=>(archive||[]).filter(a=>!activeIdSet.has(String(a.id))),[archive,activeIdSet]);
   const recentlyArchived = React.useMemo(()=>{
     const cutoff = new Date(); cutoff.setHours(0,0,0,0); cutoff.setDate(cutoff.getDate()-31);
     const cutoffStr = cutoff.toISOString().slice(0,10);
-    return (archive||[]).filter(a=>a.archivedDate && String(a.archivedDate)>=cutoffStr);
-  },[archive]);
+    return qciArchive.filter(a=>a.archivedDate && String(a.archivedDate)>=cutoffStr);
+  },[qciArchive]);
   // Pool used for AUTO-MATCH candidates — active campaigns plus recently-archived ones (kept lean on
   // purpose: fresh fuzzy/client matches should never guess into the deep archive).
   const assignPool = React.useMemo(()=>[...activeCamps, ...recentlyArchived],[activeCamps,recentlyArchived]);
-  // Full universe for RESOLUTION + MANUAL mapping — active plus the ENTIRE archive (not just 31 days).
-  // Used to (a) resolve a mapped/remembered id to its campaign so it displays instead of going blank
-  // when a campaign ages past the 31-day window, and (b) let the user manually pick/search ANY archived
+  // Full universe for RESOLUTION + MANUAL mapping — active plus the (de-collided) archive. Used to
+  // (a) resolve a mapped/remembered id to its campaign so it displays instead of going blank when a
+  // campaign ages past the 31-day window, and (b) let the user manually pick/search ANY archived
   // campaign so its trailing delivery still lands for accurate monthly revenue. Active is listed first
   // so it wins ties over a same-named archived campaign (renewals).
-  const fullPool = React.useMemo(()=>[...activeCamps, ...(archive||[])],[activeCamps,archive]);
-  const allArchivedIds = React.useMemo(()=>new Set((archive||[]).map(a=>String(a.id))),[archive]);
+  const fullPool = React.useMemo(()=>[...activeCamps, ...qciArchive],[activeCamps,qciArchive]);
+  const allArchivedIds = React.useMemo(()=>new Set(qciArchive.map(a=>String(a.id))),[qciArchive]);
   // If a remembered mapping resolves to an ARCHIVED campaign but an ACTIVE campaign with the same name
   // (+ platform) exists, prefer the ACTIVE one. This is the "archived the old flight, created a NEW
   // same-name campaign for the new IO" case: the old record is kept archived only to hold its closed
@@ -11595,6 +11664,19 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     }
     return twin ? String(twin.id) : campId;
   }, [allArchivedIds, fullPool, activeCamps]);
+
+  // Reject a remembered mapping that points to a campaign whose PLATFORM can't come from this file's
+  // source — e.g. a Facebook/Meta drop resolving to a YouTube or DSP campaign via stale name-memory
+  // (which happens when same-named campaigns exist across tactics). Name-memory is intentionally
+  // platform-agnostic, but it must never cross tactics: returning "" here makes the row fall through to
+  // the source-restricted auto-match (which only considers SOURCE_PLATFORMS[source]) instead.
+  const platformMatchesSource = React.useCallback((campId, source) => {
+    if (!campId) return campId;
+    const sp = (typeof SOURCE_PLATFORMS !== "undefined") ? SOURCE_PLATFORMS[source] : null;
+    if (!sp) return campId;   // unrestricted source (e.g. Generic) — allow
+    const c = fullPool.find(x => String(x.id) === String(campId));
+    return (c && sp.has(c.platform)) ? campId : "";
+  }, [fullPool]);
 
   const [qciSearch,    setQciSearch]    = React.useState("");
   const [qciPlatforms, setQciPlatforms] = React.useState(new Set()); // empty = all platforms
@@ -12464,7 +12546,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     const cands = sp ? qciFiltered.filter(c=>sp.has(c.platform)) : qciFiltered;
     synthRows.forEach((row,i)=>{
       const csvName=getCampName(row,source);
-      const rememberedId=redirectToActiveTwin(lookupMemory(source,csvName,row));
+      const rememberedId=platformMatchesSource(redirectToActiveTwin(lookupMemory(source,csvName,row)),source);
       if(rememberedId){ initMap[i]=rememberedId; initConf[i]=1.0; memMap[i]=rememberedId; savedCount++; return; }
       initMap[i]="";
       let bestId="",bestScore=0;
@@ -12640,7 +12722,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // For TradeDesk: lookupMemory uses advertiser name (stable). For others: uses campaign name.
     rows.forEach((row,i)=>{
       const csvName=getCampName(row,source);
-      const rememberedId=redirectToActiveTwin(lookupMemory(source,csvName,row));
+      const rememberedId=platformMatchesSource(redirectToActiveTwin(lookupMemory(source,csvName,row)),source);
       if(rememberedId){ initMap[i]=rememberedId; savedCount++; memMap[i]=rememberedId; }
       else initMap[i]="";
     });
@@ -12653,7 +12735,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         if(initMap[i]) return;
         const csvName=getCampName(row,source);
         const entry=legacySaved.find(e=>e.csvName===csvName);
-        if(entry&&fullPool.find(c=>String(c.id)===String(entry.campId))){ const rid=redirectToActiveTwin(String(entry.campId)); initMap[i]=rid; savedCount++; memMap[i]=rid; }
+        if(entry&&fullPool.find(c=>String(c.id)===String(entry.campId))){ const rid=platformMatchesSource(redirectToActiveTwin(String(entry.campId)),source); if(rid){ initMap[i]=rid; savedCount++; memMap[i]=rid; } }
       });
     }
 
@@ -12954,7 +13036,9 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // Revenue tab reflects the closing impressions/spend. Uses the FULL archive (allArchivedIds), not
     // just the 31-day window, so a manually-mapped older archived campaign still gets its data.
     if (typeof setArchive === "function" && Object.keys(updates).some(id=>allArchivedIds.has(String(id)))) {
-      setArchive(as=>as.map(c=>{ const u=updates[c.id]||updates[String(c.id)]; return u?buildUpdated(c,u):c; }));
+      // Only write to PURELY-archived entries (allArchivedIds excludes ids that also exist in active) —
+      // never to an archive row that collides with a live campaign, so the data lands on active only.
+      setArchive(as=>as.map(c=>{ const u=allArchivedIds.has(String(c.id)) ? (updates[c.id]||updates[String(c.id)]) : null; return u?buildUpdated(c,u):c; }));
     }
     // Save per-name memory (persists across future file drops even if file contents change)
     // For TradeDesk: also save the advertiser name so lookup is stable regardless of campaign name changes.
@@ -17989,11 +18073,15 @@ export default function App() {
     // Heal any campaigns whose flat c.* metrics drifted from their synced snapshot's mtd (e.g. synced
     // before the sync-mirror existed). Idempotent — once aligned there's nothing left to change.
     const mc = reconcileMetricFields(activeList); if(mc.changed > 0){ activeList = mc.list; activeChanged = true; aMsg.push(`${mc.changed} metric mirror${mc.changed===1?"":"s"}`); }
+    // Strip cross-tactic delivery data inherited by a duplicate whose platform was later changed (an FB
+    // copy retasked to YT/DSP kept FB's snapshots/creative breakdown). Idempotent once cleaned.
+    let dcA=0; { const next=activeList.map(c=>{ const f=cleanInheritedDelivery(c); if(f){dcA++; return f;} return c; }); if(dcA>0){ activeList=next; activeChanged=true; aMsg.push(`${dcA} cross-tactic deliver${dcA===1?"y":"ies"}`); } }
     if(activeChanged){ console.log(`[Zeus] cleaned (active): ${aMsg.join(", ")}`); setCampaigns(activeList); }
     let archiveList = archive, archiveChanged = false; const rMsg = [];
     const ra = repairMetricSeries(archiveList); if(ra.removed > 0){ archiveList = ra.list; archiveChanged = true; rMsg.push(`${ra.removed} stale check-in entr${ra.removed===1?"y":"ies"}`); }
     const la = stripAutoLockNotes(archiveList); if(la.removed > 0){ archiveList = la.list; archiveChanged = true; rMsg.push(`${la.removed} auto lock-note line${la.removed===1?"":"s"}`); }
     const ma = reconcileMetricFields(archiveList); if(ma.changed > 0){ archiveList = ma.list; archiveChanged = true; rMsg.push(`${ma.changed} metric mirror${ma.changed===1?"":"s"}`); }
+    let dcR=0; { const next=archiveList.map(c=>{ const f=cleanInheritedDelivery(c); if(f){dcR++; return f;} return c; }); if(dcR>0){ archiveList=next; archiveChanged=true; rMsg.push(`${dcR} cross-tactic deliver${dcR===1?"y":"ies"}`); } }
     if(archiveChanged){ console.log(`[Zeus] cleaned (archived): ${rMsg.join(", ")}`); setArchive(archiveList); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
@@ -18480,6 +18568,26 @@ export default function App() {
         const reminderData = Array.isArray(p.reminders) ? p.reminders : [];
         const logData = Array.isArray(p.activityLog) ? p.activityLog : [];
 
+        // ── De-collide ids across campaigns + archive ── An id shared by two records (within campaigns,
+        // or between a live campaign and an archived one) is the corruption that makes check-in map to the
+        // wrong copy and the Revenue tab de-dupe one away. Keep the FIRST occurrence's id (campaigns are
+        // processed before archive, so a LIVE campaign keeps its id and only a stale/archived duplicate is
+        // re-id'd); give every later duplicate a fresh unique id. Purely structural — no metrics change.
+        let reidCount = 0;
+        const usedIds = new Set();
+        const dedupeId = (c) => {
+          let id = c && c.id;
+          if (id == null || usedIds.has(String(id))) {
+            let nid; do { nid = Date.now() + Math.floor(Math.random() * 1e9); } while (usedIds.has(String(nid)));
+            id = nid; reidCount++;
+          }
+          usedIds.add(String(id));
+          return (c && id === c.id) ? c : { ...c, id };
+        };
+        const importCampaigns = p.campaigns.map(dedupeId);
+        const importArchive   = archiveData.map(dedupeId);
+        if (reidCount > 0) console.log(`[Zeus] Import de-collided ${reidCount} duplicate id(s) — assigned fresh unique ids to the later copies.`);
+
         const summary = [
           `${p.campaigns.length} campaign${p.campaigns.length!==1?"s":""}`,
           archiveData.length>0 ? `${archiveData.length} archived` : null,
@@ -18492,8 +18600,8 @@ export default function App() {
 
         // Write to localStorage first — if any fail, abort before touching state
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(p.campaigns));
-          localStorage.setItem(ARCHIVE_KEY, JSON.stringify(archiveData));
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(importCampaigns));
+          localStorage.setItem(ARCHIVE_KEY, JSON.stringify(importArchive));
           localStorage.setItem(REMINDERS_KEY, JSON.stringify(reminderData));
           if (logData.length > 0) localStorage.setItem(ACTIVITY_KEY, JSON.stringify(logData));
           // Revenue data (v3 exports). Restore so locked months + monthly backups come back too.
@@ -18506,8 +18614,8 @@ export default function App() {
         }
 
         // All writes succeeded — now update state
-        setCampaigns(p.campaigns);
-        setArchive(archiveData);
+        setCampaigns(importCampaigns);
+        setArchive(importArchive);
         setReminders(reminderData);
         if (logData.length > 0) setActivityLog(logData);
 
@@ -19421,7 +19529,7 @@ export default function App() {
                               </TD>
                               <TD>
                                 <RowActions c={c} onEdit={()=>setEditTarget(c)} onRenew={()=>setRenewTarget(c)}
-                                  onDuplicate={()=>{ const copy={...c,id:Date.now(),campaignName:c.campaignName+" (copy)",impressions:"",ctr:"",cpm:"",spend:""}; setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }}
+                                  onDuplicate={()=>{ const copy=freshCampaignCopy(c); setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }}
                                   onDelete={async()=>{ if(await confirm({title:`Delete "${c.campaignName}"?`,message:"This cannot be undone. Consider archiving instead.",confirmLabel:"Delete",danger:true})){ addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Campaign deleted",campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); }}}
                                   onArchive={async()=>{ if(await confirm({title:`Archive "${c.campaignName}"?`,message:"It will move to the Archive tab.",confirmLabel:"Archive"})) { const tod=getToday(); const [ay,am,ad]=tod.split("-"); const astamp=`${am}/${ad}/${ay}`; const archNote=`${astamp} — Campaign manually archived`; const archHist=c.history&&c.history.trim()?`${archNote}\n${c.history}`:archNote; setArchive(prev=>[...prev,{...c,archivedDate:tod,history:archHist}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Manually sent to archive",campaignId:c.id,prevSnapshot:{...c}}); }}}
                                 />
@@ -19570,7 +19678,7 @@ export default function App() {
                         </TD>
                         <TD>
                           <RowActions c={c} onEdit={()=>setEditTarget(c)} onRenew={()=>setRenewTarget(c)}
-                            onDuplicate={()=>{ const copy={...c,id:Date.now(),campaignName:c.campaignName+" (copy)",impressions:"",ctr:"",cpm:"",spend:""}; setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }}
+                            onDuplicate={()=>{ const copy=freshCampaignCopy(c); setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }}
                             onDelete={async()=>{ if(await confirm({title:`Delete "${c.campaignName}"?`,message:"This cannot be undone. Consider archiving instead.",confirmLabel:"Delete",danger:true})) { addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:`Campaign deleted`,campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); } }}
                             onArchive={async()=>{ if(await confirm({title:`Archive "${c.campaignName}"?`,message:"It will move to the Archive tab. You can restore it any time.",confirmLabel:"Archive"})) { const tod=getToday(); const [ay,am,ad]=tod.split("-"); const astamp=`${am}/${ad}/${ay}`; const archNote=`${astamp} — Campaign manually archived`; const archHist=c.history&&c.history.trim()?`${archNote}\n${c.history}`:archNote; setArchive(prev=>[...prev,{...c,archivedDate:tod,history:archHist}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Manually sent to archive",campaignId:c.id,prevSnapshot:{...c}}); }}}
                           />
