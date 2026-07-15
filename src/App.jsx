@@ -2898,6 +2898,44 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
       setF(prev => ({ ...prev, deviceSurcharge: true, deviceSurchargeRate: prev.deviceSurchargeRate || "1.00" }));
     }
   }, [f.campaignName, f.platform, f.note2, f.mediaPartner, isNew, dtTouched]);
+  // Auto-fill becomes "active" only AFTER the first render, so opening ANY form (Add, Edit, Duplicate,
+  // IO draft) never clobbers the values it opened with — the effects below only fire once the user
+  // actually changes the platform / goal / CPM. (A fresh Add still fills on mount because its rate/CV
+  // are empty — see the has-value guards.)
+  const autoFillReady = useRef(false);
+  useEffect(() => { autoFillReady.current = true; }, []);
+  // ── Auto-suggest CPM by tactic ── Learns the typical rate for the chosen platform from YOUR existing
+  // campaigns (e.g. FBV≈$12.50, DSP≈$6.75, CTV≈$29.50, YT≈$0.10) and fills it in — on Add, and when you
+  // switch a campaign's platform on Edit/Duplicate. Preserves an existing rate on open; typing a rate
+  // freezes it for the session (rateTouched). Works everywhere (no isNew gate).
+  const [rateTouched, setRateTouched] = useState(false);
+  useEffect(() => {
+    if (rateTouched) return;
+    if (!f.platform || f.platform === "SEM") return;   // SEM bills a management fee, not a CPM
+    const hasRate = !!(f.contractRate && String(f.contractRate).trim());
+    if (!autoFillReady.current && hasRate) return;     // on open, keep the rate the form loaded with
+    const sug = suggestRate(f.platform, learnRatesByPlatform(campaigns));
+    if (sug && sug.rate > 0) {
+      setF(prev => ({ ...prev, contractRate: String(sug.rate), dealType: prev.dealType || (f.platform === "YT" ? "CPV" : "CPM") }));
+    }
+  }, [f.platform, rateTouched]);
+  // ── Auto-compute Contract Value = total-impressions (Goal) × CPM  (or views × CPV for YouTube) ──
+  // Recomputes whenever you change Goal / CPM / platform, until you type a contract value yourself
+  // (cvTouched). Preserves an existing contract value on open, so a blended/manual value isn't wiped
+  // just by opening the campaign — it only recomputes once you actually edit a driver field.
+  const [cvTouched, setCvTouched] = useState(false);
+  useEffect(() => {
+    if (cvTouched) return;
+    const rate = parseFloat(f.contractRate);
+    const totalImpr = parseGoalNumber(f.goal);
+    if (!(rate > 0) || !(totalImpr > 0)) return;
+    const hasCV = !!(f.contractValue && String(f.contractValue).trim());
+    if (!autoFillReady.current && hasCV) return;       // on open, keep the contract value the form loaded with
+    const isCPV = f.platform === "YT" && (f.dealType === "CPV" || !f.dealType);
+    const cv = isCPV ? totalImpr * rate : (totalImpr / 1000) * rate;
+    const cvStr = String(Math.round(cv * 100) / 100);
+    if (String(f.contractValue || "") !== cvStr) setF(prev => ({ ...prev, contractValue: cvStr }));
+  }, [f.goal, f.contractRate, f.platform, f.dealType, cvTouched]);
   // New-tactic (CTV flavor) platform prompt — editable code, seeded from the suggested default.
   const [tacticCode, setTacticCode] = useState("");
   useEffect(() => { setTacticCode((f._newTactic && f._newTactic.code) || ""); }, [f._newTactic && f._newTactic.code]);
@@ -3190,7 +3228,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 Contract Value <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(total)</span></label>
                 <div style={{display:"flex",alignItems:"center",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,overflow:"hidden"}}>
                   <span style={{padding:"7px 10px",color:"#34d399",fontWeight:700,fontSize:13,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
-                  <input type="number" value={f.contractValue||""} onChange={e=>set("contractValue",e.target.value)} placeholder="e.g. 15000" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
+                  <input type="number" value={f.contractValue||""} onChange={e=>{ setCvTouched(true); set("contractValue",e.target.value); }} placeholder="e.g. 15000" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
                 </div>
               </div>
               {/* SEM-only: Management Fee — added on top of contract value for revenue.
@@ -3230,7 +3268,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                     <div style={{display:"flex",alignItems:"center",flex:1,background:_lm?"#f8fafc":"#162236",border:`1px solid ${f.contractRate?(_lm?"#00c896":"#00c89660"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,overflow:"hidden"}}>
                       <span style={{padding:"7px 8px",color:"#34d399",fontWeight:700,fontSize:13,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
                       <input type="number" step="0.01" value={f.contractRate||""}
-                        onChange={e=>{ set("contractRate",e.target.value); if(f.platform!=="YT") set("dealType","CPM"); }}
+                        onChange={e=>{ setRateTouched(true); set("contractRate",e.target.value); if(f.platform!=="YT") set("dealType","CPM"); }}
                         placeholder={f.platform==="YT"&&f.dealType==="CPV"?"CPV rate (e.g. 0.08)":"CPM rate (e.g. 18.00)"}
                         style={{flex:1,background:"transparent",border:"none",padding:"7px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
                       {(f.dealType==="CPM"||(f.platform!=="YT"&&f.platform!=="SEM"))&&<span style={{padding:"0 8px",color:_lm?"#94a3b8":"#3d5a72",fontSize:10,whiteSpace:"nowrap"}}>/1K impr</span>}
@@ -6191,9 +6229,23 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
 }
 
 
-function CampaignArchive({ archive, onRestore, onClear }) {
+function CampaignArchive({ archive, onRestore, onBulkRestore, onClear }) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(new Set());
+  // Multi-select for BULK RESTORE (undo a bulk archive). Persists across month tabs so a batch spanning
+  // several end-date months can be selected and restored together.
+  const [selected, setSelected] = useState(new Set());
+  const toggleSel = (id) => setSelected(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
+  const selectedCamps = archive.filter(c => selected.has(c.id));
+  // Detect the most recent BULK-archive batch (entries stamped "manually archived (bulk)" sharing the
+  // latest archived date) so we can offer a one-click "undo last bulk archive".
+  const lastBulkBatch = React.useMemo(() => {
+    const bulk = archive.filter(c => /manually archived \(bulk\)/i.test(c.history || ""));
+    if (!bulk.length) return null;
+    const latest = bulk.map(c => c.archivedDate).filter(Boolean).sort().reverse()[0];
+    if (!latest) return null;
+    return { date: latest, camps: bulk.filter(c => c.archivedDate === latest) };
+  }, [archive]);
 
   const monthKeys = [...new Set(
     archive.map(c => (c.endDate||"").slice(0,7)).filter(Boolean)
@@ -6266,6 +6318,36 @@ function CampaignArchive({ archive, onRestore, onClear }) {
           </div>
         </div>
 
+        {/* Bulk-restore bar — appears when rows are selected; also offers a one-click undo of the most
+            recent bulk archive. This is how you reverse a bulk archive to fix data and re-archive. */}
+        {(selected.size > 0 || lastBulkBatch) && (
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:14,padding:"8px 12px",
+            background:selected.size>0?(_lm?"#f0fdf9":"#04120e"):(_lm?"#f8fafc":"#0c1625"),
+            border:`1px solid ${selected.size>0?(_lm?"#a7f3d0":"#00c89640"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:9}}>
+            {selected.size > 0 ? (
+              <>
+                <span style={{fontSize:12,fontWeight:700,color:_lm?"#059669":"#00e5a0"}}>{selected.size} selected</span>
+                <button onClick={()=>{ onBulkRestore(selectedCamps); setSelected(new Set()); }}
+                  className="glow-btn"
+                  style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:6,color:_lm?"#0a1a0a":"#00e5a0",fontSize:12,fontWeight:700,padding:"5px 13px",cursor:"pointer"}}>↩ Restore {selected.size} selected</button>
+                <button onClick={()=>setSelected(new Set())}
+                  style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",fontSize:11,cursor:"pointer",textDecoration:"underline"}}>Clear selection</button>
+              </>
+            ) : (
+              <>
+                <span style={{fontSize:11,color:_lm?"#64748b":"#7a9bbf"}}>Tip: check the boxes to restore several at once.</span>
+                {lastBulkBatch && lastBulkBatch.camps.length > 1 && (
+                  <button onClick={()=>setSelected(new Set(lastBulkBatch.camps.map(c=>c.id)))}
+                    title={`Select the ${lastBulkBatch.camps.length} campaigns bulk-archived on ${fmtDate(lastBulkBatch.date)} so you can restore them`}
+                    style={{marginLeft:"auto",background:_lm?"#fff7ed":"#1a1208",border:`1px solid ${_lm?"#fdba74":"#f59e0b50"}`,borderRadius:6,padding:"5px 12px",color:_lm?"#c2410c":"#fcd34d",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                    ↩ Select last bulk archive ({lastBulkBatch.camps.length} from {fmtDate(lastBulkBatch.date)})
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         {filtered.length === 0 ? (
           <div style={{textAlign:"center",padding:"40px 0",color:_lm?"#94a3b8":"#3d5a72",fontSize:13}}>No campaigns match your search.</div>
         ) : (
@@ -6274,6 +6356,10 @@ function CampaignArchive({ archive, onRestore, onClear }) {
             <div key={partner} style={{marginBottom:20}}>
               <div style={{fontSize:11,color:_lm?"#64748b":"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",
                 marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
+                <DarkCheckbox
+                  checked={camps.every(c=>selected.has(c.id))}
+                  indeterminate={camps.some(c=>selected.has(c.id))&&!camps.every(c=>selected.has(c.id))}
+                  onChange={e=>{ const ids=camps.map(c=>c.id); setSelected(prev=>{ const n=new Set(prev); e.target.checked?ids.forEach(id=>n.add(id)):ids.forEach(id=>n.delete(id)); return n; }); }}/>
                 <span style={{color:_lm?"#475569":"#4d6e8a"}}>{partner}</span>
                 <div style={{flex:1,height:1,background:_lm?"#e2e8f0":"#0d1525"}}/>
                 <span style={{fontWeight:400}}>{camps.length} campaign{camps.length!==1?"s":""}</span>
@@ -6306,8 +6392,13 @@ function CampaignArchive({ archive, onRestore, onClear }) {
                         <Fragment key={c.id}>
                           <tr style={{background:rowBg}}>
                             <td style={{padding:"9px 13px",borderBottom:cellBorder,overflow:"hidden"}}>
-                              <div style={{fontSize:12,fontWeight:600,color:_lm?"#0f172a":"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
-                              {c.note1&&<div style={{fontSize:10,color:_lm?"#059669":"#00ffb3",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.note1.trim()}</div>}
+                              <div style={{display:"flex",alignItems:"center",gap:8,overflow:"hidden"}}>
+                                <DarkCheckbox checked={selected.has(c.id)} onChange={()=>toggleSel(c.id)}/>
+                                <div style={{overflow:"hidden"}}>
+                                  <div style={{fontSize:12,fontWeight:600,color:_lm?"#0f172a":"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
+                                  {c.note1&&<div style={{fontSize:10,color:_lm?"#059669":"#00ffb3",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.note1.trim()}</div>}
+                                </div>
+                              </div>
                             </td>
                             <td style={{padding:"9px 13px",borderBottom:cellBorder}}>
                               {_lm ? (()=>{ const r=parseInt(pCol.slice(1,3),16)/255,g=parseInt(pCol.slice(3,5),16)/255,b=parseInt(pCol.slice(5,7),16)/255; const txt=(0.299*r+0.587*g+0.114*b)>0.45?"#0a1a0a":"#fff"; return <span style={{background:pCol,color:txt,border:"none",borderRadius:3,padding:"1px 6px",fontSize:10,fontWeight:700}}>{c.platform}</span>; })()
@@ -11480,6 +11571,30 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   // so it wins ties over a same-named archived campaign (renewals).
   const fullPool = React.useMemo(()=>[...activeCamps, ...(archive||[])],[activeCamps,archive]);
   const allArchivedIds = React.useMemo(()=>new Set((archive||[]).map(a=>String(a.id))),[archive]);
+  // If a remembered mapping resolves to an ARCHIVED campaign but an ACTIVE campaign with the same name
+  // (+ platform) exists, prefer the ACTIVE one. This is the "archived the old flight, created a NEW
+  // same-name campaign for the new IO" case: the old record is kept archived only to hold its closed
+  // revenue, so fresh check-in data must land on the LIVE campaign, not get re-pinned to the archive by
+  // stale name-memory. Falls through unchanged when the id is already active or has no active twin (so
+  // an archived campaign with NO replacement still receives its trailing delivery — the earlier fix).
+  const redirectToActiveTwin = React.useCallback((campId) => {
+    if (!campId || !allArchivedIds.has(String(campId))) return campId;
+    const arch = fullPool.find(c => String(c.id) === String(campId));
+    const nm = (arch?.campaignName || "").trim().toLowerCase();
+    if (!nm) return campId;
+    // 1) exact name + same platform (or same name any platform)
+    let twin = activeCamps.find(c => (c.campaignName||"").trim().toLowerCase() === nm && c.platform === arch.platform)
+            || activeCamps.find(c => (c.campaignName||"").trim().toLowerCase() === nm);
+    // 2) fuzzy name + SAME platform — catches a renewal that was renamed (e.g. archived
+    //    "Shining Star Christian" → active "Shining Star Christian School"). Same platform required so a
+    //    DSP line never redirects to the FB twin. High bar (0.6) to avoid unrelated same-partner clients.
+    if (!twin) {
+      let best=null, bs=0;
+      activeCamps.forEach(c => { if (c.platform !== arch.platform) return; const s = fuzzyScore(nm, c.campaignName); if (s > bs && s >= 0.6) { bs = s; best = c; } });
+      twin = best;
+    }
+    return twin ? String(twin.id) : campId;
+  }, [allArchivedIds, fullPool, activeCamps]);
 
   const [qciSearch,    setQciSearch]    = React.useState("");
   const [qciPlatforms, setQciPlatforms] = React.useState(new Set()); // empty = all platforms
@@ -12349,7 +12464,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     const cands = sp ? qciFiltered.filter(c=>sp.has(c.platform)) : qciFiltered;
     synthRows.forEach((row,i)=>{
       const csvName=getCampName(row,source);
-      const rememberedId=lookupMemory(source,csvName,row);
+      const rememberedId=redirectToActiveTwin(lookupMemory(source,csvName,row));
       if(rememberedId){ initMap[i]=rememberedId; initConf[i]=1.0; memMap[i]=rememberedId; savedCount++; return; }
       initMap[i]="";
       let bestId="",bestScore=0;
@@ -12525,7 +12640,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // For TradeDesk: lookupMemory uses advertiser name (stable). For others: uses campaign name.
     rows.forEach((row,i)=>{
       const csvName=getCampName(row,source);
-      const rememberedId=lookupMemory(source,csvName,row);
+      const rememberedId=redirectToActiveTwin(lookupMemory(source,csvName,row));
       if(rememberedId){ initMap[i]=rememberedId; savedCount++; memMap[i]=rememberedId; }
       else initMap[i]="";
     });
@@ -12538,7 +12653,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         if(initMap[i]) return;
         const csvName=getCampName(row,source);
         const entry=legacySaved.find(e=>e.csvName===csvName);
-        if(entry&&fullPool.find(c=>String(c.id)===String(entry.campId))){ initMap[i]=String(entry.campId); savedCount++; memMap[i]=String(entry.campId); }
+        if(entry&&fullPool.find(c=>String(c.id)===String(entry.campId))){ const rid=redirectToActiveTwin(String(entry.campId)); initMap[i]=rid; savedCount++; memMap[i]=rid; }
       });
     }
 
@@ -17787,6 +17902,46 @@ export default function App() {
 
   async function handleUndo(entry) {
     const label = entry.campaignName || "campaign";
+    const markUndone = () => setActivityLog(prev => { const next = prev.map(e => e.id === entry.id ? { ...e, undone: true } : e); try { localStorage.setItem(ACTIVITY_KEY, JSON.stringify(next)); } catch(e) {} return next; });
+    // ── Bulk archive → RESTORE from the archive (these campaigns were MOVED, not deleted, so there's no
+    // per-campaign snapshot to recreate from). Uses the archived ids saved on the entry; falls back for
+    // legacy entries (before ids were logged) to the "(bulk)" batch archived on the entry's own date. ──
+    if (/^Bulk archived/i.test(entry.detail || "")) {
+      let toRestore;
+      if (Array.isArray(entry.archivedIds) && entry.archivedIds.length) {
+        const ids = new Set(entry.archivedIds.map(String));
+        toRestore = archive.filter(c => ids.has(String(c.id)));
+      } else {
+        const d = new Date(entry.ts || Date.now());
+        const dayStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+        toRestore = archive.filter(c => /manually archived \(bulk\)/i.test(c.history || "") && c.archivedDate === dayStr);
+      }
+      if (!toRestore.length) { await confirm({ title:"Nothing to restore", message:"These campaigns are no longer in the archive — they may have been restored or removed already.", confirmLabel:"OK", okOnly:true }); markUndone(); return; }
+      const n = toRestore.length;
+      if (!await confirm({ title:`Undo bulk archive (${n})?`, message:`Restores ${n} campaign${n!==1?"s":""} to your active list.`, confirmLabel:"Restore" })) return;
+      const today = getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`;
+      const ids = new Set(toRestore.map(c=>String(c.id)));
+      const restored = toRestore.map(c=>{ const note=`${stamp} — Bulk archive undone (restored)`; return { ...c, archivedDate:undefined, history: c.history&&c.history.trim() ? `${note}\n${c.history}` : note }; });
+      setCampaigns(cs=>[...cs, ...restored]);
+      setArchive(prev=>prev.filter(c=>!ids.has(String(c.id))));
+      markUndone();
+      return;
+    }
+    // ── Bulk restore → the inverse: move those campaigns back to the archive. ──
+    if (/^Bulk restored/i.test(entry.detail || "")) {
+      const ids = new Set((entry.restoredIds || []).map(String));
+      const toArch = campaigns.filter(c => ids.has(String(c.id)));
+      if (!toArch.length) { await confirm({ title:"Nothing to re-archive", message:"These campaigns are no longer active — they may have been archived or removed already.", confirmLabel:"OK", okOnly:true }); markUndone(); return; }
+      const n = toArch.length;
+      if (!await confirm({ title:`Undo bulk restore (${n})?`, message:`Moves ${n} campaign${n!==1?"s":""} back to the archive.`, confirmLabel:"Archive" })) return;
+      const tod = getToday(); const [ay,am,ad]=tod.split("-"); const astamp=`${am}/${ad}/${ay}`;
+      const have = new Set(archive.map(a=>String(a.id)));
+      const newEntries = toArch.filter(c=>!have.has(String(c.id))).map(c=>{ const note=`${astamp} — Campaign manually archived (bulk)`; return { ...c, archivedDate:tod, history: c.history&&c.history.trim() ? `${note}\n${c.history}` : note }; });
+      setArchive(prev=>[...newEntries, ...prev]);
+      setCampaigns(cs=>cs.filter(c=>!ids.has(String(c.id))));
+      markUndone();
+      return;
+    }
     if (entry.type === "deleted" && entry.prevSnapshot) {
       // Restore deleted campaign
       if (!await confirm({title:`Restore "${label}"?`,confirmLabel:"Restore"})) return;
@@ -18053,7 +18208,7 @@ export default function App() {
     });
     setArchive(prev => [...newEntries, ...prev]);
     setCampaigns(cs => cs.filter(c => !selectedIds.has(c.id)));
-    addLog({ type:"deleted", campaignName:`${n} campaign${n!==1?"s":""}`, partner:"", platform:"", detail:`Bulk archived ${n} campaign${n!==1?"s":""}` });
+    addLog({ type:"deleted", campaignName:`${n} campaign${n!==1?"s":""}`, partner:"", platform:"", detail:`Bulk archived ${n} campaign${n!==1?"s":""}`, archivedIds: newEntries.map(c=>c.id) });
     setSelectedIds(new Set());
     setShowBulkEdit(false);
   }
@@ -18186,6 +18341,22 @@ export default function App() {
     const updatedHistory = c.history&&c.history.trim() ? `${restoreNote}\n${c.history}` : restoreNote;
     setCampaigns(cs=>[...cs,{...c,archivedDate:undefined,history:updatedHistory}]);
     setArchive(prev=>prev.filter(a=>a.id!==c.id));
+  }
+
+  // Bulk-restore many archived campaigns at once — the inverse of bulkArchive(). Used to UNDO a bulk
+  // archive so the campaigns can be fixed and re-archived. Batches the confirm + state writes so it's
+  // one action (and one undoable log entry) instead of N single restores.
+  async function bulkRestore(camps) {
+    const list = Array.isArray(camps) ? camps.filter(Boolean) : [];
+    if (!list.length) return;
+    const n = list.length;
+    if (!await confirm({ title:`Restore ${n} campaign${n!==1?"s":""}?`, message:`Moves the selected campaign${n!==1?"s":""} back to your active list. Metric history is preserved.`, confirmLabel:"Restore" })) return;
+    const today = getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`;
+    const ids = new Set(list.map(c=>String(c.id)));
+    const restored = list.map(c=>{ const note=`${stamp} — Campaign restored from archive (bulk)`; return { ...c, archivedDate:undefined, history: c.history&&c.history.trim() ? `${note}\n${c.history}` : note }; });
+    setCampaigns(cs=>[...cs, ...restored]);
+    setArchive(prev=>prev.filter(a=>!ids.has(String(a.id))));
+    addLog({ type:"created", campaignName:`${n} campaign${n!==1?"s":""}`, partner:"", platform:"", detail:`Bulk restored ${n} campaign${n!==1?"s":""} from archive`, restoredIds: list.map(c=>c.id) });
   }
 
   function sort(k){ if(sortKey===k) setSortDir(d=>d==="asc"?"desc":"asc"); else { setSortKey(k); setSortDir("asc"); } }
@@ -18582,7 +18753,7 @@ export default function App() {
         )}
 
         {activeTab==="archive" ? (
-          <CampaignArchive archive={archive} onRestore={handleRestore} onClear={()=>setArchive([])}/>
+          <CampaignArchive archive={archive} onRestore={handleRestore} onBulkRestore={bulkRestore} onClear={()=>setArchive([])}/>
         ) : activeTab==="ai" ? (
           <AIAdvisor
             campaigns={campaigns}
@@ -19442,7 +19613,7 @@ export default function App() {
         onClose={()=>{ stashManualDraft(addDraftRef.current); setShowAdd(false); }}
         onSaveDraft={(f)=>{ stashManualDraft(f || addDraftRef.current); setShowAdd(false); }}
         onDiscardDraft={()=>{ addDraftRef.current = null; setShowAdd(false); }}
-        partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}/>}
+        partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()} campaigns={campaigns}/>}
       {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} focusCampaignId={typeof showReminderModal==="number"?showReminderModal:null} onClose={()=>setShowReminderModal(null)} onNavigate={(campId)=>{ setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; }); setSearch(""); setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },200); }}/>}
       {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
       {/* ── IO PDF drop box — a focused drag-and-drop lightbox, opened from the "Drop IO PDF" header
