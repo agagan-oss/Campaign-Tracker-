@@ -9788,7 +9788,11 @@ function suggestRate(platform, learnedMap) {
 // ALL platform snapshots (meta/ttd/dsp/google/snap), the per-line/creative breakdown, and the check-in
 // log. Without this a copy inherits the source campaign's delivery, and if you then change its tactic
 // you get the source's data on the wrong platform (e.g. FB ad-set breakdown showing on a YouTube copy).
-function freshCampaignCopy(c) {
+// Strip EVERY field that holds delivery / check-in history, keeping only the campaign's SETUP.
+// Shared by Duplicate AND Renew so a newly-created campaign can never inherit the source campaign's
+// numbers, daily chart (metricSeries), line/creative breakdown, or check-in log — which is what made a
+// retasked copy show e.g. FB ad-set data on a YouTube campaign.
+function stripDeliveryFields(c) {
   const {
     metricSeries, checkInLog, lastCheckInImpr, lastQciSource, lastQciDate, lastQciAt,
     metaSnapshots, ttdSnapshots, dspSnapshots, googleSnapshots, snapSnapshots, creativeReport,
@@ -9796,12 +9800,17 @@ function freshCampaignCopy(c) {
   } = c;
   return {
     ...rest,
-    id: Date.now(),
-    campaignName: (c.campaignName || "") + " (copy)",
     impressions: "", ctr: "", cpm: "", spend: "", clicks: "", reach: "", frequency: "",
     videoViews: "", completionRate: "", conversions: "",
-    lastChecked: getToday(),
     goalHitDismissed: false, closeToGoalDismissed: false,
+  };
+}
+function freshCampaignCopy(c) {
+  return {
+    ...stripDeliveryFields(c),
+    id: Date.now(),
+    campaignName: (c.campaignName || "") + " (copy)",
+    lastChecked: getToday(),
   };
 }
 
@@ -9876,31 +9885,36 @@ function semMonthlyBudget(c) {
   if (day) { const n = new Date(); return parseFloat(day[1]) * new Date(n.getFullYear(), n.getMonth()+1, 0).getDate(); }
   return 0;
 }
-// SEM monthly management fee = Recrue's profit when media stays within budget. From the Management
-// Fee field (also auto-imported from IO files). Treated as a MONTHLY fee, matching the monthly budget.
-function semMonthlyFee(c) { return parseFloat(c?.managementFee) || 0; }
+// SEM management fee = the TOTAL fee for the WHOLE contract, not a per-month amount. Austin's model:
+// a $3,000 contract = $2,250 client media (the "$X/Mo" budget in Note 1, pass-through) + a $750 fee to
+// Recrue. The fee is what Recrue earns across the entire flight, so it must be SPREAD across the
+// flight's months (see semFeeMap) — booking it in full every month multiplied SEM revenue by the number
+// of months in the flight (e.g. Pearl Hawaii's $5,013 annual fee was booking $5,013 EVERY month).
+function semTotalFee(c) { return parseFloat(c?.managementFee) || 0; }
 
-// SEM "revenue" map = the monthly management fee (Recrue's revenue; client media is pass-through).
-// Profit is this fee minus any over-budget overage — that overage is applied later in spendForMonth,
+// SEM "revenue" map = the management fee SPREAD across the flight (Recrue's revenue; client media is
+// pass-through and is never revenue). Each month books its DAY-SHARE of the contract-total fee, so the
+// shares across the flight sum to exactly the fee — and partial first/last months are prorated.
+// Profit is this share minus any over-budget overage — that overage is applied later in spendForMonth,
 // where the month's actual spend is known. Months are keyed if the campaign has EITHER a budget or a
 // fee, so SEM campaigns still appear in the tab before a fee is entered (they just show $0 fee).
 function semFeeMap(c) {
   if (!c || c.platform !== "SEM" || !c.startDate || !c.endDate) return {};
-  if (!(semMonthlyBudget(c) > 0 || semMonthlyFee(c) > 0)) return {};
+  if (!(semMonthlyBudget(c) > 0 || semTotalFee(c) > 0)) return {};
   const start = new Date(c.startDate + "T00:00:00");
   const end   = new Date(c.endDate   + "T00:00:00");
   if (isNaN(start) || isNaN(end) || end < start) return {};
-  const fee = semMonthlyFee(c);
+  const totalFee = semTotalFee(c);
+  const totalDays = Math.max(1, Math.round((end - start) / 86400000) + 1);
   const map = {};
   let cur = new Date(start.getFullYear(), start.getMonth(), 1);
   const endMo = new Date(end.getFullYear(), end.getMonth(), 1);
   while (cur <= endMo) {
     const mo = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`;
-    const daysInMonth = new Date(cur.getFullYear(), cur.getMonth()+1, 0).getDate();
     const mStart = new Date(Math.max(start, new Date(cur.getFullYear(), cur.getMonth(), 1)));
     const mEnd   = new Date(Math.min(end,   new Date(cur.getFullYear(), cur.getMonth()+1, 0)));
     const activeDays = Math.max(0, Math.round((mEnd - mStart) / 86400000) + 1);
-    map[mo] = fee * (activeDays / daysInMonth); // monthly fee, prorated on partial months (0 until a fee is set)
+    map[mo] = totalFee * (activeDays / totalDays); // this month's day-share of the TOTAL contract fee
     cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1);
   }
   return map;
@@ -11863,6 +11877,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if(f.includes("snapchat")||f.includes("snapads"))    return "Snapchat";
     if(f.includes("dspinternal")||f.includes("allreps")) return "DSP-Internal";
     if(f.includes("mobile"))                             return "DSP"; // DSP "Mobile" device-targeting export
+    if(f.includes("ambio")||f.includes("spendreport"))   return "TVsci Spend"; // hourly TVsci "Ambio Spend Report"
     return null;
   }
 
@@ -11883,8 +11898,26 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // Madhive CTV delivery export — "Line Item Name" + "Completed View Rate" + "Campaign Name" (no
     // Advertiser/spend columns). Each client has a general line item and a "Premium" line item.
     if (cols.includes("line item name") && cols.includes("completed view rate") && cols.includes("campaign name")) return "Madhive";
+    // TVsci spend report (the hourly "Ambio Spend Report" sheet): Ad Account Name + Campaign Name +
+    // Lifetime Spend. LIFETIME dollars only — no MTD and no impressions — so it feeds a dedicated
+    // lifetime-spend field and NEVER the monthly P&L (see the applyMapping branch). Must be checked
+    // BEFORE "Generic", which would otherwise claim it ("campaign name" + "…spend").
+    if (cols.includes("ad account name") && cols.includes("lifetime spend") && cols.includes("campaign name")) return "TVsci Spend";
     if (cols.includes("campaign name")&&(cols.includes("impressions")||cols.includes("spend"))) return "Generic";
     return "Generic";
+  }
+  // The sheet's campaign name encodes the tactic — "Shining Star 2026 CTV", "BD Slam Holy Redeemer (OTT)",
+  // "Britestar Milwaukee OTT 2026". Route each row to the client's CTV or OTT campaign accordingly.
+  function tvsciTactic(name){
+    const s = String(name||"");
+    if (/\bOTT\b/i.test(s)) return "OTT";
+    if (/\bCTV\b/i.test(s)) return "CTV";
+    return null;
+  }
+  // Strip the tactic + year tokens so fuzzy scoring compares the CLIENT part of the name
+  // ("Shining Star 2026 CTV" → "Shining Star") against the tracker's campaign names.
+  function tvsciLabel(name){
+    return String(name||"").replace(/\b(ctv|ott|20\d\d)\b/gi," ").replace(/[()\/]/g," ").replace(/\s+/g," ").trim();
   }
 
   function extractMetrics(row, source){
@@ -12043,6 +12076,8 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // Madhive CTV: show the Campaign Name (client + audience-tier label). Matching routes by client +
     // Premium/General → PCTV/GCTV (see matchMadhiveToTracker), not this display name.
     if (source==="Madhive") return row["Campaign Name"]||row["Line Item Name"]||"";
+    // TVsci spend sheet — the Campaign Name carries both the client and the tactic ("Shining Star 2026 CTV").
+    if (source==="TVsci Spend") return row["Campaign Name"]||"";
     // Generic — try common campaign name columns
     return findCol(row, ["campaign name","campaign","name","ad campaign","campaign title"])||"";
   }
@@ -12205,6 +12240,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     "DSP-Internal":  new Set(["DSP"]),
     "DSP":           new Set(["DSP"]),
     "Madhive":       new Set(["PCTV","GCTV"]),  // Madhive is GCTV/PCTV only — plain CTV/OTT belong to TVsci
+    "TVsci Spend":   new Set(["CTV","OTT"]),    // TVsci = the plain CTV/OTT campaigns (never Madhive's GCTV/PCTV)
   };
 
   // Exact-first matching: given a TTD client name, find the tracker campaign.
@@ -12598,6 +12634,24 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     setFileSource(source);
     let dspHiddenLowImpr = 0; // DSP "Mobile" only — count of sub-100-impr rows hidden as prior-month bleed-over
 
+    // ── TVsci spend sheet: keep only LIVE Recrue rows ──
+    // The sheet is the whole network's book: ~132 "Ambio_*" education accounts plus every rep's
+    // "Recrue_*" clients, and each campaign appears once per status (a stale INACTIVE copy carries its
+    // own lifetime total). Keep ACTIVE + Recrue_ so the review list is this agency's live campaigns;
+    // other reps' clients simply won't match any of yours and drop out at the matching step.
+    if(source==="TVsci Spend"){
+      const before = rows.length;
+      rows = rows.filter(r =>
+        String(r["Campaign Status"]||"").trim().toUpperCase() === "ACTIVE" &&
+        /^recrue[_\s-]/i.test(String(r["Ad Account Name"]||"").trim())
+      );
+      if(!rows.length){
+        setFileError(`No live Recrue rows found in this spend sheet. Expected an "Ad Account Name" like "Recrue_<Client>" with Campaign Status ACTIVE.`);
+        return;
+      }
+      setSavedMsg(`Filtered ${before.toLocaleString()} rows → ${rows.length} live Recrue campaign${rows.length!==1?"s":""}`);
+    }
+
     // ── TradeDesk export: filter to only _AG rows (this account's campaigns) ──
     if(source==="TradeDesk"){
       const before = rows.length;
@@ -12788,6 +12842,32 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
           const csvName=getCampName(row,source);
           if(csvName){ let bestId="",bestScore=0; matchCandidates.forEach(c=>{ const score=fuzzyScore(csvName,c.campaignName); if(score>bestScore&&score>=0.80){ bestScore=score; bestId=String(c.id); } }); if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; } }
         }
+      } else if(source==="TVsci Spend"){
+        // TVsci: the row's Campaign Name carries BOTH the client and the tactic ("Shining Star 2026 CTV",
+        // "BD Slam Holy Redeemer (OTT)"). Hard-restrict to that tactic's platform so a CTV row can never
+        // land on the client's OTT twin, then fuzzy-match the CLIENT part (tactic/year stripped) against
+        // the tracker's campaign names. A client with several same-prefix campaigns (e.g. "Shining Star
+        // Christian School" vs "Shining Star Holy Redeemer") can tie — those land as low-confidence and
+        // the ⚠ review gate catches them; whatever you pick is then remembered for the next drop.
+        const rawName = getCampName(row, source);
+        const tactic  = tvsciTactic(rawName);
+        const pool    = tactic ? matchCandidates.filter(c => c.platform === tactic) : matchCandidates;
+        const label   = tvsciLabel(rawName);
+        if(label && pool.length){
+          // TIE GUARD: the client part is often a PREFIX of several tracker campaigns — "Shining Star"
+          // is a substring of BOTH "Shining Star Christian School" and "Shining Star Holy Redeemer", so
+          // both score 0.85 and the winner would come down to list order. A tie at the top is really
+          // "ambiguous", so force it low-confidence (0.5) — that trips the ⚠ review gate instead of
+          // silently booking a confident wrong match. Whatever you pick is then remembered.
+          let bestId="", bestScore=0, tied=false;
+          pool.forEach(c=>{
+            const score=fuzzyScore(label, c.campaignName);
+            if(score<0.45) return;
+            if(score>bestScore){ bestScore=score; bestId=String(c.id); tied=false; }
+            else if(score===bestScore && String(c.id)!==bestId){ tied=true; }
+          });
+          if(bestId){ initMap[i]=bestId; initConf[i]= tied ? 0.5 : bestScore; autoCount++; }
+        }
       } else if(source==="Google"){
         // Google: match by Account Name (e.g. "COM-Envista Credit Union_LR" → "Envista Credit Union")
         // Account names are stable across exports; campaign names change per ad set/keyword group
@@ -12890,6 +12970,37 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       const totalAds=campKeys.reduce((s,k)=>s+byCamp[k].length,0);
       setSavedMsg(`🎨 Saved ${totalAds} creative${totalAds!==1?"s":""} to ${campKeys.length} campaign${campKeys.length!==1?"s":""}`);
       setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setIsCreativeMode(false); setCreativeGroups({}); setConfirmApplyPending(false);
+      return;
+    }
+
+    // ── TVsci lifetime-spend import ─────────────────────────────────────────────────────────────
+    // This sheet carries LIFETIME dollars only — no month-to-date, no impressions. Writing it through
+    // the normal path would dump a whole flight's spend into ONE month and wreck that month's profit,
+    // so it gets its own branch: it writes ONLY `tvsciLifetimeSpend` (+ an as-of stamp) and touches
+    // NOTHING the P&L or pacing reads — no c.spend, no snapshots, no metricSeries, no lastChecked.
+    // Rows are summed per campaign in case a client runs more than one line on the same tactic.
+    if(fileSource==="TVsci Spend"){
+      const byCamp={}; const memEntries=[];
+      Object.entries(mapping).forEach(([idxStr,campId])=>{
+        if(!campId) return;
+        const i=parseInt(idxStr); const row=fileRows[i]; if(!row) return;
+        if(isRowIgnored(i)) return;
+        const life=parseFloat(String(row["Lifetime Spend"]??"").replace(/[$,\s]/g,""))||0;
+        const key=String(campId);
+        byCamp[key]=(byCamp[key]||0)+life;
+        memEntries.push({ csvName:getCampName(row,fileSource), campId:key, campName:fullPool.find(c=>String(c.id)===key)?.campaignName||"" });
+      });
+      const keys=Object.keys(byCamp);
+      if(!keys.length){ setSavedMsg("Map at least one row to a campaign before applying."); return; }
+      const stampLife=(c)=> byCamp[String(c.id)]!=null
+        ? {...c, tvsciLifetimeSpend:byCamp[String(c.id)].toFixed(2), tvsciSpendAsOf:asOfIso}
+        : c;
+      setCampaigns(cs=>cs.map(stampLife));
+      if(typeof setArchive==="function") setArchive(as=>as.map(stampLife));
+      if(memEntries.length) persistNameMappings(fileSource, memEntries);
+      const total=keys.reduce((s,k)=>s+byCamp[k],0);
+      setSavedMsg(`📺 Saved TVsci lifetime spend to ${keys.length} campaign${keys.length!==1?"s":""} · $${total.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} total — lifetime only, monthly P&L untouched`);
+      setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setConfirmApplyPending(false);
       return;
     }
 
@@ -14114,7 +14225,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     const { impr, views, spend } = vals;
     const rate = parseFloat(c.contractRate) || 0;
     const dt = c.platform === "YT" ? (c.dealType || "") : "CPM";
-    const rev = c.platform === "SEM" ? (parseFloat(c.managementFee) || 0)
+    // SEM revenue for a month = that month's SHARE of the contract-total management fee (semFeeMap),
+    // never the whole fee — otherwise every month books the full contract fee.
+    const rev = c.platform === "SEM" ? (semFeeMap(c)[month] || 0)
       : dt === "CPV" ? (views || 0) * rate : (impr || 0) / 1000 * rate;
     const sp = c.platform === "DSP" ? (impr || 0) / 1000 * dspCpm : spend;
     if (monthLocks[month]) {
@@ -14308,7 +14421,12 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       cumS += s;
     }
     if (!moReported) return 0;                                // `mo` has no media spend yet → no overage
-    return Math.max(0, cumS - cumB) - prevCumOver;            // incremental (can be negative = recovery)
+    // FLOORED AT 0 — the management fee is the CEILING on profit. Going over budget DOCKS the fee for the
+    // month the cumulative overage grows; getting back under simply STOPS the docking (profit returns to
+    // the full fee share = 100% margin) rather than crediting profit ABOVE the fee. Austin: "it doesn't
+    // make sense to count it as profit when I overspend." Trade-off: a past month's dock is not refunded
+    // — a recovery only offsets FUTURE over-budget months (the cumulative walk above still nets them out).
+    return Math.max(0, Math.max(0, cumS - cumB) - prevCumOver);
   }
   // Per-campaign per-month spend resolver — locked months take priority.
   // Returns null when no spend data exists for that month.
@@ -17150,19 +17268,17 @@ function RenewModal({ campaign, allCampaigns, onRenew, onExtend, onClose }) {
   function doRenew() {
     if (!endDate) return;
     const targets = applyAll ? clientCampaigns : [campaign];
+    // stripDeliveryFields wipes ALL delivery/check-in history (metrics, snapshots, metricSeries,
+    // creativeReport, checkInLog) so a renewal starts clean — it previously leaked the prior flight's
+    // daily chart + creative breakdown into the new campaign.
     const newCampaigns = targets.map(c => ({
-      ...c,
+      ...stripDeliveryFields(c),
       id: Date.now() + Math.random(),
       startDate, endDate,
       note1: goal || c.note1,
       contractValue: contractValue || c.contractValue,
       status: "active",
-      impressions:"", ctr:"", cpm:"", spend:"",
-      completionRate:"", conversions:"", clicks:"",
-      reach:"", frequency:"", videoViews:"",
       lastChecked: today,
-      metaSnapshots: undefined, ttdSnapshots: undefined,
-      dspSnapshots: undefined, googleSnapshots: undefined, snapSnapshots: undefined,
     }));
     onRenew(newCampaigns, campaign);
   }
@@ -18083,6 +18199,45 @@ export default function App() {
     const ma = reconcileMetricFields(archiveList); if(ma.changed > 0){ archiveList = ma.list; archiveChanged = true; rMsg.push(`${ma.changed} metric mirror${ma.changed===1?"":"s"}`); }
     let dcR=0; { const next=archiveList.map(c=>{ const f=cleanInheritedDelivery(c); if(f){dcR++; return f;} return c; }); if(dcR>0){ archiveList=next; archiveChanged=true; rMsg.push(`${dcR} cross-tactic deliver${dcR===1?"y":"ies"}`); } }
     if(archiveChanged){ console.log(`[Zeus] cleaned (archived): ${rMsg.join(", ")}`); setArchive(archiveList); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+  // One-time repair for LOCKED months: a SEM row that froze with $0 revenue but a REAL over-budget amount
+  // (spend > 0). Under the old model the management fee could be left unbooked at lock time, so the month
+  // shows the client's overspend as a pure LOSS with no fee to absorb it (e.g. Pearl Hawaii's June locked
+  // at $0 rev / $102 spend = −$102). Re-books that month's fee SHARE (semFeeMap) and fixes the row's
+  // profit + the month's totals. Deliberately surgical: a full unlock→re-lock is NOT safe, because live
+  // data drifts after a lock (July drops overwrite June's live fields), so recomputing every campaign
+  // would silently rewrite the whole month's P&L. Idempotent — once revenue > 0 it never re-fires.
+  useEffect(()=>{
+    let locks; try { locks = JSON.parse(localStorage.getItem(MONTH_LOCK_KEY) || "{}"); } catch { return; }
+    const byId = new Map([...campaigns, ...archive].map(c => [String(c.id), c]));
+    let fixed = 0;
+    for (const [mo, lock] of Object.entries(locks)) {
+      if (!lock || !Array.isArray(lock.campaigns)) continue;
+      let dRev = 0, dProfit = 0;
+      lock.campaigns = lock.campaigns.map(r => {
+        if (r.platform !== "SEM") return r;
+        if ((r.revenue || 0) > 0) return r;                       // fee already booked
+        if (!(r.spend != null && r.spend > 0)) return r;          // no overage to absorb → leave pending
+        const camp = byId.get(String(r.id));
+        const share = camp ? (semFeeMap(camp)[mo] || 0) : 0;
+        if (!(share > 0)) return r;                               // no fee on the campaign → nothing to book
+        const profit = share - (r.spend || 0) - (r.deviceFee || 0);
+        dRev += share - (r.revenue || 0);
+        dProfit += profit - (r.profit || 0);
+        fixed++;
+        return { ...r, revenue: share, profit };
+      });
+      if (dRev || dProfit) {
+        lock.totalRevenue = (lock.totalRevenue || 0) + dRev;
+        lock.totalProfit  = (lock.totalProfit  || 0) + dProfit;
+        lock.margin = lock.totalRevenue > 0 ? (lock.totalProfit / lock.totalRevenue) * 100 : 0;
+      }
+    }
+    if (fixed > 0) {
+      try { localStorage.setItem(MONTH_LOCK_KEY, JSON.stringify(locks)); } catch(e) { console.error(e); }
+      console.log(`[Zeus] Re-booked the management fee on ${fixed} locked SEM month-row(s) that had frozen at $0 revenue.`);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
   useEffect(()=>{ const last=localStorage.getItem(EXPORT_KEY); if(!last){setShowExportReminder(true);return;} if((Date.now()-parseInt(last))/(1000*60*60*24)>=3) setShowExportReminder(true); },[]);
