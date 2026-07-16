@@ -84,6 +84,112 @@ function getStorageBytes() {
 }
 function fmtBytes(b) { return b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.round(b / 1024) + " KB"; }
 
+// Per-campaign fields that hold DELIVERY DETAIL rather than the campaign itself. These are what
+// actually grow without bound: a snapshot carries `breakdown`/`priorBreakdown` (one row per ad line,
+// per drop), creativeReport carries one row per AD, and metricSeries carries a reading per day.
+// The campaign's own identity/goal/revenue fields are a few hundred bytes and never move the needle.
+const HEAVY_FIELDS = ["metricSeries","checkInLog","metaSnapshots","ttdSnapshots","dspSnapshots",
+                      "googleSnapshots","snapSnapshots","creativeReport","history"];
+// Size of one value as stored (UTF-16 → 2 bytes/char). Mirrors getStorageBytes' accounting so the
+// breakdown and the total agree.
+function _jsonBytes(v) { try { return v === undefined ? 0 : JSON.stringify(v).length * 2; } catch { return 0; } }
+
+// Undo snapshot for an EDIT (field changes, check-ins, bulk edits). Undo MERGES this over the live
+// campaign, so any field the edit can't touch doesn't need to be in here — the live copy still has
+// it. Dropping them matters a lot: these are the fattest fields on a campaign and the log holds up
+// to MAX_LOG_ENTRIES (500) of these, so one clone each is 500 clones on disk.
+function leanUndoSnapshot(c) {
+  const { metricSeries, metaSnapshots, ttdSnapshots, dspSnapshots, googleSnapshots, snapSnapshots,
+          checkInLog, creativeReport, ...rest } = c;
+  return rest;
+}
+// Undo snapshot for the "clear metrics / new month reset" path, which DOES wipe checkInLog and the
+// five snapshot objects — so those must be kept to undo faithfully. It never touches metricSeries or
+// creativeReport though, so cloning THOSE was pure waste: the live campaign keeps them either way.
+// (metricSeries is the single largest field on a campaign — a reading per day, per campaign.)
+function clearMetricsUndoSnapshot(c) {
+  const { metricSeries, creativeReport, ...rest } = c;
+  return rest;
+}
+
+// How far back the archive is kept before a cleanup offers to drop it. Austin: "I only need to
+// archive for 12 months or so."
+const ARCHIVE_RETENTION_MONTHS = 12;
+
+// Strips the DELIVERY DETAIL from an archived campaign. Deliberately keeps the campaign's own
+// scalars (impressions/spend/ctr/cpm…): they're a few bytes each, they're what the Archive tab
+// shows, and monthly revenue can still read them — so dropping them would risk money to save
+// nothing. What goes is the per-day / per-line / per-ad detail, which is ~95% of the weight and
+// is only ever used to draw pacing charts for a LIVE campaign.
+// Note this keeps id + campaignName + platform, so archived campaigns stay mappable in Quick
+// Check-in (see the full-archive mapping in the QCI panel).
+function slimArchivedCampaign(c) {
+  const { metricSeries, checkInLog, metaSnapshots, ttdSnapshots, dspSnapshots,
+          googleSnapshots, snapSnapshots, creativeReport, ...rest } = c;
+  return rest;
+}
+
+// Works out what a cleanup WOULD do, without doing it — so the confirm can state real numbers.
+// `drop` = archived longer ago than the retention window; `slimmed` = everything kept, minus its
+// delivery detail. Entries with no archivedDate are never dropped (we can't age what we can't date).
+function planArchiveCleanup(archive, retentionMonths = ARCHIVE_RETENTION_MONTHS) {
+  const list = Array.isArray(archive) ? archive : [];
+  const n = new Date();
+  const cut = new Date(n.getFullYear(), n.getMonth() - retentionMonths, n.getDate());
+  const p = (x) => String(x).padStart(2, "0");
+  const cutIso = `${cut.getFullYear()}-${p(cut.getMonth()+1)}-${p(cut.getDate())}`;
+  const drop = [], keep = [];
+  list.forEach(a => {
+    const d = a && a.archivedDate;
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < cutIso) drop.push(a); else keep.push(a);
+  });
+  const slimmed = keep.map(slimArchivedCampaign);
+  const before = _jsonBytes(list), after = _jsonBytes(slimmed);
+  // How many kept entries actually carry detail worth stripping (for an honest "nothing to do").
+  const withDetail = keep.filter(a => HEAVY_FIELDS.some(f => f !== "history" && a && a[f] !== undefined)).length;
+  return { cutIso, drop, keep, slimmed, before, after,
+           freed: Math.max(0, before - after), withDetail };
+}
+
+// Answers "what is actually using my 5 MB?" — every localStorage key by size, plus a field-level
+// breakdown INSIDE the campaign/archive blobs (the two that dominate). Read-only; changes nothing.
+function getStorageBreakdown() {
+  const keys = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i); const v = localStorage.getItem(k) || "";
+      keys.push({ key: k, bytes: (k.length + v.length) * 2 });
+    }
+  } catch {}
+  keys.sort((a, b) => b.bytes - a.bytes);
+
+  // Field-level totals across campaigns + archive.
+  const fields = {}; let campCount = 0, archCount = 0, coreBytes = 0;
+  const scan = (raw, isArch) => {
+    let list = null; try { list = JSON.parse(raw || "null"); } catch {}
+    if (!Array.isArray(list)) return;
+    if (isArch) archCount = list.length; else campCount = list.length;
+    list.forEach(c => {
+      if (!c || typeof c !== "object") return;
+      let heavy = 0;
+      HEAVY_FIELDS.forEach(f => {
+        if (c[f] === undefined) return;
+        const b = _jsonBytes(c[f]); heavy += b;
+        const slot = fields[f] || (fields[f] = { bytes: 0, active: 0, archived: 0 });
+        slot.bytes += b; if (isArch) slot.archived += b; else slot.active += b;
+      });
+      coreBytes += Math.max(0, _jsonBytes(c) - heavy); // the campaign minus its delivery detail
+    });
+  };
+  try { scan(localStorage.getItem("campaign-tracker-v3"), false); } catch {}
+  try { scan(localStorage.getItem("campaign-tracker-archive"), true); } catch {}
+
+  const fieldList = Object.entries(fields).map(([name, v]) => ({ name, ...v }))
+    .filter(f => f.bytes > 0).sort((a, b) => b.bytes - a.bytes);
+  return { keys, fieldList, coreBytes, campCount, archCount,
+           total: keys.reduce((s, k) => s + k.bytes, 0) };
+}
+
 const initialCampaigns = [{"mediaPartner":"WVR","campaignName":"Harry Green CDJR","platform":"FB","goal":"750K (7/1/25 - 12/31/25)","endDate":"2026-06-30","note1":"125K/Mo","note2":"","lastChecked":"2026-03-02","id":1769125165003,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Compass TK","campaignName":"Farm Bureau Financial-Jim Waters","platform":"TD","goal":"1.58M (8/11/25 - 7/31/26)","endDate":"2026-07-31","note1":"131.6K/Mo","note2":"","lastChecked":"2026-03-02","id":1769125792921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Saginaw","campaignName":"Great Lakes Pace","platform":"FB","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-25","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209400165,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Palm Springs","campaignName":"Carpet Empire Plus","platform":"FB","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-31","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209535972,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Palm Springs","campaignName":"Carpet Empire Plus","platform":"DSP","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-31","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209663140,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"TD","goal":"143K (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"12K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214676416,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"FB","goal":"1.08M (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"90K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214678888,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"DSP","goal":"1.08M (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"90K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214712742,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Britestar Milwaukee Middle School","platform":"TD","goal":"100K Monthly","endDate":"2026-03-31","note1":"100K Monthly","note2":"","lastChecked":"2026-03-02","id":1769214781502,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"TD","goal":"40K Feb/March","endDate":"2026-03-31","note1":"40K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439021921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"FB","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439025194,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"FBV","goal":"20K Feb/March","endDate":"2026-03-31","note1":"20K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439086411,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"DSP","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439117040,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"SEM","goal":"Need New Budget for February","endDate":"2026-01-31","note1":"Need New Budget for February","note2":"","lastChecked":"2026-03-02","id":1769439141224,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"TD","goal":"40K Feb/March","endDate":"2026-03-31","note1":"40K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439175821,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"FB","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439200352,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"FBV","goal":"20K Feb/March","endDate":"2026-03-31","note1":"20K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439219988,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"DSP","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439236958,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"SEM","goal":"Need New Budget for February","endDate":"2026-01-31","note1":"Need New Budget for February","note2":"","lastChecked":"2026-03-02","id":1769439252985,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Noyes Development","platform":"TD","goal":"14.5K/Mo","endDate":"2026-03-31","note1":"14.5K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439379921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"TD","goal":"500K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"97K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439513145,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"CTV","goal":"291K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"66K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439528551,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"OTT","goal":"207K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"47K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439581123,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"EMAIL","goal":"5 Emails","endDate":"2026-03-31","note1":"1/Mo","note2":"","lastChecked":"2026-03-02","id":1769440542802,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"FB","goal":"283K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"41K/Mo (15-20% Oregon)","note2":"","lastChecked":"2026-03-02","id":1769440737136,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities ","platform":"FBV","goal":"175K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","id":1772483657607,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"DSP","goal":"460K (11/3/25 - 5/31/26) ","endDate":"2026-05-31","note1":"67K/Mo (15-20% Oregon)","note2":"","lastChecked":"2026-03-02","id":1772483749345,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"TD","goal":"70K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"10K/Mo","note2":"","lastChecked":"2026-03-02","id":1772483792126,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities Audio","platform":"TD","goal":"296K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"59.5K/Mo","note2":"","lastChecked":"2026-03-02","id":1772483819653,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America","platform":"FB","goal":"900K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"180K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484331559},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America","platform":"DSP","goal":"1.275M (11/4/25 - 3/31/26) ","endDate":"2026-03-31","status":"active","note1":"255K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484347656},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America ","platform":"SP","goal":"375K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"75K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484372498},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America  ","platform":"CTV","goal":"435K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"87K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484401165},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America ","platform":"OTT","goal":"298K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"60K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484418938},{"mediaPartner":"WVR","campaignName":"Concord University","platform":"FB","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484485079},{"mediaPartner":"WVR","campaignName":"Concord University ","platform":"SP","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484490232},{"mediaPartner":"WVR","campaignName":"Concord University ","platform":"DSP","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484503162},{"mediaPartner":"Enchanting Media","campaignName":"Waterview Casino","platform":"FB","goal":"95K March","endDate":"2026-03-31","status":"active","note1":"95K March ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484624626},{"mediaPartner":"Enchanting Media","campaignName":"Waterview Casino","platform":"DSP","goal":"95K March","endDate":"2026-03-31","status":"active","note1":"95K March ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484630475},{"mediaPartner":"Alpha Moberly","campaignName":"Right Rate Roofing","platform":"SEM","goal":"5,400 (12/4/25 - 7/30/26) ","endDate":"2026-07-31","status":"active","note1":"$900/Mo ","note2":" $1,564 March ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484709093},{"mediaPartner":"Compass","campaignName":"Bolz Chiro","platform":"FB","goal":"400K (1/1/26 - 4/30/26)","endDate":"2026-03-31","status":"active","note1":"100K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484763564},{"mediaPartner":"Compass","campaignName":"Brownstone","platform":"DSP","goal":"229K (12/12/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"58K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484790999},{"mediaPartner":"Compass","campaignName":"Brownstone ","platform":"FB","goal":"80K (12/12/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"20K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484798543},{"mediaPartner":"Compass","campaignName":"Brownstone  ","platform":"FBV","goal":"148K (12/12/25 - 3/31/26) ","endDate":"2026-03-31","status":"active","note1":"37K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484823373},{"mediaPartner":"Alpha Moberly","campaignName":"Specs Quincy","platform":"FB","goal":"300K (1/1/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484872046},{"mediaPartner":"Alpha Moberly","campaignName":"Specs Quincy","platform":"DSP","goal":"300K (1/1/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484887059},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Pearl Hawaii Federal Credit Union","platform":"SEM","goal":"$35,091 Media Spend (1/13/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"$2,925/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484925304},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Pearl Hawaii Federal Credit Union ","platform":"CTV","goal":"375K (1/14/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"31,250/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484928999},{"mediaPartner":"Alpha Moberly","campaignName":"Prairieland FS","platform":"DSP","goal":"445K (1/16/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"37.5K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484986463},{"mediaPartner":"Alpha Moberly","campaignName":"Prairieland FS ","platform":"FB","goal":"445K (1/16/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"40.5K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485011820},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Holo HIIT","platform":"FBV","goal":"63K (1/16/26 - 3/31/26)","endDate":"2026-03-31","status":"off","note1":"","note2":"FB Access ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485059494},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Holo HIIT ","platform":"FBV","goal":"63K (1/16/26 - 3/31/26)","endDate":"2026-03-31","status":"off","note1":"30K Feb/March","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485067041},{"mediaPartner":"Alpha Moberly","campaignName":"Culligan of Hanibal","platform":"DSP","goal":"758K (1/22/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485129272},{"mediaPartner":"Alpha Moberly","campaignName":"Quincy Catholic Elementary School","platform":"FB","goal":"125K (2/1/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"100K 2/1 - 4/30 (25K December)","note2":"FB Access/Creatives ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485194758},{"mediaPartner":"Alpha Moberly","campaignName":"Quincy Catholic Elementary School ","platform":"DSP","goal":"125K (2/1/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"100K 2/1 - 4/30 (25K December)","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485211288},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Leavitt Yamane & Soldner","platform":"DSP","goal":"1.025M (2/9/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"93.5K/Mo ","note2":"Streaming Orders/Mo","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485298961},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Leavitt Yamane & Soldner","platform":"FB","goal":"1.025M (2/9/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"93.5K/Mo ","note2":"FB Access","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485347220},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Aloha Sugarcane Juices","platform":"TD","goal":"172K (2/16/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"58K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485429793},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio)","platform":"DSP","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485804286},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio) ","platform":"FB","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485820512},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio) ","platform":"SP","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485828817},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA)","platform":"DSP","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485842011},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA)","platform":"FB","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485880132},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA) ","platform":"SP","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485887909},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV)","platform":"DSP","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485904806},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD)","platform":"DSP","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772486056686},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD) ","platform":"FB","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486135542},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD)  ","platform":"SP","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486155939},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV) ","platform":"FB","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486026268},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV) ","platform":"SP","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486034400},{"mediaPartner":"Allen Media Broadcasting","campaignName":"King Windward Nissan ","platform":"TD","goal":"179K (2/20/26 - 3/15/26)","endDate":"2026-03-15","status":"active","note1":"","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486199815},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque","platform":"FB","goal":"20K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"10K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486231814},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"FBV","goal":"12K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"6K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486241660},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"FBV","goal":"35K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"18K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486264350},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"YT","goal":"6K Views (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"3K Views/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486294122},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque  ","platform":"TD","goal":"91K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"46K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772486311325}];
 
 const ALL_PLATFORMS_DEFAULT = ["FB","FBV","DSP","CTV","GCTV","OTT","OTTD","SP","SEM","TD","TDV","TDA","TT","IG","YT","EMAIL"];
@@ -93,6 +199,27 @@ function loadCustomPlatforms() { try{const s=localStorage.getItem(CUSTOM_PLATFOR
 function saveCustomPlatforms(d){try{localStorage.setItem(CUSTOM_PLATFORMS_KEY,JSON.stringify(d))}catch(e){}}
 // ALL_PLATFORMS stays as a live array that includes custom additions
 const ALL_PLATFORMS = (()=>{const c=loadCustomPlatforms();return[...ALL_PLATFORMS_DEFAULT,...c.platforms.filter(p=>!ALL_PLATFORMS_DEFAULT.includes(p))];})();
+
+// Display order for every platform picker/filter — grouped by the vendor you buy through, so
+// sibling tactics sit together: Google (SEM/YT) · Meta (FB/FBV/IG) · TradeDesk (TD/TDV/TDA) ·
+// TVsci CTV (CTV/OTT/OTTD) · Madhive CTV (GCTV/PCTV) · then DSP/Snapchat/TikTok/Email.
+// Custom platforms aren't listed here, so they fall to the end alphabetically.
+const PLATFORM_GROUP_ORDER = ["SEM","YT","FB","FBV","IG","TD","TDV","TDA","CTV","OTT","OTTD","GCTV","PCTV","DSP","SP","TT","EMAIL"];
+
+// Day options for BOTH freshness filters, so "3d" means the same thing wherever you are:
+// Pacing's "Within" (updated in the last N days) and the Campaigns tab's "No update in" (stale for
+// N+ days) are exact complements of the same window — they just used different option sets
+// ([1,2,3,7] vs [2,3,5,7,14]), which is why the two tabs disagreed about what "recent" meant.
+const FRESHNESS_DAY_OPTIONS = [1, 2, 3, 7, 14];
+function sortPlatforms(list) {
+  return [...list].sort((a,b)=>{
+    const ia=PLATFORM_GROUP_ORDER.indexOf(a), ib=PLATFORM_GROUP_ORDER.indexOf(b);
+    if(ia===-1&&ib===-1) return String(a).localeCompare(String(b));
+    if(ia===-1) return 1;
+    if(ib===-1) return -1;
+    return ia-ib;
+  });
+}
 // CTV streaming flavors that, by default, collapse into the generic "CTV" platform. Each maps to a
 // SUGGESTED dedicated platform (code/color/name) so an IO with one of these can prompt the user to
 // create its own platform (like the existing GCTV/PCTV). Codes are smart defaults — user-editable.
@@ -7008,15 +7135,19 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [sortDir,        setSortDir]        = useState(_persisted.sortDir || SORT_DEFAULT_DIR[_initSortKey] || "asc");
   const [clearPendingId, setClearPendingId] = useState(null); // campaign id awaiting clear confirm
   const [todayFilter,    setTodayFilter]    = useState(_persisted.todayFilter || "all"); // "all" | "today" | "not-today"
+  // How many days back still counts as "updated" for the ✓/✕ pair. 1 = today only (the original
+  // behaviour). Drops arrive in batches and a line checked yesterday isn't stale, so "today or
+  // nothing" flagged too much — this widens the window without changing what the buttons mean.
+  const [updatedDays,    setUpdatedDays]    = useState(_persisted.updatedDays || 1); // 1 | 2 | 3 | 7
   // Save on any filter change. Set is serialized as array.
   useEffect(() => {
     try {
       localStorage.setItem(PACING_FILTER_KEY, JSON.stringify({
-        search, fPartner, fPlatforms: [...fPlatforms], sortKey, sortDir, todayFilter, pacingView,
+        search, fPartner, fPlatforms: [...fPlatforms], sortKey, sortDir, todayFilter, updatedDays, pacingView,
         lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter,
       }));
     } catch {}
-  }, [search, fPartner, fPlatforms, sortKey, sortDir, todayFilter, pacingView, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter]);
+  }, [search, fPartner, fPlatforms, sortKey, sortDir, todayFilter, updatedDays, pacingView, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter]);
   function clickSort(k) {
     if (sortKey === k) { setSortDir(d => d === "asc" ? "desc" : "asc"); return; }  // toggle direction
     setSortKey(k);
@@ -7030,6 +7161,20 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // every campaign here. `lastDataDate` = the most recent real data date, for the row's date display.
   const dataUpdatedToday = (c) => c.lastMetricUpdate===todayStr || c.lastQciDate===todayStr;
   const lastDataDate = (c) => [c.lastMetricUpdate, c.lastQciDate].filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x)).sort().pop() || c.lastChecked || "";
+  // Same freshness test as dataUpdatedToday, widened to an N-day window (1 = today, so
+  // dataUpdatedWithin(c,1) === dataUpdatedToday(c)). Compares date STRINGS against a cutoff —
+  // both fields are ISO YYYY-MM-DD, which sorts lexicographically, so no Date parsing needed.
+  const cutoffFor = (days) => {
+    const n = pacingNow();
+    const d = new Date(n.getFullYear(), n.getMonth(), n.getDate() - (Math.max(1, days) - 1));
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  };
+  const dataUpdatedWithin = (c, days) => {
+    const cut = cutoffFor(days);
+    const iso = (x) => x && /^\d{4}-\d{2}-\d{2}$/.test(x) ? x : null;
+    const m = iso(c.lastMetricUpdate), q = iso(c.lastQciDate);
+    return (!!m && m >= cut) || (!!q && q >= cut);
+  };
   const viewMode = "table"; // table-only — card view removed
 
   // Flight progress helpers
@@ -7057,7 +7202,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // campaigns that need pacing visibility. Only "off" is intentionally excluded.
   const allActive = campaigns.filter(c=>c.status!=="off");
   const partners  = ["all", ...new Set(allActive.map(c=>c.mediaPartner).filter(Boolean))].sort();
-  const platforms = [...new Set(allActive.map(c=>c.platform).filter(Boolean))].sort();
+  const platforms = sortPlatforms([...new Set(allActive.map(c=>c.platform).filter(Boolean))]);
 
   // Build rows for ALL active
   const allRows = allActive.map(c=>{
@@ -7082,8 +7227,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // Updated/Not-Updated counts include OFF campaigns too — off campaigns still
   // show in the Pacing tab (Off Campaigns section) so the user wants visibility
   // into their sync status alongside active ones.
-  const updatedTodayCount = campaigns.filter(c=>dataUpdatedToday(c)).length;
-  const notUpdatedCount   = campaigns.filter(c=>!dataUpdatedToday(c)).length;
+  const updatedTodayCount = campaigns.filter(c=>dataUpdatedWithin(c, updatedDays)).length;
+  const notUpdatedCount   = campaigns.filter(c=>!dataUpdatedWithin(c, updatedDays)).length;
   // Most recent real DATA update across all campaigns (not lastChecked — so "Mark All Checked"
   // doesn't make this jump to today), shown as a "Last update" chip in mm/dd/yyyy.
   const lastUpdateISO = campaigns.reduce((mx,c)=>{ const d=[c.lastMetricUpdate,c.lastQciDate].filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x)).sort().pop(); return (d&&d>mx)?d:mx; }, "");
@@ -7094,8 +7239,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
-    if(todayFilter==="today"     && !dataUpdatedToday(c)) return false; // data updated today only
-    if(todayFilter==="not-today" && dataUpdatedToday(c)) return false; // no new data today
+    if(todayFilter==="today"     && !dataUpdatedWithin(c, updatedDays)) return false; // fresh within the window
+    if(todayFilter==="not-today" &&  dataUpdatedWithin(c, updatedDays)) return false; // stale beyond the window
     return true;
   });
 
@@ -7108,9 +7253,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
-    // Updated/Not-updated-today filter applies to Off campaigns too (same as the active sections).
-    if(todayFilter==="today"     && !dataUpdatedToday(c)) return false;
-    if(todayFilter==="not-today" && dataUpdatedToday(c)) return false;
+    // Updated/Not-updated filter applies to Off campaigns too (same as the active sections).
+    if(todayFilter==="today"     && !dataUpdatedWithin(c, updatedDays)) return false;
+    if(todayFilter==="not-today" &&  dataUpdatedWithin(c, updatedDays)) return false;
     return true;
   });
 
@@ -8041,7 +8186,20 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const npdFmt = npd === null ? null
       : metricKind === "spend" ? "$"+(npd>=1000?(npd/1000).toFixed(1)+"k":npd.toFixed(0))
       : npd >= 1000 ? (npd/1000).toFixed(0)+"K" : String(npd);
-    const npdCol = paceGap === null ? "#3d5a72" : paceGap < 0 ? "#ef4444" : "#f97316";
+    // Need/Day is a REFERENCE number ("deliver this much per remaining day"), not a status. The old
+    // rule (paceGap<0 ? red : orange) painted it red the instant a line was behind by a SINGLE
+    // impression and orange the rest of the time — it had no neutral state, so every row read as
+    // flagged and the colour carried no information. Grade it by whether the line's RECENT ACTUAL
+    // delivery can meet the ask instead, so colour only appears when the required pace is a real
+    // escalation over what the line is already doing. `pctOfNeeded` = yesterday's per-day delivery
+    // as a % of needed/day (the same number the Yesterday column grades, computed once and shared).
+    const npdYest = computeYesterdayDelivery(c, monthlyGoal);
+    const npdPct  = npdYest?.pctOfNeeded ?? null;
+    const npdCol =
+        npd === null || npdPct === null ? "#3d5a72"  // no target / no delivery data yet → neutral
+      : npdPct >= 85 ? "#3d5a72"                     // keeping up → neutral, nothing to look at
+      : npdPct >= 60 ? "#f59e0b"                     // needs a nudge → amber
+      :                "#ef4444";                    // won't get there at this rate → red
 
     // Weekly impressions + clicks for the combo chart in the expanded dropdown.
     // Derived from Quick Check-in history (metricSeries), current month only —
@@ -8194,7 +8352,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Yesterday — actual delivered yesterday (from check-in log diff).
           Color-coded vs Need/Day so you can see at a glance if you need to push or pull back. */}
       {(()=>{
-        const yest = computeYesterdayDelivery(c, monthlyGoal);
+        const yest = npdYest; // computed once above, shared with the Need/Day colour
         if (!yest) return <div><span style={{fontSize:11,color:lmTxtD}}>—</span></div>;
         const multiDay = yest.gapDays > 1;
         const yVal = yest.deliveredPerDay; // per-day average (spreads delivery across any skipped check-in days)
@@ -9096,14 +9254,32 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Partner filter dropdown removed (2026-06-16, dash cleanup) — fPartner stays "all"; search + platform cover filtering. */}
       <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode}/>
       <div style={{display:"flex",borderRadius:7,overflow:"hidden",border:"1px solid "+lmBrd,flexShrink:0}}>
-        <button onClick={()=>setTodayFilter(v=>v==="today"?"all":"today")} title="Show only campaigns that got NEW data today (a check-in / CSV sync or a metric edit) — not just 'Mark All Checked'"
+        <button onClick={()=>setTodayFilter(v=>v==="today"?"all":"today")} title={`Show only campaigns that got NEW data ${updatedDays===1?"today":`in the last ${updatedDays} days`} (a check-in / CSV sync or a metric edit) — not just 'Mark All Checked'`}
           style={{background:todayFilter==="today"?(lightMode?"#dcfce7":"#001a14"):lmBgInp,padding:"5px 10px",color:todayFilter==="today"?lmC("#00d48a"):lmTxtS,fontSize:11,fontWeight:todayFilter==="today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none",borderRight:"1px solid "+lmBrd}}>
           ✓ Updated{updatedTodayCount>0?` (${updatedTodayCount})`:""}
         </button>
-        <button onClick={()=>setTodayFilter(v=>v==="not-today"?"all":"not-today")} title="Show only campaigns with NO new data today (still need a check-in / fresh metrics)"
+        <button onClick={()=>setTodayFilter(v=>v==="not-today"?"all":"not-today")} title={`Show only campaigns with NO new data ${updatedDays===1?"today":`in the last ${updatedDays} days`} (still need a check-in / fresh metrics)`}
           style={{background:todayFilter==="not-today"?(lightMode?"#fff7ed":"#1a0e00"):lmBgInp,padding:"5px 10px",color:todayFilter==="not-today"?lmC("#f97316"):lmTxtS,fontSize:11,fontWeight:todayFilter==="not-today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none"}}>
           ✕ Not Updated{notUpdatedCount>0?` (${notUpdatedCount})`:""}
         </button>
+      </div>
+      {/* Freshness window for the ✓/✕ pair above. Drops land in batches, so "today or nothing" called
+          a line stale that was checked yesterday — widen to 2/3/7 days without changing the buttons. */}
+      <div title="How far back still counts as 'updated' for the buttons on the left"
+        style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+        <span style={{fontSize:10,color:lmTxtS,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Within</span>
+        <div style={{display:"flex",borderRadius:7,overflow:"hidden",border:"1px solid "+lmBrd}}>
+          {FRESHNESS_DAY_OPTIONS.map((d,idx)=>(
+            <button key={d} onClick={()=>setUpdatedDays(d)}
+              title={d===1?"Only data that arrived today":`Data that arrived in the last ${d} days`}
+              style={{background:updatedDays===d?(lightMode?"#e0f2fe":"#00212e"):lmBgInp,padding:"5px 9px",
+                color:updatedDays===d?lmC("#00d9ff"):lmTxtS,fontSize:11,fontWeight:updatedDays===d?700:400,
+                cursor:"pointer",whiteSpace:"nowrap",border:"none",
+                borderRight:idx<FRESHNESS_DAY_OPTIONS.length-1?"1px solid "+lmBrd:"none"}}>
+              {d===1?"Today":d+"d"}
+            </button>
+          ))}
+        </div>
       </div>
       {/* Last update — read-only chip showing the most recent check-in date,
           with the date itself in electric blue. */}
@@ -11795,17 +11971,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   // shown (legacy strings → objects, already-stale entries dropped) instead of lingering until a drop.
   React.useEffect(()=>{ _persistIgnored(ignoredNames); }, []);
 
-  // Group the QCI platform chips by the export/vendor they come from so related drops sit together
-  // (Google: SEM/YT · Meta: FB/FBV/IG · TradeDesk: TD/TDV/TDA · TVsci CTV: CTV/OTT/OTTD · Madhive CTV:
-  // GCTV/PCTV · then DSP/Snapchat/TikTok/Email). Unknown platforms fall to the end, alphabetically.
-  const QCI_PLATFORM_ORDER = ["SEM","YT","FB","FBV","IG","TD","TDV","TDA","CTV","OTT","OTTD","GCTV","PCTV","DSP","SP","TT","EMAIL"];
-  const qciPlatformList = [...new Set(activeCamps.map(c=>c.platform).filter(Boolean))].sort((a,b)=>{
-    const ia=QCI_PLATFORM_ORDER.indexOf(a), ib=QCI_PLATFORM_ORDER.indexOf(b);
-    if(ia===-1&&ib===-1) return a.localeCompare(b);
-    if(ia===-1) return 1;
-    if(ib===-1) return -1;
-    return ia-ib;
-  });
+  const qciPlatformList = sortPlatforms([...new Set(activeCamps.map(c=>c.platform).filter(Boolean))]);
   const selectedCamps = activeCamps.filter(c=>selected.has(c.id));
   // A file row is ignored when its CSV campaign name is on the ignore list — skipped everywhere
   // (mapped-count, low-confidence review, apply, and the mapping list itself).
@@ -11877,6 +12043,10 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if(f.includes("snapchat")||f.includes("snapads"))    return "Snapchat";
     if(f.includes("dspinternal")||f.includes("allreps")) return "DSP-Internal";
     if(f.includes("mobile"))                             return "DSP"; // DSP "Mobile" device-targeting export
+    // Deliberately narrow: the filename wins over column sniffing, so a bare "tvsci" test would
+    // hijack a file named "tvsci spend" that is really the lifetime sheet. Require "daily"; the
+    // column check (Adgroup Name + Completed View Rate) catches any other naming.
+    if(f.includes("tvscidaily"))                         return "TVsci Daily"; // daily TVsci delivery report
     if(f.includes("ambio")||f.includes("spendreport"))   return "TVsci Spend"; // hourly TVsci "Ambio Spend Report"
     return null;
   }
@@ -11886,6 +12056,13 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     const cols = Object.keys(rows[0]).join("|").toLowerCase();
     if (cols.includes("paid impressions")||cols.includes("ecpc")) return "Snapchat";
     if (cols.includes("amount spent (usd)")||cols.includes("ctr (link click-through rate)")) return "Facebook/Meta";
+    // TVsci report. Two shapes seen in the wild, both handled: a per-DAY export (has a Date column,
+    // "Adgroup Name") and the month-to-date export Austin actually receives (NO Date column, one row
+    // per campaign+ad group, "Ad Group Name" with a space). "Completed View Rate" is the stable
+    // signature. Must be tested BEFORE TradeDesk (shares "Advertiser Name"/"Data Source") and before
+    // the Google check below, whose bare "campaign" substring test would otherwise swallow it.
+    if (cols.includes("completed view rate") &&
+        (cols.includes("adgroup name") || cols.includes("ad group name"))) return "TVsci Daily";
     // TradeDesk export — "Advertiser Name" + "Impressions Won" + "Data Source" (title-case, space-delimited columns)
     if (cols.includes("advertiser name") && cols.includes("impressions won") && cols.includes("data source")) return "TradeDesk";
     // Company-wide DSP / programmatic dump — has advertiser_name + campaign + impressions_won (snake_case)
@@ -11908,22 +12085,62 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   }
   // The sheet's campaign name encodes the tactic — "Shining Star 2026 CTV", "BD Slam Holy Redeemer (OTT)",
   // "Britestar Milwaukee OTT 2026". Route each row to the client's CTV or OTT campaign accordingly.
+  // TVsci exports cover THREE tracker platforms: CTV, OTT and OTTD. "Display" / "Display
+  // Retargeting" lines are the OTTD (display) product — Austin: "the display lines in the excel file
+  // should be mapped to the platform OTTD in my tracker." Display is tested FIRST because those names
+  // ("Greenwood Credit Union - Display") carry no CTV/OTT token of their own and would otherwise fall
+  // through to null and stay unassigned.
   function tvsciTactic(name){
     const s = String(name||"");
+    if (/\bdisplay\b/i.test(s)) return "OTTD";
     if (/\bOTT\b/i.test(s)) return "OTT";
     if (/\bCTV\b/i.test(s)) return "CTV";
     return null;
   }
+  // The daily report's Date column arrives as an Excel SERIAL NUMBER (2026-07-01 → 46204), because
+  // XLSX.read runs without cellDates and every other source expects the current behaviour. So
+  // parseSeriesDate (ISO / US strings only) returns null for it and the whole file reads as
+  // "no rows for this month". Handle serials here rather than changing the shared read.
+  function tvsciDate(v){
+    if (v instanceof Date) return new Date(v.getFullYear(), v.getMonth(), v.getDate());
+    if (typeof v === "number" && isFinite(v)) {
+      // Excel's epoch is 1899-12-30; serial 25569 === 1970-01-01. These are whole-day values, so
+      // read them back with UTC getters — a local-time conversion would shift 07-01 to 06-30 west
+      // of Greenwich and silently drop the first day of the month out of the MTD sum.
+      const d = new Date(Math.round((v - 25569) * 86400000));
+      return isNaN(d.getTime()) ? null : new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    }
+    const m = String(v||"").trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); // "2026-07-01 00:00:00"
+    if (m) return new Date(+m[1], +m[2]-1, +m[3]);
+    return parseSeriesDate(v);
+  }
   // Strip the tactic + year tokens so fuzzy scoring compares the CLIENT part of the name
   // ("Shining Star 2026 CTV" → "Shining Star") against the tracker's campaign names.
   function tvsciLabel(name){
-    return String(name||"").replace(/\b(ctv|ott|20\d\d)\b/gi," ").replace(/[()\/]/g," ").replace(/\s+/g," ").trim();
+    // Strip every tactic/product token AND the year so scoring compares only the CLIENT part:
+    // "Shining Star 2026 CTV" → "Shining Star", "Greenwood Credit Union - Display Retargeting" →
+    // "Greenwood Credit Union". Without the display/retargeting tokens an OTTD line would score
+    // against the tracker name with "- Display Retargeting" still attached and lose to noise.
+    return String(name||"")
+      .replace(/\b(ctv|ott|ottd|display|retargeting|rt|20\d\d)\b/gi," ")
+      .replace(/[()\/\-]/g," ").replace(/\s+/g," ").trim();
   }
 
   function extractMetrics(row, source){
     let impressions=0, clicks=0, ctr=0, spend=0, cpm=0, reach=0, videoViews=0, completionRate=0;
 
-    if (source==="TradeDesk") {
+    if (source==="TVsci Daily") {
+      // Reads the SYNTHETIC rows built in the drop handler — already summed across the month's days
+      // and any adgroups, so these are plain MTD totals. "Click" is absent when TVsci reported no
+      // click data at all (its -1 sentinel), which leaves clicks 0 and CTR 0 rather than inventing one.
+      impressions    = parseInt(row["Impressions"])||0;
+      spend          = parseFloat(row["Spend"])||0;
+      clicks         = row["Click"] == null ? 0 : parseInt(row["Click"])||0;
+      completionRate = parseFloat(row["Completed View Rate %"])||0; // already impression-weighted, 0-100
+      ctr            = impressions > 0 && clicks > 0 ? clicks / impressions : 0;
+      cpm            = impressions > 0 ? (spend / impressions) * 1000 : 0;
+
+    } else if (source==="TradeDesk") {
       // TradeDesk export columns: Impressions Won, Clicks, CTR, Video Completion Rate, Advertiser eCPM, Advertiser Cost
       impressions    = parseInt((row["Impressions Won"]||"").toString().replace(/[^0-9]/g,""))||0;
       clicks         = parseInt((row["Clicks"]||"").toString().replace(/[^0-9]/g,""))||0;
@@ -12077,7 +12294,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // Premium/General → PCTV/GCTV (see matchMadhiveToTracker), not this display name.
     if (source==="Madhive") return row["Campaign Name"]||row["Line Item Name"]||"";
     // TVsci spend sheet — the Campaign Name carries both the client and the tactic ("Shining Star 2026 CTV").
-    if (source==="TVsci Spend") return row["Campaign Name"]||"";
+    if (source==="TVsci Spend" || source==="TVsci Daily") return row["Campaign Name"]||"";
     // Generic — try common campaign name columns
     return findCol(row, ["campaign name","campaign","name","ad campaign","campaign title"])||"";
   }
@@ -12241,6 +12458,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     "DSP":           new Set(["DSP"]),
     "Madhive":       new Set(["PCTV","GCTV"]),  // Madhive is GCTV/PCTV only — plain CTV/OTT belong to TVsci
     "TVsci Spend":   new Set(["CTV","OTT"]),    // TVsci = the plain CTV/OTT campaigns (never Madhive's GCTV/PCTV)
+    "TVsci Daily":   new Set(["CTV","OTT","OTTD"]), // TVsci covers CTV + OTT + OTTD (its "Display" lines)
   };
 
   // Exact-first matching: given a TTD client name, find the tracker campaign.
@@ -12652,6 +12870,77 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       setSavedMsg(`Filtered ${before.toLocaleString()} rows → ${rows.length} live Recrue campaign${rows.length!==1?"s":""}`);
     }
 
+    // ── TVsci report: roll every row up to one row per campaign ───────────────────────────────────
+    // Two shapes, both handled. (a) The month-to-date export Austin receives: NO Date column, one row
+    // per campaign PER AD GROUP, values already MTD. (b) A per-day export: a Date column, one row per
+    // campaign per day, TRUE DAILY values — those get scoped to the pacing month first, and summing
+    // them IS this month's MTD. Either way this supersedes the lifetime spend sheet: no lifetime
+    // deltas, no monthly-flight rebuild.
+    // Every advertiser is kept, not just "Recrue_*" — Austin: "I don't currently run any Ambio
+    // accounts but you can keep them in here and be able to be mapped." They simply won't auto-match
+    // anything he doesn't have; if he takes one on, he maps it once and it's remembered.
+    if(source==="TVsci Daily"){
+      const before = rows.length;
+      const inMonth = (v) => {
+        const d = tvsciDate(v); if(!d) return false;
+        const n = pacingNow();
+        return d.getFullYear()===n.getFullYear() && d.getMonth()===n.getMonth();
+      };
+      const hasDate = rows.some(r => r["Date"] !== undefined && r["Date"] !== "");
+      const scoped = hasDate ? rows.filter(r => inMonth(r["Date"])) : rows;
+      if(!scoped.length){
+        setFileError(`This TVsci report has no rows for ${pacingNow().toLocaleString(undefined,{month:"long",year:"numeric"})} — it looks like a different month.`);
+        return;
+      }
+      // Roll up by CAMPAIGN NAME — never the ad group, which LIES about the tactic ("Britestar
+      // Milwaukee OTT 2026" sits under ad group "Britestar Milwaukee CTV 2026"; "Shining Star 2026
+      // CTV" spans ad groups named "Shining Star South 2025 CTV" AND "...2026 CTV"). A campaign
+      // routinely spans several ad groups, which is exactly what this sums.
+      const agg = {};
+      scoped.forEach(r => {
+        const name = String(r["Campaign Name"]||"").trim(); if(!name) return;
+        const a = agg[name] || (agg[name] = { name, impr:0, spend:0, clicks:0, clicksKnown:false,
+                                              completed:0, days:new Set(), adgroups:new Set(), last:"" });
+        const impr = parseInt(String(r["Impressions"]??"").replace(/[^0-9-]/g,""))||0;
+        a.impr  += impr;
+        a.spend += parseFloat(String(r["Spend"]??"").replace(/[$,\s]/g,""))||0;
+        // Click === -1 is TVsci's "not available" sentinel, NOT a count — CTV placements often report
+        // no clicks at all (a real 0 shows up separately, so -1 can't mean zero). It's ~43% of rows.
+        // Summing -1s hands a campaign NEGATIVE clicks. Count only real rows; if none, stay unknown.
+        const rawClick = parseFloat(String(r["Click"]??""));
+        if(Number.isFinite(rawClick) && rawClick >= 0){ a.clicks += rawClick; a.clicksKnown = true; }
+        // Completed View Rate % is a RATE (0.96 = 96%), so it can't be averaged flat across rows of
+        // wildly different size — weight it by that row's impressions and divide at the end.
+        const cvr = parseFloat(String(r["Completed View Rate %"]??""))||0;
+        a.completed += (cvr <= 1 ? cvr : cvr/100) * impr;
+        const dk = tvsciDate(r["Date"]);
+        if(dk){ const iso = `${dk.getFullYear()}-${String(dk.getMonth()+1).padStart(2,"0")}-${String(dk.getDate()).padStart(2,"0")}`;
+                a.days.add(iso); if(iso > a.last) a.last = iso; }
+        // Both spellings seen: "Adgroup Name" (per-day export) and "Ad Group Name" (the MTD one).
+        const grp = r["Ad Group Name"] ?? r["Adgroup Name"];
+        if(grp) a.adgroups.add(String(grp).trim());
+      });
+      // One synthetic row per campaign, carrying the canonical keys extractMetrics reads below.
+      rows = Object.values(agg).map(a => ({
+        "Campaign Name": a.name,
+        "Impressions": a.impr,
+        "Spend": a.spend,
+        ...(a.clicksKnown ? { "Click": a.clicks } : {}),           // omitted entirely when unknown
+        "Completed View Rate %": a.impr > 0 ? (a.completed / a.impr) * 100 : 0,
+        __days: a.days.size, __adgroups: a.adgroups.size, __lastDate: a.last,
+      }));
+      // Only the per-day shape can date itself. When it can, stamp "data as of" from the file's own
+      // most recent day instead of leaving it at "now" — these are whole-day totals, so the data runs
+      // through the END of that day, which keeps Yesterday/pacing honest if the pull is a day late.
+      // The MTD export carries no dates, so it keeps whatever the As-of picker already says.
+      const lastDate = rows.reduce((m,r)=> r.__lastDate > m ? r.__lastDate : m, "");
+      if(lastDate) setQciAsOf(`${lastDate}T23:59`);
+      const groups = rows.reduce((s,r)=>s+(r.__adgroups||0),0);
+      setSavedMsg(hasDate
+        ? `Rolled ${before.toLocaleString()} daily rows → ${rows.length} campaign${rows.length!==1?"s":""} · through ${fmtDate(lastDate)}`
+        : `Rolled ${before.toLocaleString()} rows (${groups} ad group${groups!==1?"s":""}) → ${rows.length} campaign${rows.length!==1?"s":""} · month-to-date`);
+    }
+
     // ── TradeDesk export: filter to only _AG rows (this account's campaigns) ──
     if(source==="TradeDesk"){
       const before = rows.length;
@@ -12842,7 +13131,10 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
           const csvName=getCampName(row,source);
           if(csvName){ let bestId="",bestScore=0; matchCandidates.forEach(c=>{ const score=fuzzyScore(csvName,c.campaignName); if(score>bestScore&&score>=0.80){ bestScore=score; bestId=String(c.id); } }); if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; } }
         }
-      } else if(source==="TVsci Spend"){
+      } else if(source==="TVsci Spend" || source==="TVsci Daily"){
+        // Both TVsci reports name campaigns identically ("BD Slam Holy Redeemer (OTT)", "Britestar
+        // Milwaukee CTV 2026"), so they share this matching AND the saved name-memory: whatever gets
+        // mapped from one report is remembered for the other.
         // TVsci: the row's Campaign Name carries BOTH the client and the tactic ("Shining Star 2026 CTV",
         // "BD Slam Holy Redeemer (OTT)"). Hard-restrict to that tactic's platform so a CTV row can never
         // land on the client's OTT twin, then fuzzy-match the CLIENT part (tactic/year stripped) against
@@ -12851,7 +13143,13 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         // the ⚠ review gate catches them; whatever you pick is then remembered for the next drop.
         const rawName = getCampName(row, source);
         const tactic  = tvsciTactic(rawName);
-        const pool    = tactic ? matchCandidates.filter(c => c.platform === tactic) : matchCandidates;
+        // A row with no CTV/OTT in its name is a DIFFERENT tactic living in the same TVsci export
+        // ("Greenwood Credit Union - Display", "Medtronic - TVAR", "…-Display Retargeting"). It has no
+        // CTV/OTT twin to land on, so it gets an EMPTY pool and stays unassigned. Falling back to the
+        // full pool here would fuzzy-match the client name and book Display spend onto the client's CTV
+        // line at high confidence — e.g. "Greenwood Credit Union - Display" ($736) → Greenwood CTV,
+        // clobbering the real "Greenwood Credit Union - CTV" ($2,992) row that maps to the same line.
+        const pool    = tactic ? matchCandidates.filter(c => c.platform === tactic) : [];
         const label   = tvsciLabel(rawName);
         if(label && pool.length){
           // TIE GUARD: the client part is often a PREFIX of several tracker campaigns — "Shining Star"
@@ -12918,6 +13216,17 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         });
         if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; }
       }
+    });
+
+    // COLLISION GUARD: two file rows auto-matched onto the SAME tracker campaign means one of them is
+    // wrong, or the export splits a line the tracker keeps whole ("A Desert Co - OTT" + "A Desert Co -
+    // OTT-Spanish" both → the one A Desert Co OTT line). Applying both is last-write-wins, so a row's
+    // numbers vanish with no warning. Force every colliding row to low confidence so the ⚠ review gate
+    // makes the user pick — an explicit choice is remembered; a silent overwrite isn't.
+    const idCounts = {};
+    Object.values(initMap).forEach(id => { if(id) idCounts[id] = (idCounts[id]||0) + 1; });
+    Object.keys(initMap).forEach(k => {
+      if(initMap[k] && idCounts[initMap[k]] > 1 && initConf[k] > 0.5) initConf[k] = 0.5;
     });
 
     const totalMatched=Object.values(initMap).filter(Boolean).length;
@@ -18291,7 +18600,7 @@ export default function App() {
     }
   },[]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const platforms = useMemo(()=>{ const used=new Set(campaigns.map(c=>c.platform)); return [...ALL_PLATFORMS.filter(p=>used.has(p)), ...[...used].filter(p=>!ALL_PLATFORMS.includes(p)).sort()]; },[campaigns]);
+  const platforms = useMemo(()=>sortPlatforms([...new Set(campaigns.map(c=>c.platform).filter(Boolean))]),[campaigns]);
   const filtered  = useMemo(()=>{
     let list = campaigns.filter(c=>{
       const q=search.toLowerCase();
@@ -18406,11 +18715,10 @@ export default function App() {
   function updateCampaign(u, logEntry) {
     setCampaigns(cs => {
       const old = cs.find(c=>c.id===u.id);
-      // Lean undo snapshot: keep the editable fields, but DROP the heavy ones (check-in history,
-      // per-line snapshots, the check-in log). Those aren't what an edit/check-in changes, and
-      // cloning them into all 500 activity-log entries is what bloated storage to ~1.6 MB. Undo
-      // merges this over the live campaign, so history is preserved.
-      const snap = old ? (({ metricSeries, metaSnapshots, ttdSnapshots, dspSnapshots, googleSnapshots, snapSnapshots, checkInLog, ...rest }) => rest)(old) : null;
+      // Lean undo snapshot — see leanUndoSnapshot: keeps the editable fields, drops the heavy
+      // delivery detail an edit/check-in can't change. Cloning those into all 500 activity-log
+      // entries is what bloated storage to ~1.6 MB once already.
+      const snap = old ? leanUndoSnapshot(old) : null;
       if (old && logEntry) {
         addLog({ ...logEntry, campaignName: u.campaignName, partner: u.mediaPartner, platform: u.platform, prevSnapshot: snap, campaignId: u.id });
       } else if (old && !logEntry) {
@@ -18488,7 +18796,7 @@ export default function App() {
       const updated = {...c, ...newUpdates};
       addLog({type:"edited", campaignName:c.campaignName, partner:c.mediaPartner, platform:c.platform,
         detail:`Bulk edit: ${[...Object.entries(updates).map(([k,v])=>`${k}="${v}"`), historyEntry?`history+="${historyEntry}"`:""].filter(Boolean).join(", ")}`,
-        prevSnapshot:{...c}, campaignId:c.id});
+        prevSnapshot:leanUndoSnapshot(c), campaignId:c.id});
       return updated;
     }));
     setSelectedIds(new Set());
@@ -18507,7 +18815,7 @@ export default function App() {
     setCampaigns(cs => cs.map(c => {
       if (!selectedIds.has(c.id)) return c;
       addLog({ type:"edited", campaignName:c.campaignName, partner:c.mediaPartner, platform:c.platform,
-        detail:"Bulk: metrics cleared (new month reset)", prevSnapshot:{...c}, campaignId:c.id });
+        detail:"Bulk: metrics cleared (new month reset)", prevSnapshot:clearMetricsUndoSnapshot(c), campaignId:c.id });
       return { ...c,
         impressions:"", ctr:"", cpm:"", spend:"",
         clicks:"", reach:"", frequency:"", videoViews:"",
@@ -19050,9 +19358,128 @@ export default function App() {
                   </div>
                   {pct >= 85 && (
                     <div style={{marginTop:8,fontSize:11,fontWeight:700,color:lightMode?"#b91c1c":"#fca5a5"}}>
-                      ⚠ Getting full — export a backup now and clear old data (archive finished campaigns, clear the activity log) to free space.
+                      ⚠ Getting full — export a JSON backup now, then use the breakdown below to see what's actually using the space.
                     </div>
                   )}
+                  {/* What's actually using it. Archiving does NOT free space — an archived campaign
+                      keeps every snapshot/series/creative row it had — so the old "archive finished
+                      campaigns" advice was wrong. Show the real numbers instead of guessing. */}
+                  {(()=>{
+                    const bd = getStorageBreakdown();
+                    const sub = lightMode?"#64748b":"#7a9bbf";
+                    const txt = lightMode?"#0f172a":"#edf4ff";
+                    const brd2 = lightMode?"#e2e8f0":"#1e293b";
+                    const KEY_LABEL = {
+                      "campaign-tracker-v3":"Active campaigns",
+                      "campaign-tracker-archive":"Archived campaigns",
+                      "campaign-tracker-monthly-backups":"Monthly backups",
+                      "campaign-tracker-activity":"Activity log (undo history)",
+                      "campaign-tracker-month-locks":"Month locks",
+                      "campaign-tracker-csv-mappings":"Check-in name memory",
+                      "campaign-tracker-report-vault":"Report vault",
+                      "campaign-tracker-dismissed-alerts":"Dismissed alerts",
+                      "zeus-pdf-drafts":"IO PDF drafts",
+                      "zeus-pdf-meta":"IO PDF metadata",
+                      "zeus-memory":"Zeus memory",
+                      "zeus-last-chat":"Zeus chat history",
+                    };
+                    const FIELD_LABEL = {
+                      metricSeries:"Daily delivery series", checkInLog:"Check-in log",
+                      metaSnapshots:"Meta snapshots", ttdSnapshots:"TradeDesk snapshots",
+                      dspSnapshots:"DSP snapshots", googleSnapshots:"Google snapshots",
+                      snapSnapshots:"Snapchat snapshots", creativeReport:"Creative reports (per-ad)",
+                      history:"Campaign notes/history",
+                    };
+                    const row = (label, bytes, note, key) => {
+                      const p = bd.total>0 ? bytes/bd.total*100 : 0;
+                      return (
+                        <div key={key||label} style={{display:"flex",alignItems:"center",gap:8,padding:"3px 0"}}>
+                          <div style={{flex:"0 0 46%",fontSize:11,color:txt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                            {label}{note?<span style={{color:sub,fontWeight:400}}> · {note}</span>:null}
+                          </div>
+                          <div style={{flex:1,background:lightMode?"#f1f5f9":"#07101c",borderRadius:4,height:6,overflow:"hidden"}}>
+                            <div style={{background:lightMode?"#0284c7":"#00d9ff",height:"100%",width:Math.max(1,p)+"%",borderRadius:4}}/>
+                          </div>
+                          <div style={{flex:"0 0 62px",textAlign:"right",fontSize:11,fontWeight:700,color:sub}}>{fmtBytes(bytes)}</div>
+                        </div>
+                      );
+                    };
+                    return (
+                      <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${brd2}`}}>
+                        <div style={{fontSize:11,fontWeight:800,color:txt,marginBottom:6}}>What's using it</div>
+                        {bd.keys.filter(k=>k.bytes>1024).slice(0,8).map(k =>
+                          row(KEY_LABEL[k.key] || k.key, k.bytes,
+                              k.key==="campaign-tracker-v3" ? `${bd.campCount} campaigns`
+                            : k.key==="campaign-tracker-archive" ? `${bd.archCount} archived` : "", k.key))}
+
+                        {bd.fieldList.length>0 && (
+                          <>
+                            <div style={{fontSize:11,fontWeight:800,color:txt,margin:"12px 0 4px"}}>
+                              Inside those campaigns
+                              <span style={{fontWeight:400,color:sub}}> — delivery detail, active + archived</span>
+                            </div>
+                            {bd.fieldList.slice(0,8).map(f =>
+                              row(FIELD_LABEL[f.name] || f.name, f.bytes,
+                                  f.archived>0 ? `${fmtBytes(f.archived)} of it archived` : "", f.name))}
+                            {row("Everything else (names, goals, dates…)", bd.coreBytes, "the campaigns themselves", "_core")}
+                          </>
+                        )}
+                        <div style={{fontSize:10,color:sub,lineHeight:1.5,marginTop:8}}>
+                          Archiving a campaign does <b>not</b> free space — it keeps all of its delivery
+                          detail. The rows above marked “archived” are history you can no longer see in
+                          the Pacing tab; that's usually the cheapest thing to drop if you ever need room.
+                        </div>
+                        {/* Clean-up action. Irreversible, so it states exactly what it will do and how
+                            much it frees BEFORE doing it, and points at the JSON export first. */}
+                        {(()=>{
+                          const plan = planArchiveCleanup(archive);
+                          const nothing = plan.drop.length === 0 && plan.withDetail === 0;
+                          return (
+                            <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${brd2}`,display:"flex",
+                                         alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                              <button
+                                disabled={nothing}
+                                className={nothing?undefined:"glow-btn-danger"}
+                                onClick={async ()=>{
+                                  const bits = [];
+                                  if (plan.withDetail > 0) bits.push(`• Strip delivery detail (daily series, snapshots, check-in log, creative reports) from ${plan.withDetail} archived campaign${plan.withDetail!==1?"s":""} — names, goals, dates and totals stay.`);
+                                  if (plan.drop.length > 0) bits.push(`• Permanently delete ${plan.drop.length} campaign${plan.drop.length!==1?"s":""} archived before ${fmtDate(plan.cutIso)} (older than ${ARCHIVE_RETENTION_MONTHS} months).`);
+                                  if (!await confirm({
+                                    title: `Are you sure? This frees about ${fmtBytes(plan.freed)}`,
+                                    message: `${bits.join("\n")}\n\nThis CANNOT be undone. Export a JSON backup first if you haven't today — it keeps everything.`,
+                                    confirmLabel: `Yes, clean up`,
+                                    danger: true,
+                                  })) return;
+                                  const freed = fmtBytes(plan.freed);
+                                  setArchive(plan.slimmed);
+                                  addLog({ type:"edited", campaignName:`${plan.slimmed.length} archived campaigns`, partner:"", platform:"",
+                                    detail:`Archive cleaned up — freed ${freed}${plan.drop.length?`, removed ${plan.drop.length} older than ${ARCHIVE_RETENTION_MONTHS} months`:""}`,
+                                    prevSnapshot:null, campaignId:null });
+                                  // Say so out loud. Without this the only visible change is the panel
+                                  // quietly re-rendering to "already slim", which reads as "nothing happened".
+                                  await confirm({
+                                    title: `✅ Freed ${freed}`,
+                                    message: `${plan.withDetail>0?`Stripped delivery detail from ${plan.withDetail} archived campaign${plan.withDetail!==1?"s":""}.\n`:""}${plan.drop.length>0?`Removed ${plan.drop.length} campaign${plan.drop.length!==1?"s":""} archived before ${fmtDate(plan.cutIso)}.\n`:""}\n${plan.slimmed.length} campaign${plan.slimmed.length!==1?"s":""} still in the archive — names, goals, dates and totals intact, and they still map in Quick Check-in.`,
+                                    confirmLabel: "Done", okOnly: true,
+                                  });
+                                }}
+                                style={{background:nothing?(lightMode?"#f1f5f9":"#0e1a2e"):(lightMode?"#fee2e2":"#2a0f0f"),
+                                        border:`1px solid ${nothing?brd2:(lightMode?"#fca5a5":"#7f1d1d")}`,borderRadius:7,
+                                        padding:"6px 12px",color:nothing?sub:(lightMode?"#b91c1c":"#fca5a5"),
+                                        fontSize:11,fontWeight:700,cursor:nothing?"default":"pointer",whiteSpace:"nowrap"}}>
+                                🧹 Clean up archive
+                              </button>
+                              <span style={{fontSize:10,color:sub,lineHeight:1.5,flex:1,minWidth:200}}>
+                                {nothing
+                                  ? "Archive is already slim — no delivery detail to strip and nothing older than "+ARCHIVE_RETENTION_MONTHS+" months."
+                                  : <>Frees about <b style={{color:txt}}>{fmtBytes(plan.freed)}</b> — strips delivery detail from {plan.withDetail} archived campaign{plan.withDetail!==1?"s":""}{plan.drop.length>0?<> and deletes {plan.drop.length} archived before {fmtDate(plan.cutIso)}</>:null}. Export a JSON backup first.</>}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}
@@ -19458,7 +19885,7 @@ export default function App() {
           {fStaleDays>0&&(
             <div style={{display:"flex",alignItems:"center",gap:6,background:lightMode?"#fffbeb":"#1a1208",border:`1px solid ${lightMode?"#fcd34d":"#f59e0b40"}`,borderRadius:7,padding:"4px 10px"}}>
               <span style={{fontSize:11,color:lightMode?"#d97706":"#fbbf24",fontWeight:700,whiteSpace:"nowrap"}}>🕒 No update in</span>
-              {[2,3,5,7,14].map(d=>(
+              {FRESHNESS_DAY_OPTIONS.map(d=>(
                 <button key={d} onClick={()=>setFStaleDays(d)}
                   style={{background:fStaleDays===d?(lightMode?"#fcd34d":"#f59e0b22"):"none",border:`1px solid ${fStaleDays===d?(lightMode?"#d97706":"#f59e0b60"):"transparent"}`,borderRadius:5,padding:"2px 8px",color:fStaleDays===d?(lightMode?"#451a03":"#fbbf24"):(lightMode?"#475569":"#3d5a72"),fontSize:12,fontWeight:fStaleDays===d?700:400,cursor:"pointer",transition:"all .12s"}}>
                   {d}d+
