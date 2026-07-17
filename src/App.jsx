@@ -495,6 +495,29 @@ function mirrorSnapshotToFields(campaign) {
   put("completionRate", mtd.vcr != null ? mtd.vcr : mtd.completionRate);
   return out;
 }
+// Drop THIS MONTH's readings from a campaign's delivery series.
+//
+// Used when a breakdown line is moved or cleared. Each metricSeries entry is the COMBINED MTD
+// reading at one check-in ({d, i, c, s, v, vv}) — per-line contributions are never stored — so once
+// a line has been rolled into those readings its historical share CANNOT be unwound. Leaving them
+// is worse than dropping them: the corrected totals are lower, so the next drop diffs against an
+// inflated prior reading and draws a negative/zero day on the chart.
+//
+// So the month gets dropped and the chart rebuilds from the next drop. Austin chose this over
+// scaling the readings by the kept/total ratio, which would have invented per-day delivery that
+// never happened: "probably 3, this should only happen early in the month or one of the first few
+// drops anyway." Closed months are untouched — only the current pacing month is affected.
+function dropCurrentMonthSeries(c) {
+  const ms = Array.isArray(c && c.metricSeries) ? c.metricSeries : null;
+  if (!ms || !ms.length) return c;
+  const n = pacingNow();
+  const kept = ms.filter(e => {
+    const d = parseSeriesDate(e && e.d);
+    return !(d && d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth());
+  });
+  return kept.length === ms.length ? c : { ...c, metricSeries: kept };
+}
+
 // Load-time reconciliation across a campaign list — heals any records that drifted before mirroring
 // existed. Idempotent: subsequent loads find nothing to change. Returns {list, changed:count}.
 function reconcileMetricFields(list) {
@@ -6740,6 +6763,61 @@ function ActivityLog({ log, campaigns, onClear, onUndo }) {
 }
 
 
+// Generic toolbar dropdown: one labelled button that opens a list of checkbox rows. Exists to fold
+// the Pacing tab's row of independent toggle buttons (vs Last Month · Quiet Lines · Forecast ·
+// Anomalies · Last Month recap) into a single control — Austin's feedback was that the toolbar read
+// as overwhelming. Each item keeps its own state and toggle; this only changes where they live.
+// Mirrors PlatformMultiSelect's outside-click-to-close behaviour so the two feel the same.
+function ToolbarMenu({ label, items, lightMode=false }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    function handle(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+  const list = items.filter(Boolean);
+  const activeCount = list.filter(i => i.on).length;
+  const totalBadge = list.reduce((s, i) => s + (i.on ? 0 : (i.badge || 0)), 0);
+  const lmBg = lightMode ? "#ffffff" : "#0e1a2e";
+  const lmBrd2 = lightMode ? "#cbd5e1" : "#1e293b";
+  const lmTxtS2 = lightMode ? "#475569" : "#7a9bbf";
+  return (
+    <div ref={ref} style={{position:"relative",flexShrink:0}}>
+      <button onClick={()=>setOpen(o=>!o)}
+        title={list.map(i=>i.title||i.label).join(" · ")}
+        style={{display:"flex",alignItems:"center",gap:6,background:activeCount?(lightMode?"#eef2ff":"#0f1230"):lmBg,
+          border:`1px solid ${activeCount?(lightMode?"#6366f1":"#818cf860"):lmBrd2}`,borderRadius:7,padding:"5px 11px",
+          color:activeCount?(lightMode?"#4338ca":"#a5b4fc"):lmTxtS2,fontSize:11,fontWeight:activeCount?700:400,
+          cursor:"pointer",whiteSpace:"nowrap"}}>
+        <span>{label}{activeCount?` (${activeCount})`:""}</span>
+        {/* Unopened panels that have something to report still surface their count here, so folding
+            them into a menu can't hide a quiet line or an anomaly the user would have seen before. */}
+        {totalBadge>0 && <span style={{background:lightMode?"#fed7aa":"#7c2d12",color:lightMode?"#9a3412":"#fdba74",borderRadius:9,padding:"0 6px",fontSize:10,fontWeight:800}}>{totalBadge}</span>}
+        <span style={{fontSize:9,opacity:0.5}}>{open?"▲":"▼"}</span>
+      </button>
+      {open && (
+        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:lmBg,border:`1px solid ${lmBrd2}`,
+          borderRadius:8,minWidth:210,zIndex:60,boxShadow:"0 8px 24px rgba(0,0,0,.35)",overflow:"hidden"}}>
+          {list.map(i=>(
+            <div key={i.key} onClick={i.toggle} title={i.title||""}
+              style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",cursor:"pointer",
+                background:i.on?(lightMode?"#f8fafc":"#101d33"):"transparent"}}
+              onMouseEnter={e=>{ if(!i.on) e.currentTarget.style.background=lightMode?"#f1f5f9":"#162236"; }}
+              onMouseLeave={e=>{ if(!i.on) e.currentTarget.style.background="transparent"; }}>
+              <span style={{width:13,height:13,borderRadius:3,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                border:`1px solid ${i.on?"#6366f1":lmBrd2}`,background:i.on?"#6366f1":"transparent",
+                color:"#fff",fontSize:9,fontWeight:900,lineHeight:1}}>{i.on?"✓":""}</span>
+              <span style={{fontSize:11,flex:1,color:lightMode?"#0f172a":"#edf4ff",whiteSpace:"nowrap"}}>{i.label}</span>
+              {i.badge>0 && <span style={{background:lightMode?"#fed7aa":"#7c2d12",color:lightMode?"#9a3412":"#fdba74",borderRadius:9,padding:"0 6px",fontSize:10,fontWeight:800}}>{i.badge}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms, lightMode=false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -6994,6 +7072,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // showAnomalies: panel listing campaigns whose latest daily delivery is abnormal vs their own
   // learned norm (a spike or sudden drop). Opened from a toolbar button with a count badge.
   const [showAnomalies, setShowAnomalies] = useState(false);
+  // The five overlay toggles (vs Last Month / Last Month / Quiet Lines / Forecast / Anomalies) used to
+  // sit as five separate buttons in the toolbar — too much. They now live behind one "Overlays ▾"
+  // dropdown. viewMenuOpen drives it; viewMenuRef closes it on outside click (mirrors PlatformMultiSelect).
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const viewMenuRef = useRef(null);
+  useEffect(() => {
+    if (!viewMenuOpen) return;
+    const h = (e) => { if (viewMenuRef.current && !viewMenuRef.current.contains(e.target)) setViewMenuOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [viewMenuOpen]);
   // Light-mode badge helpers
   const pBg     = (col) => col + "22";   // badge background
   const pBorder = (col) => col + "40";   // badge border
@@ -7229,6 +7318,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // into their sync status alongside active ones.
   const updatedTodayCount = campaigns.filter(c=>dataUpdatedWithin(c, updatedDays)).length;
   const notUpdatedCount   = campaigns.filter(c=>!dataUpdatedWithin(c, updatedDays)).length;
+  // Per-window counts for the freshness dropdown, so each option says how many it would show.
+  const freshCount = (d) => campaigns.filter(c=>dataUpdatedWithin(c, d)).length;
   // Most recent real DATA update across all campaigns (not lastChecked — so "Mark All Checked"
   // doesn't make this jump to today), shown as a "Last update" chip in mm/dd/yyyy.
   const lastUpdateISO = campaigns.reduce((mx,c)=>{ const d=[c.lastMetricUpdate,c.lastQciDate].filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x)).sort().pop(); return (d&&d>mx)?d:mx; }, "");
@@ -9253,34 +9344,28 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       />
       {/* Partner filter dropdown removed (2026-06-16, dash cleanup) — fPartner stays "all"; search + platform cover filtering. */}
       <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode}/>
-      <div style={{display:"flex",borderRadius:7,overflow:"hidden",border:"1px solid "+lmBrd,flexShrink:0}}>
-        <button onClick={()=>setTodayFilter(v=>v==="today"?"all":"today")} title={`Show only campaigns that got NEW data ${updatedDays===1?"today":`in the last ${updatedDays} days`} (a check-in / CSV sync or a metric edit) — not just 'Mark All Checked'`}
-          style={{background:todayFilter==="today"?(lightMode?"#dcfce7":"#001a14"):lmBgInp,padding:"5px 10px",color:todayFilter==="today"?lmC("#00d48a"):lmTxtS,fontSize:11,fontWeight:todayFilter==="today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none",borderRight:"1px solid "+lmBrd}}>
-          ✓ Updated{updatedTodayCount>0?` (${updatedTodayCount})`:""}
-        </button>
-        <button onClick={()=>setTodayFilter(v=>v==="not-today"?"all":"not-today")} title={`Show only campaigns with NO new data ${updatedDays===1?"today":`in the last ${updatedDays} days`} (still need a check-in / fresh metrics)`}
-          style={{background:todayFilter==="not-today"?(lightMode?"#fff7ed":"#1a0e00"):lmBgInp,padding:"5px 10px",color:todayFilter==="not-today"?lmC("#f97316"):lmTxtS,fontSize:11,fontWeight:todayFilter==="not-today"?700:400,cursor:"pointer",whiteSpace:"nowrap",border:"none"}}>
-          ✕ Not Updated{notUpdatedCount>0?` (${notUpdatedCount})`:""}
-        </button>
-      </div>
-      {/* Freshness window for the ✓/✕ pair above. Drops land in batches, so "today or nothing" called
-          a line stale that was checked yesterday — widen to 2/3/7 days without changing the buttons. */}
-      <div title="How far back still counts as 'updated' for the buttons on the left"
-        style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-        <span style={{fontSize:10,color:lmTxtS,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Within</span>
-        <div style={{display:"flex",borderRadius:7,overflow:"hidden",border:"1px solid "+lmBrd}}>
-          {FRESHNESS_DAY_OPTIONS.map((d,idx)=>(
-            <button key={d} onClick={()=>setUpdatedDays(d)}
-              title={d===1?"Only data that arrived today":`Data that arrived in the last ${d} days`}
-              style={{background:updatedDays===d?(lightMode?"#e0f2fe":"#00212e"):lmBgInp,padding:"5px 9px",
-                color:updatedDays===d?lmC("#00d9ff"):lmTxtS,fontSize:11,fontWeight:updatedDays===d?700:400,
-                cursor:"pointer",whiteSpace:"nowrap",border:"none",
-                borderRight:idx<FRESHNESS_DAY_OPTIONS.length-1?"1px solid "+lmBrd:"none"}}>
-              {d===1?"Today":d+"d"}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Freshness filter — ONE dropdown, replacing the old ✓/✕ button pair + the row of day chips
+          (the "updated 2d 3d 7d 14d" cluster Austin found ugly). The value encodes both the mode and
+          the window: "all" | "up:<days>" | "not:<days>". Each label carries its live match count. */}
+      <select
+        value={todayFilter==="all" ? "all" : `${todayFilter==="today"?"up":"not"}:${updatedDays}`}
+        onChange={e=>{
+          const v=e.target.value;
+          if(v==="all"){ setTodayFilter("all"); return; }
+          const [mode,d]=v.split(":");
+          setTodayFilter(mode==="up"?"today":"not-today");
+          setUpdatedDays(parseInt(d)||1);
+        }}
+        title="Filter by how recently each campaign got fresh data (a check-in / CSV sync / metric edit — not just Mark All Checked)"
+        style={{background:lmBgInp,border:"1px solid "+(todayFilter!=="all"?"#00c896":lmBrd),borderRadius:7,padding:"6px 10px",color:todayFilter!=="all"?lmC("#00d9ff"):lmTxtS,fontSize:11,fontWeight:todayFilter!=="all"?700:400,cursor:"pointer",outline:"none",flexShrink:0}}>
+        <option value="all">Freshness: all campaigns</option>
+        <optgroup label="Updated within">
+          {FRESHNESS_DAY_OPTIONS.map(d=><option key={"up"+d} value={`up:${d}`}>✓ Updated {d===1?"today":`≤ ${d} days`} ({freshCount(d)})</option>)}
+        </optgroup>
+        <optgroup label="Not updated within">
+          {FRESHNESS_DAY_OPTIONS.map(d=><option key={"not"+d} value={`not:${d}`}>✕ Not updated {d===1?"today":`in ${d} days`} ({campaigns.length-freshCount(d)})</option>)}
+        </optgroup>
+      </select>
       {/* Last update — read-only chip showing the most recent check-in date,
           with the date itself in electric blue. */}
       <div title="Most recent check-in date across all campaigns"
@@ -9289,59 +9374,61 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         <span style={{color:lightMode?"#2563eb":"#38bdf8",fontWeight:700}}>{lastUpdateDisp}</span>
       </div>
       {pacingView !== "lifetime" && (<React.Fragment>
-      {/* Month-over-month compare toggle */}
-      <button onClick={()=>setShowMoM(v=>!v)} title="Show each campaign's delivery vs the same point last month, pulled from check-in history"
-        style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,fontSize:11,fontWeight:showMoM?700:400,
-          background:showMoM?(lightMode?"#eff6ff":"#0a1f33"):lmBgInp,
-          border:`1px solid ${showMoM?(lightMode?"#3b82f6":"#38bdf860"):lmBrd}`,
-          color:showMoM?(lightMode?"#1d4ed8":"#7ec8ff"):lmTxtS}}>
-        📅 vs Last Month
-      </button>
-      {/* Last-month recap toggle — only when a closing backup exists */}
-      {lastBackup && (
-        <button onClick={()=>setShowLastMonth(v=>!v)} title={`View ${lastBackup.label}'s final results (saved at the monthly reset)`}
-          style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,fontSize:11,fontWeight:showLastMonth?700:400,
-            background:showLastMonth?(lightMode?"#f5f3ff":"#1a1430"):lmBgInp,
-            border:`1px solid ${showLastMonth?(lightMode?"#8b5cf6":"#a78bfa60"):lmBrd}`,
-            color:showLastMonth?(lightMode?"#6d28d9":"#c4b5fd"):lmTxtS}}>
-          🗓️ Last Month
+      {/* Overlays — the five on-demand analysis views (vs Last Month, Last Month recap, Quiet Lines,
+          Forecast, Anomalies) folded into ONE dropdown of checkboxes instead of five toolbar buttons.
+          The badge shows how many are currently on; row badges surface the quiet-line / anomaly counts. */}
+      <div ref={viewMenuRef} style={{position:"relative",flexShrink:0}}>
+        {(()=>{ const activeCount=[showMoM,showLastMonth,showQuietLines,showForecast,showAnomalies].filter(Boolean).length; return (
+        <button onClick={()=>setViewMenuOpen(o=>!o)} title="Extra analysis overlays: last-month compare, quiet lines, forecast, anomalies"
+          style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",fontSize:11,fontWeight:activeCount?700:400,
+            background:activeCount?(lightMode?"#eef2ff":"#0f1230"):lmBgInp,
+            border:`1px solid ${activeCount?(lightMode?"#6366f1":"#818cf860"):lmBrd}`,
+            color:activeCount?(lightMode?"#4338ca":"#a5b4fc"):lmTxtS}}>
+          🎛 Overlays
+          {activeCount>0 && <span style={{background:lightMode?"#c7d2fe":"#312e81",color:lightMode?"#3730a3":"#c7d2fe",borderRadius:9,padding:"0 6px",fontSize:10,fontWeight:800}}>{activeCount}</span>}
+          <span style={{fontSize:9,opacity:0.6}}>{viewMenuOpen?"▲":"▼"}</span>
         </button>
-      )}
-      {/* Lines gone quiet — opened on demand; count badge hints when there's something to see */}
-      <button onClick={()=>setShowQuietLines(v=>!v)} title="Show ad lines AND individual ads that have stopped delivering while their campaign keeps running"
-        style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,fontSize:11,fontWeight:showQuietLines?700:400,
-          background:showQuietLines?(lightMode?"#fff7ed":"#1a0f00"):lmBgInp,
-          border:`1px solid ${showQuietLines?(lightMode?"#fb923c":"#f9731680"):lmBrd}`,
-          color:showQuietLines?(lightMode?"#c2410c":"#fb923c"):lmTxtS}}>
-        🔌 Quiet Lines &amp; Ads
-        {(quietLines.length+quietAds.length)>0 && <span style={{background:lightMode?"#fed7aa":"#7c2d12",color:lightMode?"#9a3412":"#fdba74",borderRadius:9,padding:"0 6px",fontSize:10,fontWeight:800}}>{quietLines.length+quietAds.length}</span>}
-      </button>
-      {/* Forecast — show each campaign's projected end-of-month finish at current pace */}
-      <button onClick={()=>setShowForecast(v=>!v)} title="Show each campaign's projected end-of-month finish (% of goal) at its current pace"
-        style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,fontSize:11,fontWeight:showForecast?700:400,
-          background:showForecast?(lightMode?"#eef2ff":"#0f1230"):lmBgInp,
-          border:`1px solid ${showForecast?(lightMode?"#6366f1":"#818cf860"):lmBrd}`,
-          color:showForecast?(lightMode?"#4338ca":"#a5b4fc"):lmTxtS}}>
-        📈 Forecast
-      </button>
-      {/* Anomaly watch — abnormal daily delivery vs each campaign's learned norm */}
-      <button onClick={()=>setShowAnomalies(v=>!v)} title="Campaigns delivering far above or below their own usual daily rate"
-        style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,fontSize:11,fontWeight:showAnomalies?700:400,
-          background:showAnomalies?(lightMode?"#fdf4ff":"#1f0f26"):lmBgInp,
-          border:`1px solid ${showAnomalies?(lightMode?"#d946ef":"#e879f960"):lmBrd}`,
-          color:showAnomalies?(lightMode?"#a21caf":"#e879f9"):lmTxtS}}>
-        🔍 Anomalies
-        {anomalyCount>0 && <span style={{background:lightMode?"#f5d0fe":"#701a75",color:lightMode?"#86198f":"#f0abfc",borderRadius:9,padding:"0 6px",fontSize:10,fontWeight:800}}>{anomalyCount}</span>}
-      </button>
+        ); })()}
+        {viewMenuOpen && (
+          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:40,minWidth:230,background:lightMode?"#ffffff":"#0e1a2e",border:"1px solid "+lmBrd,borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,.35)",padding:"6px",display:"flex",flexDirection:"column",gap:2}}>
+            {[
+              {on:showMoM,        set:setShowMoM,        label:"📅 vs Last Month",     desc:"Delivery vs the same point last month"},
+              ...(lastBackup?[{on:showLastMonth, set:setShowLastMonth, label:"🗓️ Last Month recap", desc:`${lastBackup.label}'s final results`}]:[]),
+              {on:showQuietLines, set:setShowQuietLines, label:"🔌 Quiet Lines & Ads", desc:"Lines/ads that stopped delivering", badge:quietLines.length+quietAds.length},
+              {on:showForecast,   set:setShowForecast,   label:"📈 Forecast",          desc:"Projected end-of-month finish"},
+              {on:showAnomalies,  set:setShowAnomalies,  label:"🔍 Anomalies",         desc:"Abnormal daily delivery", badge:anomalyCount},
+            ].map((it,ix)=>(
+              <div key={ix} onClick={()=>it.set(v=>!v)}
+                style={{display:"flex",alignItems:"center",gap:9,padding:"7px 9px",borderRadius:6,cursor:"pointer",background:it.on?(lightMode?"#eef2ff":"#0f1230"):"transparent"}}
+                onMouseEnter={e=>{ if(!it.on) e.currentTarget.style.background=lightMode?"#f1f5f9":"#152238"; }}
+                onMouseLeave={e=>{ if(!it.on) e.currentTarget.style.background="transparent"; }}>
+                <span style={{width:15,height:15,borderRadius:4,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,
+                  background:it.on?"#6366f1":"transparent",border:"1px solid "+(it.on?"#6366f1":lmBrd),color:"#fff"}}>{it.on?"✓":""}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:11,fontWeight:600,color:lmTxt}}>{it.label}{it.badge>0?<span style={{marginLeft:5,color:lmC("#fb923c"),fontWeight:800}}>{it.badge}</span>:null}</div>
+                  <div style={{fontSize:9,color:lmTxtS}}>{it.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {/* Sort — nine buttons collapsed into one dropdown + a direction toggle. clickSort(k) sets the
+          key and its sensible default direction; the ↑/↓ button flips it. */}
       <div style={{display:"flex",gap:5,marginLeft:"auto",alignItems:"center"}}>
         <span style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
-        {[["pacing","Pacing"],["impr","Impr"],["ctr","CTR"],["cpm","CPM"],["spend","Spend"],["ends","Ends"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
-          <button key={k} onClick={()=>clickSort(k)}
-            title={sortKey===k?"Click to reverse order":`Sort by ${l}`}
-            style={{background:sortKey===k?(lightMode?"#dcfce7":"#002e24"):lmBgInp,border:"1px solid "+(sortKey===k?"#00c896":lmBrd),borderRadius:6,padding:"4px 10px",color:sortKey===k?"#00e5a0":lmTxtS,fontSize:11,fontWeight:sortKey===k?700:400,cursor:"pointer"}}>
-            {l}{sortKey===k?(sortDir==="asc"?" ↑":" ↓"):""}
-          </button>
-        ))}
+        <select value={sortKey} onChange={e=>clickSort(e.target.value)}
+          title="Choose how to sort the campaign list"
+          style={{background:lmBgInp,border:"1px solid "+lmBrd,borderRadius:6,padding:"5px 8px",color:lmTxt,fontSize:11,fontWeight:600,cursor:"pointer",outline:"none"}}>
+          {[["pacing","Pacing"],["impr","Impr / Views"],["ctr","CTR / VCR"],["cpm","CPM"],["spend","Spend"],["ends","End date"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
+            <option key={k} value={k}>{l}</option>
+          ))}
+        </select>
+        <button onClick={()=>setSortDir(d=>d==="asc"?"desc":"asc")}
+          title={sortDir==="asc"?"Ascending — click for descending":"Descending — click for ascending"}
+          style={{background:lmBgInp,border:"1px solid "+lmBrd,borderRadius:6,padding:"5px 9px",color:lmC("#00e5a0"),fontSize:12,fontWeight:800,cursor:"pointer",lineHeight:1}}>
+          {sortDir==="asc"?"↑":"↓"}
+        </button>
       </div>
     </React.Fragment>)}
     </div>
@@ -9351,15 +9438,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     </div>}
 
     {pacingView === "lifetime" ? renderLifetime() : (<React.Fragment>
-    {/* Benchmark legend — compact, replaces the pill boxes */}
+    {/* Row count + flat indicator. The ● On/Ahead / Behind / Low KPI / Warn KPI colour legend was
+        removed per Austin — each row is already colour-coded and grouped under a labelled section
+        header, so the legend was redundant noise. */}
     <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"center",fontSize:10,color:lmTxtD,flexWrap:"wrap"}}>
       <span style={{fontWeight:700,color:lmTxtS}}>{filtered.length} campaigns</span>
-      <span style={{color:lmBrd}}>·</span>
-      <span><span style={{color:"#00d48a",fontWeight:700}}>●</span> On/Ahead</span>
-      <span><span style={{color:lmC("#fde047"),fontWeight:700}}>●</span> Behind</span>
-      <span><span style={{color:"#ef4444",fontWeight:700}}>●</span> Low KPI</span>
-      <span><span style={{color:lmC("#fde047"),fontWeight:700}}>●</span> Warn KPI</span>
-      {noActivityRows.length>0&&<span style={{color:lmC("#fde047"),fontWeight:700,marginLeft:4}}>⏸ {noActivityRows.length} flat</span>}
+      {noActivityRows.length>0&&<span style={{color:lmC("#fde047"),fontWeight:700}}>⏸ {noActivityRows.length} flat</span>}
     </div>
 
     {/* ── Last-month recap panel ── read-only finished-month summary, toggled from the toolbar. */}
@@ -11877,6 +11961,10 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   const toLocalDT = d => { const p=n=>String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
   const [qciAsOf,      setQciAsOf]      = React.useState(()=>toLocalDT(new Date()));
   const [fileRows,     setFileRows]     = React.useState(null);   // parsed rows from file drop
+  // Filters the review list only — a big drop is 130+ rows (the TVsci book) and finding the two you
+  // need to re-check means scrolling the lot. Matches the file's row name AND the campaign it's
+  // mapped to, so "holy redeemer" finds the row whichever side you remember it by.
+  const [rowSearch,    setRowSearch]    = React.useState("");
   const [fileSource,   setFileSource]   = React.useState("");     // "Facebook/Meta" | "Snapchat"
   const [mapping,      setMapping]      = React.useState({});     // fileRowIdx -> campId (integers only)
   const [matchConf,    setMatchConf]    = React.useState({});     // fileRowIdx -> confidence (1.0=memory, 0.8=TTD, fuzzy score for others)
@@ -12623,8 +12711,20 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         if(advEntry && fullPool.find(c=>String(c.id)===String(advEntry.campId))) return advEntry.campId;
       }
     }
-    // For Google: primary key is Account Name (stable — campaign names vary across ad sets)
+    // For Google: an exact LINE-NAME key wins, then Account Name as the fallback.
+    //
+    // The account key exists because campaign names churn per ad set/keyword group, so it's what
+    // catches an ad set we've never seen. But it maps ONE account → ONE campaign, which is wrong
+    // whenever an account feeds several tracker campaigns (e.g. "SPI-Shining Star Schools_AG"
+    // serving BOTH Holy Redeemer and Christian School). Checked first, it returned early and
+    // silently overrode the specific mapping — so a line you'd explicitly Moved got dragged back
+    // to the old campaign on the very next drop, and re-Moving it could never stick.
+    // A line-name key is only ever written by an explicit decision (an Apply, or a Move), so it's
+    // strictly better evidence than the account default. Specific beats general.
     if(source==="Google" && row){
+      const gNameKey = makeNameKey(source, csvName);
+      const gNameEntry = savedMappings[gNameKey];
+      if(gNameEntry && fullPool.find(c=>String(c.id)===String(gNameEntry.campId))) return gNameEntry.campId;
       const accName = getGoogleAccountName(row);
       if(accName){
         const accKey = makeGoogleNameKey(accName);
@@ -13278,7 +13378,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if(memEntries.length) persistNameMappings(fileSource, memEntries);
       const totalAds=campKeys.reduce((s,k)=>s+byCamp[k].length,0);
       setSavedMsg(`🎨 Saved ${totalAds} creative${totalAds!==1?"s":""} to ${campKeys.length} campaign${campKeys.length!==1?"s":""}`);
-      setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setIsCreativeMode(false); setCreativeGroups({}); setConfirmApplyPending(false);
+      setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setIsCreativeMode(false); setCreativeGroups({}); setConfirmApplyPending(false); setRowSearch("");
       return;
     }
 
@@ -13309,7 +13409,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if(memEntries.length) persistNameMappings(fileSource, memEntries);
       const total=keys.reduce((s,k)=>s+byCamp[k],0);
       setSavedMsg(`📺 Saved TVsci lifetime spend to ${keys.length} campaign${keys.length!==1?"s":""} · $${total.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} total — lifetime only, monthly P&L untouched`);
-      setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setConfirmApplyPending(false);
+      setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setConfirmApplyPending(false); setRowSearch("");
       return;
     }
 
@@ -13522,7 +13622,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     else if(_sourceHistory.length>0) msgParts.push(`✓ all ${_sourceHistory.length} ${fileSource} campaigns${_scoped?" in your filter":""} reported`);
     msgParts.push(`${entries.length} mappings saved`);
     setSavedMsg(msgParts.join(" · "));
-    setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setIsCreativeMode(false); setCreativeGroups({}); setConfirmApplyPending(false);
+    setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setIsCreativeMode(false); setCreativeGroups({}); setConfirmApplyPending(false); setRowSearch("");
   }
 
   function saveDraftField(campId,field,value){
@@ -13957,11 +14057,51 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
               ) : null;
             })()}
 
+            {/* Row search — only worth showing once the list is long enough to scroll. Filters by the
+                FILE's row name or the campaign it's currently mapped to; never changes the mapping
+                itself, and row indexes stay intact because filtered rows just render null. */}
+            {fileRows.length > 6 && (()=>{
+              const q = rowSearch.trim().toLowerCase();
+              const shown = !q ? null : fileRows.filter((row,i)=>{
+                const n = (getCampName(row, fileSource)||"").toLowerCase();
+                if(isIgnoredName(getCampName(row, fileSource))) return false;
+                const cid = mapping[i];
+                const cn = cid ? ((fullPool.find(x=>String(x.id)===String(cid))||{}).campaignName||"").toLowerCase() : "";
+                return n.includes(q) || cn.includes(q);
+              }).length;
+              return (
+                <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}>
+                  <input
+                    value={rowSearch}
+                    onChange={e=>setRowSearch(e.target.value)}
+                    placeholder={`Search ${fileRows.length - ignoredInFileCount} rows — file name or mapped campaign…`}
+                    style={{flex:1,background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${rowSearch?"#00c896":(_lm?"#cbd5e1":"#1e293b")}`,
+                            borderRadius:6,padding:"5px 10px",color:_lm?"#0f172a":"#edf4ff",fontSize:11,outline:"none"}}
+                  />
+                  {rowSearch && (
+                    <>
+                      <span style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",whiteSpace:"nowrap"}}>
+                        {shown} match{shown!==1?"es":""}
+                      </span>
+                      <button onClick={()=>setRowSearch("")}
+                        style={{background:"none",border:"none",color:_lm?"#64748b":"#4d6e8a",fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1}}>×</button>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
             <div style={{maxHeight:320,overflowY:"auto",flex:1}}>
               {fileRows.map((row,i)=>{
                 const m=extractMetrics(row,fileSource);
                 const name=getCampName(row,fileSource);
                 if(isIgnoredName(name)) return null;   // hidden — managed in the "🚫 Ignored" list up top
+                // Row search — match the file's name OR the campaign it's mapped to.
+                if(rowSearch.trim()){
+                  const q = rowSearch.trim().toLowerCase();
+                  const cid = mapping[i];
+                  const cn = cid ? ((fullPool.find(x=>String(x.id)===String(cid))||{}).campaignName||"").toLowerCase() : "";
+                  if(!(name||"").toLowerCase().includes(q) && !cn.includes(q)) return null;
+                }
                 // For TradeDesk rows, show the advertiser name (client name) as the primary label
                 const ttdAdvName = fileSource==="TradeDesk" ? getTTDAdvertiserName(row) : "";
                 const ttdClientName = fileSource==="TradeDesk" ? getTTDClientName(ttdAdvName) : "";
@@ -17972,9 +18112,17 @@ export default function App() {
       const impr = lines.reduce((s, b) => s + (parseFloat(b.impressions)||0), 0);
       const clk  = lines.reduce((s, b) => s + (parseFloat(b.clicks)||0), 0);
       const spn  = lines.reduce((s, b) => s + (parseFloat(b.spend)||0), 0);
+      // VIEWS and VCR must be rebuilt here too. They were missing, which left a YT campaign's
+      // videoViews frozen at its pre-move total while the breakdown correctly shrank — and views
+      // is the ONE metric YT paces on (pacingMetricFor("YT") === "views"), so the row kept showing
+      // the stale number, and once cleared it silently fell back to IMPRESSIONS labelled "views".
+      const views = lines.reduce((s, b) => s + (parseFloat(b.videoViews)||0), 0);
+      // VCR is a per-line RATE — weight it by that line's impressions, never a flat average.
+      const vcrNum = lines.reduce((s, b) => s + ((parseFloat(b.vcr)||0) * (parseFloat(b.impressions)||0)), 0);
+      const vcr  = impr > 0 ? vcrNum / impr : 0;
       const ctr  = impr > 0 && clk > 0 ? clk / impr : 0;
       const cpm  = impr > 0 && spn > 0 ? (spn / impr) * 1000 : 0;
-      return { impr, clk, spn, ctr, cpm };
+      return { impr, clk, spn, ctr, cpm, views, vcr };
     };
     setCampaigns(cs => cs.map(c => {
       if (c.id !== fromCampaignId) return c;
@@ -17992,9 +18140,15 @@ export default function App() {
         spend: t.spn || null,
         ctr: t.ctr || null,
         cpm: t.cpm || null,
+        // See the note in totalsFromBreakdown — without these the snapshot keeps the pre-clear
+        // views and the load-time mirror pushes them back onto the campaign.
+        videoViews: t.views || null,
+        vcr: t.vcr || null,
         updatedAt: today,
       };
-      return {
+      // Same as the move path: this month's readings still contain the cleared line and can't be
+      // unwound, so drop them rather than leave the chart diffing against an inflated prior.
+      return dropCurrentMonthSeries({
         ...c,
         [snapField]: { ...src, [snapKey]: updatedSnap },
         impressions: t.impr > 0 ? String(Math.round(t.impr)) : "",
@@ -18002,7 +18156,9 @@ export default function App() {
         spend:       t.spn  > 0 ? String(parseFloat(t.spn.toFixed(2))) : "",
         cpm:         t.cpm  > 0 ? String(parseFloat(t.cpm.toFixed(4))) : "",
         ctr:         t.ctr  > 0 ? String(parseFloat(t.ctr.toFixed(4))) : "",
-      };
+        videoViews:  t.views > 0 ? String(Math.round(t.views)) : "",
+        completionRate: t.vcr > 0 ? String(parseFloat(t.vcr.toFixed(2))) : "",
+      });
     }));
     // Also remove any savedMappings entry for this line so the next CSV drop
     // shows it as unmatched (rather than auto-routing it to the campaign you
@@ -18051,9 +18207,17 @@ export default function App() {
       const impr = lines.reduce((s, b) => s + (parseFloat(b.impressions)||0), 0);
       const clk  = lines.reduce((s, b) => s + (parseFloat(b.clicks)||0), 0);
       const spn  = lines.reduce((s, b) => s + (parseFloat(b.spend)||0), 0);
+      // VIEWS and VCR must be rebuilt here too. They were missing, which left a YT campaign's
+      // videoViews frozen at its pre-move total while the breakdown correctly shrank — and views
+      // is the ONE metric YT paces on (pacingMetricFor("YT") === "views"), so the row kept showing
+      // the stale number, and once cleared it silently fell back to IMPRESSIONS labelled "views".
+      const views = lines.reduce((s, b) => s + (parseFloat(b.videoViews)||0), 0);
+      // VCR is a per-line RATE — weight it by that line's impressions, never a flat average.
+      const vcrNum = lines.reduce((s, b) => s + ((parseFloat(b.vcr)||0) * (parseFloat(b.impressions)||0)), 0);
+      const vcr  = impr > 0 ? vcrNum / impr : 0;
       const ctr  = impr > 0 && clk > 0 ? clk / impr : 0;
       const cpm  = impr > 0 && spn > 0 ? (spn / impr) * 1000 : 0;
-      return { impr, clk, spn, ctr, cpm };
+      return { impr, clk, spn, ctr, cpm, views, vcr };
     };
     setCampaigns(cs => cs.map(c => {
       if (c.id === fromCampaignId) {
@@ -18072,9 +18236,16 @@ export default function App() {
           spend: t.spn || null,
           ctr: t.ctr || null,
           cpm: t.cpm || null,
+          // Mirror views/VCR into the snapshot too, or the load-time reconcile
+          // (mirrorSnapshotToFields) would push the stale snapshot value straight back
+          // onto the campaign on the next refresh and undo this.
+          videoViews: t.views || null,
+          vcr: t.vcr || null,
           updatedAt: today,
         };
-        return {
+        // dropCurrentMonthSeries: this month's chart readings still include the line being moved
+        // away and can't be unwound — drop them and let the chart rebuild from the next drop.
+        return dropCurrentMonthSeries({
           ...c,
           [snapField]: { ...src, [snapKey]: updatedSnap },
           impressions: t.impr > 0 ? String(Math.round(t.impr)) : "",
@@ -18082,7 +18253,9 @@ export default function App() {
           spend:       t.spn  > 0 ? String(parseFloat(t.spn.toFixed(2))) : "",
           cpm:         t.cpm  > 0 ? String(parseFloat(t.cpm.toFixed(4))) : "",
           ctr:         t.ctr  > 0 ? String(parseFloat(t.ctr.toFixed(4))) : "",
-        };
+          videoViews:  t.views > 0 ? String(Math.round(t.views)) : "",
+          completionRate: t.vcr > 0 ? String(parseFloat(t.vcr.toFixed(2))) : "",
+        });
       }
       if (c.id === toCampaignId) {
         // ── Add the line to the target campaign ──
@@ -18099,9 +18272,13 @@ export default function App() {
           spend: t.spn,
           ctr: t.ctr,
           cpm: t.cpm,
+          videoViews: t.views || null,
+          vcr: t.vcr || null,
           updatedAt: today,
         };
-        return {
+        // The TARGET's history needs dropping too — its readings were taken BEFORE it owned this
+        // line, so they now understate it by exactly the amount just added. Same reasoning, same fix.
+        return dropCurrentMonthSeries({
           ...c,
           [snapField]: { ...src, [snapKey]: updatedSnap },
           impressions: String(Math.round(t.impr)),
@@ -18109,9 +18286,13 @@ export default function App() {
           spend:       String(parseFloat(t.spn.toFixed(2))),
           cpm:         String(parseFloat(t.cpm.toFixed(4))),
           ctr:         String(parseFloat(t.ctr.toFixed(4))),
+          // Guarded rather than unconditional: a non-video line moving onto a campaign must not
+          // stamp a literal "0" over views/VCR the breakdown says nothing about.
+          videoViews:  t.views > 0 ? String(Math.round(t.views)) : "",
+          completionRate: t.vcr > 0 ? String(parseFloat(t.vcr.toFixed(2))) : "",
           status: c.status === "" ? "active" : c.status,
           lastChecked: today,
-        };
+        });
       }
       return c;
     }));
