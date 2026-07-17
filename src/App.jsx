@@ -220,6 +220,36 @@ function sortPlatforms(list) {
     return ia-ib;
   });
 }
+
+// ── Partner abbreviations ──────────────────────────────────────────────────────────────────────
+// Austin: "for the partners we can just do the initials… For Allen Media we use ALL-KITV or the
+// other stations. Spinnaker is SPIN, etc. Maybe also let me change the initials for them too."
+// So the Campaigns tab shows a short CODE per media partner instead of the full name. A custom code
+// (user-set, per full partner name) always wins; otherwise we derive a reasonable default.
+const PARTNER_ABBR_KEY = "campaign-tracker-partner-abbr";
+function loadPartnerAbbr(){ try{ const s=localStorage.getItem(PARTNER_ABBR_KEY); return s?JSON.parse(s):{}; }catch{ return {}; } }
+function savePartnerAbbr(map){ try{ localStorage.setItem(PARTNER_ABBR_KEY, JSON.stringify(map||{})); }catch(e){} }
+// Auto-derived default: drop filler words ("Media", "Broadcasting", …); one significant word → its
+// first 4 letters ("Spinnaker Media" → SPIN), several → their initials ("Alpha Palm Springs" → APS).
+// Anything already short/all-caps or hyphenated (a code like "ALL-KITV" or "WVR") is kept as-is.
+const _PARTNER_FILLER = new Set(["media","broadcasting","group","inc","llc","networks","network","company","co","the","of","and","tv","radio","marketing","advertising","agency","enterprises","communications"]);
+function derivePartnerAbbr(name){
+  const raw = String(name||"").trim();
+  if(!raw) return "";
+  if(raw.includes("-") || (raw.length<=6 && raw===raw.toUpperCase())) return raw.toUpperCase();
+  const words = raw.replace(/[.,]/g," ").split(/\s+/).filter(Boolean);
+  const sig = words.filter(w=>!_PARTNER_FILLER.has(w.toLowerCase()));
+  const use = sig.length ? sig : words;
+  if(use.length===1) return use[0].slice(0,4).toUpperCase();
+  return use.map(w=>w[0]).join("").slice(0,5).toUpperCase();
+}
+// The code to actually show for a partner, given the (possibly empty) custom map.
+function partnerAbbrOf(name, map){
+  const raw = String(name||"").trim();
+  if(!raw) return "";
+  const custom = map && map[raw];
+  return (custom && String(custom).trim()) ? String(custom).trim() : derivePartnerAbbr(raw);
+}
 // CTV streaming flavors that, by default, collapse into the generic "CTV" platform. Each maps to a
 // SUGGESTED dedicated platform (code/color/name) so an IO with one of these can prompt the user to
 // create its own platform (like the existing GCTV/PCTV). Codes are smart defaults — user-editable.
@@ -8312,7 +8342,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Campaign name + freshness/flight sub-line. Partner name removed per Austin (2026-07-17) —
           it's still searchable and shown in the edit modal, just not cluttering every pacing row. */}
       <div style={{minWidth:0}}>
-        <div style={{fontSize:13,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:6}}>
+        <div style={{fontSize:14,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:6}}>
           {canExpand&&(
             <button onClick={()=>setRowBreakdownOpen(v=>!v)}
               title={rowBreakdown
@@ -8323,20 +8353,22 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</span>
           {rowBreakdown&&<span style={{fontSize:9,color:lightMode?"#3b82f6":"#7ec8ff",background:lightMode?"#dbeafe":"#0a2540",borderRadius:3,padding:"0 4px",fontWeight:700,flexShrink:0}}>{rowBreakdown.length}</span>}
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:5,overflow:"hidden"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,overflow:"hidden"}}>
+          {/* Full flight dates "M/D/YY - M/D/YY" (Austin) — start neutral, END colour-coded by
+              days-left urgency (drc) so an imminent end still reads yellow/red. The old "· ends"
+              and mid-month "↪ started" badges are gone: the range now shows both dates outright. */}
+          {(c.startDate||c.endDate) && (()=>{
+            const mdYY=(s)=>{ const [y,m,d]=s.split("-"); return `${+m}/${+d}/${y.slice(2)}`; };
+            return <span style={{fontSize:11,color:lmTxtS,fontWeight:500,whiteSpace:"nowrap",flexShrink:0}}
+              title={`Flight: ${c.startDate?fmtDate(c.startDate):"—"} → ${c.endDate?fmtDate(c.endDate):"—"}${dr!=null?` · ${dr<0?"ended":dr===0?"ends today":dr+"d left"}`:""}`}>
+              {c.startDate?mdYY(c.startDate):"—"} - <span style={{color:drc,fontWeight:700}}>{c.endDate?mdYY(c.endDate):"—"}</span>
+            </span>;
+          })()}
+          {/* Data-freshness badge kept — distinct from the flight window (shows if a check-in landed today). */}
           {dataUpdatedToday(c)
             ? <span style={{fontSize:9,color:"#00d48a",fontWeight:700,background:lightMode?"#dcfce7":"#00200f",border:"1px solid #00d48a40",borderRadius:3,padding:"0px 4px",flexShrink:0}}>✓ today</span>
-            : <span style={{fontSize:9,color:lmTxtS,fontWeight:400,flexShrink:0}}>{(()=>{ const d=lastDataDate(c); return d&&/^\d{4}-\d{2}-\d{2}$/.test(d)?(([y,m,dd])=>`${m}/${dd}/${y}`)(d.split("-")):"—"; })()}</span>
+            : <span style={{fontSize:9,color:lmTxtS,fontWeight:400,flexShrink:0}}>{(()=>{ const d=lastDataDate(c); return d&&/^\d{4}-\d{2}-\d{2}$/.test(d)?(([y,m,dd])=>`${+m}/${+dd}`)(d.split("-")):"—"; })()}</span>
           }
-          {/* Mid-month START badge — flags WHY a later-starting flight's pacing window (and "expected by
-              now" tick) is shorter than full-month flights, so it's not mistaken for a mid-month END. */}
-          {(()=>{
-            const _moStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-01`;
-            if(!(c.startDate && c.startDate > _moStart)) return null;
-            return <span title={`Flight started ${fmtDate(c.startDate)} — partway through the month, so pacing is prorated to the days it actually ran this month (its "expected by now" is lower than full-month flights)`} style={{fontSize:9,color:lightMode?"#2563eb":"#7ec8ff",fontWeight:700,background:lightMode?"#dbeafe":"#0a2540",border:`1px solid ${lightMode?"#93c5fd":"#1e466e"}`,borderRadius:3,padding:"0px 4px",flexShrink:0}}>↪ started {(([y,m,d])=>`${m}/${d}`)(c.startDate.split("-"))}</span>;
-          })()}
-          {/* Flight end date — shown so the "Ends" sort is legible (color = days-left urgency) */}
-          {c.endDate && <span title={`Flight ends ${fmtDate(c.endDate)}${dr!=null?` · ${dr<0?"ended":dr===0?"ends today":dr+"d left"}`:""}`} style={{fontSize:9,color:drc,fontWeight:600,flexShrink:0}}>· ends {(([y,m,d])=>`${m}/${d}`)(c.endDate.split("-"))}</span>}
         </div>
       </div>
 
@@ -8357,8 +8389,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:18,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
-            <span style={{fontSize:9,color:lmC(col),fontWeight:700}}>{(pacing.pct*100).toFixed(1)}%</span>
-            {exp&&<span style={{fontSize:8,color:"#38bdf8aa"}}>/{(pacing.expectedPct*100).toFixed(0)}%</span>}
+            <span style={{fontSize:11,color:lmC(col),fontWeight:700}}>{(pacing.pct*100).toFixed(1)}%</span>
+            {exp&&<span style={{fontSize:10,color:"#38bdf8aa"}}>/{(pacing.expectedPct*100).toFixed(0)}%</span>}
             {pacing.pctRaw >= 1.10 && (
               <span title={`Delivered ${Math.round(pacing.pctRaw*100)}% of goal — overserving`}
                 style={{fontSize:9,fontWeight:700,color:lightMode?"#dc2626":"#fca5a5",background:lightMode?"#fee2e2":"#3a0010",border:`1px solid ${lightMode?"#ef4444":"#7f1d1d"}`,borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap"}}>⚠ Over {Math.round(pacing.pctRaw*100)}%</span>
@@ -9066,7 +9098,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       const ra=statusRank[a.lp.label]??2, rb=statusRank[b.lp.label]??2; // "risk"
       return _dir * (ra!==rb ? ra-rb : a.lp.pct-b.lp.pct);
     });
-    const GL = "minmax(280px,1.4fr) 72px 82px 240px 80px 100px 150px";
+    const GL = "minmax(280px,1.4fr) 72px 240px 80px 100px 150px";
     const cell = { fontSize: 11, color: lmTxt, display: "flex", alignItems: "center" };
     return (
       <div>
@@ -9119,14 +9151,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             const expPct = lp.timeFrac != null ? Math.min(100, lp.timeFrac*100) : null;
             return (
                 <div key={c.id} style={{display:"grid",gridTemplateColumns:GL,gap:8,padding:"9px 14px",borderBottom:"1px solid "+lmBrdR,alignItems:"center",borderLeft:"3px solid "+lmC(col)}}>
-                  {/* Campaign + partner — name opens the edit modal (to set the contract Goal) */}
+                  {/* Campaign name — partner removed to match the monthly pacing view (Austin: no partner
+                      on the Pacing tab). Name opens the edit modal (to set the contract Goal). */}
                   <div style={{minWidth:0}}>
-                    <div onClick={()=>onEdit(c)} title="Edit campaign (set the contract Goal)" style={{fontSize:13,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer"}}>
+                    <div onClick={()=>onEdit(c)} title="Edit campaign (set the contract Goal)" style={{fontSize:14,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer"}}>
                       {isOff && <span title="Paused / off — shown so you can confirm a finished contract" style={{fontSize:9,fontWeight:700,color:lmTxtD,border:"1px solid "+lmBrd,borderRadius:3,padding:"0 4px",marginRight:5}}>OFF</span>}
                       {c.campaignName.trim()}
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:5,overflow:"hidden"}}>
-                      <div style={{fontSize:10,color:lmTxtS,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
                       {dataUpdatedToday(c)
                         ? <span style={{fontSize:9,color:"#00d48a",fontWeight:700,background:lightMode?"#dcfce7":"#00200f",border:"1px solid #00d48a40",borderRadius:3,padding:"0px 4px",flexShrink:0}}>✓ today</span>
                         : <span style={{fontSize:9,color:lmTxtS,fontWeight:400,flexShrink:0}}>{(()=>{ const d=lastDataDate(c); return d&&/^\d{4}-\d{2}-\d{2}$/.test(d)?(([y,m,dd])=>`${m}/${dd}/${y}`)(d.split("-")):"—"; })()}</span>}
@@ -9134,8 +9166,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                   </div>
                   {/* Platform */}
                   <div><span style={{...vBadge(PLT_COLORS[c.platform]||PLT_COLORS.default),borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span></div>
-                  {/* Status pill */}
-                  <div><span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 5px"}}>{lp.label}</span></div>
+                  {/* Status column removed to match the monthly view. The plain Behind/On Track/Ahead
+                      label just repeated the section header + left border, so it's folded into the bar
+                      cell below — and only shown when it carries EXTRA info (a goal-hit / ended state). */}
                   {/* Lifetime pacing bar — same style as the monthly bar (electric-blue expected tick) */}
                   <div>
                     <div style={{position:"relative",background:lmBarTrk,borderRadius:4,height:10,overflow:"visible",marginBottom:2}}>
@@ -9143,9 +9176,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                       {expPct!=null && !lp.ended && <div title={"Expected by now: "+Math.round(lp.expected||0).toLocaleString()+" ("+Math.round(expPct)+"%)"}
                         style={{position:"absolute",top:-4,left:Math.min(97,expPct)+"%",width:3,height:18,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>}
                     </div>
-                    <div style={{display:"flex",alignItems:"center",gap:4}}>
-                      <span style={{fontSize:9,color:lmC(col),fontWeight:700}}>{(lp.pct*100).toFixed(1)}%</span>
-                      {expPct!=null && !lp.ended && <span style={{fontSize:8,color:"#38bdf8aa"}}>/{Math.round(expPct)}%</span>}
+                    <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                      <span style={{fontSize:11,color:lmC(col),fontWeight:700}}>{(lp.pct*100).toFixed(1)}%</span>
+                      {expPct!=null && !lp.ended && <span style={{fontSize:10,color:"#38bdf8aa"}}>/{Math.round(expPct)}%</span>}
+                      {lp.label && !["Behind","On Track","Ahead"].includes(lp.label) && (
+                        <span title={`Lifetime status: ${lp.label}`} style={{fontSize:9,fontWeight:700,...vBadge(col),borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap"}}>{lp.label}</span>
+                      )}
                     </div>
                   </div>
                   {/* Goal — electric green, matches monthly */}
@@ -9184,7 +9220,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           return (
             <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"hidden",background:lmBg}}>
               <div style={{display:"grid",gridTemplateColumns:GL,gap:8,padding:"7px 14px",borderBottom:"1px solid "+lmBrd,background:lmBgInp}}>
-                {["Campaign","Plt","Status","Lifetime Pacing","Goal","Impr / Views","Flight"].map((h,i)=>(
+                {["Campaign","Plt","Lifetime Pacing","Goal","Impr / Views","Flight"].map((h,i)=>(
                   <div key={i} style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
                 ))}
               </div>
@@ -18376,6 +18412,10 @@ export default function App() {
   const [showDailyGoal, setShowDailyGoal]       = useState(false);
   const [showPacingBar, setShowPacingBar]       = useState(false);
   const [quickCheckIn, setQuickCheckIn]         = useState(false);
+  // Partner abbreviations: full partner name → short code shown in the Partner column. Held in state
+  // so edits from the "Partner codes" modal re-render the rows immediately; mirrored to localStorage.
+  const [partnerAbbr, setPartnerAbbr]           = useState(loadPartnerAbbr);
+  const [partnerCodesOpen, setPartnerCodesOpen] = useState(false);
   const [showStats, setShowStats]               = useState(()=>{ try{ return localStorage.getItem("campaigns-show-stats")==="1"; }catch{ return false; } }); // stat tiles collapsed by default
   const [collapsedClients, setCollapsedClients] = useState(new Set());
   const [dragId, setDragId]       = useState(null);
@@ -20137,7 +20177,16 @@ export default function App() {
                   </th>
                   <th style={{width:28,borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}/>
                   <th style={{width:36,borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}/>
-                  <TH k="mediaPartner" label="Partner"/>
+                  {/* Partner header carries a tiny ✎ that opens the code editor. stopPropagation keeps
+                      the click from triggering the column sort. */}
+                  <th onClick={()=>sort("mediaPartner")} style={{padding:"11px 13px",textAlign:"left",fontSize:12,fontWeight:700,
+                    color:lightMode?(sortKey==="mediaPartner"?"#059669":"#64748b"):(sortKey==="mediaPartner"?"#00e5a0":"#4d6e8a"),
+                    textTransform:"uppercase",letterSpacing:"0.07em",whiteSpace:"nowrap",cursor:"pointer",userSelect:"none",
+                    borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`}}>
+                    Partner{sortKey==="mediaPartner"?(sortDir==="asc"?" ↑":" ↓"):""}
+                    <span onClick={e=>{ e.stopPropagation(); setPartnerCodesOpen(true); }} title="Edit partner codes / initials"
+                      style={{marginLeft:6,fontSize:11,color:lightMode?"#94a3b8":"#4d6e8a",cursor:"pointer"}}>✎</span>
+                  </th>
                   <TH k="campaignName" label="Campaign"/>
                   <TH k="platform" label="Platform"/>
                   <TH k="status" label="Status"/>
@@ -20323,7 +20372,7 @@ export default function App() {
                         <td style={{padding:"0 0 0 8px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#060c18"}`,textAlign:"center",verticalAlign:"middle",width:36}}>
                           <button onClick={()=>toggleExpand(c.id)} className="xbtn" style={{background:"none",border:"none",cursor:"pointer",padding:"5px 6px",color:hasData?(lightMode?"#059669":"#00c896"):(lightMode?"#cbd5e1":"#1e3048"),transform:open?"rotate(90deg)":"rotate(0deg)",fontSize:11,lineHeight:1,display:"block",margin:"0 auto"}}>▶</button>
                         </td>
-                        <TD><span style={{color:lightMode?"#475569":"#a8c4e0",fontWeight:500}}>{c.mediaPartner.trim()}</span></TD>
+                        <TD><span title={c.mediaPartner.trim()} style={{color:lightMode?"#475569":"#a8c4e0",fontWeight:600,fontSize:12,letterSpacing:"0.02em",cursor:"default"}}>{partnerAbbrOf(c.mediaPartner, partnerAbbr)}</span></TD>
                         <TD>
                           <div style={{display:"flex",alignItems:"center",gap:5}}>
                             <span style={{color:lightMode?"#0f172a":"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
@@ -20407,7 +20456,10 @@ export default function App() {
                         </TD>
                         <TD style={{maxWidth:170}}>
                           <span style={{color:lightMode?"#475569":"#7a9bbf",fontSize:13,display:"block",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}} title={c.goal}>{c.goal}</span>
-                          {(()=>{ const p=computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:lmCol(p.color),display:"block",marginTop:2}}>{Math.round(p.pct*100)}% mo pace</span> : null; })()}
+                          {/* "% mo pace" now only shows when the Pacing Bar toggle is on (Austin: keep the
+                              Goal column just the goal by default). The full pacing bar under the campaign
+                              name already appears with the same toggle, so the two stay in sync. */}
+                          {showPacingBar && (()=>{ const p=computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:lmCol(p.color),display:"block",marginTop:2}}>{Math.round(p.pct*100)}% mo pace</span> : null; })()}
                         </TD>
                         <TD>
                           {c.startDate ? (
@@ -20448,6 +20500,52 @@ export default function App() {
         <div style={{marginTop:8,fontSize:11,color:lightMode?"#cbd5e1":"#1e3048",textAlign:"right"}}>▶ click to expand metrics · blue arrow = data entered</div>
       </>
       )}
+
+      {/* Partner codes editor — lists every distinct media partner with an editable short code.
+          Blank input = use the auto-derived default (shown as placeholder). Saves live to localStorage
+          and to component state so the Partner column updates immediately. */}
+      {partnerCodesOpen && (()=>{
+        const partners = [...new Set([...campaigns, ...archive].map(c=>c.mediaPartner).filter(Boolean).map(p=>p.trim()))].sort((a,b)=>a.localeCompare(b));
+        const setCode = (name, code) => {
+          setPartnerAbbr(prev => {
+            const next = {...prev};
+            if(code && code.trim()) next[name] = code.trim().toUpperCase(); else delete next[name];
+            savePartnerAbbr(next);
+            return next;
+          });
+        };
+        return (
+          <div onClick={()=>setPartnerCodesOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:lightMode?"#ffffff":"#0c1625",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:12,width:"100%",maxWidth:460,maxHeight:"80vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}>
+              <div style={{padding:"16px 18px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div>
+                  <div style={{fontSize:14,fontWeight:800,color:lightMode?"#0f172a":"#edf4ff"}}>🏷 Partner codes</div>
+                  <div style={{fontSize:11,color:lightMode?"#64748b":"#7a9bbf",marginTop:2}}>Short codes shown in the Partner column. Leave blank to use the auto default.</div>
+                </div>
+                <button onClick={()=>setPartnerCodesOpen(false)} style={{background:"none",border:"none",color:lightMode?"#94a3b8":"#4d6e8a",fontSize:20,cursor:"pointer",lineHeight:1}}>×</button>
+              </div>
+              <div style={{overflowY:"auto",padding:"8px 18px 14px"}}>
+                {partners.length===0 && <div style={{padding:"20px 0",textAlign:"center",fontSize:12,color:lightMode?"#94a3b8":"#4d6e8a"}}>No partners yet.</div>}
+                {partners.map(name=>{
+                  const custom = partnerAbbr[name] || "";
+                  const auto = derivePartnerAbbr(name);
+                  return (
+                    <div key={name} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${lightMode?"#f1f5f9":"#111c2e"}`}}>
+                      <div style={{flex:1,minWidth:0,fontSize:12,color:lightMode?"#334155":"#a8c4e0",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={name}>{name}</div>
+                      <input value={custom} onChange={e=>setCode(name, e.target.value)} placeholder={auto} maxLength={12}
+                        style={{width:110,background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${custom?"#00c896":(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:6,padding:"5px 9px",color:lightMode?"#0f172a":"#edf4ff",fontSize:12,fontWeight:700,letterSpacing:"0.03em",textTransform:"uppercase",outline:"none"}}/>
+                      {custom && <button onClick={()=>setCode(name,"")} title="Reset to auto" style={{background:"none",border:"none",color:lightMode?"#94a3b8":"#4d6e8a",fontSize:14,cursor:"pointer",padding:0,flexShrink:0}}>↺</button>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{padding:"12px 18px",borderTop:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,display:"flex",justifyContent:"flex-end"}}>
+                <button onClick={()=>setPartnerCodesOpen(false)} className="glow-btn" style={{background:"#00c896",border:"none",borderRadius:7,padding:"7px 18px",color:"#04121e",fontSize:12,fontWeight:700,cursor:"pointer"}}>Done</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Edit Campaign: auto-save every keystroke via onValuesChange so closing
           the × button keeps changes. Explicit Save also closes the modal. */}
