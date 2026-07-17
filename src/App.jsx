@@ -8132,7 +8132,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // grid columns: name | platform | status | pacing bar | goal | impr/views | gap | need/day | yest | CTR/VCR | Clicks | CPM | spend | freq | edit
   // Bumped name min from 200→280px so multi-line ad-set names don't get truncated
   // (e.g. "Shining Star Christian Schools - Device Targeting (FBV)" needs the room)
-  const GRID = "minmax(280px,1.4fr) 72px 82px 240px 80px 100px 84px 84px 84px 90px 68px 76px 76px 76px 62px 60px";
+  const GRID = "minmax(280px,1.4fr) 72px 240px 80px 100px 84px 84px 84px 90px 68px 76px 76px 76px 62px 60px";
 
   function TableRow({c,disp,pacing,monthlyGoal}){
     // Breakdown-expanded state is lifted to the parent (expandedRows Set, keyed by campaign id) so it
@@ -8309,7 +8309,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return <React.Fragment>
     <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 16px",borderBottom:canExpand&&rowBreakdownOpen?"none":"1px solid "+lmBrdR,alignItems:"center",background:lmBg,borderLeft:"3px solid "+col}}>
 
-      {/* Campaign + partner */}
+      {/* Campaign name + freshness/flight sub-line. Partner name removed per Austin (2026-07-17) —
+          it's still searchable and shown in the edit modal, just not cluttering every pacing row. */}
       <div style={{minWidth:0}}>
         <div style={{fontSize:13,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:6}}>
           {canExpand&&(
@@ -8323,7 +8324,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           {rowBreakdown&&<span style={{fontSize:9,color:lightMode?"#3b82f6":"#7ec8ff",background:lightMode?"#dbeafe":"#0a2540",borderRadius:3,padding:"0 4px",fontWeight:700,flexShrink:0}}>{rowBreakdown.length}</span>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:5,overflow:"hidden"}}>
-          <div style={{fontSize:10,color:lmTxtS,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.mediaPartner}</div>
           {dataUpdatedToday(c)
             ? <span style={{fontSize:9,color:"#00d48a",fontWeight:700,background:lightMode?"#dcfce7":"#00200f",border:"1px solid #00d48a40",borderRadius:3,padding:"0px 4px",flexShrink:0}}>✓ today</span>
             : <span style={{fontSize:9,color:lmTxtS,fontWeight:400,flexShrink:0}}>{(()=>{ const d=lastDataDate(c); return d&&/^\d{4}-\d{2}-\d{2}$/.test(d)?(([y,m,dd])=>`${m}/${dd}/${y}`)(d.split("-")):"—"; })()}</span>
@@ -8343,31 +8343,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Platform */}
       <div><span style={{...vBadge(pCol),borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span></div>
 
-      {/* Pacing status */}
-      <div>
-        {pacing ? (
-          <div style={{display:"flex",flexDirection:"column",gap:2,alignItems:"flex-start"}}>
-            <span style={{fontSize:10,fontWeight:700,...vBadge(col),borderRadius:4,padding:"1px 5px"}}>{pacing.label}</span>
-            {/* Goal-hit / overserve indicators below the status pill (use pctRaw — see PacingCard comment) */}
-            {pacing.pctRaw >= 1.10 && (
-              <span title={`Delivered ${Math.round(pacing.pctRaw*100)}% of goal — overserving`}
-                style={{fontSize:9,fontWeight:700,color:lightMode?"#dc2626":"#fca5a5",background:lightMode?"#fee2e2":"#3a0010",border:`1px solid ${lightMode?"#ef4444":"#7f1d1d"}`,borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap"}}>
-                ⚠ Over {Math.round(pacing.pctRaw*100)}%
-              </span>
-            )}
-            {pacing.pctRaw >= 1.0 && pacing.pctRaw < 1.10 && (
-              <span title={`Hit ${Math.round(pacing.pctRaw*100)}% of monthly goal`}
-                style={{fontSize:9,fontWeight:700,color:lightMode?"#059669":"#00d48a",background:lightMode?"#d1fae5":"#002e24",border:`1px solid ${lightMode?"#10b981":"#00c89660"}`,borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap"}}>
-                ✓ Goal Hit
-              </span>
-            )}
-          </div>
-        )
-        :monthlyGoal?<span style={{fontSize:10,color:lmTxtD}}>{metricKind==="views"?"No views":metricKind==="spend"?"No spend":"No impr"}</span>
-        :<span style={{fontSize:10,color:lmTxtD}}>No goal</span>}
-      </div>
+      {/* Status column removed per Austin (2026-07-17) — the pacing.label pill just repeated the
+          section header (BEHIND / ON TRACK / AHEAD) and the coloured left border. Its still-useful
+          bits (✓ Goal Hit / ⚠ Over badges, and the "No impr / No goal" empty state) moved into the
+          pacing-bar cell below, which already shows the % and sits right where the eye lands. */}
 
-      {/* Monthly pacing bar — green/yellow/red fill, electric blue expected tick, exp% below */}
+      {/* Monthly pacing bar — green/yellow/red fill, electric blue expected tick, exp% + goal badges below */}
       <div>
         {pacing?<>
           <div style={{position:"relative",background:lmBarTrk,borderRadius:4,height:10,overflow:"visible",marginBottom:2}}>
@@ -8375,11 +8356,19 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             <div title={"Expected: "+(exp?.toLocaleString()??"")}
               style={{position:"absolute",top:-4,left:Math.min(97,pacing.expectedPct*100)+"%",width:3,height:18,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:4}}>
+          <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
             <span style={{fontSize:9,color:lmC(col),fontWeight:700}}>{(pacing.pct*100).toFixed(1)}%</span>
             {exp&&<span style={{fontSize:8,color:"#38bdf8aa"}}>/{(pacing.expectedPct*100).toFixed(0)}%</span>}
+            {pacing.pctRaw >= 1.10 && (
+              <span title={`Delivered ${Math.round(pacing.pctRaw*100)}% of goal — overserving`}
+                style={{fontSize:9,fontWeight:700,color:lightMode?"#dc2626":"#fca5a5",background:lightMode?"#fee2e2":"#3a0010",border:`1px solid ${lightMode?"#ef4444":"#7f1d1d"}`,borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap"}}>⚠ Over {Math.round(pacing.pctRaw*100)}%</span>
+            )}
+            {pacing.pctRaw >= 1.0 && pacing.pctRaw < 1.10 && (
+              <span title={`Hit ${Math.round(pacing.pctRaw*100)}% of monthly goal`}
+                style={{fontSize:9,fontWeight:700,color:lightMode?"#059669":"#00d48a",background:lightMode?"#d1fae5":"#002e24",border:`1px solid ${lightMode?"#10b981":"#00c89660"}`,borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap"}}>✓ Goal Hit</span>
+            )}
           </div>
-        </>:<div style={{fontSize:10,color:lmTxtD}}>—</div>}
+        </>:<div style={{fontSize:10,color:lmTxtD}}>{monthlyGoal?(metricKind==="views"?"No views":metricKind==="spend"?"No spend":"No impr"):"No goal"}</div>}
       </div>
 
       {/* Monthly Goal — impressions / views / spend goal, standalone (budget moved to its own column) */}
@@ -8883,7 +8872,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   function TableHeader(){
     return <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"6px 16px",borderBottom:"1px solid "+(lightMode?"#e2e8f0":"#1a2744"),marginBottom:2}}>
-      {["Campaign","Platform","Status","Mo. Pacing","Goal","Impr / Views","Gap","Need/Day","Yest","CTR / VCR","Clicks","CPM","Spend","Budget","Freq",""].map((h,i)=>(
+      {["Campaign","Platform","Mo. Pacing","Goal","Impr / Views","Gap","Need/Day","Yest","CTR / VCR","Clicks","CPM","Spend","Budget","Freq",""].map((h,i)=>(
         <div key={i} style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{h}</div>
       ))}
     </div>;
