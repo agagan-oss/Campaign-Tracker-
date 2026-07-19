@@ -8684,15 +8684,26 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               <div style={{position:"relative",height:150,borderBottom:"1px solid "+grid,borderLeft:"1px solid "+grid}}>
                 {/* metric bars — color = pace for the bucket */}
                 <div style={{position:"absolute",inset:0,display:"flex",alignItems:"flex-end",gap:0}}>
-                  {chartData.map(w=>(
+                  {chartData.map(w=>{
+                    // Sleeker bar (Austin): a soft vertical gradient (brighter top → muted base), rounded
+                    // top corners, a faint color-matched glow, and a smooth grow transition — instead of a
+                    // flat solid block. Colour still encodes pace via weekColor.
+                    const bc = weekColor(w);
+                    return (
                     <div key={w.k} title={`${lab(w.k)} — ${fmtFull(val(w))} ${barLabel.toLowerCase()} · ${w.c.toLocaleString()} clicks`}
                       style={{flex:1,display:"flex",justifyContent:"center",alignItems:"flex-end",height:"100%"}}>
                       {/* Cap bar width so a 1–2 week chart doesn't balloon into a fat bar. Each bar stays
                           centered in its slot (kept aligned with the clicks line, which is positioned by the
                           same per-week distribution), so the chart reads cleanly whether there's 1 week or 5. */}
-                      <div style={{width:"58%",maxWidth:52,background:weekColor(w),borderRadius:"2px 2px 0 0",height:`${Math.max(1,(val(w)/barMax)*88)}%`}}/>
+                      <div className="pace-bar" style={{width:"56%",maxWidth:50,
+                        background:`linear-gradient(180deg, ${bc} 0%, ${bc}dd 55%, ${bc}99 100%)`,
+                        borderRadius:"4px 4px 1px 1px",
+                        boxShadow:`0 0 7px ${bc}44, inset 0 1px 0 ${lightMode?"#ffffff66":"#ffffff33"}`,
+                        height:`${Math.max(1.5,(val(w)/barMax)*88)}%`,
+                        transition:"height .4s cubic-bezier(.34,1.2,.44,1)"}}/>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 {/* dotted goal line — where each bar SHOULD reach to be on the daily (or weekly) goal pace.
                     A small label pinned to its left end calls out the actual per-day (or per-week) target #. */}
@@ -16353,14 +16364,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                               )}
                               {isCPV && costPer!=null && (
                                 <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
-                                  Your cost <span style={{color:"#f59e0b",fontWeight:700}}>${costPer.toFixed(3)}/view</span> · billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(3)}/view</span> · margin <span style={{color:profitColor(rateNum-costPer),fontWeight:700}}>${(rateNum-costPer).toFixed(3)}/view</span>
+                                  Billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(3)}/view</span> − your cost <span style={{color:"#f59e0b",fontWeight:700}}>${costPer.toFixed(3)}/view</span> = margin <span style={{color:profitColor(rateNum-costPer),fontWeight:700}}>${(rateNum-costPer).toFixed(3)}/view</span>
                                 </div>
                               )}
                               {/* CPM campaigns: show the campaign's ACTUAL delivered CPM (spend ÷ impressions × 1000)
                                   against the billed contract CPM, so the margin per thousand is spelled out. */}
                               {!isCPV && hasUnit && costPer!=null && (
                                 <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
-                                  Your cost <span style={{color:"#f59e0b",fontWeight:700}}>${(costPer*1000).toFixed(2)} CPM</span>{r.c.platform==="DSP"&&<span style={{color:"#f59e0b",fontStyle:"italic"}}> (estimated)</span>} · billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(2)} CPM</span> · margin <span style={{color:profitColor(rateNum-costPer*1000),fontWeight:700}}>${(rateNum-costPer*1000).toFixed(2)} CPM</span>
+                                  Billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(2)} CPM</span> − your cost <span style={{color:"#f59e0b",fontWeight:700}}>${(costPer*1000).toFixed(2)} CPM</span>{r.c.platform==="DSP"&&<span style={{color:"#f59e0b",fontStyle:"italic"}}> (estimated)</span>} = margin <span style={{color:profitColor(rateNum-costPer*1000),fontWeight:700}}>${(rateNum-costPer*1000).toFixed(2)} CPM</span>
                                 </div>
                               )}
                               {/* Device surcharge transparency — spell out the matched device-line impressions
@@ -19508,6 +19519,9 @@ export default function App() {
         @keyframes glowPulse{0%,100%{box-shadow:0 0 5px rgba(0,200,150,.45)}50%{box-shadow:0 0 15px rgba(0,200,150,.9),0 0 26px rgba(0,200,150,.4)}}
         .glow-btn{animation:glowPulse 1.8s ease-in-out infinite;}
         .glow-btn:hover{animation:none;box-shadow:0 0 16px rgba(0,200,150,.95);}
+        /* Daily/weekly pace bars — subtle lift + brighten on hover so the chart feels interactive. */
+        .pace-bar{filter:saturate(1.05);cursor:default;}
+        .pace-bar:hover{filter:saturate(1.25) brightness(1.12);}
         @keyframes glowPulseAmber{0%,100%{box-shadow:0 0 5px rgba(245,158,11,.45)}50%{box-shadow:0 0 15px rgba(245,158,11,.9),0 0 26px rgba(245,158,11,.4)}}
         .glow-btn-amber{animation:glowPulseAmber 1.8s ease-in-out infinite;}
         .glow-btn-amber:hover{animation:none;box-shadow:0 0 16px rgba(245,158,11,.95);}
