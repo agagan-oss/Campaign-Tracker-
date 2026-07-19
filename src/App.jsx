@@ -63,7 +63,7 @@ function downloadBackupFile(filename, jsonStr){
   const url = URL.createObjectURL(b); const a = document.createElement("a");
   a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 }
-const MAX_LOG_ENTRIES = 500;
+const MAX_LOG_ENTRIES = 250; // was 500 — halved to save localStorage (Austin, 2026-07-17)
 // DSP campaigns rarely report real media spend, so we MODEL their cost at a flat assumed CPM. This
 // lets the Revenue tab surface projected revenue/profit for DSP (esp. the "if you hit goal" forecast)
 // before any real impressions/spend exist. Easy to change here; could move to Config for per-user later.
@@ -129,9 +129,27 @@ function slimArchivedCampaign(c) {
   return rest;
 }
 
+// REVENUE SAFETY: a campaign that ran recently keeps ALL its data — never slimmed, never dropped —
+// because closedMonthMetrics falls back to a campaign's `metricSeries` to reconstruct a month's
+// delivery when that month has no backup/lock yet (i.e. an unclosed recent month). Austin: "make sure
+// this doesn't affect the campaigns that ran in the past month or so because this will affect revenue."
+// So we protect anything whose flight ended (or, if undated, was archived) within this window. Undated
+// entries are protected too — we can't prove they're old.
+const REVENUE_SAFE_MONTHS = 3;
+function archivedRanRecently(c, monthsBack = REVENUE_SAFE_MONTHS) {
+  const iso = (x) => (x && /^\d{4}-\d{2}-\d{2}$/.test(x)) ? x : null;
+  const ref = iso(c && c.endDate) || iso(c && c.archivedDate);
+  if (!ref) return true; // undatable → protect (can't prove it ran long ago)
+  const n = new Date();
+  const cut = new Date(n.getFullYear(), n.getMonth() - monthsBack, 1);
+  const p = (x) => String(x).padStart(2, "0");
+  return ref >= `${cut.getFullYear()}-${p(cut.getMonth()+1)}-01`;
+}
+
 // Works out what a cleanup WOULD do, without doing it — so the confirm can state real numbers.
 // `drop` = archived longer ago than the retention window; `slimmed` = everything kept, minus its
-// delivery detail. Entries with no archivedDate are never dropped (we can't age what we can't date).
+// delivery detail — EXCEPT recently-run campaigns, which are left fully intact (see archivedRanRecently).
+// Entries with no archivedDate are never dropped (we can't age what we can't date).
 function planArchiveCleanup(archive, retentionMonths = ARCHIVE_RETENTION_MONTHS) {
   const list = Array.isArray(archive) ? archive : [];
   const n = new Date();
@@ -141,14 +159,17 @@ function planArchiveCleanup(archive, retentionMonths = ARCHIVE_RETENTION_MONTHS)
   const drop = [], keep = [];
   list.forEach(a => {
     const d = a && a.archivedDate;
-    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < cutIso) drop.push(a); else keep.push(a);
+    // Recently-run campaigns are NEVER dropped, even if their archivedDate is somehow old.
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < cutIso && !archivedRanRecently(a)) drop.push(a); else keep.push(a);
   });
-  const slimmed = keep.map(slimArchivedCampaign);
+  // Slim only the non-recent kept entries; recent ones pass through untouched (revenue safety).
+  let protectedRecent = 0;
+  const slimmed = keep.map(a => { if (archivedRanRecently(a)) { protectedRecent++; return a; } return slimArchivedCampaign(a); });
   const before = _jsonBytes(list), after = _jsonBytes(slimmed);
-  // How many kept entries actually carry detail worth stripping (for an honest "nothing to do").
-  const withDetail = keep.filter(a => HEAVY_FIELDS.some(f => f !== "history" && a && a[f] !== undefined)).length;
-  return { cutIso, drop, keep, slimmed, before, after,
-           freed: Math.max(0, before - after), withDetail };
+  // How many kept, NON-recent entries actually carry detail worth stripping (for an honest "nothing to do").
+  const withDetail = keep.filter(a => !archivedRanRecently(a) && HEAVY_FIELDS.some(f => f !== "history" && a && a[f] !== undefined)).length;
+  return { cutIso, drop, keep, slimmed, before, after, protectedRecent,
+           freed: Math.max(0, before - after), withDetail, safeMonths: REVENUE_SAFE_MONTHS };
 }
 
 // Answers "what is actually using my 5 MB?" — every localStorage key by size, plus a field-level
@@ -3405,29 +3426,42 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               {row("lastChecked","Last Checked","date")}
               {/* Contract Value */}
               <div style={{marginBottom:12}}>
-                <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 Contract Value <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(total)</span></label>
+                <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>💰 {f.platform==="SEM"?"Contract Total":"Contract Value"} <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>{f.platform==="SEM"?"(media + management fee)":"(total)"}</span></label>
                 <div style={{display:"flex",alignItems:"center",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,overflow:"hidden"}}>
                   <span style={{padding:"7px 10px",color:"#34d399",fontWeight:700,fontSize:13,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
-                  <input type="number" value={f.contractValue||""} onChange={e=>{ setCvTouched(true); set("contractValue",e.target.value); }} placeholder="e.g. 15000" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
+                  <input type="number" value={f.contractValue||""} onChange={e=>{ setCvTouched(true); set("contractValue",e.target.value); }} placeholder={f.platform==="SEM"?"e.g. 3000":"e.g. 15000"} style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
                 </div>
               </div>
-              {/* SEM-only: Management Fee — added on top of contract value for revenue.
-                  IOs don't always include it so it's manually entered. When spend
-                  exceeds budget, the fee gets eaten into (profit = total − spend). */}
-              {f.platform==="SEM" && (
+              {/* SEM-only: Management Fee = Recrue's profit. Revenue = the fee (spread across the flight),
+                  NOT contract value + fee. Media budget = Contract Total − fee is the client's pass-through;
+                  spend OVER it eats the fee. (Old copy wrongly said revenue = CV + fee — corrected 2026-07-17.) */}
+              {f.platform==="SEM" && (()=>{
+                const cvNum  = parseFloat(f.contractValue)||0;
+                const feeNum = parseFloat(f.managementFee)||0;
+                const mediaNum = cvNum>feeNum ? cvNum-feeNum : 0;
+                return (
                 <div style={{marginBottom:12}}>
                   <label style={{display:"block",fontSize:10,color:"#a855f7",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>
-                    🧾 Management Fee <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(on top of contract value)</span>
+                    🧾 Management Fee <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(your profit — total for the flight)</span>
                   </label>
                   <div style={{display:"flex",alignItems:"center",background:_lm?"#f8fafc":"#162236",border:`1px solid ${f.managementFee?(_lm?"#a855f7":"#a855f760"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,overflow:"hidden"}}>
                     <span style={{padding:"7px 10px",color:"#a855f7",fontWeight:700,fontSize:13,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
                     <input type="number" step="0.01" value={f.managementFee||""} onChange={e=>set("managementFee",e.target.value)} placeholder="e.g. 750" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
                   </div>
+                  {/* Live-derived media budget = Contract Total − fee, so Austin sees the split add up. */}
+                  {(cvNum>0 || feeNum>0) && (
+                    <div style={{marginTop:6,fontSize:11,color:_lm?"#475569":"#9fb8d4",lineHeight:1.6}}>
+                      {mediaNum>0
+                        ? <>Media budget (client's platform spend): <b style={{color:_lm?"#0891b2":"#00d9ff"}}>${mediaNum.toLocaleString()}</b> = ${cvNum.toLocaleString()} total − ${feeNum.toLocaleString()} fee, spread across the flight.</>
+                        : <span style={{color:_lm?"#d97706":"#fbbf24"}}>Set the Contract Total above (≥ the fee) so the media budget can be derived.</span>}
+                    </div>
+                  )}
                   <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:4,fontStyle:"italic"}}>
-                    Revenue tab will show total = Contract Value + Management Fee. If actual spend exceeds Contract Value, profit eats into the fee.
+                    Revenue = the management fee (your profit), spread across the flight by day-share. The media budget is the client's pass-through — it only reduces profit when spend goes OVER it.
                   </div>
                 </div>
-              )}
+                );
+              })()}
               {/* Deal Type + Contract Rate — drives monthly revenue calculation */}
               {f.platform!=="SEM" && (
                 <div style={{marginBottom:12}}>
@@ -10177,6 +10211,38 @@ function semMonthlyBudget(c) {
 // of months in the flight (e.g. Pearl Hawaii's $5,013 annual fee was booking $5,013 EVERY month).
 function semTotalFee(c) { return parseFloat(c?.managementFee) || 0; }
 
+// SEM media budget for the WHOLE contract (Austin's confirmed model, 2026-07-17): a contract's
+// Contract Value is the TOTAL ($3,000), of which the management fee is Recrue's cut ($750), leaving
+// the client's media budget as the remainder ($2,250). That media total is the overspend threshold,
+// spread across the flight by day-share (see semOverageForMonth). Returns 0 for legacy campaigns that
+// have no contract-total entered — those fall back to the old Note 1 "$X/Mo" monthly budget so their
+// numbers don't move. Requires CV > fee so we never read a media-only or fee-only value as a total.
+function semMediaBudgetTotal(c) {
+  if (!c || c.platform !== "SEM") return 0;
+  const cv = parseFloat(c.contractValue) || 0;
+  const fee = semTotalFee(c);
+  return (cv > 0 && cv > fee) ? (cv - fee) : 0;
+}
+// A SEM month's media budget (the overspend threshold shown in the P&L) — the day-share of the total
+// media budget for total-model campaigns, or the prorated monthly "$X/Mo" for legacy ones. Mirrors the
+// budgetOf() logic inside semOverageForMonth so the displayed budget always matches the profit math.
+function semBudgetForMonth(c, mo) {
+  if (!c || c.platform !== "SEM" || !c.startDate || !c.endDate) return 0;
+  const mediaTotal  = semMediaBudgetTotal(c);
+  const budgetPerMo = mediaTotal > 0 ? 0 : semMonthlyBudget(c);
+  if (!(mediaTotal > 0 || budgetPerMo > 0)) return 0;
+  const flightStart = new Date(c.startDate + "T00:00:00");
+  const flightEnd   = new Date(c.endDate   + "T00:00:00");
+  const totalFlightDays = Math.max(1, Math.round((flightEnd - flightStart) / 86400000) + 1);
+  const [y, mm] = mo.split("-").map(Number);
+  const dim = new Date(y, mm, 0).getDate();
+  const mStart = new Date(Math.max(flightStart, new Date(y, mm-1, 1)));
+  const mEnd   = new Date(Math.min(flightEnd,   new Date(y, mm, 0)));
+  const activeDays = Math.max(0, Math.round((mEnd - mStart) / 86400000) + 1);
+  if (mediaTotal > 0) return mediaTotal * (activeDays / totalFlightDays);
+  return budgetPerMo * (activeDays / dim);
+}
+
 // SEM "revenue" map = the management fee SPREAD across the flight (Recrue's revenue; client media is
 // pass-through and is never revenue). Each month books its DAY-SHARE of the contract-total fee, so the
 // shares across the flight sum to exactly the fee — and partial first/last months are prorated.
@@ -10185,7 +10251,7 @@ function semTotalFee(c) { return parseFloat(c?.managementFee) || 0; }
 // fee, so SEM campaigns still appear in the tab before a fee is entered (they just show $0 fee).
 function semFeeMap(c) {
   if (!c || c.platform !== "SEM" || !c.startDate || !c.endDate) return {};
-  if (!(semMonthlyBudget(c) > 0 || semTotalFee(c) > 0)) return {};
+  if (!(semMonthlyBudget(c) > 0 || semTotalFee(c) > 0 || semMediaBudgetTotal(c) > 0)) return {};
   const start = new Date(c.startDate + "T00:00:00");
   const end   = new Date(c.endDate   + "T00:00:00");
   if (isNaN(start) || isNaN(end) || end < start) return {};
@@ -10893,6 +10959,13 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
           cpm: impressions>0 ? +(spend/impressions*1000).toFixed(2) : 0 };
       }
     }
+    // Normalize CTR to a PERCENT for display. Stored `c.ctr` (and a lock's frozen ctr) is a RATIO
+    // — 0.01 means 1% — so a plain report row was showing "0.01%" instead of "1.00%" (the ×100 was
+    // missing on the non-locked / non-history path). Prefer computing from clicks÷impressions (most
+    // reliable); otherwise scale the stored ratio (guarding values already stored as a percent, >1).
+    m = {...m, ctr: (m.impressions > 0 && m.clicks > 0)
+      ? +(m.clicks / m.impressions * 100).toFixed(2)
+      : (m.ctr > 1 ? +Number(m.ctr).toFixed(2) : +(Number(m.ctr) * 100).toFixed(2)) };
     return {...c, ...overrides, m};
   }),[selectedCamps, csvOverrides, useHistory, dr, reportLock]);
   const totals = useMemo(()=>rows.reduce((a,r)=>({impressions:a.impressions+r.m.impressions,clicks:a.clicks+r.m.clicks,spend:a.spend+r.m.spend,reach:a.reach+r.m.reach,videoViews:a.videoViews+r.m.videoViews,contractValue:a.contractValue+r.m.contractValue}),{impressions:0,clicks:0,spend:0,reach:0,videoViews:0,contractValue:0}),[rows]);
@@ -11540,9 +11613,17 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                 </div>
               </div>
               <div style={{textAlign:"right",flexShrink:0}}>
-                <div style={{fontSize:9,color:headerMuted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:2}}>Prepared by</div>
+                {/* "Prepared by" is optional. When set, show the label + a × to REMOVE it (Austin) —
+                    clearing it also drops the whole line from the exported report (the HTML template
+                    already omits it when blank). When blank, the field reads as an optional add-slot. */}
+                {preparedBy ? (
+                  <div style={{fontSize:9,color:headerMuted,textTransform:"uppercase",letterSpacing:".07em",marginBottom:2,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:6}}>
+                    Prepared by
+                    <span onClick={()=>setPreparedBy("")} title="Remove — the report won't show a preparer" style={{cursor:"pointer",color:"#ef4444",fontWeight:800,fontSize:12,lineHeight:1}}>×</span>
+                  </div>
+                ) : null}
                 <InlineEdit field="preparedBy" value={preparedBy} onChange={setPreparedBy}
-                  style={{fontSize:14,fontWeight:700}} placeholder="Agency name"/>
+                  style={{fontSize:14,fontWeight:700}} placeholder="+ Prepared by (optional)"/>
                 <div style={{fontSize:9,color:headerFaint,marginTop:2}}>{rows.length} tactic{rows.length!==1?"s":""}</div>
               </div>
             </div>
@@ -13750,12 +13831,21 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
               Set Initials
             </button>
           )}
-          {savedMsg&&!fileError&&(
-            <button onClick={onClose} className="glow-btn"
+          {savedMsg&&!fileError&&(()=>{
+            // Pending mappings not yet applied → "Done" means "I've reviewed, apply everything now"
+            // (bypasses the low-confidence review gate — Austin: "I already reviewed it if I click done").
+            // Once applied (fileRows cleared), the same button just closes the panel.
+            const pending = !!fileRows && mappedCount > 0;
+            return (
+            <button
+              onClick={()=>{ if(pending){ setConfirmApplyPending(false); applyMapping(); } else { onClose(); } }}
+              className="glow-btn"
+              title={pending?`Apply all ${mappedCount} mapped campaign${mappedCount!==1?"s":""} now and finish — skips the review step`:"Close the check-in"}
               style={{background:"#00c896",border:"none",borderRadius:7,padding:"7px 22px",color:"#06222b",fontSize:12.5,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-              ✓ Done
+              {pending?`✓ Done — apply ${mappedCount}`:"✓ Done"}
             </button>
-          )}
+            );
+          })()}
         </div>
       )}
 
@@ -14601,7 +14691,7 @@ function ReportVault({ onAnalyzeWithZeus }) {
 // Inline "correct this month's numbers" editor shown inside a Revenue-tab campaign dropdown. Lets you
 // fix a campaign's delivered impressions/views and media spend for the focused month right there — even
 // a LOCKED month — and see the revenue/profit update live. onSave writes it through (see onSetMonthMetrics).
-function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, dspCpm, curImpr, curViews, curSpend, locked, onSave }) {
+function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, dspCpm, curImpr, curViews, curSpend, locked, goalRev=0, onSave }) {
   const [impr, setImpr]   = React.useState(curImpr>0?String(curImpr):"");
   const [views, setViews] = React.useState(curViews>0?String(curViews):"");
   const [spend, setSpend] = React.useState(curSpend!=null?String(curSpend):"");
@@ -14609,7 +14699,11 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, dspCpm, curImpr
   const iS = {background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:6,padding:"6px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,width:118,fontFamily:"inherit",outline:"none"};
   const lbl = {display:"block",fontSize:9,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:".05em",fontWeight:700,marginBottom:3,whiteSpace:"nowrap"};
   const nImpr=parseInt(impr)||0, nViews=parseInt(views)||0, nSpend=String(spend).trim()===""?null:(parseFloat(spend)||0);
-  const rev  = isCPV ? nViews*rate : nImpr/1000*rate;
+  const rawRev = isCPV ? nViews*rate : nImpr/1000*rate;
+  // Revenue can't exceed the monthly goal (goalRev) — over-delivery isn't billable (Austin). The
+  // preview shows the CAPPED figure so this editor foots to the P&L it writes.
+  const rev  = goalRev>0 ? Math.min(rawRev, goalRev) : rawRev;
+  const overCap = goalRev>0 && rawRev > goalRev + 0.5;
   const cost = platform==="DSP" ? nImpr/1000*dspCpm : nSpend;
   const profit = cost==null ? null : rev-cost;
   const $r = n => "$"+Math.round(n).toLocaleString();
@@ -14627,6 +14721,11 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, dspCpm, curImpr
           style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"8px 18px",color:dirty?"#06222b":"#3b5070",fontSize:13,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>{dirty?"Save":"Saved ✓"}</button>
         <span style={{fontSize:12,color:_lm?"#475569":"#9fb8d4",paddingBottom:8}}>= <b style={{color:_lm?"#059669":"#00e5a0"}}>{$r(rev)}</b> revenue{cost!=null&&<> − <b style={{color:"#f59e0b"}}>{$r(cost)}</b> = <b style={{color:profit>=0?(_lm?"#059669":"#00d48a"):"#ef4444"}}>{(profit>=0?"+":"−")+"$"+Math.round(Math.abs(profit)).toLocaleString()}</b> profit</>}</span>
       </div>
+      {overCap && (
+        <div style={{fontSize:10.5,color:_lm?"#d97706":"#fbbf24",marginTop:6,lineHeight:1.5}}>
+          Delivery is over the monthly goal — revenue is capped at the goal ({$r(goalRev)}); the extra {isCPV?"views":"impressions"} aren't billable but still cost spend.
+        </div>
+      )}
       <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:6,fontStyle:"italic"}}>Updates this month's P&amp;L right away{locked?" — including the 🔒 locked snapshot, no unlock needed":""}.</div>
     </div>
   );
@@ -14701,8 +14800,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     const dt = c.platform === "YT" ? (c.dealType || "") : "CPM";
     // SEM revenue for a month = that month's SHARE of the contract-total management fee (semFeeMap),
     // never the whole fee — otherwise every month books the full contract fee.
-    const rev = c.platform === "SEM" ? (semFeeMap(c)[month] || 0)
+    // Non-SEM revenue is CAPPED at the monthly goal (goalRev): delivering over goal isn't billable,
+    // so editing in a big over-goal number must not book revenue above the goal (mirrors the
+    // dashboard's per-row cap so a locked month's frozen figure matches the live one).
+    const goalRev = revenueMapForCampaign(c)[month] || 0;
+    let rev = c.platform === "SEM" ? (semFeeMap(c)[month] || 0)
       : dt === "CPV" ? (views || 0) * rate : (impr || 0) / 1000 * rate;
+    if (c.platform !== "SEM" && goalRev > 0) rev = Math.min(rev, goalRev);
     const sp = c.platform === "DSP" ? (impr || 0) / 1000 * dspCpm : spend;
     if (monthLocks[month]) {
       const lock = monthLocks[month];
@@ -14872,16 +14976,25 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     // stays PENDING (null) so its fee isn't booked as profit prematurely. Only the CURRENT month is
     // gated this way: past/closed months keep their recorded outcome so history & locked months never move.
     if (mo === thisMonth && spendOf(mo) == null) return null;
-    const budgetPerMo = semMonthlyBudget(c);
-    if (!(budgetPerMo > 0)) return 0;                         // no budget set → no overage, full fee
-    // Budget for a flight month, prorated on partial first/last months (mirrors semFeeMap).
+    // Two budget models. NEW (Austin, total contract): media total = Contract Value − fee, spread by
+    // day-share across the whole flight (mirrors semFeeMap's fee spread). LEGACY: a monthly "$X/Mo" in
+    // Note 1, prorated only for partial first/last months. Prefer the total model when a contract total
+    // is entered; otherwise fall back to the monthly budget so existing SEM campaigns don't move.
+    const mediaTotal  = semMediaBudgetTotal(c);
+    const budgetPerMo = mediaTotal > 0 ? 0 : semMonthlyBudget(c);
+    if (!(mediaTotal > 0 || budgetPerMo > 0)) return 0;       // no budget set → no overage, full fee
+    const flightStart = new Date(c.startDate + "T00:00:00");
+    const flightEnd   = new Date(c.endDate   + "T00:00:00");
+    const totalFlightDays = Math.max(1, Math.round((flightEnd - flightStart) / 86400000) + 1);
+    // Budget for a flight month, prorated on partial first/last months.
     const budgetOf = (m) => {
       const [y, mm] = m.split("-").map(Number);
       const dim = new Date(y, mm, 0).getDate();
-      const mStart = new Date(Math.max(new Date(c.startDate+"T00:00:00"), new Date(y, mm-1, 1)));
-      const mEnd   = new Date(Math.min(new Date(c.endDate+"T00:00:00"),   new Date(y, mm, 0)));
+      const mStart = new Date(Math.max(flightStart, new Date(y, mm-1, 1)));
+      const mEnd   = new Date(Math.min(flightEnd,   new Date(y, mm, 0)));
       const activeDays = Math.max(0, Math.round((mEnd - mStart)/86400000) + 1);
-      return budgetPerMo * (activeDays / dim);
+      if (mediaTotal > 0) return mediaTotal * (activeDays / totalFlightDays); // day-share of the TOTAL
+      return budgetPerMo * (activeDays / dim);                                // legacy monthly
     };
     const nextMo = (m) => { const [y, mm] = m.split("-").map(Number); const d = new Date(y, mm, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
     // Walk flight months start→mo, accumulating budget+spend for REPORTED months only; capture the
@@ -15064,7 +15177,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         if (rate > 0 && effectiveDt === "CPM") {
           const actualImpr = actualImprForMonth(c, mo); // live MTD for this month, backup for closed months
           if (actualImpr != null && actualImpr > 0) {
-            adjRev = (actualImpr / 1000) * rate;
+            // CAP at the monthly goal: impressions delivered OVER goal aren't billable to the client
+            // (Austin), so revenue can never exceed goal×CPM (= `rev`). Overserving then only shows up
+            // as extra spend, which correctly reduces profit rather than inflating revenue.
+            adjRev = Math.min((actualImpr / 1000) * rate, rev);
           } else if (spendForMonth(c, mo) != null) {
             // Spent this month but no impressions logged yet → nothing earned to book.
             // (Without spend, keep the full-goal projection so it still shows as pending forecast.)
@@ -15073,9 +15189,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         } else if (rate > 0 && effectiveDt === "CPV") {
           // YouTube per-view deals: bill on views actually DELIVERED so far (not the full-month
           // goal), so a few days in shows a few days of earned revenue — not the whole month.
+          // Also capped at the goal (`rev`) — over-delivered views aren't billable.
           const actualViews = actualViewsForMonth(c, mo);
           if (actualViews != null && actualViews > 0) {
-            adjRev = actualViews * rate;
+            adjRev = Math.min(actualViews * rate, rev);
           } else if (spendForMonth(c, mo) != null) {
             // Money spent this month but no views logged yet → nothing earned to book.
             // (Without spend, keep the full-goal projection so it still shows as pending forecast.)
@@ -15162,13 +15279,17 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       // CPM campaigns: use ACTUAL delivered impressions × rate instead of goal × rate, so
       // under/over-delivery is reflected. Current month uses live MTD; a closed month uses the
       // reset backup (accurate & reset-proof). Future months keep the projection.
+      // `goalRev` is that month's goal×rate — the BILLABLE CEILING. Delivering over goal isn't
+      // billable to the client (Austin), so revenue is capped here; the overserved impressions still
+      // cost media spend, so they reduce profit instead of raising revenue.
+      const goalRev = rev;
       if (mo <= thisMonth && rev > 0 && c.platform !== "SEM") {
         const rate = parseFloat(c.contractRate);
         const effectiveDt = c.platform === "YT" ? (c.dealType||"") : "CPM";
         if (rate > 0 && effectiveDt === "CPM") {
           const actualImpr = actualImprForMonth(c, mo);
           if (actualImpr != null && actualImpr > 0) {
-            rev = (actualImpr / 1000) * rate;
+            rev = Math.min((actualImpr / 1000) * rate, goalRev);
           } else if (spendForMonth(c, mo) != null) {
             rev = 0; // spent but no impressions logged yet → nothing earned (keep goal only when pending/no-spend)
           }
@@ -15176,7 +15297,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           // YouTube per-view deals: bill on views actually DELIVERED so far, not the full-month goal.
           const actualViews = actualViewsForMonth(c, mo);
           if (actualViews != null && actualViews > 0) {
-            rev = actualViews * rate;
+            rev = Math.min(actualViews * rate, goalRev);
           } else if (spendForMonth(c, mo) != null) {
             rev = 0; // spent but no views logged yet → nothing earned (keep goal only when pending/no-spend)
           }
@@ -16138,7 +16259,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                         const fee = r.focusCell.rev||0;                 // monthly management fee
                         const overage = r.focusCell.spend||0;            // amount over budget eating the fee
                         const prof = r.focusCell.profit!=null ? r.focusCell.profit : fee;
-                        const budget = semMonthlyBudget(r.c);
+                        const budget = semBudgetForMonth(r.c, activeMonth); // this month's media budget share
                         const actual = activeMonth===thisMonth
                           ? (getActualMtdSpend(r.c) ?? getManualSpend(r.c))
                           : (closedMonthMetrics(r.c, activeMonth)?.spend ?? 0);
@@ -16183,11 +16304,16 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       const isCPV = effectiveDt==="CPV";
                       const rateNum = parseFloat(r.c.contractRate)||0;
                       const delivered = isCPV ? actualViewsForMonth(r.c, activeMonth) : actualImprForMonth(r.c, activeMonth);
+                      // BILLABLE units = what `rev` actually paid for (rev is already capped at the monthly
+                      // goal). Derive it back from rev so the equation always foots to the revenue shown.
+                      // When delivered exceeds billable, the surplus went over goal and isn't billable.
+                      const billable = rateNum>0 ? (isCPV ? rev/rateNum : (rev/rateNum)*1000) : 0;
+                      const overUnits = (delivered!=null && billable>0 && delivered > billable+1) ? delivered - billable : 0;
                       const hasUnit = rateNum>0 && delivered!=null && delivered>0 && r.c.platform!=="SEM";
                       const costPer = (spend!=null && delivered>0) ? spend/delivered : null;
                       const eq = isCPV
-                        ? `${delivered!=null?delivered.toLocaleString():"—"} views × $${rateNum.toFixed(3)}/view`
-                        : `${delivered!=null?(delivered/1000).toFixed(1):"—"}K impr × $${rateNum.toFixed(2)} CPM`;
+                        ? `${Math.round(billable).toLocaleString()} views × $${rateNum.toFixed(3)}/view`
+                        : `${(billable/1000).toFixed(1)}K impr × $${rateNum.toFixed(2)} CPM`;
                       if(rev<=0 && spend==null) return null;
                       return (
                         <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
@@ -16210,6 +16336,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                 <span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> = </span>
                                 <span style={{color:profitColor(profit),fontWeight:800}}>{(profit>=0?"+":"")+$fc(profit)}</span> profit so far
                               </div>
+                              {/* Over-goal delivery note — the surplus isn't billable, so revenue stopped at
+                                  the goal while its media spend still counts against profit. */}
+                              {overUnits > 0 && (
+                                <div style={{fontSize:11.5,color:_lm?"#d97706":"#fbbf24",marginTop:5,lineHeight:1.5}}>
+                                  Delivered {isCPV?`${Math.round(overUnits).toLocaleString()} views`:`${(overUnits/1000).toFixed(1)}K impr`} <b>over goal</b> — not billable, so revenue is capped at the goal ({$fc(rev)}). The extra delivery still costs spend, which is why overserving lowers profit.
+                                </div>
+                              )}
                               {/* Spend entered but nothing delivered → $0 revenue. This trips people up on a
                                   restored/ended campaign: revenue is billed on DELIVERY (impr/views × rate),
                                   not on spend. Tell them exactly how to book it. */}
@@ -16267,6 +16400,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       return <MonthMetricsEditor monthLabel={focusLabelShort} platform={r.c.platform} isCPV={isCPV}
                         rate={parseFloat(r.c.contractRate)||0} dspCpm={dspCpm} curImpr={curImpr} curViews={curViews}
                         curSpend={r.focusCell.spend} locked={!!monthLocks[activeMonth]}
+                        goalRev={revenueMapForCampaign(r.c)[activeMonth]||0}
                         onSave={(vals)=>commitMonthMetrics(r.c, activeMonth, vals)}/>;
                     })()}
                     <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
@@ -16670,11 +16804,20 @@ function PrefixPartnerSettings({ partnerPrefixes, setPartnerPrefixes, lightMode 
   );
 }
 
-function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, ttdSyncStatus=null, ttdSyncInfo=null, dspSyncStatus=null, dspSyncInfo=null, googleSyncStatus=null, googleSyncInfo=null, snapSyncStatus=null, snapSyncInfo=null }) {
+function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, ttdSyncStatus=null, ttdSyncInfo=null, dspSyncStatus=null, dspSyncInfo=null, googleSyncStatus=null, googleSyncInfo=null, snapSyncStatus=null, snapSyncInfo=null, configView="all" }) {
   const [cfg, setCfg] = useState(()=>{
     try { const s=localStorage.getItem(CONFIG_KEY); return s?JSON.parse(s):{}; } catch { return {}; }
   });
-  const [activeSection, setActiveSection] = useState("meta");
+  // The Config tab splits into General + Connections sub-tabs (Austin, 2026-07-17). This component
+  // renders BOTH sets of sections; `configView` filters which show: "connections" = the 5 platform
+  // connectors, "general" = custom platforms / setup guide / sync health (+ the Data Start setting).
+  const CONFIG_SECTIONS = { connections: ["meta","ttd","dsp","google","snap","setup","health"], general: ["platforms"] };
+  const visibleSections = configView==="general" ? CONFIG_SECTIONS.general
+                        : configView==="connections" ? CONFIG_SECTIONS.connections : null; // null = show all
+  const showSection = (k) => !visibleSections || visibleSections.includes(k);
+  const [activeSection, setActiveSection] = useState(configView==="general" ? "platforms" : "meta");
+  // If the sub-tab changes and the current section isn't in it, jump to the first one that is.
+  React.useEffect(()=>{ if(visibleSections && !visibleSections.includes(activeSection)) setActiveSection(visibleSections[0]); }, [configView]); // eslint-disable-line react-hooks/exhaustive-deps
   const [copied, setCopied]   = useState("");
   const [search, setSearch]   = useState("");
 
@@ -16998,14 +17141,17 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
 
   return (
     <div style={{color:_lm?"#0f172a":"#d8eaf8",maxWidth:1100}}>
+      {configView !== "general" && (
       <div style={{marginBottom:20}}>
-        <div style={{fontSize:15,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginBottom:4}}>⚙️ Platform Config</div>
+        <div style={{fontSize:15,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginBottom:4}}>🔌 Connections</div>
         <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a"}}>Connect your ad platforms so campaign metrics sync automatically via GitHub Actions. Fill in credentials and IDs below, then download the config files to drop into your repo.</div>
       </div>
+      )}
 
-      {/* Tracker data-start month — always-visible tracker setting (not platform-specific). Blank =
-          auto-detect (earliest month with data, or the current month for a fresh tracker). Written to
-          CONFIG_KEY.dataStartMonth, read by getDataStartMonth(). */}
+      {/* Tracker data-start month — a GENERAL tracker setting (not platform-specific), so it shows in
+          the General sub-tab only. Blank = auto-detect (earliest month with data, or the current month
+          for a fresh tracker). Written to CONFIG_KEY.dataStartMonth, read by getDataStartMonth(). */}
+      {configView !== "connections" && (
       <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"14px 18px",marginBottom:16,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",display:"flex",alignItems:"flex-start",gap:18,flexWrap:"wrap"}}>
         <div style={{flex:"1 1 260px",minWidth:240}}>
           <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:4,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -17026,17 +17172,19 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
           </div>
         </div>
       </div>
+      )}
 
-      {/* Section switcher + download */}
+      {/* Section switcher + download — hidden when only one section shows (the General sub-tab). */}
+      {(!visibleSections || visibleSections.length > 1) && (
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"nowrap"}}>
-        {sectionBtn("meta","Meta (FB / FBV / IG)","📘")}
-        {sectionBtn("ttd","The Trade Desk (TD)","📡")}
-        {sectionBtn("dsp","DSP","🖥️")}
-        {sectionBtn("google","Google Ads (SEM / YT)","🔍")}
-        {sectionBtn("snap","Snapchat (SP)","👻")}
-        {sectionBtn("platforms","Custom Platforms","🎨")}
-        {sectionBtn("setup","GitHub Setup Guide","🛠️")}
-        {sectionBtn("health","Sync Health","🩺")}
+        {showSection("meta")&&sectionBtn("meta","Meta (FB / FBV / IG)","📘")}
+        {showSection("ttd")&&sectionBtn("ttd","The Trade Desk (TD)","📡")}
+        {showSection("dsp")&&sectionBtn("dsp","DSP","🖥️")}
+        {showSection("google")&&sectionBtn("google","Google Ads (SEM / YT)","🔍")}
+        {showSection("snap")&&sectionBtn("snap","Snapchat (SP)","👻")}
+        {showSection("platforms")&&sectionBtn("platforms","Custom Platforms","🎨")}
+        {showSection("setup")&&sectionBtn("setup","GitHub Setup Guide","🛠️")}
+        {showSection("health")&&sectionBtn("health","Sync Health","🩺")}
         {/* Download button — sits right next to Setup Guide, only on non-setup sections */}
         {activeSection==="meta" && metaActive.length>0 && (
           <button title="Download meta_config.json" onClick={()=>downloadJSON("meta_config.json", buildMetaConfig())}
@@ -17069,8 +17217,9 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
           </button>
         )}
       </div>
-      {/* Search — second row, hidden on Setup Guide */}
-      {activeSection!=="setup" && (
+      )}
+      {/* Search — second row, hidden on Setup Guide and in the single-section General sub-tab */}
+      {activeSection!=="setup" && configView!=="general" && (
         <div style={{marginBottom:16,position:"relative",display:"inline-block"}}>
           <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:_lm?"#94a3b8":"#3d5a72",fontSize:13,pointerEvents:"none"}}>🔍</span>
           <input value={search} onChange={e=>setSearch(e.target.value)}
@@ -18425,6 +18574,7 @@ export default function App() {
   const [bulkDraft, setBulkDraft] = useState({ goal:"", note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
   const [dateRange, setDateRange] = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
   const [activeTab, setActiveTab] = useState("campaigns");
+  const [configSubTab, setConfigSubTab] = useState("general"); // Config tab: "general" | "connections"
   const [lightMode, setLightMode] = useState(()=>localStorage.getItem("zeus-light-mode")==="true");
   _lm = lightMode; // sync global flag so StatusBadge/PlatformTag/RowActions can read it
   useEffect(()=>{ localStorage.setItem("zeus-light-mode", lightMode); }, [lightMode]);
@@ -19549,6 +19699,17 @@ export default function App() {
           />
         ) : activeTab==="config" ? (
           <>
+            {/* Config sub-tabs (Austin, 2026-07-17): General (storage / backup / settings / custom
+                platforms) vs Connections (the 5 platform connectors). Splits one long page in two. */}
+            <div style={{display:"flex",gap:4,marginBottom:16,borderBottom:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`}}>
+              {[["general","⚙️ General"],["connections","🔌 Connections"]].map(([k,l])=>(
+                <button key={k} onClick={()=>setConfigSubTab(k)}
+                  style={{background:"none",border:"none",borderBottom:`2px solid ${configSubTab===k?"#00c896":"transparent"}`,
+                    padding:"8px 16px",color:configSubTab===k?(lightMode?"#059669":"#00e5a0"):(lightMode?"#64748b":"#7a9bbf"),
+                    fontSize:13,fontWeight:configSubTab===k?700:500,cursor:"pointer",marginBottom:-1,transition:"all .15s"}}>{l}</button>
+              ))}
+            </div>
+            {configSubTab==="general" && (<>
             {(()=>{
               const used = getStorageBytes();
               const pct = Math.min(100, used / STORAGE_LIMIT_BYTES * 100);
@@ -19654,6 +19815,7 @@ export default function App() {
                                   const bits = [];
                                   if (plan.withDetail > 0) bits.push(`• Strip delivery detail (daily series, snapshots, check-in log, creative reports) from ${plan.withDetail} archived campaign${plan.withDetail!==1?"s":""} — names, goals, dates and totals stay.`);
                                   if (plan.drop.length > 0) bits.push(`• Permanently delete ${plan.drop.length} campaign${plan.drop.length!==1?"s":""} archived before ${fmtDate(plan.cutIso)} (older than ${ARCHIVE_RETENTION_MONTHS} months).`);
+                                  if (plan.protectedRecent > 0) bits.push(`• Leaving ${plan.protectedRecent} recently-run campaign${plan.protectedRecent!==1?"s":""} fully intact (ran within the last ${plan.safeMonths} months) so revenue is never touched.`);
                                   if (!await confirm({
                                     title: `Are you sure? This frees about ${fmtBytes(plan.freed)}`,
                                     message: `${bits.join("\n")}\n\nThis CANNOT be undone. Export a JSON backup first if you haven't today — it keeps everything.`,
@@ -19683,6 +19845,7 @@ export default function App() {
                                 {nothing
                                   ? "Archive is already slim — no delivery detail to strip and nothing older than "+ARCHIVE_RETENTION_MONTHS+" months."
                                   : <>Frees about <b style={{color:txt}}>{fmtBytes(plan.freed)}</b> — strips delivery detail from {plan.withDetail} archived campaign{plan.withDetail!==1?"s":""}{plan.drop.length>0?<> and deletes {plan.drop.length} archived before {fmtDate(plan.cutIso)}</>:null}. Export a JSON backup first.</>}
+                                {plan.protectedRecent>0 && <><br/><b style={{color:lightMode?"#059669":"#00d48a"}}>🛡 Revenue-safe:</b> {plan.protectedRecent} campaign{plan.protectedRecent!==1?"s":""} that ran in the last {plan.safeMonths} months {plan.protectedRecent!==1?"are":"is"} left fully intact.</>}
                               </span>
                             </div>
                           );
@@ -19733,7 +19896,8 @@ export default function App() {
               );
             })()}
             <PrefixPartnerSettings partnerPrefixes={partnerPrefixes} setPartnerPrefixes={setPartnerPrefixes} lightMode={lightMode}/>
-            <PlatformConfig campaigns={campaigns}
+            </>)}
+            <PlatformConfig campaigns={campaigns} configView={configSubTab}
               metaSyncStatus={metaSyncStatus}   metaSyncInfo={metaSyncInfo}
               ttdSyncStatus={ttdSyncStatus}     ttdSyncInfo={ttdSyncInfo}
               dspSyncStatus={dspSyncStatus}     dspSyncInfo={dspSyncInfo}
