@@ -7269,6 +7269,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // remount (collapsing open breakdowns) AND the resulting height collapse bounced the page to the top.
   // Parking it in the parent keeps breakdowns open across those re-renders, so the page stays put.
   const [expandedRows, setExpandedRows] = useState(()=>new Set());
+  // Expanding/collapsing a pacing row remounts the whole list (TableRow is redefined each render), which
+  // clamps the window scroll to the top. We capture the scroll position in this ref just before the
+  // toggle and restore it in a useLayoutEffect — which runs AFTER React commits the new DOM but BEFORE
+  // the browser paints, so the page never visibly jumps (the old double-rAF restore ran post-paint, so
+  // the jump flashed). Austin: "the whole page kind of glitches."
+  const pendingScrollY = React.useRef(null);
+  React.useLayoutEffect(()=>{
+    if(pendingScrollY.current!=null){ window.scrollTo(0, pendingScrollY.current); pendingScrollY.current=null; }
+  }, [expandedRows]);
   // Collapse state for the MONTHLY pacing sections (Behind / On Track / Ahead / No Impressions / No Goal).
   // Same reason as expandedRows: the Section component is redefined each render, so local open/closed
   // state would reset on every campaign change — re-expanding a section you collapsed the instant you
@@ -8204,10 +8213,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // The shim preserves the existing setRowBreakdownOpen(bool) and setRowBreakdownOpen(v=>!v) calls.
     const rowBreakdownOpen = expandedRows.has(c.id);
     const setRowBreakdownOpen = (updater) => {
-      // TableRow is redefined every render, so toggling expand remounts the whole list; during the
-      // remount the document briefly collapses and the window scroll clamps to the top. Capture the
-      // scroll position and restore it after the remount paints so the page doesn't jump up.
-      const sy = (typeof window!=="undefined") ? window.scrollY : 0;
+      // Capture scroll now; the useLayoutEffect on expandedRows restores it before the next paint so
+      // the remount-driven scroll clamp is invisible (see pendingScrollY).
+      if (typeof window!=="undefined") pendingScrollY.current = window.scrollY;
       setExpandedRows(prev => {
         const wasOpen = prev.has(c.id);
         const nextOpen = typeof updater === "function" ? updater(wasOpen) : updater;
@@ -8215,8 +8223,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         if (nextOpen) s.add(c.id); else s.delete(c.id);
         return s;
       });
-      if (typeof window!=="undefined" && typeof requestAnimationFrame==="function")
-        requestAnimationFrame(()=>requestAnimationFrame(()=>window.scrollTo(0, sy)));
     };
     const [creativesOpen, setCreativesOpen] = useState(false); // Creatives section — collapsed by default (one-off imports, not daily)
     // Weekly/Daily chart toggle. Per-row state (so toggling doesn't remount/collapse the row), but the
@@ -8384,7 +8390,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                 : "Weekly impressions vs. clicks trend — click to expand"}
               style={{background:"none",border:"none",padding:0,cursor:"pointer",color:lightMode?"#3b82f6":"#7ec8ff",fontSize:10,fontWeight:700,flexShrink:0,display:"inline-block",transform:rowBreakdownOpen?"rotate(90deg)":"rotate(0deg)",transition:"transform .15s"}}>▸</button>
           )}
-          <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</span>
+          <span onClick={canExpand?()=>setRowBreakdownOpen(v=>!v):undefined}
+            title={canExpand?"Click to open the daily/weekly chart":undefined}
+            style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:canExpand?"pointer":"default"}}>{c.campaignName.trim()}</span>
           {rowBreakdown&&<span style={{fontSize:9,color:lightMode?"#3b82f6":"#7ec8ff",background:lightMode?"#dbeafe":"#0a2540",borderRadius:3,padding:"0 4px",fontWeight:700,flexShrink:0}}>{rowBreakdown.length}</span>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6,overflow:"hidden"}}>
