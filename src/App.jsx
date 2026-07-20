@@ -13443,15 +13443,19 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       }
     });
 
-    // COLLISION GUARD: two file rows auto-matched onto the SAME tracker campaign means one of them is
+    // COLLISION GUARD: two file rows AUTO-matched onto the SAME tracker campaign means one is probably
     // wrong, or the export splits a line the tracker keeps whole ("A Desert Co - OTT" + "A Desert Co -
     // OTT-Spanish" both → the one A Desert Co OTT line). Applying both is last-write-wins, so a row's
-    // numbers vanish with no warning. Force every colliding row to low confidence so the ⚠ review gate
-    // makes the user pick — an explicit choice is remembered; a silent overwrite isn't.
+    // numbers can vanish with no warning. Force every colliding row to low confidence so the ⚠ review
+    // gate makes the user pick.
+    // EXCEPT memory-matched rows (`memMap[k]`): a remembered mapping is an explicit prior decision the
+    // user already made — if it collides, that was their choice (e.g. two file lines they deliberately
+    // point at one campaign). Demoting those to 0.5 was the bug behind "my remembered campaigns show
+    // 50%/80% instead of auto-mapping" (Austin) — the purple ✓ (remembered) sat next to a 50% score.
     const idCounts = {};
     Object.values(initMap).forEach(id => { if(id) idCounts[id] = (idCounts[id]||0) + 1; });
     Object.keys(initMap).forEach(k => {
-      if(initMap[k] && idCounts[initMap[k]] > 1 && initConf[k] > 0.5) initConf[k] = 0.5;
+      if(initMap[k] && !memMap[k] && idCounts[initMap[k]] > 1 && initConf[k] > 0.5) initConf[k] = 0.5;
     });
 
     const totalMatched=Object.values(initMap).filter(Boolean).length;
@@ -19527,9 +19531,12 @@ export default function App() {
         @keyframes glowPulse{0%,100%{box-shadow:0 0 5px rgba(0,200,150,.45)}50%{box-shadow:0 0 15px rgba(0,200,150,.9),0 0 26px rgba(0,200,150,.4)}}
         .glow-btn{animation:glowPulse 1.8s ease-in-out infinite;}
         .glow-btn:hover{animation:none;box-shadow:0 0 16px rgba(0,200,150,.95);}
-        /* Daily/weekly pace bars — subtle lift + brighten on hover so the chart feels interactive. */
-        .pace-bar{filter:saturate(1.05);cursor:default;}
+        /* Daily/weekly pace bars — a gentle white sheen sweeps across EVERY bar (colour-agnostic), so
+           red/yellow/orange shimmer the same as green (Austin). Hover lifts + brightens. */
+        .pace-bar{position:relative;overflow:hidden;filter:saturate(1.05);cursor:default;}
+        .pace-bar::after{content:"";position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(115deg,transparent 36%,rgba(255,255,255,.30) 50%,transparent 64%);transform:translateX(-120%);animation:barShimmer 3.2s ease-in-out infinite;pointer-events:none;}
         .pace-bar:hover{filter:saturate(1.25) brightness(1.12);}
+        @keyframes barShimmer{0%{transform:translateX(-120%)}55%,100%{transform:translateX(120%)}}
         @keyframes glowPulseAmber{0%,100%{box-shadow:0 0 5px rgba(245,158,11,.45)}50%{box-shadow:0 0 15px rgba(245,158,11,.9),0 0 26px rgba(245,158,11,.4)}}
         .glow-btn-amber{animation:glowPulseAmber 1.8s ease-in-out infinite;}
         .glow-btn-amber:hover{animation:none;box-shadow:0 0 16px rgba(245,158,11,.95);}
