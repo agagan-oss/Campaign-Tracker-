@@ -7858,7 +7858,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // which is always defined — keeping the column meaningfully color-coded every day.
     const catchUpPerDay = daysLeft > 0 && monthlyGoal > 0 ? Math.round(remaining / daysLeft) : 0;
     const evenDailyPace = monthlyGoal > 0 ? Math.round(monthlyGoal / dim) : 0;
-    const neededPerDay = catchUpPerDay > 0 ? catchUpPerDay : evenDailyPace;
+    // Grade yesterday against the NORMAL even daily pace (goal ÷ days in month), NOT the catch-up rate
+    // (remaining ÷ days left). Catch-up is inflated for any behind campaign, so grading against it made a
+    // campaign delivering perfectly normally look red EVERY day (Austin: "almost all the numbers are
+    // red… I don't know where to begin looking"). Whether a campaign is behind on the MONTH is already
+    // shown by the pacing bar + Gap column; this column answers "did it deliver a healthy amount
+    // yesterday?" — so a normal-but-behind day reads green, and only a near-dark day reads red.
+    const neededPerDay = evenDailyPace > 0 ? evenDailyPace : catchUpPerDay;
     // If check-ins were SKIPPED, `delivered` spans multiple days (baseDate → today), so grade the
     // PER-DAY average — otherwise a 2-day total reads as ~200% of a single day's target and disagrees
     // with the daily chart (which already spreads delivery across the gap).
@@ -7883,15 +7889,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     }
     const deliveredPerDay = Math.round(delivered / gapDays);
     const pctOfNeeded = neededPerDay > 0 ? (deliveredPerDay / neededPerDay) * 100 : null;
-    // Status color: green once the monthly goal is hit (campaign is done — a light delivery day
-    // is expected, don't flag it red); otherwise grade yesterday vs the daily bar: green ≥100%,
-    // amber 75-99%, red <75% (a 0-delivery day on a campaign still chasing goal = went dark → red).
+    // Status color: green once the goal is hit; otherwise grade yesterday's per-day delivery vs the
+    // NORMAL even pace — green ≥70% (a healthy day, even if the month is behind), amber 40–70% (a light
+    // day), red <40% (nearly went dark — the only thing actually worth a look). Loosened per Austin so
+    // the column stops being a wall of red for campaigns that are just moderately behind on the month.
     let color = "#4d6e8a", status = "—";
     if (goalHit)                  { color = "#00d48a"; status = "goal hit"; }
     else if (pctOfNeeded === null){ color = "#4d6e8a"; status = "no target"; }
-    else if (pctOfNeeded >= 100)  { color = "#00d48a"; status = "on pace"; }
-    else if (pctOfNeeded >= 75)   { color = "#f59e0b"; status = "slightly behind"; }
-    else                          { color = "#ef4444"; status = "needs push"; }
+    else if (pctOfNeeded >= 70)   { color = "#00d48a"; status = "on pace"; }
+    else if (pctOfNeeded >= 40)   { color = "#f59e0b"; status = "light day"; }
+    else                          { color = "#ef4444"; status = "went dark"; }
     return { delivered, deliveredPerDay, gapDays, neededPerDay, pctOfNeeded, color, status, baseDate, baseImpr, todayImpr: todayMtd };
   }
 
@@ -8337,7 +8344,18 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       return sign + Math.round(abs);
     };
     const paceGapFmt = paceGap === null ? null : fmtGap(paceGap);
-    const paceGapCol = paceGap === null ? "#3d5a72" : paceGap >= 0 ? "#00d48a" : Math.abs(paceGap) < monthlyGoal*0.05 ? "#fde047" : "#ef4444";
+    // Colour by the RATIO of delivered ÷ expected-by-now (time-normalized), not the raw gap size, so a
+    // small deficit doesn't jump to red just because the goal is large. Loosened per Austin — lots of
+    // yellow for "behind a bit", red ONLY when truly in trouble, and orange when way OVER-delivering
+    // (overserving, which eats profit — see the revenue cap). Bands: ≥115% pace → orange · ≥80% → green
+    // (on pace / a touch ahead) · ≥55% → yellow (behind a bit) · <55% → red (in trouble).
+    const paceRatio = (exp != null && exp > 0) ? primaryRaw / exp : null;
+    const paceGapCol =
+        paceGap === null || paceRatio === null ? "#3d5a72"
+      : paceRatio >= 1.15 ? "#f97316"
+      : paceRatio >= 0.80 ? "#00d48a"
+      : paceRatio >= 0.55 ? "#fde047"
+      :                     "#ef4444";
 
     // Need/Day — how many impr/views/$ must deliver per remaining day to hit goal
     const npdRem = Math.max(0, (monthlyGoal||0) - primaryRaw);
@@ -8356,11 +8374,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // as a % of needed/day (the same number the Yesterday column grades, computed once and shared).
     const npdYest = computeYesterdayDelivery(c, monthlyGoal);
     const npdPct  = npdYest?.pctOfNeeded ?? null;
+    // Same benchmark as the Yesterday column (per-day delivery vs the NORMAL even pace), loosened per
+    // Austin: neutral ≥70% (delivering a healthy day), amber 40–70% (a light day), red <40% (near-dark).
     const npdCol =
         npd === null || npdPct === null ? "#3d5a72"  // no target / no delivery data yet → neutral
-      : npdPct >= 85 ? "#3d5a72"                     // keeping up → neutral, nothing to look at
-      : npdPct >= 60 ? "#f59e0b"                     // needs a nudge → amber
-      :                "#ef4444";                    // won't get there at this rate → red
+      : npdPct >= 70 ? "#3d5a72"                     // delivering ~normal → neutral, nothing to look at
+      : npdPct >= 40 ? "#f59e0b"                     // light day → amber
+      :                "#ef4444";                    // nearly went dark → red
 
     // Weekly impressions + clicks for the combo chart in the expanded dropdown.
     // Derived from Quick Check-in history (metricSeries), current month only —
