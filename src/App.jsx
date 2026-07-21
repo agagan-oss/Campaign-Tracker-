@@ -7318,7 +7318,7 @@ function quietAdsForReport(cr) {
 }
 
 // ─── Pacing Dashboard ─────────────────────────────────────────────────────
-function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{}, onActivate=()=>{}, onSetStatus=()=>{}, onReassignLine=()=>{}, onClearLine=()=>{}, quickCheckIn=false, onToggleQuickCheckIn=()=>{}, quickCheckInPanel=null, monthResetAvailable=false, onCloseMonth=()=>{} }) {
+function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=()=>{}, lightMode=false, onEdit=()=>{}, onClearMetrics=()=>{}, onActivate=()=>{}, onSetStatus=()=>{}, onReassignLine=()=>{}, onClearLine=()=>{}, quickCheckIn=false, onToggleQuickCheckIn=()=>{}, quickCheckInPanel=null, monthResetAvailable=false, onCloseMonth=()=>{}, focusRequest=null }) {
   // ── Reassign-line modal state ──
   // When the user clicks the ↪ icon on a breakdown line, we open a search modal
   // that lets them move that line's data to a different campaign without redoing QCI.
@@ -7515,6 +7515,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // behaviour). Drops arrive in batches and a line checked yesterday isn't stale, so "today or
   // nothing" flagged too much — this widens the window without changing what the buttons mean.
   const [updatedDays,    setUpdatedDays]    = useState(_persisted.updatedDays || 1); // 1 | 2 | 3 | 7
+  // Jump-to-campaign from the Home "needs attention" list: seed the search with the campaign name so
+  // only it (and its sibling platform rows) show, clear any freshness filter that could hide it, and
+  // scroll to the top so it's immediately visible. Keyed by ts so repeated clicks re-trigger.
+  const _focusTsRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!focusRequest || !focusRequest.ts || _focusTsRef.current === focusRequest.ts) return;
+    _focusTsRef.current = focusRequest.ts;
+    setSearch(focusRequest.name || "");
+    setTodayFilter("all");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [focusRequest]);
   // Save on any filter change. Set is serialized as array.
   useEffect(() => {
     try {
@@ -18652,7 +18663,7 @@ function IODraftReviewModal({ drafts, meta, lightMode, existingPartners, onAppro
 const MORNING_BRIEF_KEY = "zeus-morning-brief"; // { text, ts, source } — the brief agent writes here; we render it if fresh
 function loadMorningBrief(){ try { return JSON.parse(localStorage.getItem(MORNING_BRIEF_KEY) || "null"); } catch { return null; } }
 
-function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCheckins, lightMode, outlookEvents=[], outlookStatus={}, onConnectOutlook, onRefreshOutlook, onNavigate, onEdit, onStartCheckIn, onAddCampaign, onOpenReminders }) {
+function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCheckins, lightMode, outlookEvents=[], outlookStatus={}, onConnectOutlook, onRefreshOutlook, onNavigate, onEdit, onStartCheckIn, onAddCampaign, onOpenReminders, onGoToPacing }) {
   const _lm = lightMode;
   const card = { background:_lm?"#ffffff":"#0c1625", border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`, borderRadius:14 };
   const labelStyle = { fontSize:10, color:_lm?"#64748b":"#4d6e8a", textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 };
@@ -18670,6 +18681,7 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
   useEffect(()=>{ const id=setInterval(()=>_clockTick(t=>t+1), 30000); return ()=>clearInterval(id); }, []);
   const [attnOpen, setAttnOpen] = useState(false);       // "Needs attention" collapsed by default (less crowding)
   const [calendarOpen, setCalendarOpen] = useState(false); // full calendar popout (meetings + reminders)
+  const [statsOpen, setStatsOpen] = useState(()=>{ try{ return localStorage.getItem("home-show-stats")==="1"; }catch{ return false; } }); // health stats collapsed by default (mirror Campaigns tab)
   const clockTime = now.toLocaleTimeString("en-US", { hour:"numeric", minute:"2-digit", timeZone: trackerTZ() });
   const tzShort = (()=>{ try { const p = new Intl.DateTimeFormat("en-US", { timeZoneName:"short", timeZone: trackerTZName() }).formatToParts(now).find(x=>x.type==="timeZoneName"); return p ? p.value : ""; } catch { return ""; } })();
 
@@ -18701,7 +18713,7 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
       if(p.ratio!=null && p.ratio<0.7){ health.risk++; raw.push({c, reason:`Behind pace — at ${Math.round((p.ratio||0)*100)}% of where it should be`, sev:3, tab:"pacing"}); }
       else health.behind++;
     }
-    else if(p.label==="Ahead" || p.pctRaw>1.05){ health.ahead++; if(p.pctRaw>1.15) raw.push({c, reason:`Over-delivering at ${Math.round(p.pctRaw*100)}% of goal — eating margin`, sev:2, tab:"revenue"}); }
+    else if(p.label==="Ahead" || p.pctRaw>1.05){ health.ahead++; if(p.pctRaw>1.15) raw.push({c, reason:`Over-delivering at ${Math.round(p.pctRaw*100)}% of goal — eating margin`, sev:2, tab:"pacing"}); }
     else health.ontrack++;
 
     const dLeft = daysFromToday(c.endDate);
@@ -18793,11 +18805,11 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
     return bits.join(" ");
   })();
 
-  const tile = (o)=>(
-    <div key={o.label} onClick={o.onClick} style={{...card, padding:"13px 15px", cursor:o.onClick?"pointer":"default", flex:"1 1 150px", minWidth:140}}>
-      <div style={{...labelStyle, marginBottom:5}}>{o.label}</div>
-      <div style={{fontSize:26, fontWeight:800, color:o.color, lineHeight:1}}>{o.val}</div>
-      <div style={{fontSize:10.5, color:_lm?"#94a3b8":"#3d5a72", marginTop:4}}>{o.sub}</div>
+  // Compact stat chip (mirrors the Campaigns tab's collapsible stat strip).
+  const statChip = (o)=>(
+    <div key={o.label} onClick={o.onClick} title={o.sub||""} style={{display:"flex", alignItems:"baseline", gap:5, background:_lm?"#ffffff":"#0e1a2e", border:`1px solid ${_lm?"#e2e8f0":o.color+"30"}`, borderRadius:6, padding:"4px 10px", cursor:o.onClick?"pointer":"default", boxShadow:_lm?"0 1px 2px rgba(15,23,42,0.05)":"none"}}>
+      <span style={{fontSize:14, fontWeight:800, color:o.color, lineHeight:1, letterSpacing:"-0.02em"}}>{o.val}</span>
+      <span style={{fontSize:9, color:_lm?"#64748b":"#4d6e8a", textTransform:"uppercase", letterSpacing:"0.04em"}}>{o.label}</span>
     </div>
   );
 
@@ -18844,13 +18856,22 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
         {!briefFresh && <div style={{fontSize:10, color:_lm?"#94a3b8":"#3d5a72", marginTop:8}}>Auto-generated from today's numbers — your morning-brief agent will replace this once it's connected.</div>}
       </div>
 
-      {/* Health tiles */}
-      <div style={{display:"flex", gap:10, flexWrap:"wrap", marginBottom:14}}>
-        {tile({label:"Running", val:running.length, color:_lm?"#0f172a":"#edf4ff", sub:"active campaigns", onClick:()=>onNavigate("pacing")})}
-        {tile({label:"On pace", val:health.ontrack+health.ahead, color:"#00d48a", sub:`${health.ahead} ahead`, onClick:()=>onNavigate("pacing")})}
-        {tile({label:"Behind / at-risk", val:health.behind+health.risk, color:(health.risk>0?"#ef4444":health.behind>0?"#fde047":"#4d6e8a"), sub:`${health.risk} need a push`, onClick:()=>onNavigate("pacing")})}
-        {tile({label:"Needs check-in", val:staleCount, color:(staleCount>0?"#f59e0b":"#4d6e8a"), sub:"no data in 3+ days", onClick:onStartCheckIn})}
-        {tile({label:"Projected revenue", val:$k(projRev), color:_lm?"#0ea5e9":"#7dd3fc", sub:"this month · goal × rate", onClick:()=>onNavigate("revenue")})}
+      {/* Health stats — compact, collapsed by default (mirrors the Campaigns tab). The morning brief
+          above already narrates these, so they stay tucked away unless you want the exact counts. */}
+      <div style={{display:"flex", gap:6, flexWrap:"wrap", alignItems:"center", marginBottom:14}}>
+        <button onClick={()=>setStatsOpen(v=>{ const nv=!v; try{localStorage.setItem("home-show-stats", nv?"1":"0");}catch{} return nv; })}
+          title={statsOpen?"Hide the stat counts":"Show the stat counts"}
+          style={{display:"flex", alignItems:"center", gap:5, background:_lm?"#f8fafc":"#0e1a2e", border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`, borderRadius:6, padding:"3px 9px", color:_lm?"#64748b":"#7a9bbf", fontSize:10, fontWeight:700, cursor:"pointer", textTransform:"uppercase", letterSpacing:"0.04em", whiteSpace:"nowrap"}}>
+          <span style={{fontSize:8, display:"inline-block", transform:statsOpen?"rotate(90deg)":"none", transition:"transform .15s"}}>▸</span>
+          📊 Stats
+        </button>
+        {statsOpen && [
+          statChip({label:"Running", val:running.length, color:_lm?"#0f172a":"#edf4ff", sub:"active campaigns", onClick:()=>onNavigate("pacing")}),
+          statChip({label:"On pace", val:health.ontrack+health.ahead, color:"#00d48a", sub:`${health.ahead} ahead`, onClick:()=>onNavigate("pacing")}),
+          statChip({label:"Behind / risk", val:health.behind+health.risk, color:(health.risk>0?"#ef4444":health.behind>0?"#f59e0b":"#4d6e8a"), sub:`${health.risk} need a push`, onClick:()=>onNavigate("pacing")}),
+          statChip({label:"Needs check-in", val:staleCount, color:(staleCount>0?"#f59e0b":"#4d6e8a"), sub:"no data in 3+ days", onClick:onStartCheckIn}),
+          statChip({label:"Proj. revenue", val:$k(projRev), color:_lm?"#0ea5e9":"#7dd3fc", sub:"this month · goal × rate", onClick:()=>onNavigate("revenue")}),
+        ]}
       </div>
 
       {/* Two-column body */}
@@ -18870,8 +18891,8 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
             const pc = PLT_COLORS[it.c.platform]||PLT_COLORS.default;
             const sevColor = it.sev>=3?"#ef4444":it.sev===2?"#f59e0b":(_lm?"#64748b":"#7a9bbf");
             return (
-              <div key={it.c.id} onClick={()=> it.check ? onStartCheckIn() : onEdit(it.c)}
-                title={it.check?"Open Quick Check-in":"Open this campaign"}
+              <div key={it.c.id} onClick={()=> it.check ? onStartCheckIn() : (it.tab==="pacing" && onGoToPacing) ? onGoToPacing(it.c) : onEdit(it.c)}
+                title={it.check?"Open Quick Check-in":it.tab==="pacing"?"Show in the Pacing tab":"Open this campaign"}
                 style={{display:"flex", alignItems:"center", gap:10, padding:"9px 8px", borderTop:i>0?`1px solid ${_lm?"#f1f5f9":"#111e33"}`:"none", cursor:"pointer"}}>
                 <span style={{width:6, height:6, borderRadius:6, background:sevColor, flexShrink:0}}/>
                 <span style={{background:pc+"22", color:pc, borderRadius:3, padding:"1px 6px", fontSize:9.5, fontWeight:800, flexShrink:0}}>{it.c.platform}</span>
@@ -18902,8 +18923,9 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
             </div>
           </div>
 
-          {/* Your schedule — MEETINGS only (Outlook). Reminders live in the calendar popout. */}
-          <div style={{...card, padding:"14px 16px"}}>
+          {/* Your schedule — MEETINGS only (Outlook). Reminders live in the calendar popout.
+              order:-1 floats it ABOVE Quick actions in the right rail (Austin's request). */}
+          <div style={{...card, padding:"14px 16px", order:-1}}>
             <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:10, flexWrap:"wrap"}}>
               <span style={{...labelStyle, flex:1}}>📅 Meetings</span>
               {outlookConnected
@@ -19014,7 +19036,7 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
               <div style={{padding:"14px 18px"}}>
                 <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:10}}>
                   <span style={{...labelStyle, flex:1}}>🔔 Reminders &amp; campaign dates</span>
-                  <button onClick={onOpenReminders} style={{background:"none", border:"none", color:_lm?"#0ea5e9":"#7dd3fc", fontSize:11, fontWeight:700, cursor:"pointer"}}>Manage →</button>
+                  <button onClick={()=>{ setCalendarOpen(false); onOpenReminders(); }} style={{background:"none", border:"none", color:_lm?"#0ea5e9":"#7dd3fc", fontSize:11, fontWeight:700, cursor:"pointer"}}>Manage →</button>
                 </div>
                 {reminderDays.length===0 ? (
                   <div style={{fontSize:12, color:_lm?"#94a3b8":"#4d6e8a"}}>Nothing in the next 7 days.</div>
@@ -19578,6 +19600,7 @@ export default function App() {
   const [bulkDraft, setBulkDraft] = useState({ goal:"", note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
   const [dateRange, setDateRange] = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
   const [activeTab, setActiveTab] = useState("home");
+  const [pacingFocus, setPacingFocus] = useState(null); // {name, ts} — jump the Pacing tab to a campaign (from Home's attention list)
   const [configSubTab, setConfigSubTab] = useState("general"); // Config tab: "general" | "connections"
   const [lightMode, setLightMode] = useState(()=>localStorage.getItem("zeus-light-mode")==="true");
   _lm = lightMode; // sync global flag so StatusBadge/PlatformTag/RowActions can read it
@@ -20721,6 +20744,7 @@ export default function App() {
             onStartCheckIn={()=>{ setActiveTab("pacing"); setQuickCheckIn(true); }}
             onAddCampaign={()=>setShowAdd(true)}
             onOpenReminders={()=>setShowReminderModal(true)}
+            onGoToPacing={(c)=>{ setPacingFocus({ name:(c.campaignName||"").trim(), ts:Date.now() }); setActiveTab("pacing"); }}
           />
         ) : activeTab==="archive" ? (
           <CampaignArchive archive={archive} onRestore={handleRestore} onBulkRestore={bulkRestore} onClear={()=>setArchive([])}/>
@@ -21075,6 +21099,7 @@ export default function App() {
           <ActivityLog log={activityLog} campaigns={campaigns} onUndo={handleUndo} onClear={async()=>{ if(await confirm({title:"Clear activity log?",message:"This cannot be undone.",confirmLabel:"Clear",danger:true})){ setActivityLog([]); try{localStorage.removeItem(ACTIVITY_KEY);}catch(e){} }}} />
         ) : activeTab==="pacing" ? (
           <PacingDashboard campaigns={campaigns} dateRange={dateRange} setDateRange={setDateRange} lightMode={lightMode}
+            focusRequest={pacingFocus}
             monthResetAvailable={monthResetAvailable} onCloseMonth={()=>setShowMonthReset(true)}
             quickCheckIn={quickCheckIn}
             onToggleQuickCheckIn={()=>setQuickCheckIn(v=>!v)}
