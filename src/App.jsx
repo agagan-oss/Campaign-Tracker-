@@ -18668,6 +18668,8 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
   // Live clock in the tracker zone (ticks every 30s). Zone shown so it's obvious which time you're on.
   const [, _clockTick] = useState(0);
   useEffect(()=>{ const id=setInterval(()=>_clockTick(t=>t+1), 30000); return ()=>clearInterval(id); }, []);
+  const [attnOpen, setAttnOpen] = useState(false);       // "Needs attention" collapsed by default (less crowding)
+  const [calendarOpen, setCalendarOpen] = useState(false); // full calendar popout (meetings + reminders)
   const clockTime = now.toLocaleTimeString("en-US", { hour:"numeric", minute:"2-digit", timeZone: trackerTZ() });
   const tzShort = (()=>{ try { const p = new Intl.DateTimeFormat("en-US", { timeZoneName:"short", timeZone: trackerTZName() }).formatToParts(now).find(x=>x.type==="timeZoneName"); return p ? p.value : ""; } catch { return ""; } })();
 
@@ -18724,55 +18726,54 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
   const draftCount = (pdfDrafts||[]).length;
   const checkinCount = (pendingCheckins||[]).length;
 
-  // ── "Your schedule" agenda: merge Outlook events + tracker reminders + campaign flight milestones
-  // for the next 7 days, grouped by day. Outlook events only appear once connected; everything else
-  // comes from the tracker itself, so the panel is useful even before Microsoft is linked.
+  // ── Schedule split: MEETINGS (Outlook calendar, timed) are kept separate from REMINDERS + campaign
+  // flight dates (date-only). The homepage schedule card shows meetings only; the calendar popout shows
+  // both, side by side. Everything covers the next 7 days.
   const AGENDA_DAYS = 7;
   const horizonISO = addDaysISO(todayISO, AGENDA_DAYS-1);
   const inHorizon = (iso)=> iso && iso.slice(0,10) >= todayISO && iso.slice(0,10) <= horizonISO;
-  const agendaItems = [];
-  // Outlook events — Graph already localized their times to the tracker zone, so we read the naive
-  // wall-clock straight from the string (no instant conversion, no double-shift).
+  const dayOrder = {};
+  for(let i=0;i<AGENDA_DAYS;i++){ dayOrder[addDaysISO(todayISO, i)] = i; }
+  const labelForISO = (iso)=>{ const idx=dayOrder[iso]; return idx===0?"Today":idx===1?"Tomorrow":isoWeekday(iso); };
+  const groupByDay = (items, timed)=>{
+    const by = {}; items.forEach(it=>{ (by[it.dateISO] = by[it.dateISO]||[]).push(it); });
+    return Object.keys(by).sort().map(iso=>({ iso, label: labelForISO(iso), sub: isoShort(iso),
+      items: by[iso].sort((a,b)=> timed ? (a.sortTime - b.sortTime) : 0) }));
+  };
+  // Meetings = Outlook calendar events only (Graph localizes times to the tracker zone, so read the
+  // naive wall-clock straight from the string).
+  const meetings = [];
   (outlookEvents||[]).forEach(ev=>{
     if(!ev.start) return;
     const iso = String(ev.start).slice(0,10);
     if(iso < todayISO || iso > horizonISO) return;
     const tm = String(ev.start).match(/T(\d{2}):(\d{2})/);
     const sortTime = ev.allDay ? -1 : (tm ? parseInt(tm[1],10)*60+parseInt(tm[2],10) : 0);
-    agendaItems.push({ kind:"outlook", dateISO:iso, sortTime,
-      time: ev.allDay?"All day":fmtClockFromNaive(ev.start),
+    meetings.push({ dateISO:iso, sortTime, time: ev.allDay?"All day":fmtClockFromNaive(ev.start),
       title: ev.subject, sub: ev.online?"🔗 Online":(ev.location||""), webLink: ev.webLink });
   });
-  // Reminders due within the horizon (plus anything overdue, surfaced under Today)
+  const meetingDays = groupByDay(meetings, true);
+  // Reminders + campaign flight dates (date-only) — shown separately from meetings.
+  const reminderItems = [];
   (reminders||[]).forEach(r=>{
     if(r.dismissed || !r.date) return;
     const overdue = r.date < todayISO;
     if(!overdue && !inHorizon(r.date)) return;
     const rt = (typeof REMINDER_TYPES!=="undefined") ? (REMINDER_TYPES.find(t=>t.value===r.type)||null) : null;
-    agendaItems.push({ kind:"reminder", dateISO: overdue?todayISO:r.date.slice(0,10), sortTime:-2,
-      title: r.note || (rt?rt.label:"Reminder"), sub: overdue?`⚠ was due ${r.date.slice(5)}`:(rt?rt.label:""),
+    reminderItems.push({ kind:"reminder", dateISO: overdue?todayISO:r.date.slice(0,10), overdue,
+      title: r.note || (rt?rt.label:"Reminder"), sub: overdue?`was due ${r.date.slice(5)}`:(rt?rt.label:""),
       ics:{ date:r.date.slice(0,10), title:(r.note||(rt?rt.label:"Reminder")) } });
   });
-  // Flight milestones (starts / ends) within the horizon
   campaigns.forEach(c=>{
     if((c.status||"active")==="archived") return;
     const s=c.startDate&&c.startDate.slice(0,10), e=c.endDate&&c.endDate.slice(0,10);
     const nm=(c.campaignName||"").trim();
-    if(inHorizon(s)) agendaItems.push({ kind:"start", dateISO:s, sortTime:-3, title:nm, sub:"Campaign starts", campaign:c, plt:c.platform, ics:{date:s,title:`${nm} — starts`} });
-    if(inHorizon(e)) agendaItems.push({ kind:"end", dateISO:e, sortTime:-3, title:nm, sub:"Campaign ends", campaign:c, plt:c.platform, ics:{date:e,title:`${nm} — ends`} });
+    if(inHorizon(s)) reminderItems.push({ kind:"start", dateISO:s, title:nm, sub:"Campaign starts", campaign:c, plt:c.platform, ics:{date:s,title:`${nm} — starts`} });
+    if(inHorizon(e)) reminderItems.push({ kind:"end", dateISO:e, title:nm, sub:"Campaign ends", campaign:c, plt:c.platform, ics:{date:e,title:`${nm} — ends`} });
   });
-  // Group by day, sorted (day math is zone-safe ISO arithmetic).
-  const dayOrder = {};
-  for(let i=0;i<AGENDA_DAYS;i++){ dayOrder[addDaysISO(todayISO, i)] = i; }
-  const agendaByDay = {};
-  agendaItems.forEach(it=>{ (agendaByDay[it.dateISO] = agendaByDay[it.dateISO]||[]).push(it); });
-  const agendaDays = Object.keys(agendaByDay).sort().map(iso=>{
-    const items = agendaByDay[iso].sort((a,b)=>a.sortTime-b.sortTime);
-    const idx = dayOrder[iso];
-    const label = idx===0?"Today":idx===1?"Tomorrow":isoWeekday(iso);
-    return { iso, label, sub:isoShort(iso), items };
-  });
+  const reminderDays = groupByDay(reminderItems, false);
   const outlookConnected = !!(outlookStatus && outlookStatus.connected);
+  const attnUrgent = attention.filter(a=>a.sev>=3).length;
 
   // Morning brief: the agent's version if it's recent, otherwise a data-driven fallback so the panel
   // is useful today. The agent just writes { text, ts, source } to localStorage to take over.
@@ -18854,13 +18855,16 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
 
       {/* Two-column body */}
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))", gap:14, alignItems:"start"}}>
-        {/* Needs attention */}
+        {/* Needs attention — collapsible so the page isn't crowded; count + urgent stay visible closed */}
         <div style={{...card, padding:"14px 16px"}}>
-          <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:10}}>
-            <span style={{...labelStyle, flex:1}}>🎯 Needs your attention today</span>
-            <span style={{fontSize:11, fontWeight:700, color:_lm?"#64748b":"#4d6e8a"}}>{attention.length}</span>
-          </div>
-          {topAttention.length===0 ? (
+          <button onClick={()=>setAttnOpen(v=>!v)} style={{display:"flex", alignItems:"center", gap:8, width:"100%", background:"none", border:"none", cursor:"pointer", padding:0, marginBottom: attnOpen?10:0, textAlign:"left"}}>
+            <span style={{fontSize:10, color:_lm?"#64748b":"#4d6e8a", display:"inline-block", transform:attnOpen?"rotate(90deg)":"none", transition:"transform .15s"}}>▸</span>
+            <span style={{...labelStyle, margin:0}}>🎯 Needs your attention today</span>
+            {attnUrgent>0 && <span style={{fontSize:10, fontWeight:800, color:"#fff", background:"#ef4444", borderRadius:9, padding:"1px 7px"}}>{attnUrgent} urgent</span>}
+            <span style={{flex:1}}/>
+            <span style={{fontSize:12, fontWeight:800, color:attention.length>0?(_lm?"#0f172a":"#edf4ff"):(_lm?"#94a3b8":"#4d6e8a")}}>{attention.length}</span>
+          </button>
+          {attnOpen && (topAttention.length===0 ? (
             <div style={{fontSize:12.5, color:_lm?"#94a3b8":"#4d6e8a", padding:"14px 4px"}}>Nothing needs a look right now. Everything running is on pace and reporting. ✅</div>
           ) : topAttention.map((it,i)=>{
             const pc = PLT_COLORS[it.c.platform]||PLT_COLORS.default;
@@ -18878,7 +18882,7 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
                 <span style={{fontSize:11, color:_lm?"#94a3b8":"#4d6e8a", flexShrink:0}}>→</span>
               </div>
             );
-          })}
+          }))}
         </div>
 
         {/* Right rail */}
@@ -18898,51 +18902,43 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
             </div>
           </div>
 
-          {/* Your schedule — Outlook events + reminders + flight milestones, next 7 days */}
+          {/* Your schedule — MEETINGS only (Outlook). Reminders live in the calendar popout. */}
           <div style={{...card, padding:"14px 16px"}}>
             <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:10, flexWrap:"wrap"}}>
-              <span style={{...labelStyle, flex:1}}>📅 Your schedule</span>
-              {outlookConnected ? (
-                <button onClick={onRefreshOutlook} title={outlookStatus.lastSync?`Outlook synced ${new Date(outlookStatus.lastSync).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}`:"Refresh Outlook"} style={{background:"none", border:"none", color:_lm?"#0ea5e9":"#7dd3fc", fontSize:11, fontWeight:700, cursor:"pointer"}}>{outlookStatus.loading?"Syncing…":"↻ Sync"}</button>
-              ) : (
-                <button onClick={()=> onConnectOutlook ? onConnectOutlook() : onNavigate("config")} style={{background:_lm?"#eff6ff":"#0a2036", border:`1px solid ${_lm?"#bfdbfe":"#0e7490"}`, borderRadius:7, padding:"4px 10px", color:_lm?"#1d4ed8":"#7dd3fc", fontSize:10.5, fontWeight:700, cursor:"pointer"}}>Connect Outlook</button>
-              )}
-              <button onClick={onOpenReminders} title="Reminders" style={{background:"none", border:"none", color:_lm?"#0ea5e9":"#7dd3fc", fontSize:11, fontWeight:700, cursor:"pointer"}}>🔔</button>
+              <span style={{...labelStyle, flex:1}}>📅 Meetings</span>
+              {outlookConnected
+                ? <button onClick={onRefreshOutlook} title={outlookStatus.lastSync?`Outlook synced ${new Date(outlookStatus.lastSync).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}`:"Refresh Outlook"} style={{background:"none", border:"none", color:_lm?"#0ea5e9":"#7dd3fc", fontSize:11, fontWeight:700, cursor:"pointer"}}>{outlookStatus.loading?"Syncing…":"↻ Sync"}</button>
+                : <button onClick={()=> onConnectOutlook ? onConnectOutlook() : onNavigate("config")} style={{background:_lm?"#eff6ff":"#0a2036", border:`1px solid ${_lm?"#bfdbfe":"#0e7490"}`, borderRadius:7, padding:"4px 10px", color:_lm?"#1d4ed8":"#7dd3fc", fontSize:10.5, fontWeight:700, cursor:"pointer"}}>Connect Outlook</button>}
+              <button onClick={()=>setCalendarOpen(true)} title="Open the full calendar (meetings + reminders)" style={{background:"none", border:`1px solid ${_lm?"#e2e8f0":"#26364f"}`, borderRadius:7, padding:"4px 10px", color:_lm?"#475569":"#9fb4cf", fontSize:10.5, fontWeight:700, cursor:"pointer"}}>🗓 Calendar</button>
             </div>
             {outlookStatus && outlookStatus.error && (
               <div style={{fontSize:10.5, color:_lm?"#b45309":"#fcd34d", marginBottom:8}}>Outlook: {outlookStatus.error}</div>
             )}
-            {agendaDays.length===0 ? (
+            {meetingDays.length===0 ? (
               <div style={{fontSize:12, color:_lm?"#94a3b8":"#4d6e8a"}}>
-                Nothing scheduled in the next 7 days.{!outlookConnected && " Connect Outlook to see your meetings here too."}
+                {outlookConnected ? "No meetings in the next 7 days." : "Connect Outlook to see your meetings here."}
               </div>
-            ) : agendaDays.map(day=>(
-              <div key={day.iso} style={{marginBottom:10}}>
-                <div style={{display:"flex", alignItems:"baseline", gap:6, marginBottom:4}}>
+            ) : meetingDays.slice(0,3).map(day=>(
+              <div key={day.iso} style={{marginBottom:8}}>
+                <div style={{display:"flex", alignItems:"baseline", gap:6, marginBottom:3}}>
                   <span style={{fontSize:11.5, fontWeight:800, color:day.label==="Today"?(_lm?"#059669":"#00d48a"):(_lm?"#334155":"#9fb4cf")}}>{day.label}</span>
                   <span style={{fontSize:10, color:_lm?"#94a3b8":"#4d6e8a"}}>{day.sub}</span>
                 </div>
-                {day.items.map((it,i)=>{
-                  const icon = it.kind==="outlook"?"📎":it.kind==="reminder"?"🔔":it.kind==="start"?"▶":"⏹";
-                  const accent = it.kind==="outlook"?(_lm?"#7c3aed":"#a78bfa"):it.kind==="reminder"?(_lm?"#b45309":"#fcd34d"):it.kind==="end"?"#ef4444":"#00d48a";
-                  return (
-                    <div key={i} onClick={it.campaign?()=>onEdit(it.campaign):(it.kind==="outlook"&&it.webLink?()=>window.open(it.webLink,"_blank","noopener"):undefined)}
-                      style={{display:"flex", alignItems:"center", gap:8, padding:"4px 0", cursor:(it.campaign||(it.kind==="outlook"&&it.webLink))?"pointer":"default"}}>
-                      <span style={{fontSize:11, width:14, textAlign:"center", flexShrink:0}}>{icon}</span>
-                      {it.time && <span style={{fontSize:10.5, color:_lm?"#64748b":"#7a9bbf", width:58, flexShrink:0, fontWeight:600}}>{it.time}</span>}
-                      <div style={{minWidth:0, flex:1}}>
-                        <div style={{fontSize:12, fontWeight:600, color:_lm?"#0f172a":"#edf4ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
-                          {it.plt && <span style={{fontSize:9, fontWeight:800, color:accent, marginRight:5}}>{it.plt}</span>}{it.title}
-                        </div>
-                        {it.sub && <div style={{fontSize:10, color:accent, marginTop:0}}>{it.sub}</div>}
-                      </div>
-                      {it.ics && <button onClick={(e)=>{ e.stopPropagation(); downloadICS(it.ics.title, it.ics.date); }} title="Add to Outlook (.ics)" style={{background:"none", border:`1px solid ${_lm?"#e2e8f0":"#26364f"}`, borderRadius:6, padding:"1px 6px", color:_lm?"#94a3b8":"#4d6e8a", fontSize:9.5, fontWeight:700, cursor:"pointer", flexShrink:0}}>+📅</button>}
+                {day.items.map((it,i)=>(
+                  <div key={i} onClick={it.webLink?()=>window.open(it.webLink,"_blank","noopener"):undefined}
+                    style={{display:"flex", alignItems:"center", gap:8, padding:"3px 0", cursor:it.webLink?"pointer":"default"}}>
+                    <span style={{fontSize:10.5, color:_lm?"#64748b":"#7a9bbf", width:62, flexShrink:0, fontWeight:700}}>{it.time}</span>
+                    <div style={{minWidth:0, flex:1}}>
+                      <div style={{fontSize:12, fontWeight:600, color:_lm?"#0f172a":"#edf4ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{it.title}</div>
+                      {it.sub && <div style={{fontSize:10, color:_lm?"#7c3aed":"#a78bfa"}}>{it.sub}</div>}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             ))}
-            {(remOverdue>0) && <div style={{fontSize:10.5, color:"#ef4444", marginTop:4, fontWeight:700}}>⚠ {remOverdue} reminder{remOverdue!==1?"s":""} overdue</div>}
+            <button onClick={()=>setCalendarOpen(true)} style={{marginTop:6, width:"100%", background:_lm?"#f8fafc":"#0e1a2e", border:`1px solid ${_lm?"#e2e8f0":"#26364f"}`, borderRadius:8, padding:"7px 0", color:_lm?"#475569":"#9fb4cf", fontSize:11, fontWeight:700, cursor:"pointer"}}>
+              🗓 Open calendar{reminderItems.length>0?` · ${reminderItems.length} reminder${reminderItems.length!==1?"s":""}`:""}{meetingDays.length>3?" · more meetings":""}
+            </button>
           </div>
 
           {/* Recent activity */}
@@ -18968,6 +18964,90 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
           </div>
         </div>
       </div>
+
+      {/* ── Calendar popout — meetings (at their times) and reminders, side by side ── */}
+      {calendarOpen && (
+        <div onClick={e=>{ if(e.target===e.currentTarget) setCalendarOpen(false); }}
+          style={{position:"fixed", inset:0, background:"#000a", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:20}}>
+          <div style={{background:_lm?"#ffffff":"#0c1625", border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`, borderRadius:14, width:"100%", maxWidth:840, maxHeight:"88vh", overflow:"auto"}}>
+            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, padding:"14px 20px", borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`, position:"sticky", top:0, background:_lm?"#ffffff":"#0c1625", zIndex:2}}>
+              <div>
+                <div style={{fontSize:16, fontWeight:800, color:_lm?"#0f172a":"#edf4ff"}}>🗓 Calendar</div>
+                <div style={{fontSize:11, color:_lm?"#64748b":"#4d6e8a", marginTop:2}}>Next 7 days · {isoShort(todayISO)} – {isoShort(horizonISO)}{tzShort?` · ${tzShort}`:""}</div>
+              </div>
+              <div style={{display:"flex", gap:8}}>
+                {outlookConnected && <button onClick={onRefreshOutlook} style={{background:_lm?"#f0fdf9":"#162236", border:`1px solid ${_lm?"#00c896":"#334155"}`, borderRadius:7, padding:"6px 12px", color:_lm?"#059669":"#7dd3fc", fontSize:12, fontWeight:700, cursor:"pointer"}}>{outlookStatus.loading?"Syncing…":"↻ Sync"}</button>}
+                <button onClick={()=>setCalendarOpen(false)} style={{background:"none", border:`1px solid ${_lm?"#e2e8f0":"#334155"}`, borderRadius:7, padding:"6px 12px", color:_lm?"#475569":"#4d6e8a", fontSize:12, cursor:"pointer"}}>✕ Close</button>
+              </div>
+            </div>
+            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))"}}>
+              {/* Meetings (timed) */}
+              <div style={{padding:"14px 18px", borderRight:`1px solid ${_lm?"#f1f5f9":"#111e33"}`}}>
+                <div style={{...labelStyle, marginBottom:10}}>📅 Meetings</div>
+                {!outlookConnected ? (
+                  <div style={{fontSize:12, color:_lm?"#94a3b8":"#4d6e8a", lineHeight:1.6}}>
+                    Connect Outlook to see your meetings.
+                    <div style={{marginTop:8}}><button onClick={()=> onConnectOutlook ? onConnectOutlook() : onNavigate("config")} style={{background:_lm?"#2563eb":"#0a2036", border:`1px solid #0e7490`, borderRadius:7, padding:"6px 12px", color:_lm?"#fff":"#7dd3fc", fontSize:11, fontWeight:700, cursor:"pointer"}}>🔐 Connect Outlook</button></div>
+                  </div>
+                ) : meetingDays.length===0 ? (
+                  <div style={{fontSize:12, color:_lm?"#94a3b8":"#4d6e8a"}}>No meetings in the next 7 days.</div>
+                ) : meetingDays.map(day=>(
+                  <div key={day.iso} style={{marginBottom:12}}>
+                    <div style={{display:"flex", alignItems:"baseline", gap:6, marginBottom:5}}>
+                      <span style={{fontSize:12, fontWeight:800, color:day.label==="Today"?(_lm?"#059669":"#00d48a"):(_lm?"#334155":"#9fb4cf")}}>{day.label}</span>
+                      <span style={{fontSize:10, color:_lm?"#94a3b8":"#4d6e8a"}}>{day.sub}</span>
+                    </div>
+                    {day.items.map((it,i)=>(
+                      <div key={i} onClick={it.webLink?()=>window.open(it.webLink,"_blank","noopener"):undefined}
+                        style={{display:"flex", gap:10, padding:"6px 0", borderTop:i>0?`1px solid ${_lm?"#f8fafc":"#0d1525"}`:"none", cursor:it.webLink?"pointer":"default"}}>
+                        <span style={{fontSize:11, color:_lm?"#0f172a":"#d8eaf8", width:66, flexShrink:0, fontWeight:700, fontVariantNumeric:"tabular-nums"}}>{it.time}</span>
+                        <div style={{minWidth:0, flex:1}}>
+                          <div style={{fontSize:12.5, fontWeight:600, color:_lm?"#0f172a":"#edf4ff"}}>{it.title}</div>
+                          {it.sub && <div style={{fontSize:10.5, color:_lm?"#7c3aed":"#a78bfa", marginTop:1}}>{it.sub}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              {/* Reminders + campaign dates (no times) */}
+              <div style={{padding:"14px 18px"}}>
+                <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:10}}>
+                  <span style={{...labelStyle, flex:1}}>🔔 Reminders &amp; campaign dates</span>
+                  <button onClick={onOpenReminders} style={{background:"none", border:"none", color:_lm?"#0ea5e9":"#7dd3fc", fontSize:11, fontWeight:700, cursor:"pointer"}}>Manage →</button>
+                </div>
+                {reminderDays.length===0 ? (
+                  <div style={{fontSize:12, color:_lm?"#94a3b8":"#4d6e8a"}}>Nothing in the next 7 days.</div>
+                ) : reminderDays.map(day=>(
+                  <div key={day.iso} style={{marginBottom:12}}>
+                    <div style={{display:"flex", alignItems:"baseline", gap:6, marginBottom:5}}>
+                      <span style={{fontSize:12, fontWeight:800, color:day.label==="Today"?(_lm?"#059669":"#00d48a"):(_lm?"#334155":"#9fb4cf")}}>{day.label}</span>
+                      <span style={{fontSize:10, color:_lm?"#94a3b8":"#4d6e8a"}}>{day.sub}</span>
+                    </div>
+                    {day.items.map((it,i)=>{
+                      const icon = it.kind==="reminder"?"🔔":it.kind==="start"?"▶":"⏹";
+                      const accent = it.overdue?"#ef4444":it.kind==="reminder"?(_lm?"#b45309":"#fcd34d"):it.kind==="end"?"#ef4444":"#00d48a";
+                      return (
+                        <div key={i} onClick={it.campaign?()=>{ setCalendarOpen(false); onEdit(it.campaign); }:undefined}
+                          style={{display:"flex", alignItems:"center", gap:8, padding:"6px 0", borderTop:i>0?`1px solid ${_lm?"#f8fafc":"#0d1525"}`:"none", cursor:it.campaign?"pointer":"default"}}>
+                          <span style={{fontSize:11, width:16, textAlign:"center", flexShrink:0}}>{icon}</span>
+                          <div style={{minWidth:0, flex:1}}>
+                            <div style={{fontSize:12.5, fontWeight:600, color:_lm?"#0f172a":"#edf4ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                              {it.plt && <span style={{fontSize:9, fontWeight:800, color:PLT_COLORS[it.plt]||accent, marginRight:5}}>{it.plt}</span>}{it.title}
+                            </div>
+                            {it.sub && <div style={{fontSize:10.5, color:accent, marginTop:1}}>{it.overdue?"⚠ ":""}{it.sub}</div>}
+                          </div>
+                          {it.ics && <button onClick={(e)=>{ e.stopPropagation(); downloadICS(it.ics.title, it.ics.date); }} title="Add to Outlook (.ics)" style={{background:"none", border:`1px solid ${_lm?"#e2e8f0":"#26364f"}`, borderRadius:6, padding:"1px 7px", color:_lm?"#94a3b8":"#4d6e8a", fontSize:9.5, fontWeight:700, cursor:"pointer", flexShrink:0}}>+📅</button>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
