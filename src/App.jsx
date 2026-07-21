@@ -702,6 +702,9 @@ function resolveMetrics(c, preset) {
 const PLATFORM_SNAPSHOT_FIELD = {
   FB:"metaSnapshots", FBV:"metaSnapshots", IG:"metaSnapshots",
   TD:"ttdSnapshots", TDV:"ttdSnapshots", TDA:"ttdSnapshots", CTV:"ttdSnapshots", OTT:"ttdSnapshots", OTTD:"ttdSnapshots",
+  // Madhive (GCTV/PCTV/AECTV) rides the ttdSnapshots slot — its platforms never collide with a
+  // TradeDesk campaign, so its per-line breakdown surfaces through the same pacing viewer + MTD readers.
+  GCTV:"ttdSnapshots", PCTV:"ttdSnapshots", AECTV:"ttdSnapshots",
   DSP:"dspSnapshots",
   SEM:"googleSnapshots", YT:"googleSnapshots",
   SP:"snapSnapshots",
@@ -2443,27 +2446,29 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
     return (
       <div style={{background:isPast?(_lm?"#fee2e2":"#1a0808"):(_lm?"#f8fafc":"#0e1a2e"),border:`1px solid ${isPast?(_lm?"#fca5a5":"#ef444440"):(_lm?(rt.color+"50"):(rt.color+"30"))}`,borderRadius:8,padding:"10px 13px",marginBottom:7,display:"flex",gap:10,alignItems:"flex-start"}}>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:3}}>
-            <span style={{fontSize:12,color:rt.color,fontWeight:700}}>{rt.label}</span>
-            {camp && (
-              <span
-                onClick={()=>{ if(onNavigate) { onNavigate(camp.id); onClose(); } }}
-                title="Click to jump to this campaign"
-                style={{fontSize:11,background:pCol+"18",border:`1px solid ${pCol}30}`,borderRadius:4,padding:"1px 7px",display:"inline-flex",alignItems:"center",gap:5,cursor:onNavigate?"pointer":"default",transition:"background .15s"}}
-                onMouseEnter={e=>{ if(onNavigate) e.currentTarget.style.background=pCol+"35"; }}
-                onMouseLeave={e=>{ if(onNavigate) e.currentTarget.style.background=pCol+"18"; }}
-              >
-                <span style={{color:pCol,fontWeight:700,fontSize:11}}>{camp.campaignName.trim()}</span>
-                <span style={{color:pCol,opacity:0.6,fontSize:10}}>· {camp.platform}</span>
-                {onNavigate && <span style={{color:pCol,opacity:0.5,fontSize:9,marginLeft:2}}>↗</span>}
+          {/* Headline = the CAMPAIGN NAME (Austin's priority). Unlinked reminders fall back to the note. */}
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:3}}>
+            {camp ? (
+              <span onClick={()=>{ if(onNavigate) { onNavigate(camp.id); onClose(); } }}
+                title={onNavigate?"Click to jump to this campaign":undefined}
+                style={{display:"inline-flex",alignItems:"center",gap:6,cursor:onNavigate?"pointer":"default"}}>
+                <span style={{color:_lm?"#0f172a":"#edf4ff",fontWeight:800,fontSize:13.5}}>{camp.campaignName.trim()}</span>
+                <span style={{background:pCol+"22",color:pCol,border:`1px solid ${pCol}45`,borderRadius:4,padding:"0 6px",fontSize:10,fontWeight:800}}>{camp.platform}</span>
+                {onNavigate && <span style={{color:pCol,opacity:0.6,fontSize:10}}>↗</span>}
               </span>
+            ) : (
+              <span style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{r.note || rt.label}</span>
             )}
             <span style={{fontSize:11,fontWeight:600,color:isPast?"#ef4444":dLeft<=3?"#f59e0b":"#00d48a",marginLeft:"auto"}}>
               {isPast?`${Math.abs(dLeft)}d overdue`:dLeft===0?"Today!":`in ${dLeft}d`} · {fmtDate(r.date)}
             </span>
           </div>
-          {r.note && <div style={{fontSize:12,color:_lm?"#475569":"#7a9bbf",lineHeight:1.4}}>{r.note}</div>}
-          {r.repeat!=="none" && <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>↻ Repeats {r.repeat}</div>}
+          {/* Meta line: type + (the note, when a campaign owns the headline) + repeat */}
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:11,color:rt.color,fontWeight:700}}>{rt.label}</span>
+            {camp && r.note && <span style={{fontSize:12,color:_lm?"#475569":"#7a9bbf"}}>{r.note}</span>}
+            {r.repeat!=="none" && <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72"}}>↻ Repeats {r.repeat}</span>}
+          </div>
         </div>
         <div style={{display:"flex",gap:5,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
           {/* Snooze buttons */}
@@ -10143,7 +10148,7 @@ function ReassignLineModal({ target, campaigns, lightMode, onCancel, onConfirm }
   const _lm = lightMode;
   const SOURCE_PLATFORMS = {
     metaSnapshots:   ["FB","FBV","IG"],
-    ttdSnapshots:    ["TD","TDV","TDA","CTV","OTT","OTTD"],
+    ttdSnapshots:    ["TD","TDV","TDA","CTV","OTT","OTTD","GCTV","PCTV","AECTV"], // TradeDesk CTV + Madhive (shares this snapshot slot)
     dspSnapshots:    ["DSP"],
     googleSnapshots: ["SEM","YT"],
     snapSnapshots:   ["SP"],
@@ -12351,6 +12356,28 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   const [mapping,      setMapping]      = React.useState({});     // fileRowIdx -> campId (integers only)
   const [matchConf,    setMatchConf]    = React.useState({});     // fileRowIdx -> confidence (1.0=memory, 0.8=TTD, fuzzy score for others)
   const [memoryMap,    setMemoryMap]    = React.useState({});     // fileRowIdx -> campId that was RESTORED FROM SAVED MEMORY (a prior check-in). Drives the purple "remembered" check — shown ONLY while the current mapping still equals this. Never set by auto-match or manual picks.
+  // Display order for the review list — computed ONCE at parse time so rows don't jump around while you
+  // pick. Priority (Austin's request): fuzzy auto-matches (need review) first, lowest-confidence at the
+  // very top; then "known" rows (remembered ✓ or exact 100%); then unmapped last. Within a tier, the
+  // file's own order is preserved. Rendering keeps each row's ORIGINAL index for all state lookups.
+  const [rowOrder,     setRowOrder]     = React.useState(null);   // [origIdx, …] or null (= file order)
+  function computeRowOrder(rows, mp, conf, mem){
+    if(!Array.isArray(rows)) return null;
+    const tier = (i)=>{
+      const a = mp[i];
+      if(!a) return 2;                                            // unmapped → last
+      const isMem = mem[i] != null && String(mem[i]) === String(a);
+      const c = conf[i];
+      if(!isMem && c !== undefined && c < 1.0) return 0;          // fuzzy auto-match → top
+      return 1;                                                   // known (remembered / exact) → middle
+    };
+    return rows.map((_,i)=>i).sort((a,b)=>{
+      const ta=tier(a), tb=tier(b);
+      if(ta!==tb) return ta-tb;
+      if(ta===0){ const ca=conf[a]??1, cb=conf[b]??1; if(ca!==cb) return ca-cb; } // lowest % first
+      return a-b;                                                 // stable: keep file order within tier
+    });
+  }
   // Assign a campaign to a row. For DSP, the file lists ONE ROW PER LINE ITEM but a DSP advertiser maps
   // to exactly ONE tracker campaign — and the saved mapping memory is keyed per-advertiser. So a change
   // on any one line-item row propagates to EVERY row of the same advertiser. Without this, correcting a
@@ -12857,13 +12884,18 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     s = s.replace(/^[A-Z]{2,5}(-[A-Za-z0-9]{2,6})?\s+-\s+/, ""); // single/other code with " - "
     return s.trim() || (row["Client"]||"").toString().trim();  // never strip down to empty
   }
-  // A Madhive line item is the PREMIUM tier when its Line Item / Campaign name says "Premium".
-  function isMadhivePremium(row){
-    return /\bpremium\b/i.test(((row["Line Item Name"]||"")+" "+(row["Campaign Name"]||"")).toString());
+  // Which Madhive platform a row's line item belongs to, from its Line Item / Campaign name:
+  //   "Audience Extension" (or AECTV) → AECTV · "Premium" → PCTV · everything else → GCTV.
+  function madhivePreferredPlatform(row){
+    const s = ((row["Line Item Name"]||"")+" "+(row["Campaign Name"]||"")).toString();
+    if (/audience\s*ext(?:ension)?|\baectv\b/i.test(s)) return "AECTV";
+    if (/\bpremium\b/i.test(s)) return "PCTV";
+    return "GCTV";
   }
-  // Route a Madhive row to the client's CTV campaign: Premium → PCTV, everything else → GCTV. Falls
-  // back to the OTHER CTV platform if the preferred one has no matching campaign for that client.
-  function matchMadhiveToTracker(clientName, isPremium, camps){
+  // Route a Madhive row to the client's CTV campaign. Tries the line item's own tier first
+  // (AECTV / PCTV / GCTV), then the other Madhive platforms as fallback — so an Audience Extension
+  // line lands on the client's AECTV campaign, not their GCTV one.
+  function matchMadhiveToTracker(clientName, preferredPlat, camps){
     if (!clientName) return "";
     const cn = clientName.toLowerCase().trim();
     const tryPlat = (plat) => {
@@ -12875,12 +12907,14 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if (sub) return String(sub.id);
       const rev = pool.find(c => c.campaignName.trim().length >= 8 && cn.includes(c.campaignName.trim().toLowerCase()));
       if (rev) return String(rev.id);
-      const generic = new Set(["credit","union","federal","bank","financial","services","service","group","national","community","corp","inc","llc","company","audience","ctv","premium","general","extension","july"]);
+      const generic = new Set(["credit","union","federal","bank","financial","services","service","group","national","community","corp","inc","llc","company","audience","ctv","aectv","premium","general","extension","july"]);
       const words = cn.split(/\s+/).filter(w => w.length > 3 && !generic.has(w));
       if (words.length){ let best=null,bestC=0; pool.forEach(c=>{ const cl=c.campaignName.toLowerCase(); const m=words.filter(w=>cl.includes(w)).length; if(m/words.length>0.6 && m>=1 && m>bestC){best=c;bestC=m;} }); if(best) return String(best.id); }
       return "";
     };
-    return tryPlat(isPremium ? "PCTV" : "GCTV") || tryPlat(isPremium ? "GCTV" : "PCTV");
+    const order = [preferredPlat, ...["AECTV","PCTV","GCTV"].filter(p => p !== preferredPlat)];
+    for (const p of order){ const id = tryPlat(p); if (id) return id; }
+    return "";
   }
 
   // For DSP-Internal: the advertiser_name field contains the rep initials suffix (_AG, _ZB, etc.)
@@ -12926,7 +12960,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     "Snapchat":      new Set(["SP"]),
     "DSP-Internal":  new Set(["DSP"]),
     "DSP":           new Set(["DSP"]),
-    "Madhive":       new Set(["PCTV","GCTV"]),  // Madhive is GCTV/PCTV only — plain CTV/OTT belong to TVsci
+    "Madhive":       new Set(["PCTV","GCTV","AECTV"]), // Madhive = GCTV/PCTV + Audience Extension (AECTV); plain CTV/OTT belong to TVsci
     "TVsci Spend":   new Set(["CTV","OTT"]),    // TVsci = the plain CTV/OTT campaigns (never Madhive's GCTV/PCTV)
     "TVsci Daily":   new Set(["CTV","OTT","OTTD"]), // TVsci covers CTV + OTT + OTTD (its "Display" lines)
   };
@@ -13291,6 +13325,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     });
     setFileRows(synthRows);
     setMapping(initMap); setMatchConf(initConf); setMemoryMap(memMap);
+    setRowOrder(computeRowOrder(synthRows, initMap, initConf, memMap));
     setConfirmApplyPending(false);
     const totalAds=adSets.reduce((s,a)=>s+groups[a].creatives.length,0);
     const srcLabel = source==="Snapchat"?"Snapchat":"FB";
@@ -13607,7 +13642,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         // Fuzzy-fallback on the Campaign Name only at a HIGH bar (≥0.80) — Madhive campaign names are
         // bare small-business names that collide on category words ("X Furniture" vs "Y Furniture" = 0.50),
         // so a low threshold produced false matches. 0.80 keeps only near-exact name recoveries.
-        const matchedId = matchMadhiveToTracker(getMadhiveClient(row), isMadhivePremium(row), matchCandidates);
+        const matchedId = matchMadhiveToTracker(getMadhiveClient(row), madhivePreferredPlatform(row), matchCandidates);
         if(matchedId){ initMap[i]=matchedId; initConf[i]=0.8; autoCount++; }
         else {
           const csvName=getCampName(row,source);
@@ -13720,6 +13755,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     setMapping(initMap);
     setMatchConf(initConf);
     setMemoryMap(memMap);
+    setRowOrder(computeRowOrder(rows, initMap, initConf, memMap));
     setConfirmApplyPending(false);
     const hiddenNote = dspHiddenLowImpr>0 ? ` · 🚫 ${dspHiddenLowImpr} row${dspHiddenLowImpr!==1?"s":""} under 100 impr hidden` : "";
     if(savedCount>0 && autoCount>0) setSavedMsg(`✓ ${savedCount} remembered · ⚡ ${autoCount} auto-matched · ${totalMatched}/${rows.length} total${hiddenNote}`);
@@ -13764,7 +13800,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if(memEntries.length) persistNameMappings(fileSource, memEntries);
       const totalAds=campKeys.reduce((s,k)=>s+byCamp[k].length,0);
       setSavedMsg(`🎨 Saved ${totalAds} creative${totalAds!==1?"s":""} to ${campKeys.length} campaign${campKeys.length!==1?"s":""}`);
-      setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setIsCreativeMode(false); setCreativeGroups({}); setConfirmApplyPending(false); setRowSearch("");
+      setFileRows(null); setRowOrder(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setIsCreativeMode(false); setCreativeGroups({}); setConfirmApplyPending(false); setRowSearch("");
       return;
     }
 
@@ -13795,7 +13831,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if(memEntries.length) persistNameMappings(fileSource, memEntries);
       const total=keys.reduce((s,k)=>s+byCamp[k],0);
       setSavedMsg(`📺 Saved TVsci lifetime spend to ${keys.length} campaign${keys.length!==1?"s":""} · $${total.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})} total — lifetime only, monthly P&L untouched`);
-      setFileRows(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setConfirmApplyPending(false); setRowSearch("");
+      setFileRows(null); setRowOrder(null); setMapping({}); setMatchConf({}); setMemoryMap({}); setConfirmApplyPending(false); setRowSearch("");
       return;
     }
 
@@ -13851,6 +13887,9 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                       : fileSource==="Snapchat"      ? "snapSnapshots"
                       : fileSource==="DSP-Internal"  ? "dspSnapshots"
                       : fileSource==="DSP"           ? "dspSnapshots"
+                      // Madhive → ttdSnapshots so its per-line breakdown shows in the Pacing viewer,
+                      // just like FB. Madhive's GCTV/PCTV/AECTV never collide with TradeDesk campaigns.
+                      : fileSource==="Madhive"       ? "ttdSnapshots"
                       : null;
       // Roll over the existing breakdown into priorBreakdown ONLY if its date is
       // earlier than today — that's what lets us diff yesterday's per-line stats
@@ -14364,7 +14403,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                   }}
                   style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444430"}`,borderRadius:5,padding:"3px 9px",color:_lm?"#dc2626":"#f87171",fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}
                 >🗑 Reset Memory</button>
-                {btn("Clear",()=>{setFileRows(null);setMapping({});setMatchConf({});setMemoryMap({});setIsCreativeMode(false);setCreativeGroups({});setConfirmApplyPending(false);setFileSource("");setSavedMsg("");})}
+                {btn("Clear",()=>{setFileRows(null);setRowOrder(null);setMapping({});setMatchConf({});setMemoryMap({});setIsCreativeMode(false);setCreativeGroups({});setConfirmApplyPending(false);setFileSource("");setSavedMsg("");})}
                 <button onClick={()=>{
                   if(!mappedCount) return;
                   // Count low-confidence auto-matches (not manually assigned, not memory)
@@ -14486,7 +14525,8 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
               );
             })()}
             <div style={{maxHeight:320,overflowY:"auto",flex:1}}>
-              {fileRows.map((row,i)=>{
+              {(rowOrder && rowOrder.length===fileRows.length ? rowOrder : fileRows.map((_,i)=>i)).map((i)=>{
+                const row=fileRows[i];
                 const m=extractMetrics(row,fileSource);
                 const name=getCampName(row,fileSource);
                 if(isIgnoredName(name)) return null;   // hidden — managed in the "🚫 Ignored" list up top
@@ -15045,6 +15085,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const [plByPlatOpen, setPlByPlatOpen]     = useState(true);    // "where the money's made" platform/tactic panel
   const [plScope, setPlScope]               = useState("month"); // "month" (focused month) | "all" (all-time to date)
   const [plExpandedVendors, setPlExpandedVendors] = useState(() => new Set()); // which vendor rows are drilled into
+  const [plExpandedTactics, setPlExpandedTactics] = useState(() => new Set()); // which tactic rows are drilled into (→ campaigns)
   const [showRateFixer, setShowRateFixer]   = useState(false); // expand the "finish the rates" checklist
   const [showDtFixer, setShowDtFixer]       = useState(false); // expand the "device surcharge" suggestion list
   const [showRevForecast, setShowRevForecast] = useState(false); // on-demand month/quarter $ forecast
@@ -16163,124 +16204,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         })()}
       </div>
 
-      {/* ── Where the money's made — profit by platform, then by tactic ──────────────
-          Rolls the focused month (or all-time to date) up by the vendor you buy through
-          (The Trade Desk, Google, Meta…), each drillable into its tactics (TD/TDV/TDA…).
-          Uses the SAME realized-only revenue/profit as the KPI tiles, so a vendor's rows
-          sum back to the totals above. */}
-      {(()=>{
-        const useAll = plScope === "all";
-        // Aggregate rows into per-tactic buckets (realized = has spend; pending = revenue, no spend yet).
-        const byPlat = {};
-        rows.forEach(r=>{
-          const plat = r.c.platform || "—";
-          const b = byPlat[plat] || (byPlat[plat] = { plat, vendor: vendorOf(plat), rev:0, spend:0, deviceFee:0, realized:false, count:0, pendingRev:0, pendingCount:0 });
-          if (useAll) {
-            if (r.windowProfit != null) { b.rev += r.windowRev; b.spend += r.windowSpend; b.deviceFee += r.windowDeviceFee; b.realized = true; b.count++; }
-          } else {
-            const fc = r.focusCell;
-            if (fc.spend != null) { b.rev += fc.rev; b.spend += fc.spend; b.deviceFee += fc.deviceFee||0; b.realized = true; b.count++; }
-            else if (fc.rev > 0)  { b.pendingRev += fc.rev; b.pendingCount++; }
-          }
-        });
-        const platList = Object.values(byPlat).filter(b=>b.realized || b.pendingRev>0);
-        platList.forEach(b=>{ b.profit = b.realized ? (b.rev - b.spend - b.deviceFee) : null; b.margin = (b.realized && b.rev>0) ? (b.profit/b.rev)*100 : null; });
-        if (platList.length === 0) return null;
-        // Roll tactics up into vendors.
-        const byVendor = {};
-        platList.forEach(b=>{
-          const v = byVendor[b.vendor] || (byVendor[b.vendor] = { vendor:b.vendor, rev:0, spend:0, deviceFee:0, profit:0, realized:false, count:0, pendingRev:0, pendingCount:0, tactics:[] });
-          v.rev += b.rev; v.spend += b.spend; v.deviceFee += b.deviceFee; if (b.realized){ v.profit += b.profit; v.realized = true; } v.count += b.count;
-          v.pendingRev += b.pendingRev; v.pendingCount += b.pendingCount; v.tactics.push(b);
-        });
-        const vendors = Object.values(byVendor).map(v=>({ ...v, margin: (v.realized && v.rev>0)?(v.profit/v.rev)*100:null }));
-        // Sort vendors by profit (money made) desc, then tactics within each the same way.
-        vendors.sort((a,b)=>(b.profit||-Infinity)-(a.profit||-Infinity) || vendorRank(a.vendor)-vendorRank(b.vendor));
-        vendors.forEach(v=>v.tactics.sort((a,b)=>(b.profit||-Infinity)-(a.profit||-Infinity) || (PLATFORM_GROUP_ORDER.indexOf(a.plat)-PLATFORM_GROUP_ORDER.indexOf(b.plat))));
-        const grandProfit = vendors.reduce((s,v)=>s+(v.profit||0),0);
-        const grandRev    = vendors.reduce((s,v)=>s+v.rev,0);
-        const maxAbsVendorProfit = Math.max(...vendors.map(v=>Math.abs(v.profit||0)), 1);
-        const scopeLabel = useAll ? "all-time to date" : focusLabel;
-        const gridCols = "minmax(120px,1.6fr) 78px 92px 92px 84px 70px"; // Platform · share · Revenue · Spend · Profit · Margin
-        const HeadCell = ({children,align="right"})=>(<div style={{fontSize:9,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:_lm?"#94a3b8":"#4d6e8a",textAlign:align}}>{children}</div>);
-        return (
-          <div style={{...card,padding:"14px 18px",marginBottom:14}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:plByPlatOpen?12:0,flexWrap:"wrap"}}>
-              <button onClick={()=>setPlByPlatOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:7,background:"none",border:"none",cursor:"pointer",padding:0,flex:1,textAlign:"left"}}>
-                <span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",display:"inline-block",transform:plByPlatOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>▸</span>
-                <span style={{...labelStyle,margin:0}}>💰 Where the money's made</span>
-                <span style={{fontSize:10.5,color:_lm?"#94a3b8":"#4d6e8a",fontWeight:600}}>· by platform &amp; tactic · {scopeLabel}</span>
-              </button>
-              <div style={{display:"inline-flex",borderRadius:7,overflow:"hidden",border:`1px solid ${_lm?"#e2e8f0":"#26364f"}`}}>
-                {[{k:"month",t:focusLabelShort},{k:"all",t:"All-time"}].map(o=>(
-                  <button key={o.k} onClick={()=>setPlScope(o.k)}
-                    style={{background:plScope===o.k?(_lm?"#eef2ff":"#0a2036"):"transparent",border:"none",padding:"4px 11px",fontSize:10.5,fontWeight:700,cursor:"pointer",color:plScope===o.k?(_lm?"#1d4ed8":"#00d9ff"):(_lm?"#64748b":"#4d6e8a")}}>{o.t}</button>
-                ))}
-              </div>
-            </div>
-            {plByPlatOpen && (
-              <>
-                <div style={{display:"grid",gridTemplateColumns:gridCols,gap:8,padding:"0 8px 6px 8px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
-                  <HeadCell align="left">Platform</HeadCell><HeadCell>Profit share</HeadCell><HeadCell>Revenue</HeadCell><HeadCell>Spend</HeadCell><HeadCell>Profit</HeadCell><HeadCell>Margin</HeadCell>
-                </div>
-                {vendors.map(v=>{
-                  const open = plExpandedVendors.has(v.vendor);
-                  const multi = v.tactics.length > 1;
-                  const share = grandProfit>0 && v.profit>0 ? (v.profit/grandProfit)*100 : 0;
-                  const barW = Math.round((Math.abs(v.profit||0)/maxAbsVendorProfit)*100);
-                  const toggle = ()=>{ if(!multi) return; setPlExpandedVendors(s=>{ const n=new Set(s); n.has(v.vendor)?n.delete(v.vendor):n.add(v.vendor); return n; }); };
-                  return (
-                    <div key={v.vendor} style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#111e33"}`}}>
-                      <div onClick={toggle} style={{display:"grid",gridTemplateColumns:gridCols,gap:8,alignItems:"center",padding:"9px 8px",cursor:multi?"pointer":"default"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
-                          <span style={{fontSize:9,width:9,color:_lm?"#94a3b8":"#4d6e8a",flexShrink:0,display:"inline-block",transform:open?"rotate(90deg)":"none",transition:"transform .15s",opacity:multi?1:0}}>▸</span>
-                          <span style={{fontSize:13.5,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v.vendor}</span>
-                          <span style={{fontSize:9.5,color:_lm?"#94a3b8":"#4d6e8a",flexShrink:0}}>{multi?`${v.tactics.length} tactics`:v.tactics[0].plat}</span>
-                        </div>
-                        <div style={{display:"flex",flexDirection:"column",gap:3}}>
-                          <div style={{height:6,borderRadius:3,background:_lm?"#eef2f7":"#0e1a2e",overflow:"hidden"}}>
-                            <div style={{height:"100%",width:`${barW}%`,background:profitColor(v.profit||0),borderRadius:3,transition:"width .3s"}}/>
-                          </div>
-                          <span style={{fontSize:9,color:_lm?"#94a3b8":"#4d6e8a",textAlign:"right"}}>{share>0?share.toFixed(0)+"%":"—"}</span>
-                        </div>
-                        <div style={{fontSize:12.5,fontWeight:700,color:_lm?"#334155":"#9fb4cf",textAlign:"right"}}>{$fc(v.rev)}{v.pendingRev>0&&<div style={{fontSize:8.5,color:_lm?"#94a3b8":"#4d6e8a",fontWeight:600}}>+{$fk(v.pendingRev)} pend</div>}</div>
-                        <div style={{fontSize:12.5,fontWeight:700,color:"#f59e0b",textAlign:"right"}}>{$fc(v.spend)}</div>
-                        <div style={{fontSize:13,fontWeight:800,color:profitColor(v.profit||0),textAlign:"right"}}>{v.realized?(v.profit>=0?"+":"")+$f(v.profit):"—"}</div>
-                        <div style={{fontSize:12,fontWeight:700,color:v.margin!=null?marginColor(v.margin):(_lm?"#cbd5e1":"#3d5a72"),textAlign:"right"}}>{v.margin!=null?v.margin.toFixed(0)+"%":"—"}</div>
-                      </div>
-                      {open && multi && v.tactics.map(t=>(
-                        <div key={t.plat} style={{display:"grid",gridTemplateColumns:gridCols,gap:8,alignItems:"center",padding:"6px 8px 6px 8px",background:_lm?"#fafcff":"#0a1424"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:7,paddingLeft:16,minWidth:0}}>
-                            <span style={{background:(PLT_COLORS[t.plat]||PLT_COLORS.default)+"22",color:PLT_COLORS[t.plat]||PLT_COLORS.default,borderRadius:3,padding:"1px 6px",fontSize:9.5,fontWeight:800,flexShrink:0}}>{t.plat}</span>
-                            <span style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a"}}>{t.count} camp{t.count!==1?"s":""}</span>
-                          </div>
-                          <div/>
-                          <div style={{fontSize:11.5,fontWeight:600,color:_lm?"#475569":"#7a9bbf",textAlign:"right"}}>{$fc(t.rev)}</div>
-                          <div style={{fontSize:11.5,fontWeight:600,color:_lm?"#b45309":"#c98a2e",textAlign:"right"}}>{$fc(t.spend)}</div>
-                          <div style={{fontSize:11.5,fontWeight:700,color:profitColor(t.profit||0),textAlign:"right"}}>{t.realized?(t.profit>=0?"+":"")+$f(t.profit):"—"}</div>
-                          <div style={{fontSize:11,fontWeight:600,color:t.margin!=null?marginColor(t.margin):(_lm?"#cbd5e1":"#3d5a72"),textAlign:"right"}}>{t.margin!=null?t.margin.toFixed(0)+"%":"—"}</div>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })}
-                {/* Grand total row */}
-                <div style={{display:"grid",gridTemplateColumns:gridCols,gap:8,alignItems:"center",padding:"10px 8px 2px 8px"}}>
-                  <div style={{fontSize:11,fontWeight:800,letterSpacing:"0.04em",textTransform:"uppercase",color:_lm?"#64748b":"#7a9bbf"}}>Total · {scopeLabel}</div>
-                  <div/>
-                  <div style={{fontSize:12.5,fontWeight:800,color:_lm?"#334155":"#9fb4cf",textAlign:"right"}}>{$fc(grandRev)}</div>
-                  <div/>
-                  <div style={{fontSize:13,fontWeight:800,color:profitColor(grandProfit),textAlign:"right"}}>{(grandProfit>=0?"+":"")+$f(grandProfit)}</div>
-                  <div style={{fontSize:12,fontWeight:700,color:grandRev>0?marginColor((grandProfit/grandRev)*100):(_lm?"#cbd5e1":"#3d5a72"),textAlign:"right"}}>{grandRev>0?((grandProfit/grandRev)*100).toFixed(0)+"%":"—"}</div>
-                </div>
-                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:8,paddingLeft:8}}>
-                  Ranked by profit. {plScope==="all"?"All-time":"This month's"} realized revenue only (over-delivery isn't billable, so it can't inflate a platform's revenue). {vendors.some(v=>v.tactics.length>1)?"Click a platform with several tactics to split it out.":""}
-                </div>
-              </>
-            )}
-          </div>
-        );
-      })()}
+      {/* "Where the money's made" now renders lower — just above the campaign breakdown (see below). */}
 
       {/* ── Forecast (on-demand) — generated only when the user opens it, to keep the tab clean ── */}
       {showRevForecast && monthForecast && (
@@ -16450,6 +16374,160 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           </div>
         ))}
       </div>
+
+      {/* ── Where the money's made — profit by vendor → tactic → CAMPAIGNS ──────────────
+          Moved here (above the campaign breakdown) per Austin. Each vendor drills into its tactics
+          (Meta → FB/FBV), and each tactic now drills again into the actual campaigns for that tactic.
+          Uses the SAME realized-only revenue/profit as the KPI tiles, so it sums back to the totals. */}
+      {(()=>{
+        const useAll = plScope === "all";
+        // Aggregate rows into per-tactic buckets (realized = has spend; pending = revenue, no spend yet).
+        // Each bucket also keeps its own campaign list (`camps`) for the third drill level.
+        const byPlat = {};
+        rows.forEach(r=>{
+          const plat = r.c.platform || "—";
+          const b = byPlat[plat] || (byPlat[plat] = { plat, vendor: vendorOf(plat), rev:0, spend:0, deviceFee:0, realized:false, count:0, pendingRev:0, pendingCount:0, camps:[] });
+          if (useAll) {
+            if (r.windowProfit != null) {
+              b.rev += r.windowRev; b.spend += r.windowSpend; b.deviceFee += r.windowDeviceFee; b.realized = true; b.count++;
+              b.camps.push({ id:r.c.id, name:(r.c.campaignName||"").trim(), partner:r.c.mediaPartner||"", rev:r.windowRev, spend:r.windowSpend, profit:r.windowProfit, margin:r.windowRev>0?(r.windowProfit/r.windowRev)*100:null });
+            }
+          } else {
+            const fc = r.focusCell;
+            if (fc.spend != null) {
+              b.rev += fc.rev; b.spend += fc.spend; b.deviceFee += fc.deviceFee||0; b.realized = true; b.count++;
+              const p = fc.rev - fc.spend - (fc.deviceFee||0);
+              b.camps.push({ id:r.c.id, name:(r.c.campaignName||"").trim(), partner:r.c.mediaPartner||"", rev:fc.rev, spend:fc.spend, profit:p, margin:fc.rev>0?(p/fc.rev)*100:null });
+            }
+            else if (fc.rev > 0)  { b.pendingRev += fc.rev; b.pendingCount++; }
+          }
+        });
+        const platList = Object.values(byPlat).filter(b=>b.realized || b.pendingRev>0);
+        platList.forEach(b=>{ b.profit = b.realized ? (b.rev - b.spend - b.deviceFee) : null; b.margin = (b.realized && b.rev>0) ? (b.profit/b.rev)*100 : null; b.camps.sort((x,y)=>(y.profit||-Infinity)-(x.profit||-Infinity)); });
+        if (platList.length === 0) return null;
+        // Roll tactics up into vendors.
+        const byVendor = {};
+        platList.forEach(b=>{
+          const v = byVendor[b.vendor] || (byVendor[b.vendor] = { vendor:b.vendor, rev:0, spend:0, deviceFee:0, profit:0, realized:false, count:0, pendingRev:0, pendingCount:0, tactics:[] });
+          v.rev += b.rev; v.spend += b.spend; v.deviceFee += b.deviceFee; if (b.realized){ v.profit += b.profit; v.realized = true; } v.count += b.count;
+          v.pendingRev += b.pendingRev; v.pendingCount += b.pendingCount; v.tactics.push(b);
+        });
+        const vendors = Object.values(byVendor).map(v=>({ ...v, margin: (v.realized && v.rev>0)?(v.profit/v.rev)*100:null }));
+        vendors.sort((a,b)=>(b.profit||-Infinity)-(a.profit||-Infinity) || vendorRank(a.vendor)-vendorRank(b.vendor));
+        vendors.forEach(v=>v.tactics.sort((a,b)=>(b.profit||-Infinity)-(a.profit||-Infinity) || (PLATFORM_GROUP_ORDER.indexOf(a.plat)-PLATFORM_GROUP_ORDER.indexOf(b.plat))));
+        const grandProfit = vendors.reduce((s,v)=>s+(v.profit||0),0);
+        const grandRev    = vendors.reduce((s,v)=>s+v.rev,0);
+        const maxAbsVendorProfit = Math.max(...vendors.map(v=>Math.abs(v.profit||0)), 1);
+        const scopeLabel = useAll ? "all-time to date" : focusLabel;
+        const gridCols = "minmax(120px,1.6fr) 78px 92px 92px 84px 70px"; // Platform · share · Revenue · Spend · Profit · Margin
+        const HeadCell = ({children,align="right"})=>(<div style={{fontSize:9,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:_lm?"#94a3b8":"#4d6e8a",textAlign:align}}>{children}</div>);
+        // Third-level campaign row — reused by both the multi-tactic and single-tactic paths.
+        const campRow = (camp, indentPx) => (
+          <div key={"c"+camp.id} style={{display:"grid",gridTemplateColumns:gridCols,gap:8,alignItems:"center",padding:"5px 8px",background:_lm?"#f6f9ff":"#08111f"}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,paddingLeft:indentPx,minWidth:0}}>
+              <span style={{width:5,height:5,borderRadius:5,background:_lm?"#cbd5e1":"#334155",flexShrink:0}}/>
+              <span style={{fontSize:11,color:_lm?"#334155":"#9fb4cf",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{camp.name||"—"}</span>
+              {camp.partner&&<span style={{fontSize:9,color:_lm?"#94a3b8":"#4d6e8a",flexShrink:0}}>{derivePartnerAbbr(camp.partner)}</span>}
+            </div>
+            <div/>
+            <div style={{fontSize:11,color:_lm?"#475569":"#7a9bbf",textAlign:"right"}}>{$fc(camp.rev)}</div>
+            <div style={{fontSize:11,color:_lm?"#b45309":"#c98a2e",textAlign:"right"}}>{$fc(camp.spend)}</div>
+            <div style={{fontSize:11,fontWeight:700,color:profitColor(camp.profit||0),textAlign:"right"}}>{(camp.profit>=0?"+":"")+$f(camp.profit)}</div>
+            <div style={{fontSize:10.5,color:camp.margin!=null?marginColor(camp.margin):(_lm?"#cbd5e1":"#3d5a72"),textAlign:"right"}}>{camp.margin!=null?camp.margin.toFixed(0)+"%":"—"}</div>
+          </div>
+        );
+        return (
+          <div style={{...card,padding:"14px 18px",marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:plByPlatOpen?12:0,flexWrap:"wrap"}}>
+              <button onClick={()=>setPlByPlatOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:7,background:"none",border:"none",cursor:"pointer",padding:0,flex:1,textAlign:"left"}}>
+                <span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",display:"inline-block",transform:plByPlatOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>▸</span>
+                <span style={{...labelStyle,margin:0}}>💰 Where the money's made</span>
+                <span style={{fontSize:10.5,color:_lm?"#94a3b8":"#4d6e8a",fontWeight:600}}>· platform → tactic → campaigns · {scopeLabel}</span>
+              </button>
+              <div style={{display:"inline-flex",borderRadius:7,overflow:"hidden",border:`1px solid ${_lm?"#e2e8f0":"#26364f"}`}}>
+                {[{k:"month",t:focusLabelShort},{k:"all",t:"All-time"}].map(o=>(
+                  <button key={o.k} onClick={()=>setPlScope(o.k)}
+                    style={{background:plScope===o.k?(_lm?"#eef2ff":"#0a2036"):"transparent",border:"none",padding:"4px 11px",fontSize:10.5,fontWeight:700,cursor:"pointer",color:plScope===o.k?(_lm?"#1d4ed8":"#00d9ff"):(_lm?"#64748b":"#4d6e8a")}}>{o.t}</button>
+                ))}
+              </div>
+            </div>
+            {plByPlatOpen && (
+              <>
+                <div style={{display:"grid",gridTemplateColumns:gridCols,gap:8,padding:"0 8px 6px 8px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+                  <HeadCell align="left">Platform</HeadCell><HeadCell>Profit share</HeadCell><HeadCell>Revenue</HeadCell><HeadCell>Spend</HeadCell><HeadCell>Profit</HeadCell><HeadCell>Margin</HeadCell>
+                </div>
+                {vendors.map(v=>{
+                  const open = plExpandedVendors.has(v.vendor);
+                  const multi = v.tactics.length > 1;
+                  const soloCamps = (!multi && v.tactics[0]) ? v.tactics[0].camps : [];
+                  const expandable = multi || soloCamps.length > 0;   // single-tactic vendors drill straight to campaigns
+                  const share = grandProfit>0 && v.profit>0 ? (v.profit/grandProfit)*100 : 0;
+                  const barW = Math.round((Math.abs(v.profit||0)/maxAbsVendorProfit)*100);
+                  const toggle = ()=>{ if(!expandable) return; setPlExpandedVendors(s=>{ const n=new Set(s); n.has(v.vendor)?n.delete(v.vendor):n.add(v.vendor); return n; }); };
+                  return (
+                    <div key={v.vendor} style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#111e33"}`}}>
+                      <div onClick={toggle} style={{display:"grid",gridTemplateColumns:gridCols,gap:8,alignItems:"center",padding:"9px 8px",cursor:expandable?"pointer":"default"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+                          <span style={{fontSize:9,width:9,color:_lm?"#94a3b8":"#4d6e8a",flexShrink:0,display:"inline-block",transform:open?"rotate(90deg)":"none",transition:"transform .15s",opacity:expandable?1:0}}>▸</span>
+                          <span style={{fontSize:13.5,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v.vendor}</span>
+                          <span style={{fontSize:9.5,color:_lm?"#94a3b8":"#4d6e8a",flexShrink:0}}>{multi?`${v.tactics.length} tactics`:v.tactics[0].plat}</span>
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                          <div style={{height:6,borderRadius:3,background:_lm?"#eef2f7":"#0e1a2e",overflow:"hidden"}}>
+                            <div style={{height:"100%",width:`${barW}%`,background:profitColor(v.profit||0),borderRadius:3,transition:"width .3s"}}/>
+                          </div>
+                          <span style={{fontSize:9,color:_lm?"#94a3b8":"#4d6e8a",textAlign:"right"}}>{share>0?share.toFixed(0)+"%":"—"}</span>
+                        </div>
+                        <div style={{fontSize:12.5,fontWeight:700,color:_lm?"#334155":"#9fb4cf",textAlign:"right"}}>{$fc(v.rev)}{v.pendingRev>0&&<div style={{fontSize:8.5,color:_lm?"#94a3b8":"#4d6e8a",fontWeight:600}}>+{$fk(v.pendingRev)} pend</div>}</div>
+                        <div style={{fontSize:12.5,fontWeight:700,color:"#f59e0b",textAlign:"right"}}>{$fc(v.spend)}</div>
+                        <div style={{fontSize:13,fontWeight:800,color:profitColor(v.profit||0),textAlign:"right"}}>{v.realized?(v.profit>=0?"+":"")+$f(v.profit):"—"}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:v.margin!=null?marginColor(v.margin):(_lm?"#cbd5e1":"#3d5a72"),textAlign:"right"}}>{v.margin!=null?v.margin.toFixed(0)+"%":"—"}</div>
+                      </div>
+                      {/* Multi-tactic vendor → tactic rows, each drillable into its campaigns */}
+                      {open && multi && v.tactics.map(t=>{
+                        const tOpen = plExpandedTactics.has(t.plat);
+                        const tExpandable = t.camps.length > 0;
+                        const tToggle = ()=>{ if(!tExpandable) return; setPlExpandedTactics(s=>{ const n=new Set(s); n.has(t.plat)?n.delete(t.plat):n.add(t.plat); return n; }); };
+                        return (
+                          <React.Fragment key={t.plat}>
+                            <div onClick={tToggle} style={{display:"grid",gridTemplateColumns:gridCols,gap:8,alignItems:"center",padding:"6px 8px",background:_lm?"#fafcff":"#0a1424",cursor:tExpandable?"pointer":"default"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:6,paddingLeft:16,minWidth:0}}>
+                                <span style={{fontSize:8,width:8,color:_lm?"#94a3b8":"#4d6e8a",flexShrink:0,display:"inline-block",transform:tOpen?"rotate(90deg)":"none",transition:"transform .15s",opacity:tExpandable?1:0}}>▸</span>
+                                <span style={{background:(PLT_COLORS[t.plat]||PLT_COLORS.default)+"22",color:PLT_COLORS[t.plat]||PLT_COLORS.default,borderRadius:3,padding:"1px 6px",fontSize:9.5,fontWeight:800,flexShrink:0}}>{t.plat}</span>
+                                <span style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a"}}>{t.count} camp{t.count!==1?"s":""}</span>
+                              </div>
+                              <div/>
+                              <div style={{fontSize:11.5,fontWeight:600,color:_lm?"#475569":"#7a9bbf",textAlign:"right"}}>{$fc(t.rev)}</div>
+                              <div style={{fontSize:11.5,fontWeight:600,color:_lm?"#b45309":"#c98a2e",textAlign:"right"}}>{$fc(t.spend)}</div>
+                              <div style={{fontSize:11.5,fontWeight:700,color:profitColor(t.profit||0),textAlign:"right"}}>{t.realized?(t.profit>=0?"+":"")+$f(t.profit):"—"}</div>
+                              <div style={{fontSize:11,fontWeight:600,color:t.margin!=null?marginColor(t.margin):(_lm?"#cbd5e1":"#3d5a72"),textAlign:"right"}}>{t.margin!=null?t.margin.toFixed(0)+"%":"—"}</div>
+                            </div>
+                            {tOpen && t.camps.map(camp=>campRow(camp, 40))}
+                          </React.Fragment>
+                        );
+                      })}
+                      {/* Single-tactic vendor → campaigns directly (tactic == vendor, so no redundant middle row) */}
+                      {open && !multi && soloCamps.map(camp=>campRow(camp, 24))}
+                    </div>
+                  );
+                })}
+                {/* Grand total row */}
+                <div style={{display:"grid",gridTemplateColumns:gridCols,gap:8,alignItems:"center",padding:"10px 8px 2px 8px"}}>
+                  <div style={{fontSize:11,fontWeight:800,letterSpacing:"0.04em",textTransform:"uppercase",color:_lm?"#64748b":"#7a9bbf"}}>Total · {scopeLabel}</div>
+                  <div/>
+                  <div style={{fontSize:12.5,fontWeight:800,color:_lm?"#334155":"#9fb4cf",textAlign:"right"}}>{$fc(grandRev)}</div>
+                  <div/>
+                  <div style={{fontSize:13,fontWeight:800,color:profitColor(grandProfit),textAlign:"right"}}>{(grandProfit>=0?"+":"")+$f(grandProfit)}</div>
+                  <div style={{fontSize:12,fontWeight:700,color:grandRev>0?marginColor((grandProfit/grandRev)*100):(_lm?"#cbd5e1":"#3d5a72"),textAlign:"right"}}>{grandRev>0?((grandProfit/grandRev)*100).toFixed(0)+"%":"—"}</div>
+                </div>
+                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:8,paddingLeft:8}}>
+                  Ranked by profit. {plScope==="all"?"All-time":"This month's"} realized revenue only (over-delivery isn't billable). Click a platform to split it into tactics, then a tactic to see its campaigns.
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Campaign breakdown — focused month ───────────────── */}
       {/* Search sits right above the table so results are in view without scrolling. Filters the table only. */}
@@ -18772,9 +18850,15 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
     const overdue = r.date < todayISO;
     if(!overdue && !inHorizon(r.date)) return;
     const rt = (typeof REMINDER_TYPES!=="undefined") ? (REMINDER_TYPES.find(t=>t.value===r.type)||null) : null;
+    const camp = r.campaignId ? campaigns.find(c=>c.id===r.campaignId) : null;
+    const noteTxt = r.note || (rt?rt.label:"Reminder");
+    // Campaign name is the headline (Austin: "I need to see the campaign name more than anything");
+    // the reminder type + note drop to the sub-line. Unlinked reminders fall back to the note.
     reminderItems.push({ kind:"reminder", dateISO: overdue?todayISO:r.date.slice(0,10), overdue,
-      title: r.note || (rt?rt.label:"Reminder"), sub: overdue?`was due ${r.date.slice(5)}`:(rt?rt.label:""),
-      ics:{ date:r.date.slice(0,10), title:(r.note||(rt?rt.label:"Reminder")) } });
+      title: camp ? camp.campaignName.trim() : noteTxt,
+      sub: [ rt?rt.label:null, camp?noteTxt:null, overdue?`was due ${r.date.slice(5)}`:null ].filter(Boolean).join(" · "),
+      plt: camp?camp.platform:undefined, campaign: camp||undefined,
+      ics:{ date:r.date.slice(0,10), title: camp?`${camp.campaignName.trim()} — ${noteTxt}`:noteTxt } });
   });
   campaigns.forEach(c=>{
     if((c.status||"active")==="archived") return;
@@ -20972,7 +21056,9 @@ export default function App() {
                 </div>
               );
             })()}
-            <PrefixPartnerSettings partnerPrefixes={partnerPrefixes} setPartnerPrefixes={setPartnerPrefixes} lightMode={lightMode}/>
+            {/* Partner Prefix Mappings removed from Config (2026-07-21) — the same editor lives on the
+                Campaigns tab and reads cleaner there. The data + <PrefixPartnerSettings> component are
+                untouched; only this duplicate Config surface is gone. */}
             </>)}
             {/* ── Email Inbox ingest (Connections sub-tab) — the tracker side of the email→tracker
                 automation. Points at the manifest the GitHub Action writes; on load / "Check now" it
