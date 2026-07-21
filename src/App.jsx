@@ -213,7 +213,7 @@ function getStorageBreakdown() {
 
 const initialCampaigns = [{"mediaPartner":"WVR","campaignName":"Harry Green CDJR","platform":"FB","goal":"750K (7/1/25 - 12/31/25)","endDate":"2026-06-30","note1":"125K/Mo","note2":"","lastChecked":"2026-03-02","id":1769125165003,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Compass TK","campaignName":"Farm Bureau Financial-Jim Waters","platform":"TD","goal":"1.58M (8/11/25 - 7/31/26)","endDate":"2026-07-31","note1":"131.6K/Mo","note2":"","lastChecked":"2026-03-02","id":1769125792921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Saginaw","campaignName":"Great Lakes Pace","platform":"FB","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-25","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209400165,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Palm Springs","campaignName":"Carpet Empire Plus","platform":"FB","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-31","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209535972,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Palm Springs","campaignName":"Carpet Empire Plus","platform":"DSP","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-31","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209663140,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"TD","goal":"143K (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"12K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214676416,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"FB","goal":"1.08M (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"90K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214678888,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"DSP","goal":"1.08M (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"90K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214712742,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Britestar Milwaukee Middle School","platform":"TD","goal":"100K Monthly","endDate":"2026-03-31","note1":"100K Monthly","note2":"","lastChecked":"2026-03-02","id":1769214781502,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"TD","goal":"40K Feb/March","endDate":"2026-03-31","note1":"40K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439021921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"FB","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439025194,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"FBV","goal":"20K Feb/March","endDate":"2026-03-31","note1":"20K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439086411,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"DSP","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439117040,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"SEM","goal":"Need New Budget for February","endDate":"2026-01-31","note1":"Need New Budget for February","note2":"","lastChecked":"2026-03-02","id":1769439141224,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"TD","goal":"40K Feb/March","endDate":"2026-03-31","note1":"40K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439175821,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"FB","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439200352,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"FBV","goal":"20K Feb/March","endDate":"2026-03-31","note1":"20K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439219988,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"DSP","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439236958,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"SEM","goal":"Need New Budget for February","endDate":"2026-01-31","note1":"Need New Budget for February","note2":"","lastChecked":"2026-03-02","id":1769439252985,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Noyes Development","platform":"TD","goal":"14.5K/Mo","endDate":"2026-03-31","note1":"14.5K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439379921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"TD","goal":"500K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"97K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439513145,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"CTV","goal":"291K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"66K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439528551,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"OTT","goal":"207K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"47K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439581123,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"EMAIL","goal":"5 Emails","endDate":"2026-03-31","note1":"1/Mo","note2":"","lastChecked":"2026-03-02","id":1769440542802,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"FB","goal":"283K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"41K/Mo (15-20% Oregon)","note2":"","lastChecked":"2026-03-02","id":1769440737136,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities ","platform":"FBV","goal":"175K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","id":1772483657607,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"DSP","goal":"460K (11/3/25 - 5/31/26) ","endDate":"2026-05-31","note1":"67K/Mo (15-20% Oregon)","note2":"","lastChecked":"2026-03-02","id":1772483749345,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"TD","goal":"70K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"10K/Mo","note2":"","lastChecked":"2026-03-02","id":1772483792126,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities Audio","platform":"TD","goal":"296K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"59.5K/Mo","note2":"","lastChecked":"2026-03-02","id":1772483819653,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America","platform":"FB","goal":"900K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"180K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484331559},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America","platform":"DSP","goal":"1.275M (11/4/25 - 3/31/26) ","endDate":"2026-03-31","status":"active","note1":"255K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484347656},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America ","platform":"SP","goal":"375K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"75K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484372498},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America  ","platform":"CTV","goal":"435K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"87K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484401165},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America ","platform":"OTT","goal":"298K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"60K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484418938},{"mediaPartner":"WVR","campaignName":"Concord University","platform":"FB","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484485079},{"mediaPartner":"WVR","campaignName":"Concord University ","platform":"SP","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484490232},{"mediaPartner":"WVR","campaignName":"Concord University ","platform":"DSP","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484503162},{"mediaPartner":"Enchanting Media","campaignName":"Waterview Casino","platform":"FB","goal":"95K March","endDate":"2026-03-31","status":"active","note1":"95K March ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484624626},{"mediaPartner":"Enchanting Media","campaignName":"Waterview Casino","platform":"DSP","goal":"95K March","endDate":"2026-03-31","status":"active","note1":"95K March ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484630475},{"mediaPartner":"Alpha Moberly","campaignName":"Right Rate Roofing","platform":"SEM","goal":"5,400 (12/4/25 - 7/30/26) ","endDate":"2026-07-31","status":"active","note1":"$900/Mo ","note2":" $1,564 March ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484709093},{"mediaPartner":"Compass","campaignName":"Bolz Chiro","platform":"FB","goal":"400K (1/1/26 - 4/30/26)","endDate":"2026-03-31","status":"active","note1":"100K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484763564},{"mediaPartner":"Compass","campaignName":"Brownstone","platform":"DSP","goal":"229K (12/12/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"58K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484790999},{"mediaPartner":"Compass","campaignName":"Brownstone ","platform":"FB","goal":"80K (12/12/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"20K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484798543},{"mediaPartner":"Compass","campaignName":"Brownstone  ","platform":"FBV","goal":"148K (12/12/25 - 3/31/26) ","endDate":"2026-03-31","status":"active","note1":"37K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484823373},{"mediaPartner":"Alpha Moberly","campaignName":"Specs Quincy","platform":"FB","goal":"300K (1/1/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484872046},{"mediaPartner":"Alpha Moberly","campaignName":"Specs Quincy","platform":"DSP","goal":"300K (1/1/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484887059},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Pearl Hawaii Federal Credit Union","platform":"SEM","goal":"$35,091 Media Spend (1/13/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"$2,925/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484925304},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Pearl Hawaii Federal Credit Union ","platform":"CTV","goal":"375K (1/14/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"31,250/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484928999},{"mediaPartner":"Alpha Moberly","campaignName":"Prairieland FS","platform":"DSP","goal":"445K (1/16/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"37.5K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484986463},{"mediaPartner":"Alpha Moberly","campaignName":"Prairieland FS ","platform":"FB","goal":"445K (1/16/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"40.5K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485011820},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Holo HIIT","platform":"FBV","goal":"63K (1/16/26 - 3/31/26)","endDate":"2026-03-31","status":"off","note1":"","note2":"FB Access ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485059494},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Holo HIIT ","platform":"FBV","goal":"63K (1/16/26 - 3/31/26)","endDate":"2026-03-31","status":"off","note1":"30K Feb/March","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485067041},{"mediaPartner":"Alpha Moberly","campaignName":"Culligan of Hanibal","platform":"DSP","goal":"758K (1/22/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485129272},{"mediaPartner":"Alpha Moberly","campaignName":"Quincy Catholic Elementary School","platform":"FB","goal":"125K (2/1/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"100K 2/1 - 4/30 (25K December)","note2":"FB Access/Creatives ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485194758},{"mediaPartner":"Alpha Moberly","campaignName":"Quincy Catholic Elementary School ","platform":"DSP","goal":"125K (2/1/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"100K 2/1 - 4/30 (25K December)","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485211288},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Leavitt Yamane & Soldner","platform":"DSP","goal":"1.025M (2/9/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"93.5K/Mo ","note2":"Streaming Orders/Mo","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485298961},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Leavitt Yamane & Soldner","platform":"FB","goal":"1.025M (2/9/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"93.5K/Mo ","note2":"FB Access","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485347220},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Aloha Sugarcane Juices","platform":"TD","goal":"172K (2/16/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"58K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485429793},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio)","platform":"DSP","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485804286},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio) ","platform":"FB","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485820512},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio) ","platform":"SP","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485828817},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA)","platform":"DSP","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485842011},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA)","platform":"FB","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485880132},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA) ","platform":"SP","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485887909},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV)","platform":"DSP","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485904806},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD)","platform":"DSP","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772486056686},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD) ","platform":"FB","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486135542},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD)  ","platform":"SP","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486155939},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV) ","platform":"FB","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486026268},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV) ","platform":"SP","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486034400},{"mediaPartner":"Allen Media Broadcasting","campaignName":"King Windward Nissan ","platform":"TD","goal":"179K (2/20/26 - 3/15/26)","endDate":"2026-03-15","status":"active","note1":"","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486199815},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque","platform":"FB","goal":"20K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"10K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486231814},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"FBV","goal":"12K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"6K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486241660},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"FBV","goal":"35K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"18K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486264350},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"YT","goal":"6K Views (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"3K Views/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486294122},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque  ","platform":"TD","goal":"91K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"46K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772486311325}];
 
-const ALL_PLATFORMS_DEFAULT = ["FB","FBV","DSP","CTV","GCTV","OTT","OTTD","SP","SEM","TD","TDV","TDA","TT","IG","YT","EMAIL"];
+const ALL_PLATFORMS_DEFAULT = ["FB","FBV","DSP","CTV","GCTV","PCTV","AECTV","OTT","OTTD","SP","SEM","TD","TDV","TDA","TT","IG","YT","EMAIL"];
 const CUSTOM_PLATFORMS_KEY = "campaign-tracker-custom-platforms";
 const CUSTOM_BENCHMARKS_KEY = "campaign-tracker-zeus-benchmarks";
 function loadCustomPlatforms() { try{const s=localStorage.getItem(CUSTOM_PLATFORMS_KEY);return s?JSON.parse(s):{platforms:[],colors:{}}}catch{return{platforms:[],colors:{}}}}
@@ -225,7 +225,7 @@ const ALL_PLATFORMS = (()=>{const c=loadCustomPlatforms();return[...ALL_PLATFORM
 // sibling tactics sit together: Google (SEM/YT) · Meta (FB/FBV/IG) · TradeDesk (TD/TDV/TDA) ·
 // TVsci CTV (CTV/OTT/OTTD) · Madhive CTV (GCTV/PCTV) · then DSP/Snapchat/TikTok/Email.
 // Custom platforms aren't listed here, so they fall to the end alphabetically.
-const PLATFORM_GROUP_ORDER = ["SEM","YT","FB","FBV","IG","TD","TDV","TDA","CTV","OTT","OTTD","GCTV","PCTV","DSP","SP","TT","EMAIL"];
+const PLATFORM_GROUP_ORDER = ["SEM","YT","FB","FBV","IG","TD","TDV","TDA","CTV","OTT","OTTD","GCTV","PCTV","AECTV","DSP","SP","TT","EMAIL"];
 
 // Day options for BOTH freshness filters, so "3d" means the same thing wherever you are:
 // Pacing's "Within" (updated in the last N days) and the Campaigns tab's "No update in" (stale for
@@ -240,6 +240,25 @@ function sortPlatforms(list) {
     if(ib===-1) return -1;
     return ia-ib;
   });
+}
+
+// Which vendor you BUY each tactic through — powers the Revenue tab's "by platform, then tactic"
+// profit breakdown (Austin's boss wants to see where the money is made: The Trade Desk rolled up,
+// then split into TD / TDV / TDA, etc.). Custom platforms fall back to their own code as the vendor.
+const PLATFORM_VENDOR = {
+  SEM:"Google",   YT:"Google",
+  FB:"Meta",      FBV:"Meta",   IG:"Meta",
+  TD:"The Trade Desk", TDV:"The Trade Desk", TDA:"The Trade Desk",
+  CTV:"TVsci",    OTT:"TVsci",  OTTD:"TVsci",
+  GCTV:"Madhive", PCTV:"Madhive", AECTV:"Madhive", // Audience Extension TV — a Madhive product
+  DSP:"DSP", SP:"Snapchat", TT:"TikTok", EMAIL:"Email",
+};
+function vendorOf(platform){ return PLATFORM_VENDOR[platform] || (platform ? String(platform) : "Other"); }
+// Vendor display order follows the first tactic of each vendor in PLATFORM_GROUP_ORDER, so the
+// breakdown lists vendors in the same familiar order as every platform picker.
+function vendorRank(vendor){
+  for (let i=0;i<PLATFORM_GROUP_ORDER.length;i++){ if (vendorOf(PLATFORM_GROUP_ORDER[i])===vendor) return i; }
+  return 999;
 }
 
 // ── Partner abbreviations ──────────────────────────────────────────────────────────────────────
@@ -271,6 +290,143 @@ function partnerAbbrOf(name, map){
   const custom = map && map[raw];
   return (custom && String(custom).trim()) ? String(custom).trim() : derivePartnerAbbr(raw);
 }
+
+// ── Email inbox ingest ─────────────────────────────────────────────────────────────────────────
+// Austin's email→tracker automation (see project_email_ingest). A GitHub Action drops new IO PDFs and
+// check-in files into a repo folder + a manifest JSON; the tracker fetches that manifest and routes each
+// new file through the SAME parsers a manual drop uses (IO → draft queue; check-in → the review panel).
+// The Action just MOVES files — all parsing + the review gate stay in the tracker, so a bad email can't
+// silently corrupt revenue. Manifest shape: [{ id, filename, url, kind:"io"|"checkin", subject?, receivedAt? }].
+const INBOX_CFG_KEY   = "campaign-tracker-inbox";       // { url, enabled }
+const INBOX_SEEN_KEY  = "campaign-tracker-inbox-seen";  // [id, …] already ingested — never re-ingest
+function loadInboxCfg(){ try{ const s=localStorage.getItem(INBOX_CFG_KEY); return s?{url:"",enabled:false,...JSON.parse(s)}:{url:"",enabled:false}; }catch{ return {url:"",enabled:false}; } }
+function saveInboxCfg(c){ try{ localStorage.setItem(INBOX_CFG_KEY, JSON.stringify(c||{})); }catch(e){} }
+function loadInboxSeen(){ try{ const s=localStorage.getItem(INBOX_SEEN_KEY); return new Set(Array.isArray(JSON.parse(s))?JSON.parse(s):[]); }catch{ return new Set(); } }
+function saveInboxSeen(set){ try{ localStorage.setItem(INBOX_SEEN_KEY, JSON.stringify([...set].slice(-1000))); }catch(e){} }
+// Resolve a manifest item's file URL: absolute as-is, else relative to the manifest URL's folder.
+function resolveInboxUrl(manifestUrl, fileUrl){
+  try {
+    // Resolve the manifest URL against the page FIRST, so a RELATIVE manifest path
+    // (e.g. "inbox/inbox-manifest.json" served from GitHub Pages, mirroring how campaigns.json
+    // is fetched) still gives a valid absolute base for the file — new URL() throws on a
+    // relative base, which would otherwise silently resolve files to the site root.
+    const base = new URL(manifestUrl, document.baseURI).href;
+    return new URL(fileUrl, base).href;
+  } catch { return fileUrl; }
+}
+
+// ── Outlook Calendar (Microsoft sign-in) ─────────────────────────────────────────────────────────
+// Optional per-user connection: the tracker is a PUBLIC SPA client (Microsoft app "client ID" + the
+// org "tenant ID" only — NO secret, so these are safe to keep in config/localStorage). Each person
+// signs in with their own Microsoft 365 account and sees only THEIR own calendar. Powered by MSAL
+// (window.msal, loaded in index.html). Everything degrades gracefully when unconfigured / offline.
+const OUTLOOK_CFG_KEY = "campaign-tracker-outlook"; // { clientId, tenantId, redirectUri, enabled }
+function loadOutlookCfg(){ try{ const s=localStorage.getItem(OUTLOOK_CFG_KEY); return s?{clientId:"",tenantId:"",redirectUri:"",enabled:false,...JSON.parse(s)}:{clientId:"",tenantId:"",redirectUri:"",enabled:false}; }catch{ return {clientId:"",tenantId:"",redirectUri:"",enabled:false}; } }
+function saveOutlookCfg(c){ try{ localStorage.setItem(OUTLOOK_CFG_KEY, JSON.stringify(c||{})); }catch(e){} }
+const OUTLOOK_SCOPES = ["User.Read", "Calendars.Read"];
+// Where this page is actually served from — the natural redirect URI. Auto-adapts to localhost /
+// github.io / a custom domain with no code change; you just register each address in Azure.
+function outlookAutoRedirect(){ try { return window.location.origin + window.location.pathname; } catch { return ""; } }
+// The redirect URI MSAL uses (and the one to register in Azure): an explicit override if you've set
+// one (e.g. pinning to your custom domain), otherwise this site's own address.
+function outlookRedirectUri(cfg){ const o = cfg && cfg.redirectUri && String(cfg.redirectUri).trim(); return o || outlookAutoRedirect(); }
+// MSAL singleton — rebuilt only when the client/tenant changes. Returns null when MSAL isn't loaded
+// or the client ID is missing (so callers can show a friendly "not set up" state instead of throwing).
+let _msalApp = null, _msalKey = "";
+function getMsalApp(cfg){
+  if (typeof window === "undefined" || !window.msal || !cfg || !cfg.clientId) return null;
+  const redirect = outlookRedirectUri(cfg);
+  const key = cfg.clientId + "|" + (cfg.tenantId || "organizations") + "|" + redirect;
+  if (_msalApp && _msalKey === key) return _msalApp;
+  try {
+    _msalApp = new window.msal.PublicClientApplication({
+      auth: {
+        clientId: cfg.clientId,
+        authority: "https://login.microsoftonline.com/" + (cfg.tenantId || "organizations"),
+        redirectUri: redirect,
+      },
+      cache: { cacheLocation: "localStorage", storeAuthStateInCookie: false },
+    });
+    _msalKey = key;
+    return _msalApp;
+  } catch (e) { console.warn("MSAL init failed:", e); return null; }
+}
+async function _msalReady(app){ if (app && typeof app.initialize === "function") { try { await app.initialize(); } catch(e){} } }
+function outlookAccount(cfg){ const app = getMsalApp(cfg); if (!app || !app.getAllAccounts) return null; const a = app.getAllAccounts(); return a && a.length ? a[0] : null; }
+async function outlookSignIn(cfg){
+  const app = getMsalApp(cfg);
+  if (!app) throw new Error(window.msal ? "Enter your Microsoft Client ID first." : "Microsoft sign-in library didn't load.");
+  await _msalReady(app);
+  const res = await app.loginPopup({ scopes: OUTLOOK_SCOPES, prompt: "select_account" });
+  return res && res.account;
+}
+async function outlookSignOut(cfg){
+  const app = getMsalApp(cfg); if (!app) return;
+  await _msalReady(app);
+  const acct = outlookAccount(cfg);
+  if (acct && app.logoutPopup) { try { await app.logoutPopup({ account: acct }); } catch(e){} }
+}
+// Pull this user's calendar for the next `days` days. Silent token first, popup only if needed.
+async function outlookFetchEvents(cfg, days = 7){
+  const app = getMsalApp(cfg);
+  if (!app) throw new Error("Outlook isn't set up yet.");
+  await _msalReady(app);
+  const account = outlookAccount(cfg);
+  if (!account) throw new Error("Not signed in.");
+  let token;
+  try { const r = await app.acquireTokenSilent({ scopes: OUTLOOK_SCOPES, account }); token = r.accessToken; }
+  catch (e) { const r = await app.acquireTokenPopup({ scopes: OUTLOOK_SCOPES }); token = r.accessToken; }
+  const start = new Date(); start.setHours(0,0,0,0);
+  const end = new Date(start.getTime() + days * 86400000);
+  const tz = trackerTZName(); // ask Graph to localize event times to the tracker's zone (Eastern by default)
+  const url = "https://graph.microsoft.com/v1.0/me/calendarView"
+    + "?startDateTime=" + encodeURIComponent(start.toISOString())
+    + "&endDateTime="   + encodeURIComponent(end.toISOString())
+    + "&$orderby="      + encodeURIComponent("start/dateTime")
+    + "&$top=50&$select=subject,start,end,isAllDay,location,onlineMeeting,webLink,showAs";
+  const res = await fetch(url, { headers: { Authorization: "Bearer " + token, Prefer: 'outlook.timezone="' + tz + '"' } });
+  if (!res.ok) throw new Error("Calendar fetch failed (" + res.status + ")");
+  const data = await res.json();
+  return (data.value || []).map(ev => ({
+    id: ev.id,
+    subject: ev.subject || "(no subject)",
+    start: ev.start && ev.start.dateTime,
+    end:   ev.end && ev.end.dateTime,
+    allDay: !!ev.isAllDay,
+    location: (ev.location && ev.location.displayName) || "",
+    online: !!ev.onlineMeeting || /teams|zoom|meet\b/i.test((ev.location && ev.location.displayName) || ""),
+    webLink: ev.webLink || "",
+    showAs: ev.showAs || "",
+  }));
+}
+
+// ── "Add to Outlook" — build a downloadable .ics for a tracker reminder or flight date (one-way,
+// zero setup, works even without the Microsoft connection). All-day event on the given YYYY-MM-DD.
+function downloadICS(title, dateISO, opts = {}){
+  const d = String(dateISO || "").slice(0,10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+  const dt = d.replace(/-/g, "");
+  const uid = "zeus-" + Math.random().toString(36).slice(2) + "@campaign-tracker";
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+  const esc = s => String(s || "").replace(/([,;\\])/g, "\\$1").replace(/\n/g, "\\n");
+  const lines = [
+    "BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Zeus Campaign Tracker//EN","CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT","UID:" + uid,"DTSTAMP:" + stamp,
+    "DTSTART;VALUE=DATE:" + dt,"DTEND;VALUE=DATE:" + dt,
+    "SUMMARY:" + esc(title),
+    opts.description ? "DESCRIPTION:" + esc(opts.description) : "",
+    "END:VEVENT","END:VCALENDAR",
+  ].filter(Boolean);
+  try {
+    const blob = new Blob([lines.join("\r\n")], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = (String(title).replace(/[^a-z0-9]+/gi, "_").slice(0, 40) || "event") + ".ics";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) { console.warn("ICS export failed:", e); }
+}
+
 // CTV streaming flavors that, by default, collapse into the generic "CTV" platform. Each maps to a
 // SUGGESTED dedicated platform (code/color/name) so an IO with one of these can prompt the user to
 // create its own platform (like the existing GCTV/PCTV). Codes are smart defaults — user-editable.
@@ -308,7 +464,7 @@ const STATUS_CFG = {
 const PLT_COLORS_DEFAULT = {
   SEM:"#b91c1c", TD:"#00ffb3", TDV:"#00d48a", TDA:"#a78bfa",
   DSP:"#7dd3fc", FB:"#f472b6", FBV:"#a855f7",
-  CTV:"#a8c4e0", GCTV:"#94a3b8", OTT:"#6b7280", OTTD:"#003a5c",
+  CTV:"#a8c4e0", GCTV:"#94a3b8", PCTV:"#64748b", AECTV:"#c084fc", OTT:"#6b7280", OTTD:"#003a5c",
   YT:"#6effd8", SP:"#fde047", EMAIL:"#f97316", TT:"#7a9bbf",
   IG:"#e1306c", default:"#4d6e8a"
 };
@@ -352,6 +508,46 @@ function lmBadge(c) {
 }
 
 function getToday() { return new Date().toISOString().split("T")[0]; }
+
+// ── Tracker time zone ────────────────────────────────────────────────────────────────────────────
+// The team is East-coast, so the tracker DEFAULTS to Eastern for anything time-of-day (calendar
+// meetings, the homepage agenda's Today/Tomorrow grouping, the greeting) — regardless of how any one
+// computer's clock is set. Switchable to other US zones or "this computer's time zone" in Config.
+// Scope: DISPLAY of clock times + the homepage "now/today". Pacing/revenue stay day-granular and are
+// untouched. A stored value of "local" means follow the machine; anything else is an IANA zone name.
+const TIMEZONE_KEY = "campaign-tracker-timezone";
+const TIMEZONE_OPTIONS = [
+  { value:"America/New_York",    label:"Eastern Time (ET)" },
+  { value:"America/Chicago",     label:"Central Time (CT)" },
+  { value:"America/Denver",      label:"Mountain Time (MT)" },
+  { value:"America/Los_Angeles", label:"Pacific Time (PT)" },
+  { value:"local",               label:"This computer's time zone" },
+];
+function getTimeZonePref(){ try { return localStorage.getItem(TIMEZONE_KEY) || "America/New_York"; } catch { return "America/New_York"; } }
+function setTimeZonePref(v){ try { localStorage.setItem(TIMEZONE_KEY, v); } catch(e){} }
+// The IANA zone to actually format in — undefined lets Intl use the machine zone ("local").
+function trackerTZ(){ const p = getTimeZonePref(); return p === "local" ? undefined : p; }
+// A concrete zone name even in "local" mode (Graph needs a real name in its Prefer header).
+function trackerTZName(){ const tz = trackerTZ(); if (tz) return tz; try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "America/New_York"; } }
+// Wall-clock parts of an instant IN the tracker zone.
+function tzParts(date){
+  const f = new Intl.DateTimeFormat("en-US", { timeZone: trackerTZ(), year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hour12:false });
+  const o = {}; for (const p of f.formatToParts(date)) o[p.type] = p.value; return o;
+}
+function tzTodayISO(){ const p = tzParts(new Date()); return `${p.year}-${p.month}-${p.day}`; }
+function tzHour(){ return parseInt(tzParts(new Date()).hour, 10) || 0; }
+// Add N days to a YYYY-MM-DD (UTC math → no zone/DST drift on pure calendar dates).
+function addDaysISO(iso, n){ const [y,m,d] = String(iso).slice(0,10).split("-").map(Number); const dt = new Date(Date.UTC(y, m-1, d + n)); return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,"0")}-${String(dt.getUTCDate()).padStart(2,"0")}`; }
+// Weekday / short date label for a date-only ISO, computed at noon-UTC so it never rolls a day.
+function isoWeekday(iso){ return new Date(iso.slice(0,10)+"T12:00:00Z").toLocaleDateString("en-US", { weekday:"long", timeZone:"UTC" }); }
+function isoShort(iso){ return new Date(iso.slice(0,10)+"T12:00:00Z").toLocaleDateString("en-US", { month:"short", day:"numeric", timeZone:"UTC" }); }
+// "2:30 PM" from a Graph naive-local dateTime ("2026-07-21T14:30:00...") — already localized to the
+// zone we requested, so we render the wall-clock straight, no instant conversion.
+function fmtClockFromNaive(dateTimeStr){
+  const m = String(dateTimeStr||"").match(/T(\d{2}):(\d{2})/); if (!m) return "";
+  let h = parseInt(m[1],10); const min = m[2]; const ap = h>=12?"PM":"AM"; h = h%12||12;
+  return `${h}:${min} ${ap}`;
+}
 // Parse a check-in / metricSeries date stamp to a local-midnight Date. Handles BOTH the ISO
 // "YYYY-MM-DD" that Quick Check-in actually writes (via getToday) AND the legacy "MM/DD/YYYY"
 // format some older entries use. One source of truth so every history reader agrees — previously
@@ -1376,7 +1572,7 @@ function parseIOPdf(text, uris = []) {
       impressions: tryFields(prefix, "Gross Impressions", "Gross Views"),
       // CPM/CPV aliases also cover the Spinnaker "Universal IO" / tvScientific format:
       //   "CPM Rate - Recrue ($)" (tvScientific CTV/OTT) and "CPV Rate to Recrue Media" (YouTube TrueView).
-      cpm:         tryFields(prefix, "CPM Rate to Recrue Media", "CPM Rate - Recrue", "CPV Rate to Recrue Media", "Hard Cost to Recrue Media", "Hard Cost"),
+      cpm:         tryFields(prefix, "CPM Rate to Recrue Media", "CPM Rate - Recrue", "CPV Rate to Recrue Media", "Hard Cost to Recrue Media", "Hard Cost", "Rate to Recrue"),
       // Budget aliases also cover tvScientific's "Cost - Recrue" line (CTV) and YouTube's
       // "Views Gross Dollar($) Budget" (CPV) — the "Views" prefix would otherwise block the plain
       // "Gross Dollar" match, leaving the CPV budget to a wrong CPM-style derivation.
@@ -1500,6 +1696,9 @@ function parseIOPdf(text, uris = []) {
     // collide — "…FB&IG:" never matches "…FB&IG VIDEO:" lines and vice-versa).
     { label: "Mobile to Social Integration w/ FB&IG VIDEO", key: "mts_int_fbig_video", platform: "FBV", flag: "Mobile to Social Integration w/ FB&IG" },
     { label: "Mobile to Social Integration w/ FB&IG",       key: "mts_int_fbig",       split: "FB" },
+    // Audience Extension TV — a Madhive product Recrue offers (~$14 CPM). Its own "Included?" flag;
+    // fields prefixed the same ("Audience Extension TV Gross Impressions/Rate to Recrue/Gross Budget").
+    { label: "Audience Extension TV", key: "audience_ext_tv", platform: "AECTV" },
     // tvScientific streaming — one "tvScientific Included?" flag, three sub-lines (CTV/OTT/Display).
     // CTV/OTT are Austin's TVsci platforms (NOT Madhive). Zero-impression sub-lines are auto-skipped.
     { label: "tvScientific CTV",     key: "tvsci_ctv",  platform: "CTV", flag: "tvScientific" },
@@ -12028,7 +12227,9 @@ function InitialsPrompt({ current, onSave, onClose }){
   );
 }
 
-function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampaigns, onClose }) {
+function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampaigns, onClose, autoLoadFile=null, onAutoLoadConsumed=()=>{} }) {
+  // autoLoadFile: a File handed in by the email-inbox flow — processed once through the normal drop
+  // handler (so it goes through the same review/apply gate), then reported consumed to the parent.
   // Always use ALL campaigns as the matching pool — never restrict by the dashboard's current platform/search filter
   // For CSV mapping: include ALL campaigns regardless of status (off/paused/pending campaigns still need data imports)
   const activeCamps = campaigns;
@@ -12110,6 +12311,16 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   // need to re-check means scrolling the lot. Matches the file's row name AND the campaign it's
   // mapped to, so "holy redeemer" finds the row whichever side you remember it by.
   const [rowSearch,    setRowSearch]    = React.useState("");
+  // Email-inbox auto-load: run the handed-in File through the normal drop handler exactly once, then
+  // tell the parent it's consumed (so it drops from the pending list). The user still reviews + applies.
+  const _autoLoadedRef = React.useRef(null);
+  React.useEffect(() => {
+    if (autoLoadFile && _autoLoadedRef.current !== autoLoadFile) {
+      _autoLoadedRef.current = autoLoadFile;
+      handleFileDrop(autoLoadFile);
+      onAutoLoadConsumed();
+    }
+  }, [autoLoadFile]); // eslint-disable-line react-hooks/exhaustive-deps
   const [fileSource,   setFileSource]   = React.useState("");     // "Facebook/Meta" | "Snapchat"
   const [mapping,      setMapping]      = React.useState({});     // fileRowIdx -> campId (integers only)
   const [matchConf,    setMatchConf]    = React.useState({});     // fileRowIdx -> confidence (1.0=memory, 0.8=TTD, fuzzy score for others)
@@ -14805,6 +15016,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // survive the reset instead of vanishing.
   const monthlyBackups = useMemo(() => { try { return JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}"); } catch { return {}; } }, []);
   const [showPLReport, setShowPLReport]     = useState(false);
+  const [plByPlatOpen, setPlByPlatOpen]     = useState(true);    // "where the money's made" platform/tactic panel
+  const [plScope, setPlScope]               = useState("month"); // "month" (focused month) | "all" (all-time to date)
+  const [plExpandedVendors, setPlExpandedVendors] = useState(() => new Set()); // which vendor rows are drilled into
   const [showRateFixer, setShowRateFixer]   = useState(false); // expand the "finish the rates" checklist
   const [showDtFixer, setShowDtFixer]       = useState(false); // expand the "device surcharge" suggestion list
   const [showRevForecast, setShowRevForecast] = useState(false); // on-demand month/quarter $ forecast
@@ -15923,6 +16137,125 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         })()}
       </div>
 
+      {/* ── Where the money's made — profit by platform, then by tactic ──────────────
+          Rolls the focused month (or all-time to date) up by the vendor you buy through
+          (The Trade Desk, Google, Meta…), each drillable into its tactics (TD/TDV/TDA…).
+          Uses the SAME realized-only revenue/profit as the KPI tiles, so a vendor's rows
+          sum back to the totals above. */}
+      {(()=>{
+        const useAll = plScope === "all";
+        // Aggregate rows into per-tactic buckets (realized = has spend; pending = revenue, no spend yet).
+        const byPlat = {};
+        rows.forEach(r=>{
+          const plat = r.c.platform || "—";
+          const b = byPlat[plat] || (byPlat[plat] = { plat, vendor: vendorOf(plat), rev:0, spend:0, deviceFee:0, realized:false, count:0, pendingRev:0, pendingCount:0 });
+          if (useAll) {
+            if (r.windowProfit != null) { b.rev += r.windowRev; b.spend += r.windowSpend; b.deviceFee += r.windowDeviceFee; b.realized = true; b.count++; }
+          } else {
+            const fc = r.focusCell;
+            if (fc.spend != null) { b.rev += fc.rev; b.spend += fc.spend; b.deviceFee += fc.deviceFee||0; b.realized = true; b.count++; }
+            else if (fc.rev > 0)  { b.pendingRev += fc.rev; b.pendingCount++; }
+          }
+        });
+        const platList = Object.values(byPlat).filter(b=>b.realized || b.pendingRev>0);
+        platList.forEach(b=>{ b.profit = b.realized ? (b.rev - b.spend - b.deviceFee) : null; b.margin = (b.realized && b.rev>0) ? (b.profit/b.rev)*100 : null; });
+        if (platList.length === 0) return null;
+        // Roll tactics up into vendors.
+        const byVendor = {};
+        platList.forEach(b=>{
+          const v = byVendor[b.vendor] || (byVendor[b.vendor] = { vendor:b.vendor, rev:0, spend:0, deviceFee:0, profit:0, realized:false, count:0, pendingRev:0, pendingCount:0, tactics:[] });
+          v.rev += b.rev; v.spend += b.spend; v.deviceFee += b.deviceFee; if (b.realized){ v.profit += b.profit; v.realized = true; } v.count += b.count;
+          v.pendingRev += b.pendingRev; v.pendingCount += b.pendingCount; v.tactics.push(b);
+        });
+        const vendors = Object.values(byVendor).map(v=>({ ...v, margin: (v.realized && v.rev>0)?(v.profit/v.rev)*100:null }));
+        // Sort vendors by profit (money made) desc, then tactics within each the same way.
+        vendors.sort((a,b)=>(b.profit||-Infinity)-(a.profit||-Infinity) || vendorRank(a.vendor)-vendorRank(b.vendor));
+        vendors.forEach(v=>v.tactics.sort((a,b)=>(b.profit||-Infinity)-(a.profit||-Infinity) || (PLATFORM_GROUP_ORDER.indexOf(a.plat)-PLATFORM_GROUP_ORDER.indexOf(b.plat))));
+        const grandProfit = vendors.reduce((s,v)=>s+(v.profit||0),0);
+        const grandRev    = vendors.reduce((s,v)=>s+v.rev,0);
+        const maxAbsVendorProfit = Math.max(...vendors.map(v=>Math.abs(v.profit||0)), 1);
+        const scopeLabel = useAll ? "all-time to date" : focusLabel;
+        const gridCols = "minmax(120px,1.6fr) 78px 92px 92px 84px 70px"; // Platform · share · Revenue · Spend · Profit · Margin
+        const HeadCell = ({children,align="right"})=>(<div style={{fontSize:9,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:_lm?"#94a3b8":"#4d6e8a",textAlign:align}}>{children}</div>);
+        return (
+          <div style={{...card,padding:"14px 18px",marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:plByPlatOpen?12:0,flexWrap:"wrap"}}>
+              <button onClick={()=>setPlByPlatOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:7,background:"none",border:"none",cursor:"pointer",padding:0,flex:1,textAlign:"left"}}>
+                <span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",display:"inline-block",transform:plByPlatOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>▸</span>
+                <span style={{...labelStyle,margin:0}}>💰 Where the money's made</span>
+                <span style={{fontSize:10.5,color:_lm?"#94a3b8":"#4d6e8a",fontWeight:600}}>· by platform &amp; tactic · {scopeLabel}</span>
+              </button>
+              <div style={{display:"inline-flex",borderRadius:7,overflow:"hidden",border:`1px solid ${_lm?"#e2e8f0":"#26364f"}`}}>
+                {[{k:"month",t:focusLabelShort},{k:"all",t:"All-time"}].map(o=>(
+                  <button key={o.k} onClick={()=>setPlScope(o.k)}
+                    style={{background:plScope===o.k?(_lm?"#eef2ff":"#0a2036"):"transparent",border:"none",padding:"4px 11px",fontSize:10.5,fontWeight:700,cursor:"pointer",color:plScope===o.k?(_lm?"#1d4ed8":"#00d9ff"):(_lm?"#64748b":"#4d6e8a")}}>{o.t}</button>
+                ))}
+              </div>
+            </div>
+            {plByPlatOpen && (
+              <>
+                <div style={{display:"grid",gridTemplateColumns:gridCols,gap:8,padding:"0 8px 6px 8px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+                  <HeadCell align="left">Platform</HeadCell><HeadCell>Profit share</HeadCell><HeadCell>Revenue</HeadCell><HeadCell>Spend</HeadCell><HeadCell>Profit</HeadCell><HeadCell>Margin</HeadCell>
+                </div>
+                {vendors.map(v=>{
+                  const open = plExpandedVendors.has(v.vendor);
+                  const multi = v.tactics.length > 1;
+                  const share = grandProfit>0 && v.profit>0 ? (v.profit/grandProfit)*100 : 0;
+                  const barW = Math.round((Math.abs(v.profit||0)/maxAbsVendorProfit)*100);
+                  const toggle = ()=>{ if(!multi) return; setPlExpandedVendors(s=>{ const n=new Set(s); n.has(v.vendor)?n.delete(v.vendor):n.add(v.vendor); return n; }); };
+                  return (
+                    <div key={v.vendor} style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#111e33"}`}}>
+                      <div onClick={toggle} style={{display:"grid",gridTemplateColumns:gridCols,gap:8,alignItems:"center",padding:"9px 8px",cursor:multi?"pointer":"default"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+                          <span style={{fontSize:9,width:9,color:_lm?"#94a3b8":"#4d6e8a",flexShrink:0,display:"inline-block",transform:open?"rotate(90deg)":"none",transition:"transform .15s",opacity:multi?1:0}}>▸</span>
+                          <span style={{fontSize:13.5,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v.vendor}</span>
+                          <span style={{fontSize:9.5,color:_lm?"#94a3b8":"#4d6e8a",flexShrink:0}}>{multi?`${v.tactics.length} tactics`:v.tactics[0].plat}</span>
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                          <div style={{height:6,borderRadius:3,background:_lm?"#eef2f7":"#0e1a2e",overflow:"hidden"}}>
+                            <div style={{height:"100%",width:`${barW}%`,background:profitColor(v.profit||0),borderRadius:3,transition:"width .3s"}}/>
+                          </div>
+                          <span style={{fontSize:9,color:_lm?"#94a3b8":"#4d6e8a",textAlign:"right"}}>{share>0?share.toFixed(0)+"%":"—"}</span>
+                        </div>
+                        <div style={{fontSize:12.5,fontWeight:700,color:_lm?"#334155":"#9fb4cf",textAlign:"right"}}>{$fc(v.rev)}{v.pendingRev>0&&<div style={{fontSize:8.5,color:_lm?"#94a3b8":"#4d6e8a",fontWeight:600}}>+{$fk(v.pendingRev)} pend</div>}</div>
+                        <div style={{fontSize:12.5,fontWeight:700,color:"#f59e0b",textAlign:"right"}}>{$fc(v.spend)}</div>
+                        <div style={{fontSize:13,fontWeight:800,color:profitColor(v.profit||0),textAlign:"right"}}>{v.realized?(v.profit>=0?"+":"")+$f(v.profit):"—"}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:v.margin!=null?marginColor(v.margin):(_lm?"#cbd5e1":"#3d5a72"),textAlign:"right"}}>{v.margin!=null?v.margin.toFixed(0)+"%":"—"}</div>
+                      </div>
+                      {open && multi && v.tactics.map(t=>(
+                        <div key={t.plat} style={{display:"grid",gridTemplateColumns:gridCols,gap:8,alignItems:"center",padding:"6px 8px 6px 8px",background:_lm?"#fafcff":"#0a1424"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:7,paddingLeft:16,minWidth:0}}>
+                            <span style={{background:(PLT_COLORS[t.plat]||PLT_COLORS.default)+"22",color:PLT_COLORS[t.plat]||PLT_COLORS.default,borderRadius:3,padding:"1px 6px",fontSize:9.5,fontWeight:800,flexShrink:0}}>{t.plat}</span>
+                            <span style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a"}}>{t.count} camp{t.count!==1?"s":""}</span>
+                          </div>
+                          <div/>
+                          <div style={{fontSize:11.5,fontWeight:600,color:_lm?"#475569":"#7a9bbf",textAlign:"right"}}>{$fc(t.rev)}</div>
+                          <div style={{fontSize:11.5,fontWeight:600,color:_lm?"#b45309":"#c98a2e",textAlign:"right"}}>{$fc(t.spend)}</div>
+                          <div style={{fontSize:11.5,fontWeight:700,color:profitColor(t.profit||0),textAlign:"right"}}>{t.realized?(t.profit>=0?"+":"")+$f(t.profit):"—"}</div>
+                          <div style={{fontSize:11,fontWeight:600,color:t.margin!=null?marginColor(t.margin):(_lm?"#cbd5e1":"#3d5a72"),textAlign:"right"}}>{t.margin!=null?t.margin.toFixed(0)+"%":"—"}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+                {/* Grand total row */}
+                <div style={{display:"grid",gridTemplateColumns:gridCols,gap:8,alignItems:"center",padding:"10px 8px 2px 8px"}}>
+                  <div style={{fontSize:11,fontWeight:800,letterSpacing:"0.04em",textTransform:"uppercase",color:_lm?"#64748b":"#7a9bbf"}}>Total · {scopeLabel}</div>
+                  <div/>
+                  <div style={{fontSize:12.5,fontWeight:800,color:_lm?"#334155":"#9fb4cf",textAlign:"right"}}>{$fc(grandRev)}</div>
+                  <div/>
+                  <div style={{fontSize:13,fontWeight:800,color:profitColor(grandProfit),textAlign:"right"}}>{(grandProfit>=0?"+":"")+$f(grandProfit)}</div>
+                  <div style={{fontSize:12,fontWeight:700,color:grandRev>0?marginColor((grandProfit/grandRev)*100):(_lm?"#cbd5e1":"#3d5a72"),textAlign:"right"}}>{grandRev>0?((grandProfit/grandRev)*100).toFixed(0)+"%":"—"}</div>
+                </div>
+                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:8,paddingLeft:8}}>
+                  Ranked by profit. {plScope==="all"?"All-time":"This month's"} realized revenue only (over-delivery isn't billable, so it can't inflate a platform's revenue). {vendors.some(v=>v.tactics.length>1)?"Click a platform with several tactics to split it out.":""}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
       {/* ── Forecast (on-demand) — generated only when the user opens it, to keep the tab clean ── */}
       {showRevForecast && monthForecast && (
         <div style={{...card,padding:"14px 18px",marginBottom:14}}>
@@ -16513,6 +16846,28 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             .map(e=>({ ...e, profit:e.revenue-e.spend-e.deviceFee, margin:e.revenue>0?((e.revenue-e.spend-e.deviceFee)/e.revenue*100):0 }))
             .sort((a,b)=>b.profit-a.profit);
         })();
+        // By-platform rollup (tracked only, same profit math) — vendor totals, each split into its
+        // tactics (The Trade Desk → TD/TDV/TDA…). Shows the boss where the money's made by channel.
+        const byPlatform = (()=>{
+          const tac = {};
+          reportRows.forEach(r=>{
+            if(r.spend==null) return; // tracked only
+            const plat = r.platform || "—";
+            if(!tac[plat]) tac[plat] = { plat, vendor:vendorOf(plat), revenue:0, spend:0, deviceFee:0, count:0 };
+            const e = tac[plat]; e.count++; e.revenue += r.revenue; e.spend += r.spend; e.deviceFee += (r.deviceFee||0);
+          });
+          const ven = {};
+          Object.values(tac).forEach(t=>{
+            t.profit = t.revenue - t.spend - t.deviceFee; t.margin = t.revenue>0?(t.profit/t.revenue*100):0;
+            if(!ven[t.vendor]) ven[t.vendor] = { vendor:t.vendor, revenue:0, spend:0, deviceFee:0, count:0, tactics:[] };
+            const v = ven[t.vendor]; v.revenue += t.revenue; v.spend += t.spend; v.deviceFee += t.deviceFee; v.count += t.count; v.tactics.push(t);
+          });
+          const out = Object.values(ven)
+            .map(v=>({ ...v, profit:v.revenue-v.spend-v.deviceFee, margin:v.revenue>0?((v.revenue-v.spend-v.deviceFee)/v.revenue*100):0 }))
+            .sort((a,b)=>b.profit-a.profit || vendorRank(a.vendor)-vendorRank(b.vendor));
+          out.forEach(v=>v.tactics.sort((a,b)=>b.profit-a.profit || (PLATFORM_GROUP_ORDER.indexOf(a.plat)-PLATFORM_GROUP_ORDER.indexOf(b.plat))));
+          return out;
+        })();
         const printId = "pl-report-"+activeMonth;
         return (
           <div style={{position:"fixed",inset:0,background:"#000a",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
@@ -16540,6 +16895,12 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                     const sgn = n => (n>=0?"+":"-")+"$"+Math.round(Math.abs(n)).toLocaleString();
                     const dfCell = v => showDevFee?`<td class="r">${v>0?dol(v):"—"}</td>`:"";
                     const partnerRows = byPartner.map(p=>{ const share=totalProfit>0?(p.profit/totalProfit*100):null; return `<tr><td>${esc(p.partner)}</td><td class="r">${p.count>p.tracked?p.tracked+"/"+p.count:p.tracked}</td><td class="r">${dol(p.revenue)}</td><td class="r">${dol(p.spend)}</td>${dfCell(p.deviceFee)}<td class="r" style="font-weight:700;color:${pcol(p.profit)}">${sgn(p.profit)}</td><td class="r" style="color:${mcol(p.margin)}">${p.margin.toFixed(1)}%</td><td class="r">${share!=null?Math.round(share)+"%":"—"}</td></tr>`; }).join("");
+                    const platformRows = byPlatform.map(v=>{
+                      const share=totalProfit>0?(v.profit/totalProfit*100):null; const multi=v.tactics.length>1;
+                      const vRow = `<tr class="grp"><td>${esc(v.vendor)}${!multi?` <span style="font-weight:400;color:#94a3b8;font-size:10px">${esc(v.tactics[0].plat)}</span>`:""}</td><td class="r">${v.count}</td><td class="r">${dol(v.revenue)}</td><td class="r">${dol(v.spend)}</td>${dfCell(v.deviceFee)}<td class="r" style="font-weight:700;color:${pcol(v.profit)}">${sgn(v.profit)}</td><td class="r" style="color:${mcol(v.margin)}">${v.margin.toFixed(1)}%</td><td class="r">${share!=null?Math.round(share)+"%":"—"}</td></tr>`;
+                      const tRows = multi ? v.tactics.map(t=>`<tr><td style="padding-left:24px;color:#475569">${esc(t.plat)}</td><td class="r" style="color:#94a3b8">${t.count}</td><td class="r">${dol(t.revenue)}</td><td class="r">${dol(t.spend)}</td>${dfCell(t.deviceFee)}<td class="r" style="color:${pcol(t.profit)}">${sgn(t.profit)}</td><td class="r" style="color:${mcol(t.margin)}">${t.margin.toFixed(1)}%</td><td class="r">—</td></tr>`).join("") : "";
+                      return vRow + tRows;
+                    }).join("");
                     const campRows = [...reportRows].sort((a,b)=>(b.profit||0)-(a.profit||0)).map(r=>{ const margin=r.revenue>0&&r.spend!=null?((r.profit||0)/r.revenue*100):null; return `<tr><td>${esc(r.partner)}</td><td>${esc(r.name)}</td><td>${esc(r.platform)}</td><td class="r">${dol(r.revenue)}</td><td class="r">${r.spend!=null?dol(r.spend):"pending"}</td>${showDevFee?`<td class="r">${r.spend!=null&&r.deviceFee>0?dol(r.deviceFee):"—"}</td>`:""}<td class="r" style="font-weight:700;color:${r.profit==null?'#94a3b8':pcol(r.profit)}">${r.profit==null?"—":sgn(r.profit)}</td><td class="r" style="color:${margin==null?'#94a3b8':mcol(margin)}">${margin==null?"—":margin.toFixed(1)+"%"}</td></tr>`; }).join("");
                     const totalsRow = `<tr class="tot"><td colspan="3">TOTAL${pendingCount>0?` (${pendingCount} pending excluded)`:""}</td><td class="r">${dol(totalRevWithSpend)}</td><td class="r">${dol(totalSpend)}</td>${dfCell(totalDeviceFee)}<td class="r" style="color:${pcol(totalProfit)}">${sgn(totalProfit)}</td><td class="r" style="color:${totalRevWithSpend>0?mcol(totalMargin):'#94a3b8'}">${totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—"}</td></tr>`;
                     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>P&L Report — ${esc(focusLabel)}</title>
@@ -16560,6 +16921,7 @@ th{padding:6px 8px;text-align:left;color:#64748b;font-size:10px;font-weight:700;
 th.r,td.r{text-align:right}
 td{padding:6px 8px;border-bottom:1px solid #f1f5f9;color:#0f172a}
 tr.tot td{border-top:2px solid #e2e8f0;font-weight:800;font-size:13px;background:#f0fdf9}
+tr.grp td{background:#f8fafc;font-weight:700}
 .foot{margin-top:16px;font-size:10px;color:#64748b;display:flex;justify-content:space-between}
 </style></head><body>
 <h1>📊 P&L Report — ${esc(focusLabel)}</h1>
@@ -16571,6 +16933,7 @@ tr.tot td{border-top:2px solid #e2e8f0;font-weight:800;font-size:13px;background
 <div class="kpi"><div class="kl">Margin</div><div class="kv" style="color:${totalRevWithSpend>0?mcol(totalMargin):'#94a3b8'}">${totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—"}</div></div>
 </div>
 ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th class="r">Campaigns</th><th class="r">Revenue</th><th class="r">Spend</th>${showDevFee?'<th class="r">Dev Fee</th>':''}<th class="r">Profit</th><th class="r">Margin</th><th class="r">% of Profit</th></tr></thead><tbody>${partnerRows}</tbody></table>`:""}
+${byPlatform.length?`<h2>By Platform</h2><table><thead><tr><th>Platform / Tactic</th><th class="r">Campaigns</th><th class="r">Revenue</th><th class="r">Spend</th>${showDevFee?'<th class="r">Dev Fee</th>':''}<th class="r">Profit</th><th class="r">Margin</th><th class="r">% of Profit</th></tr></thead><tbody>${platformRows}</tbody></table>`:""}
 <h2>By Campaign</h2><table><thead><tr><th>Partner</th><th>Campaign</th><th>Plt</th><th class="r">Revenue</th><th class="r">Spend</th>${showDevFee?'<th class="r">Dev Fee</th>':''}<th class="r">Profit</th><th class="r">Margin</th></tr></thead><tbody>${campRows}${totalsRow}</tbody></table>
 <div class="foot"><span>${esc(focusLabel)} P&L</span><span>Generated ${esc(new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}))}</span></div>
 <script>window.onload=()=>setTimeout(()=>window.print(),350)</script>
@@ -16625,6 +16988,58 @@ ${byPartner.length?`<h2>By Partner</h2><table><thead><tr><th>Partner</th><th cla
                               <td style={{padding:"6px 8px",textAlign:"right",color:p.margin>=30?"#00d48a":p.margin>=15?"#f59e0b":"#ef4444"}}>{p.margin.toFixed(1)}%</td>
                               <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#64748b":"#7a9bbf"}}>{share!=null?share.toFixed(0)+"%":"—"}</td>
                             </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {/* By-platform rollup (vendor → tactic) */}
+                {byPlatform.length>0 && (
+                  <div style={{marginBottom:18}}>
+                    <div style={{fontSize:11,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>By Platform</div>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{borderBottom:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
+                          {["Platform / Tactic","Campaigns","Revenue","Spend",...(showDevFee?["Dev Fee"]:[]),"Profit","Margin","% of Profit"].map(h=>(
+                            <th key={h} style={{padding:"6px 8px",textAlign:["Platform / Tactic"].includes(h)?"left":"right",color:_lm?"#64748b":"#3d5a72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {byPlatform.map((v,i)=>{
+                          const share = totalProfit>0 ? (v.profit/totalProfit*100) : null;
+                          const multi = v.tactics.length>1;
+                          return (
+                            <React.Fragment key={i}>
+                              <tr style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#0d1525"}`,background:_lm?"#f8fafc":"#0a1628"}}>
+                                <td style={{padding:"7px 8px",color:_lm?"#0f172a":"#edf4ff",fontWeight:800}}>{v.vendor}{!multi&&<span style={{fontSize:9,fontWeight:600,color:_lm?"#94a3b8":"#4d6e8a",marginLeft:6}}>{v.tactics[0].plat}</span>}</td>
+                                <td style={{padding:"7px 8px",textAlign:"right",color:_lm?"#475569":"#7a9bbf"}}>{v.count}</td>
+                                <td style={{padding:"7px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:700}}>${Math.round(v.revenue).toLocaleString()}</td>
+                                <td style={{padding:"7px 8px",textAlign:"right",color:"#f59e0b",fontWeight:700}}>${Math.round(v.spend).toLocaleString()}</td>
+                                {showDevFee&&<td style={{padding:"7px 8px",textAlign:"right",color:"#e879a6"}}>{v.deviceFee>0?"$"+Math.round(v.deviceFee).toLocaleString():"—"}</td>}
+                                <td style={{padding:"7px 8px",textAlign:"right",fontWeight:800,color:v.profit>=0?"#00d48a":"#ef4444"}}>{(v.profit>=0?"+":"-")+"$"+Math.round(Math.abs(v.profit)).toLocaleString()}</td>
+                                <td style={{padding:"7px 8px",textAlign:"right",color:v.margin>=30?"#00d48a":v.margin>=15?"#f59e0b":"#ef4444"}}>{v.margin.toFixed(1)}%</td>
+                                <td style={{padding:"7px 8px",textAlign:"right",color:_lm?"#64748b":"#7a9bbf",fontWeight:700}}>{share!=null?share.toFixed(0)+"%":"—"}</td>
+                              </tr>
+                              {multi && v.tactics.map((t,j)=>{
+                                const pc = PLT_COLORS[t.plat]||"#4d6e8a";
+                                const pr=parseInt(pc.slice(1,3),16)/255,pg=parseInt(pc.slice(3,5),16)/255,pb=parseInt(pc.slice(5,7),16)/255;
+                                const ptxt=(0.299*pr+0.587*pg+0.114*pb)>0.45?"#0a1a0a":"#ffffff";
+                                return (
+                                  <tr key={i+"-"+j} style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#0d1525"}`}}>
+                                    <td style={{padding:"5px 8px 5px 22px"}}>{_lm?<span style={{background:pc,color:ptxt,borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{t.plat}</span>:<span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{t.plat}</span>}</td>
+                                    <td style={{padding:"5px 8px",textAlign:"right",color:_lm?"#94a3b8":"#4d6e8a"}}>{t.count}</td>
+                                    <td style={{padding:"5px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc"}}>${Math.round(t.revenue).toLocaleString()}</td>
+                                    <td style={{padding:"5px 8px",textAlign:"right",color:"#f59e0b"}}>${Math.round(t.spend).toLocaleString()}</td>
+                                    {showDevFee&&<td style={{padding:"5px 8px",textAlign:"right",color:"#e879a6"}}>{t.deviceFee>0?"$"+Math.round(t.deviceFee).toLocaleString():"—"}</td>}
+                                    <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:t.profit>=0?"#00d48a":"#ef4444"}}>{(t.profit>=0?"+":"-")+"$"+Math.round(Math.abs(t.profit)).toLocaleString()}</td>
+                                    <td style={{padding:"5px 8px",textAlign:"right",color:t.margin>=30?"#00d48a":t.margin>=15?"#f59e0b":"#ef4444"}}>{t.margin.toFixed(1)}%</td>
+                                    <td style={{padding:"5px 8px",textAlign:"right",color:_lm?"#cbd5e1":"#3d5a72"}}>—</td>
+                                  </tr>
+                                );
+                              })}
+                            </React.Fragment>
                           );
                         })}
                       </tbody>
@@ -18214,6 +18629,334 @@ function IODraftReviewModal({ drafts, meta, lightMode, existingPartners, onAppro
   );
 }
 
+// ─── Home / "My Day" overview ────────────────────────────────────────────────
+// The landing screen: one glance that pulls together signals otherwise scattered across Pacing,
+// Revenue, Reminders and the email inbox — plus a slot the AI morning-brief agent writes into.
+// Built so the coming ORG ROLLOUT can add a "Team" view for leadership right here (behind the
+// My Day / Team toggle), reading these same per-campaign signals across every manager's roll-up.
+const MORNING_BRIEF_KEY = "zeus-morning-brief"; // { text, ts, source } — the brief agent writes here; we render it if fresh
+function loadMorningBrief(){ try { return JSON.parse(localStorage.getItem(MORNING_BRIEF_KEY) || "null"); } catch { return null; } }
+
+function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCheckins, lightMode, outlookEvents=[], outlookStatus={}, onConnectOutlook, onRefreshOutlook, onNavigate, onEdit, onStartCheckIn, onAddCampaign, onOpenReminders }) {
+  const _lm = lightMode;
+  const card = { background:_lm?"#ffffff":"#0c1625", border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`, borderRadius:14 };
+  const labelStyle = { fontSize:10, color:_lm?"#64748b":"#4d6e8a", textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 };
+  const $k = v => { const n=Math.round(v), a=Math.abs(n), s=n<0?"-":""; if(a>=1000) return s+"$"+(a/1000).toFixed(a>=10000?0:1)+"k"; return s+"$"+a; };
+
+  const now = new Date();
+  // Time-of-day + "today" resolve in the TRACKER zone (Eastern by default) so meeting times and the
+  // agenda read correctly regardless of how this particular computer's clock is set.
+  const todayISO = tzTodayISO();
+  const hour = tzHour();
+  const greeting = hour<12 ? "Good morning" : hour<18 ? "Good afternoon" : "Good evening";
+  const dateLabel = new Date(todayISO+"T12:00:00Z").toLocaleDateString("en-US",{ weekday:"long", month:"long", day:"numeric", timeZone:"UTC" });
+  // Live clock in the tracker zone (ticks every 30s). Zone shown so it's obvious which time you're on.
+  const [, _clockTick] = useState(0);
+  useEffect(()=>{ const id=setInterval(()=>_clockTick(t=>t+1), 30000); return ()=>clearInterval(id); }, []);
+  const clockTime = now.toLocaleTimeString("en-US", { hour:"numeric", minute:"2-digit", timeZone: trackerTZ() });
+  const tzShort = (()=>{ try { const p = new Intl.DateTimeFormat("en-US", { timeZoneName:"short", timeZone: trackerTZName() }).formatToParts(now).find(x=>x.type==="timeZoneName"); return p ? p.value : ""; } catch { return ""; } })();
+
+  // Freshness — mirrors the Pacing tab's dataUpdatedWithin (ISO strings compared lexicographically).
+  const cutoffFor = (days)=> addDaysISO(todayISO, -(Math.max(1,days)-1));
+  const updatedWithin = (c,days)=>{ const cut=cutoffFor(days); const iso=x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x)?x:null; const m=iso(c.lastMetricUpdate),q=iso(c.lastQciDate); return (!!m&&m>=cut)||(!!q&&q>=cut); };
+  const lastDataDate = (c)=>[c.lastMetricUpdate,c.lastQciDate].filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(x)).sort().pop()||c.lastChecked||"";
+  const daysFromToday = (iso)=> iso ? Math.round((new Date(iso.slice(0,10)+"T00:00:00") - new Date(todayISO+"T00:00:00"))/86400000) : null;
+
+  const isRunning = (c)=>{
+    if((c.status||"active")!=="active") return false;
+    if(c.startDate && c.startDate.slice(0,10) > todayISO) return false; // not started yet
+    if(c.endDate   && c.endDate.slice(0,10)   < todayISO) return false; // already ended
+    return true;
+  };
+  const running = campaigns.filter(isRunning);
+
+  // Pacing health + the "needs attention" queue, from the same computeMonthlyPacing the Pacing tab uses.
+  const health = { ontrack:0, behind:0, risk:0, ahead:0, nodata:0 };
+  const attention = []; // { c, reason, sev(1-3), tab, check? }
+  const seenAttn = new Set(); // one row per campaign — highest-severity reason wins
+  const pushAttn = (item)=>{ if(seenAttn.has(item.c.id)) { return; } seenAttn.add(item.c.id); attention.push(item); };
+  // Collect ALL reasons first, then keep the worst per campaign.
+  const raw = [];
+  running.forEach(c=>{
+    const p = computeMonthlyPacing(c, {}, c.note1);
+    if(!p) health.nodata++;
+    else if(p.label==="Behind"){
+      if(p.ratio!=null && p.ratio<0.7){ health.risk++; raw.push({c, reason:`Behind pace — at ${Math.round((p.ratio||0)*100)}% of where it should be`, sev:3, tab:"pacing"}); }
+      else health.behind++;
+    }
+    else if(p.label==="Ahead" || p.pctRaw>1.05){ health.ahead++; if(p.pctRaw>1.15) raw.push({c, reason:`Over-delivering at ${Math.round(p.pctRaw*100)}% of goal — eating margin`, sev:2, tab:"revenue"}); }
+    else health.ontrack++;
+
+    const dLeft = daysFromToday(c.endDate);
+    if(dLeft!=null && dLeft>=0 && dLeft<=5) raw.push({c, reason: dLeft===0?"Ends today":`Ends in ${dLeft} day${dLeft>1?"s":""}`, sev:1, tab:"pacing"});
+
+    if((parseFloat(c.contractRate)||0)<=0 && c.platform!=="SEM") raw.push({c, reason:"No rate set — revenue can't be booked", sev:2, tab:"revenue"});
+
+    if(!updatedWithin(c,3)){ const ld=lastDataDate(c); const since=ld?Math.abs(daysFromToday(ld)):null; raw.push({c, reason: ld?`No check-in in ${since} day${since!==1?"s":""}`:"No delivery data yet", sev: (ld&&since>=5)?2:1, tab:"pacing", check:true}); }
+  });
+  raw.sort((a,b)=>b.sev-a.sev);
+  raw.forEach(pushAttn);
+  const topAttention = attention.slice(0, 8);
+  const staleCount = running.filter(c=>!updatedWithin(c,3)).length;
+
+  // Projected revenue this month (full-month goal×rate) — a stable planning number. The exact
+  // realized/capped P&L lives on the Revenue tab; this is clearly labelled "projected" so the two
+  // don't get confused.
+  let projRev = 0; running.forEach(c=>{ const r=calcMonthlyRevenue(c); if(r>0) projRev+=r; });
+
+  const remOverdue = reminders.filter(r=>!r.dismissed && r.date && r.date < todayISO).length;
+  const remToday   = reminders.filter(r=>!r.dismissed && r.date === todayISO).length;
+  const draftCount = (pdfDrafts||[]).length;
+  const checkinCount = (pendingCheckins||[]).length;
+
+  // ── "Your schedule" agenda: merge Outlook events + tracker reminders + campaign flight milestones
+  // for the next 7 days, grouped by day. Outlook events only appear once connected; everything else
+  // comes from the tracker itself, so the panel is useful even before Microsoft is linked.
+  const AGENDA_DAYS = 7;
+  const horizonISO = addDaysISO(todayISO, AGENDA_DAYS-1);
+  const inHorizon = (iso)=> iso && iso.slice(0,10) >= todayISO && iso.slice(0,10) <= horizonISO;
+  const agendaItems = [];
+  // Outlook events — Graph already localized their times to the tracker zone, so we read the naive
+  // wall-clock straight from the string (no instant conversion, no double-shift).
+  (outlookEvents||[]).forEach(ev=>{
+    if(!ev.start) return;
+    const iso = String(ev.start).slice(0,10);
+    if(iso < todayISO || iso > horizonISO) return;
+    const tm = String(ev.start).match(/T(\d{2}):(\d{2})/);
+    const sortTime = ev.allDay ? -1 : (tm ? parseInt(tm[1],10)*60+parseInt(tm[2],10) : 0);
+    agendaItems.push({ kind:"outlook", dateISO:iso, sortTime,
+      time: ev.allDay?"All day":fmtClockFromNaive(ev.start),
+      title: ev.subject, sub: ev.online?"🔗 Online":(ev.location||""), webLink: ev.webLink });
+  });
+  // Reminders due within the horizon (plus anything overdue, surfaced under Today)
+  (reminders||[]).forEach(r=>{
+    if(r.dismissed || !r.date) return;
+    const overdue = r.date < todayISO;
+    if(!overdue && !inHorizon(r.date)) return;
+    const rt = (typeof REMINDER_TYPES!=="undefined") ? (REMINDER_TYPES.find(t=>t.value===r.type)||null) : null;
+    agendaItems.push({ kind:"reminder", dateISO: overdue?todayISO:r.date.slice(0,10), sortTime:-2,
+      title: r.note || (rt?rt.label:"Reminder"), sub: overdue?`⚠ was due ${r.date.slice(5)}`:(rt?rt.label:""),
+      ics:{ date:r.date.slice(0,10), title:(r.note||(rt?rt.label:"Reminder")) } });
+  });
+  // Flight milestones (starts / ends) within the horizon
+  campaigns.forEach(c=>{
+    if((c.status||"active")==="archived") return;
+    const s=c.startDate&&c.startDate.slice(0,10), e=c.endDate&&c.endDate.slice(0,10);
+    const nm=(c.campaignName||"").trim();
+    if(inHorizon(s)) agendaItems.push({ kind:"start", dateISO:s, sortTime:-3, title:nm, sub:"Campaign starts", campaign:c, plt:c.platform, ics:{date:s,title:`${nm} — starts`} });
+    if(inHorizon(e)) agendaItems.push({ kind:"end", dateISO:e, sortTime:-3, title:nm, sub:"Campaign ends", campaign:c, plt:c.platform, ics:{date:e,title:`${nm} — ends`} });
+  });
+  // Group by day, sorted (day math is zone-safe ISO arithmetic).
+  const dayOrder = {};
+  for(let i=0;i<AGENDA_DAYS;i++){ dayOrder[addDaysISO(todayISO, i)] = i; }
+  const agendaByDay = {};
+  agendaItems.forEach(it=>{ (agendaByDay[it.dateISO] = agendaByDay[it.dateISO]||[]).push(it); });
+  const agendaDays = Object.keys(agendaByDay).sort().map(iso=>{
+    const items = agendaByDay[iso].sort((a,b)=>a.sortTime-b.sortTime);
+    const idx = dayOrder[iso];
+    const label = idx===0?"Today":idx===1?"Tomorrow":isoWeekday(iso);
+    return { iso, label, sub:isoShort(iso), items };
+  });
+  const outlookConnected = !!(outlookStatus && outlookStatus.connected);
+
+  // Morning brief: the agent's version if it's recent, otherwise a data-driven fallback so the panel
+  // is useful today. The agent just writes { text, ts, source } to localStorage to take over.
+  const brief = loadMorningBrief();
+  const briefFresh = brief && brief.text && brief.ts && (Date.now()-brief.ts) < 36*3600*1000;
+  const fallbackBrief = (()=>{
+    if(running.length===0) return "No campaigns are running right now. Add a campaign or activate one to start tracking pacing and revenue.";
+    const bits = [];
+    bits.push(`You have ${running.length} campaign${running.length!==1?"s":""} running.`);
+    const flagged = health.risk;
+    if(flagged>0) bits.push(`${flagged} ${flagged!==1?"are":"is"} behind pace and need a push.`);
+    if(health.ahead>0) bits.push(`${health.ahead} ${health.ahead!==1?"are":"is"} pacing ahead — watch for over-delivery.`);
+    if(staleCount>0) bits.push(`${staleCount} haven't reported in a few days — a check-in would sharpen the numbers.`);
+    if(flagged===0 && staleCount===0) bits.push("Everything with data is on pace — nothing on fire.");
+    bits.push(`Projected revenue this month is about ${$k(projRev)}.`);
+    if(remOverdue>0) bits.push(`${remOverdue} reminder${remOverdue!==1?"s are":" is"} overdue.`);
+    return bits.join(" ");
+  })();
+
+  const tile = (o)=>(
+    <div key={o.label} onClick={o.onClick} style={{...card, padding:"13px 15px", cursor:o.onClick?"pointer":"default", flex:"1 1 150px", minWidth:140}}>
+      <div style={{...labelStyle, marginBottom:5}}>{o.label}</div>
+      <div style={{fontSize:26, fontWeight:800, color:o.color, lineHeight:1}}>{o.val}</div>
+      <div style={{fontSize:10.5, color:_lm?"#94a3b8":"#3d5a72", marginTop:4}}>{o.sub}</div>
+    </div>
+  );
+
+  return (
+    <div>
+      {/* Header row + (future) My Day / Team toggle */}
+      <div style={{display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12, flexWrap:"wrap", marginBottom:16}}>
+        <div>
+          <div style={{fontSize:22, fontWeight:800, color:_lm?"#0f172a":"#edf4ff", lineHeight:1.1}}>{greeting} 👋</div>
+          <div style={{fontSize:12.5, color:_lm?"#64748b":"#4d6e8a", marginTop:3}}>{dateLabel}</div>
+        </div>
+        <div style={{display:"flex", flexDirection:"column", alignItems:"flex-end", gap:8}}>
+          <div style={{textAlign:"right", lineHeight:1}}>
+            <span style={{fontSize:21, fontWeight:800, color:_lm?"#0f172a":"#edf4ff", fontVariantNumeric:"tabular-nums"}}>{clockTime}</span>
+            {tzShort && <span style={{fontSize:11, fontWeight:700, color:_lm?"#94a3b8":"#4d6e8a", marginLeft:6}}>{tzShort}</span>}
+          </div>
+          <div style={{display:"inline-flex", borderRadius:8, overflow:"hidden", border:`1px solid ${_lm?"#e2e8f0":"#26364f"}`}}>
+            <span style={{background:_lm?"#eef2ff":"#0a2036", color:_lm?"#1d4ed8":"#00d9ff", padding:"6px 14px", fontSize:12, fontWeight:700}}>My Day</span>
+            <span title="Leadership roll-up across the team — coming with the org rollout" style={{padding:"6px 14px", fontSize:12, fontWeight:600, color:_lm?"#94a3b8":"#3d5a72", cursor:"default"}}>Team <span style={{fontSize:9, opacity:.8}}>soon</span></span>
+          </div>
+        </div>
+      </div>
+
+      {/* Inbox / drafts nudge */}
+      {(draftCount>0 || checkinCount>0) && (
+        <div style={{...card, padding:"11px 16px", marginBottom:14, display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", borderColor:_lm?"#fcd34d":"#f59e0b55", background:_lm?"#fffbeb":"#1a1200"}}>
+          <span style={{fontSize:16}}>📥</span>
+          <span style={{fontSize:12.5, fontWeight:700, color:_lm?"#b45309":"#fcd34d", flex:1}}>
+            {draftCount>0 && `${draftCount} IO draft${draftCount!==1?"s":""}`}{draftCount>0&&checkinCount>0?" · ":""}{checkinCount>0 && `${checkinCount} email check-in${checkinCount!==1?"s":""}`} waiting for review
+          </span>
+          {draftCount>0 && <button onClick={()=>onNavigate("campaigns")} style={{background:_lm?"#f59e0b":"#f59e0b22", border:`1px solid #f59e0b`, borderRadius:7, padding:"5px 12px", color:_lm?"#fff":"#fcd34d", fontSize:11, fontWeight:700, cursor:"pointer"}}>Review IOs →</button>}
+          {checkinCount>0 && <button onClick={onStartCheckIn} style={{background:"transparent", border:`1px solid #f59e0b`, borderRadius:7, padding:"5px 12px", color:_lm?"#b45309":"#fcd34d", fontSize:11, fontWeight:700, cursor:"pointer"}}>Review check-ins →</button>}
+        </div>
+      )}
+
+      {/* Morning brief */}
+      <div style={{...card, padding:"16px 20px", marginBottom:14, background:_lm?"linear-gradient(135deg,#f8fafc,#eef4ff)":"linear-gradient(135deg,#0c1625,#0a1f30)"}}>
+        <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
+          <span style={{fontSize:13}}>☀️</span>
+          <span style={{...labelStyle, color:_lm?"#475569":"#7a9bbf"}}>Morning brief</span>
+          <span style={{fontSize:9, fontWeight:700, padding:"1px 7px", borderRadius:9, background:_lm?"#e0e7ff":"#00d9ff18", color:_lm?"#4338ca":"#00d9ff"}}>{briefFresh?(brief.source||"AI"):"auto"}</span>
+        </div>
+        <div style={{fontSize:14.5, lineHeight:1.6, color:_lm?"#1e293b":"#d8eaf8"}}>{briefFresh ? brief.text : fallbackBrief}</div>
+        {!briefFresh && <div style={{fontSize:10, color:_lm?"#94a3b8":"#3d5a72", marginTop:8}}>Auto-generated from today's numbers — your morning-brief agent will replace this once it's connected.</div>}
+      </div>
+
+      {/* Health tiles */}
+      <div style={{display:"flex", gap:10, flexWrap:"wrap", marginBottom:14}}>
+        {tile({label:"Running", val:running.length, color:_lm?"#0f172a":"#edf4ff", sub:"active campaigns", onClick:()=>onNavigate("pacing")})}
+        {tile({label:"On pace", val:health.ontrack+health.ahead, color:"#00d48a", sub:`${health.ahead} ahead`, onClick:()=>onNavigate("pacing")})}
+        {tile({label:"Behind / at-risk", val:health.behind+health.risk, color:(health.risk>0?"#ef4444":health.behind>0?"#fde047":"#4d6e8a"), sub:`${health.risk} need a push`, onClick:()=>onNavigate("pacing")})}
+        {tile({label:"Needs check-in", val:staleCount, color:(staleCount>0?"#f59e0b":"#4d6e8a"), sub:"no data in 3+ days", onClick:onStartCheckIn})}
+        {tile({label:"Projected revenue", val:$k(projRev), color:_lm?"#0ea5e9":"#7dd3fc", sub:"this month · goal × rate", onClick:()=>onNavigate("revenue")})}
+      </div>
+
+      {/* Two-column body */}
+      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))", gap:14, alignItems:"start"}}>
+        {/* Needs attention */}
+        <div style={{...card, padding:"14px 16px"}}>
+          <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:10}}>
+            <span style={{...labelStyle, flex:1}}>🎯 Needs your attention today</span>
+            <span style={{fontSize:11, fontWeight:700, color:_lm?"#64748b":"#4d6e8a"}}>{attention.length}</span>
+          </div>
+          {topAttention.length===0 ? (
+            <div style={{fontSize:12.5, color:_lm?"#94a3b8":"#4d6e8a", padding:"14px 4px"}}>Nothing needs a look right now. Everything running is on pace and reporting. ✅</div>
+          ) : topAttention.map((it,i)=>{
+            const pc = PLT_COLORS[it.c.platform]||PLT_COLORS.default;
+            const sevColor = it.sev>=3?"#ef4444":it.sev===2?"#f59e0b":(_lm?"#64748b":"#7a9bbf");
+            return (
+              <div key={it.c.id} onClick={()=> it.check ? onStartCheckIn() : onEdit(it.c)}
+                title={it.check?"Open Quick Check-in":"Open this campaign"}
+                style={{display:"flex", alignItems:"center", gap:10, padding:"9px 8px", borderTop:i>0?`1px solid ${_lm?"#f1f5f9":"#111e33"}`:"none", cursor:"pointer"}}>
+                <span style={{width:6, height:6, borderRadius:6, background:sevColor, flexShrink:0}}/>
+                <span style={{background:pc+"22", color:pc, borderRadius:3, padding:"1px 6px", fontSize:9.5, fontWeight:800, flexShrink:0}}>{it.c.platform}</span>
+                <div style={{minWidth:0, flex:1}}>
+                  <div style={{fontSize:12.5, fontWeight:700, color:_lm?"#0f172a":"#edf4ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{(it.c.campaignName||"").trim()}</div>
+                  <div style={{fontSize:11, color:sevColor, marginTop:1}}>{it.reason}</div>
+                </div>
+                <span style={{fontSize:11, color:_lm?"#94a3b8":"#4d6e8a", flexShrink:0}}>→</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Right rail */}
+        <div style={{display:"flex", flexDirection:"column", gap:14}}>
+          {/* Quick actions */}
+          <div style={{...card, padding:"14px 16px"}}>
+            <div style={{...labelStyle, marginBottom:10}}>⚡ Quick actions</div>
+            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
+              {[
+                {t:"⚡ Quick Check-in", on:onStartCheckIn, primary:true},
+                {t:"+ Add Campaign", on:onAddCampaign},
+                {t:"💰 Revenue", on:()=>onNavigate("revenue")},
+                {t:"📄 New Report", on:()=>onNavigate("reports")},
+              ].map(b=>(
+                <button key={b.t} onClick={b.on} style={{background:b.primary?(_lm?"#059669":"#00200f"):(_lm?"#f1f5f9":"#132133"), border:b.primary?(_lm?"none":"1px solid #22c55e40"):`1px solid ${_lm?"#e2e8f0":"#26364f"}`, borderRadius:8, padding:"10px 8px", color:b.primary?(_lm?"#fff":"#00d48a"):(_lm?"#334155":"#9fb4cf"), fontSize:12, fontWeight:700, cursor:"pointer"}}>{b.t}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Your schedule — Outlook events + reminders + flight milestones, next 7 days */}
+          <div style={{...card, padding:"14px 16px"}}>
+            <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:10, flexWrap:"wrap"}}>
+              <span style={{...labelStyle, flex:1}}>📅 Your schedule</span>
+              {outlookConnected ? (
+                <button onClick={onRefreshOutlook} title={outlookStatus.lastSync?`Outlook synced ${new Date(outlookStatus.lastSync).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}`:"Refresh Outlook"} style={{background:"none", border:"none", color:_lm?"#0ea5e9":"#7dd3fc", fontSize:11, fontWeight:700, cursor:"pointer"}}>{outlookStatus.loading?"Syncing…":"↻ Sync"}</button>
+              ) : (
+                <button onClick={()=> onConnectOutlook ? onConnectOutlook() : onNavigate("config")} style={{background:_lm?"#eff6ff":"#0a2036", border:`1px solid ${_lm?"#bfdbfe":"#0e7490"}`, borderRadius:7, padding:"4px 10px", color:_lm?"#1d4ed8":"#7dd3fc", fontSize:10.5, fontWeight:700, cursor:"pointer"}}>Connect Outlook</button>
+              )}
+              <button onClick={onOpenReminders} title="Reminders" style={{background:"none", border:"none", color:_lm?"#0ea5e9":"#7dd3fc", fontSize:11, fontWeight:700, cursor:"pointer"}}>🔔</button>
+            </div>
+            {outlookStatus && outlookStatus.error && (
+              <div style={{fontSize:10.5, color:_lm?"#b45309":"#fcd34d", marginBottom:8}}>Outlook: {outlookStatus.error}</div>
+            )}
+            {agendaDays.length===0 ? (
+              <div style={{fontSize:12, color:_lm?"#94a3b8":"#4d6e8a"}}>
+                Nothing scheduled in the next 7 days.{!outlookConnected && " Connect Outlook to see your meetings here too."}
+              </div>
+            ) : agendaDays.map(day=>(
+              <div key={day.iso} style={{marginBottom:10}}>
+                <div style={{display:"flex", alignItems:"baseline", gap:6, marginBottom:4}}>
+                  <span style={{fontSize:11.5, fontWeight:800, color:day.label==="Today"?(_lm?"#059669":"#00d48a"):(_lm?"#334155":"#9fb4cf")}}>{day.label}</span>
+                  <span style={{fontSize:10, color:_lm?"#94a3b8":"#4d6e8a"}}>{day.sub}</span>
+                </div>
+                {day.items.map((it,i)=>{
+                  const icon = it.kind==="outlook"?"📎":it.kind==="reminder"?"🔔":it.kind==="start"?"▶":"⏹";
+                  const accent = it.kind==="outlook"?(_lm?"#7c3aed":"#a78bfa"):it.kind==="reminder"?(_lm?"#b45309":"#fcd34d"):it.kind==="end"?"#ef4444":"#00d48a";
+                  return (
+                    <div key={i} onClick={it.campaign?()=>onEdit(it.campaign):(it.kind==="outlook"&&it.webLink?()=>window.open(it.webLink,"_blank","noopener"):undefined)}
+                      style={{display:"flex", alignItems:"center", gap:8, padding:"4px 0", cursor:(it.campaign||(it.kind==="outlook"&&it.webLink))?"pointer":"default"}}>
+                      <span style={{fontSize:11, width:14, textAlign:"center", flexShrink:0}}>{icon}</span>
+                      {it.time && <span style={{fontSize:10.5, color:_lm?"#64748b":"#7a9bbf", width:58, flexShrink:0, fontWeight:600}}>{it.time}</span>}
+                      <div style={{minWidth:0, flex:1}}>
+                        <div style={{fontSize:12, fontWeight:600, color:_lm?"#0f172a":"#edf4ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                          {it.plt && <span style={{fontSize:9, fontWeight:800, color:accent, marginRight:5}}>{it.plt}</span>}{it.title}
+                        </div>
+                        {it.sub && <div style={{fontSize:10, color:accent, marginTop:0}}>{it.sub}</div>}
+                      </div>
+                      {it.ics && <button onClick={(e)=>{ e.stopPropagation(); downloadICS(it.ics.title, it.ics.date); }} title="Add to Outlook (.ics)" style={{background:"none", border:`1px solid ${_lm?"#e2e8f0":"#26364f"}`, borderRadius:6, padding:"1px 6px", color:_lm?"#94a3b8":"#4d6e8a", fontSize:9.5, fontWeight:700, cursor:"pointer", flexShrink:0}}>+📅</button>}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+            {(remOverdue>0) && <div style={{fontSize:10.5, color:"#ef4444", marginTop:4, fontWeight:700}}>⚠ {remOverdue} reminder{remOverdue!==1?"s":""} overdue</div>}
+          </div>
+
+          {/* Recent activity */}
+          <div style={{...card, padding:"14px 16px"}}>
+            <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
+              <span style={{...labelStyle, flex:1}}>📜 Recent activity</span>
+              <button onClick={()=>onNavigate("activity")} style={{background:"none", border:"none", color:_lm?"#0ea5e9":"#7dd3fc", fontSize:11, fontWeight:700, cursor:"pointer"}}>All →</button>
+            </div>
+            {(!activityLog || activityLog.length===0) ? (
+              <div style={{fontSize:12, color:_lm?"#94a3b8":"#4d6e8a"}}>No activity yet.</div>
+            ) : activityLog.slice(0,6).map((e,i)=>{
+              const ago = (()=>{ const s=Math.max(0,(Date.now()-(e.ts||0))/1000); if(s<3600) return Math.round(s/60)+"m"; if(s<86400) return Math.round(s/3600)+"h"; return Math.round(s/86400)+"d"; })();
+              return (
+                <div key={e.id||i} style={{display:"flex", alignItems:"center", gap:8, padding:"5px 0", borderTop:i>0?`1px solid ${_lm?"#f1f5f9":"#111e33"}`:"none"}}>
+                  <div style={{minWidth:0, flex:1}}>
+                    <span style={{fontSize:11.5, fontWeight:600, color:_lm?"#334155":"#9fb4cf"}}>{(e.campaignName||"").trim()||"—"}</span>
+                    <span style={{fontSize:11, color:_lm?"#94a3b8":"#4d6e8a"}}> · {e.type||e.detail||"updated"}</span>
+                  </div>
+                  <span style={{fontSize:10, color:_lm?"#cbd5e1":"#3d5a72", flexShrink:0}}>{ago}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const today = getToday();
   const COLS = 12;
@@ -18253,6 +18996,126 @@ export default function App() {
   const [jsonDropOpen, setJsonDropOpen] = useState(false); // drag-and-drop box for JSON backup import (mirrors the IO drop)
   const [jsonFile, setJsonFile] = useState(null);          // staged JSON file awaiting the glowing "Import" click
   const [pdfProcessing, setPdfProcessing] = useState(false);
+  // ── Email inbox ingest state (see project_email_ingest) ──
+  const [inboxCfg, setInboxCfg] = useState(loadInboxCfg);            // { url, enabled }
+  const [inboxStatus, setInboxStatus] = useState({ checking:false, lastChecked:null, error:null, newIO:0 });
+  const [pendingCheckins, setPendingCheckins] = useState([]);        // staged check-in manifest items awaiting review
+  const [pendingCheckinFile, setPendingCheckinFile] = useState(null);// a fetched check-in File auto-loaded into the QCI panel
+  const inboxSeenRef = useRef(loadInboxSeen());
+  const saveInboxCfgAnd = (patch) => { setInboxCfg(prev => { const next = {...prev, ...patch}; saveInboxCfg(next); return next; }); };
+
+  // ── Tracker time zone (default Eastern; governs homepage/calendar clock display) ──
+  const [timeZone, setTimeZone] = useState(getTimeZonePref);
+  const changeTimeZone = (v) => { setTimeZonePref(v); setTimeZone(v); };
+
+  // ── Outlook Calendar (per-user Microsoft sign-in) ──
+  const [outlookCfg, setOutlookCfg] = useState(loadOutlookCfg);       // { clientId, tenantId, enabled }
+  const [outlookEvents, setOutlookEvents] = useState([]);             // upcoming calendar events for the homepage agenda
+  const [outlookStatus, setOutlookStatus] = useState({ connected:false, loading:false, error:null, lastSync:null, account:null });
+  const saveOutlookCfgAnd = (patch) => { setOutlookCfg(prev => { const next = {...prev, ...patch}; saveOutlookCfg(next); return next; }); };
+  // Reflect any already-signed-in account on load (MSAL caches it in localStorage).
+  useEffect(() => {
+    const acct = outlookAccount(loadOutlookCfg());
+    if (acct) setOutlookStatus(s => ({ ...s, connected:true, account: acct.username || acct.name || null }));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const refreshOutlookEvents = async () => {
+    const cfg = loadOutlookCfg();
+    if (!cfg.clientId || !outlookAccount(cfg)) return;
+    setOutlookStatus(s => ({ ...s, loading:true, error:null }));
+    try {
+      const evs = await outlookFetchEvents(cfg, 7);
+      setOutlookEvents(evs);
+      setOutlookStatus(s => ({ ...s, connected:true, loading:false, lastSync:new Date().toISOString(), error:null }));
+    } catch (e) {
+      setOutlookStatus(s => ({ ...s, loading:false, error:String(e.message||e) }));
+    }
+  };
+  const connectOutlook = async () => {
+    const cfg = loadOutlookCfg();
+    setOutlookStatus(s => ({ ...s, loading:true, error:null }));
+    try {
+      const acct = await outlookSignIn(cfg);
+      setOutlookStatus(s => ({ ...s, connected:true, account: (acct && (acct.username||acct.name)) || null, error:null }));
+      saveOutlookCfgAnd({ enabled:true });
+      await refreshOutlookEvents();
+    } catch (e) {
+      setOutlookStatus(s => ({ ...s, loading:false, error:String(e.message||e) }));
+    }
+  };
+  const disconnectOutlook = async () => {
+    try { await outlookSignOut(loadOutlookCfg()); } catch(e){}
+    setOutlookEvents([]);
+    setOutlookStatus({ connected:false, loading:false, error:null, lastSync:null, account:null });
+    saveOutlookCfgAnd({ enabled:false });
+  };
+  // Auto-refresh events shortly after load when already connected.
+  useEffect(() => {
+    if (!outlookCfg.enabled || !outlookCfg.clientId) return;
+    const t = setTimeout(() => { refreshOutlookEvents(); }, 1800);
+    return () => clearTimeout(t);
+  }, [outlookCfg.enabled, outlookCfg.clientId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Re-pull events when the tracker time zone changes (Graph localizes times to the requested zone).
+  useEffect(() => {
+    if (outlookStatus.connected) refreshOutlookEvents();
+  }, [timeZone]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Fetch the inbox manifest and route each NEW item through the tracker's existing parsers. IOs go
+  // straight to the (review-gated) draft queue; check-ins are STAGED for the Quick Check-in panel — never
+  // auto-applied. Idempotent via the seen-set. `manual` just controls whether we surface "nothing new".
+  const checkInbox = async (manual = false) => {
+    const cfg = loadInboxCfg();
+    if (!cfg.url) { if (manual) setInboxStatus(s=>({...s, error:"Set the inbox manifest URL first." })); return; }
+    setInboxStatus(s => ({ ...s, checking:true, error:null }));
+    try {
+      const bust = (cfg.url.includes("?") ? "&" : "?") + "cb=" + Date.now();
+      const res = await fetch(cfg.url + bust, { cache:"no-store" });
+      if (!res.ok) throw new Error(`inbox fetch ${res.status}`);
+      const manifest = await res.json();
+      const items = Array.isArray(manifest) ? manifest : (Array.isArray(manifest?.items) ? manifest.items : []);
+      const seen = inboxSeenRef.current;
+      const fresh = items.filter(m => m && m.id && !seen.has(m.id));
+      let ioCount = 0; const newCheckins = [];
+      for (const item of fresh) {
+        const fileUrl = resolveInboxUrl(cfg.url, item.url || item.filename);
+        if (item.kind === "io") {
+          try {
+            const fr = await fetch(fileUrl, { cache:"no-store" });
+            if (!fr.ok) throw new Error(`file ${fr.status}`);
+            const blob = await fr.blob();
+            await handleIOPdfDrop(new File([blob], item.filename || `io-${item.id}.pdf`, { type:"application/pdf" }), { silent:true });
+            seen.add(item.id); ioCount++;
+          } catch (e) { console.warn("inbox IO fetch failed:", item.id, e); }
+        } else if (item.kind === "checkin") {
+          newCheckins.push({ ...item, fileUrl });
+          seen.add(item.id); // staged — recorded so we don't re-stage; removed from pending only after review
+        }
+      }
+      saveInboxSeen(seen);
+      if (newCheckins.length) setPendingCheckins(prev => [...prev, ...newCheckins]);
+      setInboxStatus({ checking:false, lastChecked:new Date().toISOString(), error:null, newIO:ioCount });
+    } catch (e) {
+      setInboxStatus(s => ({ ...s, checking:false, error: String(e.message||e) }));
+    }
+  };
+  // Auto-check once shortly after load when enabled (non-blocking, background).
+  useEffect(() => {
+    if (!inboxCfg.enabled || !inboxCfg.url) return;
+    const t = setTimeout(() => { checkInbox(false); }, 1500);
+    return () => clearTimeout(t);
+  }, [inboxCfg.enabled, inboxCfg.url]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Open the Quick Check-in panel with the first staged check-in auto-loaded (fetched from its URL).
+  const openNextPendingCheckin = async () => {
+    const item = pendingCheckins[0];
+    if (!item) return;
+    try {
+      const fr = await fetch(item.fileUrl, { cache:"no-store" });
+      const blob = await fr.blob();
+      setPendingCheckinFile(new File([blob], item.filename || "checkin.xlsx"));
+      setActiveTab("pacing");   // the QCI panel lives on the Pacing tab — go there so it mounts + auto-loads
+      setQuickCheckIn(true);
+    } catch (e) { setInboxStatus(s=>({...s, error:`Couldn't load ${item.filename}: ${e.message||e}`})); }
+  };
+  // Called by the QCI panel once it has consumed the auto-loaded file — drop it from the pending list.
+  const consumePendingCheckin = () => { setPendingCheckinFile(null); setPendingCheckins(prev => prev.slice(1)); };
   useEffect(() => {
     try {
       if (pdfDrafts && pdfDrafts.length) localStorage.setItem("zeus-pdf-drafts", JSON.stringify(pdfDrafts));
@@ -18266,7 +19129,10 @@ export default function App() {
     } catch {}
   }, [pdfMeta]);
 
-  async function handleIOPdfDrop(file) {
+  async function handleIOPdfDrop(file, opts = {}) {
+    // opts.silent: don't force-open the draft modal (used by the email inbox, which ingests in the
+    // background — the "N drafts pending" badge surfaces them instead of a modal popping on load).
+    const silent = !!opts.silent;
     if (!file) return;
     if (!/\.pdf$/i.test(file.name)) {
       setPdfError("That doesn't look like a PDF. Only .pdf files are supported.");
@@ -18299,7 +19165,7 @@ export default function App() {
         setPdfDraftIdx(base.length); // jump the viewer to the FIRST of the newly-added drafts
         return merged;
       });
-      setPdfQueueOpen(true); // open the queue modal immediately
+      if (!silent) setPdfQueueOpen(true); // open the queue modal immediately (skip for background inbox)
     } catch (e) {
       console.error("PDF parse failed:", e);
       setPdfError(`Couldn't parse PDF: ${e.message || e}`);
@@ -18616,7 +19482,7 @@ export default function App() {
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [bulkDraft, setBulkDraft] = useState({ goal:"", note1:"", note2:"", status:"", lastChecked:"", startDate:"", endDate:"", projectionUrl:"", clientWebsite:"", folderPath:"", geoTarget:"", lastCreativeUpdate:"", contractValue:"", monthlyFlight:"", platform:"", history:"" });
   const [dateRange, setDateRange] = useState(()=>{ const p=getPresets(); return {preset:"mtd",...p.mtd}; });
-  const [activeTab, setActiveTab] = useState("campaigns");
+  const [activeTab, setActiveTab] = useState("home");
   const [configSubTab, setConfigSubTab] = useState("general"); // Config tab: "general" | "connections"
   const [lightMode, setLightMode] = useState(()=>localStorage.getItem("zeus-light-mode")==="true");
   _lm = lightMode; // sync global flag so StatusBadge/PlatformTag/RowActions can read it
@@ -19649,6 +20515,16 @@ export default function App() {
                 <span style={{fontSize:10,opacity:.8}}>· resume →</span>
               </button>
             )}
+            {/* Email check-ins waiting — pulled from the inbox, need the review panel. One click opens
+                the next one in Quick Check-in (Pacing tab). IOs from email feed the drafts chip above. */}
+            {pendingCheckins.length > 0 && (
+              <button onClick={openNextPendingCheckin}
+                title={`${pendingCheckins.length} check-in file${pendingCheckins.length>1?"s":""} from email — click to review the next`}
+                style={{background:lightMode?"#e0f2fe":"#00212e",border:`1px solid ${lightMode?"#0891b2":"#00d9ff80"}`,borderRadius:7,padding:"6px 11px",color:lightMode?"#0369a1":"#00d9ff",fontWeight:700,fontSize:12,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5}}>
+                📬 {pendingCheckins.length} check-in{pendingCheckins.length>1?"s":""} from email
+                <span style={{fontSize:10,opacity:.8}}>· review →</span>
+              </button>
+            )}
             <button onClick={doExport} style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ JSON</button>
             <button onClick={doExportCSV} style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 13px",color:lightMode?"#475569":"#7a9bbf",fontWeight:600,fontSize:13,cursor:"pointer"}}>↓ CSV</button>
             <button
@@ -19674,6 +20550,7 @@ export default function App() {
         <div style={{borderBottom:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`,marginBottom:18}}>
           <div style={{display:"flex",gap:0,flexWrap:"wrap"}}>
             {[
+              {key:"home",      label:"🏠 Home"},
               {key:"campaigns", label:"📋 Campaigns"},
               {key:"pacing",    label:"📈 Pacing"},
               {key:"revenue",   label:"💰 Revenue"},
@@ -19732,7 +20609,25 @@ export default function App() {
           </div>
         )}
 
-        {activeTab==="archive" ? (
+        {activeTab==="home" ? (
+          <HomeDashboard
+            campaigns={campaigns}
+            reminders={reminders}
+            activityLog={activityLog}
+            pdfDrafts={pdfDrafts}
+            pendingCheckins={pendingCheckins}
+            lightMode={lightMode}
+            outlookEvents={outlookEvents}
+            outlookStatus={outlookStatus}
+            onConnectOutlook={connectOutlook}
+            onRefreshOutlook={refreshOutlookEvents}
+            onNavigate={setActiveTab}
+            onEdit={(camp)=>setEditTarget(camp)}
+            onStartCheckIn={()=>{ setActiveTab("pacing"); setQuickCheckIn(true); }}
+            onAddCampaign={()=>setShowAdd(true)}
+            onOpenReminders={()=>setShowReminderModal(true)}
+          />
+        ) : activeTab==="archive" ? (
           <CampaignArchive archive={archive} onRestore={handleRestore} onBulkRestore={bulkRestore} onClear={()=>setArchive([])}/>
         ) : activeTab==="ai" ? (
           <AIAdvisor
@@ -19759,6 +20654,20 @@ export default function App() {
               ))}
             </div>
             {configSubTab==="general" && (<>
+            {/* Time zone — governs meeting times + the homepage agenda's clock/"today"; default Eastern. */}
+            <div style={{background:lightMode?"#ffffff":"#0c1625",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
+                <span style={{fontSize:13,fontWeight:800,color:lightMode?"#0f172a":"#edf4ff"}}>🕐 Time zone</span>
+                <select value={timeZone} onChange={e=>changeTimeZone(e.target.value)}
+                  style={{background:lightMode?"#f8fafc":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 11px",color:lightMode?"#0f172a":"#d8eaf8",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none"}}>
+                  {TIMEZONE_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <span style={{fontSize:11,color:lightMode?"#64748b":"#7a9bbf"}}>Now: <b style={{color:lightMode?"#0f172a":"#7dd3fc"}}>{new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZone:trackerTZName()})}</b></span>
+              </div>
+              <div style={{fontSize:11,color:lightMode?"#64748b":"#7a9bbf",lineHeight:1.5}}>
+                Sets the clock the tracker uses for your calendar meeting times and the Home page schedule (Today / Tomorrow). Defaults to Eastern for the team — pick “This computer’s time zone” if you’d rather follow your own machine. Pacing and revenue are by-day and aren’t affected.
+              </div>
+            </div>
             {(()=>{
               const used = getStorageBytes();
               const pct = Math.min(100, used / STORAGE_LIMIT_BYTES * 100);
@@ -19946,6 +20855,119 @@ export default function App() {
             })()}
             <PrefixPartnerSettings partnerPrefixes={partnerPrefixes} setPartnerPrefixes={setPartnerPrefixes} lightMode={lightMode}/>
             </>)}
+            {/* ── Email Inbox ingest (Connections sub-tab) — the tracker side of the email→tracker
+                automation. Points at the manifest the GitHub Action writes; on load / "Check now" it
+                pulls new IOs into the draft queue and stages check-ins for the review panel. */}
+            {configSubTab==="connections" && (()=>{
+              const cardBg = lightMode?"#ffffff":"#0c1625", brd = lightMode?"#e2e8f0":"#1e293b";
+              const st = inboxStatus;
+              return (
+                <div style={{background:cardBg,border:`1px solid ${brd}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
+                    <span style={{fontSize:13,fontWeight:800,color:lightMode?"#0f172a":"#edf4ff"}}>📬 Email Inbox</span>
+                    <button onClick={()=>saveInboxCfgAnd({enabled:!inboxCfg.enabled})} title="Auto-check the inbox when the tracker opens"
+                      style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",borderRadius:20,cursor:"pointer",fontSize:11,fontWeight:700,
+                        background:inboxCfg.enabled?(lightMode?"#dcfce7":"#002e24"):(lightMode?"#f1f5f9":"#162236"),
+                        border:`1px solid ${inboxCfg.enabled?"#00c896":(lightMode?"#e2e8f0":"#334155")}`,
+                        color:inboxCfg.enabled?(lightMode?"#059669":"#00e5a0"):(lightMode?"#64748b":"#7a9bbf")}}>
+                      {inboxCfg.enabled?"● On":"○ Off"}
+                    </button>
+                    {st.lastChecked && <span style={{fontSize:11,color:lightMode?"#64748b":"#7a9bbf"}}>Last checked: <b style={{color:lightMode?"#0f172a":"#d8eaf8"}}>{new Date(st.lastChecked).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</b></span>}
+                  </div>
+                  <div style={{fontSize:11,color:lightMode?"#64748b":"#7a9bbf",lineHeight:1.5,marginBottom:10}}>
+                    New IOs and Quick Check-in files that land in your dedicated inbox are pulled in automatically — IOs become draft campaigns to review, check-ins open in the review panel. Nothing is applied without your click. Paste the inbox address your GitHub job publishes below (setup guide coming).
+                  </div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                    <input value={inboxCfg.url||""} onChange={e=>saveInboxCfgAnd({url:e.target.value})} placeholder="https://…/inbox-manifest.json"
+                      style={{flex:"1 1 340px",minWidth:220,background:lightMode?"#f8fafc":"#0e1a2e",border:`1px solid ${inboxCfg.url?"#00c896":(lightMode?"#e2e8f0":"#334155")}`,borderRadius:7,padding:"7px 11px",color:lightMode?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                    <button onClick={()=>checkInbox(true)} disabled={st.checking||!inboxCfg.url}
+                      style={{background:st.checking?(lightMode?"#f1f5f9":"#162236"):(lightMode?"#00c896":"#002e24"),border:`1px solid ${lightMode?"#00c896":"#00c89660"}`,borderRadius:7,padding:"7px 14px",color:st.checking?(lightMode?"#94a3b8":"#4d6e8a"):(lightMode?"#ffffff":"#00e5a0"),fontSize:12,fontWeight:700,cursor:st.checking||!inboxCfg.url?"default":"pointer",whiteSpace:"nowrap"}}>
+                      {st.checking?"⏳ Checking…":"↻ Check now"}
+                    </button>
+                  </div>
+                  {(st.newIO>0 || st.error || pendingCheckins.length>0) && (
+                    <div style={{marginTop:8,fontSize:11,lineHeight:1.6}}>
+                      {st.error && <div style={{color:lightMode?"#b91c1c":"#fca5a5"}}>⚠ {st.error}</div>}
+                      {st.newIO>0 && <div style={{color:lightMode?"#059669":"#00d48a"}}>✓ Pulled {st.newIO} new IO{st.newIO!==1?"s":""} into the draft queue (see “{pdfDrafts&&pdfDrafts.length?`${pdfDrafts.length} drafts pending`:"IO drafts"}” up top).</div>}
+                      {pendingCheckins.length>0 && (
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4,flexWrap:"wrap"}}>
+                          <span style={{color:lightMode?"#0891b2":"#00d9ff",fontWeight:700}}>📥 {pendingCheckins.length} check-in{pendingCheckins.length!==1?"s":""} from email waiting for review.</span>
+                          <button onClick={openNextPendingCheckin} className="glow-btn"
+                            style={{background:"#00c896",border:"none",borderRadius:6,padding:"5px 12px",color:"#04121e",fontSize:11,fontWeight:700,cursor:"pointer"}}>Review next →</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            {/* ── Outlook Calendar (per-user Microsoft sign-in) ── */}
+            {configSubTab==="connections" && (()=>{
+              const cardBg = lightMode?"#ffffff":"#0c1625", brd = lightMode?"#e2e8f0":"#1e293b";
+              const os = outlookStatus, msalLoaded = (typeof window!=="undefined" && !!window.msal);
+              const autoRedirect = outlookAutoRedirect();          // this site's own address
+              const redirect = outlookRedirectUri(outlookCfg);     // what MSAL uses + what to register (override or auto)
+              const usingOverride = !!(outlookCfg.redirectUri && outlookCfg.redirectUri.trim());
+              return (
+                <div style={{background:cardBg,border:`1px solid ${brd}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
+                    <span style={{fontSize:13,fontWeight:800,color:lightMode?"#0f172a":"#edf4ff"}}>📅 Outlook Calendar</span>
+                    {os.connected
+                      ? <span style={{fontSize:11,fontWeight:700,color:lightMode?"#059669":"#00e5a0",background:lightMode?"#dcfce7":"#002e24",border:`1px solid #00c896`,borderRadius:20,padding:"3px 11px"}}>● Connected{os.account?` · ${os.account}`:""}</span>
+                      : <span style={{fontSize:11,fontWeight:700,color:lightMode?"#64748b":"#7a9bbf",background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:20,padding:"3px 11px"}}>○ Not connected</span>}
+                    {os.lastSync && <span style={{fontSize:11,color:lightMode?"#64748b":"#7a9bbf"}}>Synced {new Date(os.lastSync).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</span>}
+                  </div>
+                  <div style={{fontSize:11,color:lightMode?"#64748b":"#7a9bbf",lineHeight:1.5,marginBottom:10}}>
+                    Sign in with your Microsoft 365 account to see your calendar on the Home page. Each person sees only their own calendar — nothing is shared. Your IT admin registers the tracker once (below); after that it's just a sign-in.
+                  </div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:8}}>
+                    <input value={outlookCfg.clientId||""} onChange={e=>saveOutlookCfgAnd({clientId:e.target.value.trim()})} placeholder="Application (client) ID"
+                      style={{flex:"1 1 260px",minWidth:200,background:lightMode?"#f8fafc":"#0e1a2e",border:`1px solid ${outlookCfg.clientId?"#00c896":(lightMode?"#e2e8f0":"#334155")}`,borderRadius:7,padding:"7px 11px",color:lightMode?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                    <input value={outlookCfg.tenantId||""} onChange={e=>saveOutlookCfgAnd({tenantId:e.target.value.trim()})} placeholder="Directory (tenant) ID — optional"
+                      style={{flex:"1 1 220px",minWidth:180,background:lightMode?"#f8fafc":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"7px 11px",color:lightMode?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                  </div>
+                  {/* Redirect URL — where sign-in returns to. Auto-detects this site's address; editable so
+                      you can pin it (e.g. to your custom domain when it's ready). Must be registered in Azure. */}
+                  <div style={{marginBottom:10}}>
+                    <div style={{fontSize:10,fontWeight:700,color:lightMode?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}}>Redirect URL <span style={{textTransform:"none",fontWeight:500,color:lightMode?"#94a3b8":"#4d6e8a"}}>— must match what's registered in Azure</span></div>
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                      <input value={outlookCfg.redirectUri||""} onChange={e=>saveOutlookCfgAnd({redirectUri:e.target.value.trim()})} placeholder={autoRedirect+"  (auto — leave blank to use this site's address)"}
+                        style={{flex:"1 1 360px",minWidth:240,background:lightMode?"#f8fafc":"#0e1a2e",border:`1px solid ${usingOverride?"#0e7490":(lightMode?"#e2e8f0":"#334155")}`,borderRadius:7,padding:"7px 11px",color:lightMode?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                      {usingOverride && <button onClick={()=>saveOutlookCfgAnd({redirectUri:""})} title="Clear the override and go back to auto-detect" style={{background:"none",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"7px 11px",color:lightMode?"#64748b":"#7a9bbf",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Use auto</button>}
+                    </div>
+                    <div style={{fontSize:10.5,color:lightMode?"#64748b":"#7a9bbf",marginTop:4}}>
+                      Using: <b style={{color:lightMode?"#0f172a":"#7dd3fc"}}>{redirect}</b> {usingOverride?"(pinned)":"(auto-detected)"} — this is the exact URL to register in Azure. When your custom domain is live, add it there too; the tracker uses whichever address it's opened from.
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                    {os.connected ? (
+                      <>
+                        <button onClick={refreshOutlookEvents} disabled={os.loading}
+                          style={{background:lightMode?"#00c896":"#002e24",border:`1px solid ${lightMode?"#00c896":"#00c89660"}`,borderRadius:7,padding:"7px 14px",color:lightMode?"#fff":"#00e5a0",fontSize:12,fontWeight:700,cursor:os.loading?"default":"pointer"}}>{os.loading?"⏳ Syncing…":"↻ Sync now"}</button>
+                        <button onClick={disconnectOutlook}
+                          style={{background:"none",border:`1px solid ${lightMode?"#fca5a5":"#ef444460"}`,borderRadius:7,padding:"7px 12px",color:lightMode?"#b91c1c":"#fca5a5",fontSize:12,fontWeight:600,cursor:"pointer"}}>Sign out</button>
+                      </>
+                    ) : (
+                      <button onClick={connectOutlook} disabled={os.loading||!outlookCfg.clientId||!msalLoaded}
+                        style={{background:(!outlookCfg.clientId||!msalLoaded)?(lightMode?"#f1f5f9":"#162236"):(lightMode?"#2563eb":"#0a2036"),border:`1px solid ${(!outlookCfg.clientId||!msalLoaded)?(lightMode?"#e2e8f0":"#334155"):"#0e7490"}`,borderRadius:7,padding:"7px 16px",color:(!outlookCfg.clientId||!msalLoaded)?(lightMode?"#94a3b8":"#4d6e8a"):(lightMode?"#fff":"#7dd3fc"),fontSize:12,fontWeight:700,cursor:(os.loading||!outlookCfg.clientId||!msalLoaded)?"default":"pointer"}}>{os.loading?"⏳ Connecting…":"🔐 Sign in with Microsoft"}</button>
+                    )}
+                  </div>
+                  {os.error && <div style={{marginTop:8,fontSize:11,color:lightMode?"#b91c1c":"#fca5a5"}}>⚠ {os.error}</div>}
+                  {!msalLoaded && <div style={{marginTop:8,fontSize:11,color:lightMode?"#b45309":"#fcd34d"}}>Microsoft sign-in library didn't load (offline or blocked) — reload with a connection to use this.</div>}
+                  {/* IT setup note */}
+                  <details style={{marginTop:12}}>
+                    <summary style={{fontSize:11,fontWeight:700,color:lightMode?"#0891b2":"#00d9ff",cursor:"pointer"}}>Setup for your IT admin (one-time)</summary>
+                    <div style={{fontSize:11,color:lightMode?"#475569":"#9fb4cf",lineHeight:1.7,marginTop:8}}>
+                      In the Microsoft <b>Entra ID / Azure portal → App registrations → New registration</b>:<br/>
+                      1. Platform: <b>Single-page application (SPA)</b>. Add this Redirect URI (and add your custom domain here too once it's live — an app can have several):
+                      <code style={{display:"inline-block",background:lightMode?"#f1f5f9":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#26364f"}`,borderRadius:5,padding:"1px 7px",margin:"0 4px",color:lightMode?"#0f172a":"#7dd3fc",fontSize:11}}>{redirect}</code><br/>
+                      2. API permissions → Microsoft Graph → <b>Delegated</b> → add <b>Calendars.Read</b> and <b>User.Read</b> (grant admin consent if your tenant requires it).<br/>
+                      3. Copy the <b>Application (client) ID</b> and <b>Directory (tenant) ID</b> from the app's Overview into the boxes above. No client secret is needed.
+                    </div>
+                  </details>
+                </div>
+              );
+            })()}
             <PlatformConfig campaigns={campaigns} configView={configSubTab}
               metaSyncStatus={metaSyncStatus}   metaSyncInfo={metaSyncInfo}
               ttdSyncStatus={ttdSyncStatus}     ttdSyncInfo={ttdSyncInfo}
@@ -19961,7 +20983,7 @@ export default function App() {
             monthResetAvailable={monthResetAvailable} onCloseMonth={()=>setShowMonthReset(true)}
             quickCheckIn={quickCheckIn}
             onToggleQuickCheckIn={()=>setQuickCheckIn(v=>!v)}
-            quickCheckInPanel={quickCheckIn ? <QuickCheckInPanel campaigns={campaigns} archive={archive} setArchive={setArchive} filtered={filtered} setCampaigns={setCampaigns} onClose={()=>setQuickCheckIn(false)}/> : null}
+            quickCheckInPanel={quickCheckIn ? <QuickCheckInPanel campaigns={campaigns} archive={archive} setArchive={setArchive} filtered={filtered} setCampaigns={setCampaigns} onClose={()=>setQuickCheckIn(false)} autoLoadFile={pendingCheckinFile} onAutoLoadConsumed={consumePendingCheckin}/> : null}
             onActivate={(id)=>setCampaigns(cs=>cs.map(c=>c.id===id?{...c,status:"active"}:c))}
             onSetStatus={(id, status) => {
               setCampaigns(cs => cs.map(c => c.id === id ? { ...c, status } : c));
