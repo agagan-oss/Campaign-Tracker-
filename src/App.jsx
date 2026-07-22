@@ -2019,6 +2019,11 @@ function buildDraftsFromIO(io) {
       const nameSuffix = ctv ? ctv.code : platform;
       // effectiveCpm/effectiveImpr already fold in any data-integration uplift.
       const monthlyImpr = Math.round(effectiveImpr / months);
+      // YouTube always bills per-VIEW (CPV), never CPM (Austin). Default the rate to $0.10/view when the
+      // IO didn't give a sensible CPV — a parsed value > $1 is really a CPM that slipped through, so drop
+      // it for the default. (goal is already views: extractServiceBlock reads "Gross Views" into impressions.)
+      const isYT = platform === "YT";
+      const ytRate = (effectiveCpm > 0 && effectiveCpm <= 1) ? effectiveCpm : 0.10;
       drafts.push({
         mediaPartner: ioPartner,
         campaignName: `${advertiser} - ${nameSuffix}`,
@@ -2026,10 +2031,9 @@ function buildDraftsFromIO(io) {
         startDate, endDate,
         status: "off",
         goal: effectiveImpr > 0 ? String(effectiveImpr) : "",
-        contractRate: effectiveCpm ? String(effectiveCpm) : "",
-        // Honor an explicit deal type from the service def (YouTube TrueView → CPV: goal is views, rate
-        // is $/view). Everything else bills CPM.
-        dealType: svc.dealType || (effectiveCpm ? "CPM" : ""),
+        contractRate: isYT ? String(ytRate) : (effectiveCpm ? String(effectiveCpm) : ""),
+        // YouTube → CPV (goal is views, rate is $/view). Everything else honors the service def or CPM.
+        dealType: isYT ? "CPV" : (svc.dealType || (effectiveCpm ? "CPM" : "")),
         contractValue: totalBudget.toFixed(2),
         // Management fee is a separate field — only relevant for SEM. The Edit
         // modal shows the input ONLY when platform === "SEM" but we set it here
@@ -7592,7 +7596,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // Include all "running" statuses — not just "active".
   // "pacing-ahead", "pacing-behind", "close-to-goal", and "" (unknown/new) are all
   // campaigns that need pacing visibility. Only "off" is intentionally excluded.
-  const allActive = campaigns.filter(c=>c.status!=="off");
+  // Campaigns that haven't STARTED yet (start date in the future) are also held out of the pacing list —
+  // there's no delivery to pace against, so they'd just read as "No data / behind" and add noise. They're
+  // surfaced via a "🔜 N starting soon" chip in the toolbar instead (not hidden, just out of the flow).
+  const notStartedRunning = campaigns.filter(c => c.status!=="off" && c.startDate && c.startDate.slice(0,10) > todayStr)
+    .sort((a,b)=>a.startDate.localeCompare(b.startDate));
+  const allActive = campaigns.filter(c=>c.status!=="off" && !(c.startDate && c.startDate.slice(0,10) > todayStr));
   const partners  = ["all", ...new Set(allActive.map(c=>c.mediaPartner).filter(Boolean))].sort();
   const platforms = sortPlatforms([...new Set(allActive.map(c=>c.platform).filter(Boolean))]);
 
@@ -9772,6 +9781,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"center",fontSize:10,color:lmTxtD,flexWrap:"wrap"}}>
       <span style={{fontWeight:700,color:lmTxtS}}>{filtered.length} campaigns</span>
       {noActivityRows.length>0&&<span style={{color:lmC("#fde047"),fontWeight:700}}>⏸ {noActivityRows.length} flat</span>}
+      {notStartedRunning.length>0&&(
+        <span
+          title={"Held out of pacing until they start (no delivery to pace against):\n"+notStartedRunning.slice(0,12).map(c=>{const[y,m,d]=c.startDate.slice(0,10).split("-");return `• ${(c.campaignName||"").trim()} — starts ${parseInt(m)}/${parseInt(d)}/${y.slice(2)}`;}).join("\n")+(notStartedRunning.length>12?`\n…and ${notStartedRunning.length-12} more`:"")}
+          style={{color:lmC("#7ec8ff"),fontWeight:700,cursor:"default"}}>🔜 {notStartedRunning.length} starting soon</span>
+      )}
     </div>
 
     {/* ── Last-month recap panel ── read-only finished-month summary, toggled from the toolbar. */}
@@ -13023,47 +13037,54 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   // Stable memory key for Google rows — uses Account Name, not campaign name
   function makeGoogleNameKey(accountName){ return `Google||acc:${accountName.trim().toLowerCase()}`; }
 
-  // Exact-first matching: Google client name → SEM/YT campaign
-  // Parallel to matchTTDClientToTracker but restricted to SEM/YT platforms
-  function matchGoogleToTracker(clientName, camps){
+  // A Google row is a YouTube row (vs a Search/SEM row) when it has TrueView views or a CPV rate, or
+  // the campaign name says YouTube/YT. Lets us route a client's SEM row to their SEM campaign and their
+  // YT row to their YT campaign — otherwise both rows (same Account Name) land on ONE campaign and the
+  // Search spend books onto the YouTube line (or vice-versa). Mirrors the TVsci tactic routing.
+  function googleRowIsYouTube(row){
+    const clean = v => (v==null?"":v).toString().replace(/[$,%,\s]/g,"");
+    const views = parseInt(clean(row["TrueView Video Views"]||row["Trueview Video Views"]||row["TrueView Views"]||row["Video Views"]||row["Video views"]||row["Views"]))||0;
+    if (views > 0) return true;
+    const cpv = clean(row["Avg. CPV"]||row["Avg CPV"]||row["CPV"]);
+    if (cpv && parseFloat(cpv) > 0) return true;
+    return /youtube|\(yt\)|\byt\b/i.test((row["Campaign Name"]||row["Campaign"]||"").toString());
+  }
+  // Exact-first matching: Google client name → SEM/YT campaign. `preferPlat` ("SEM" | "YT" | "") routes
+  // the row to its own tactic first, then falls back to the other so a client with only one of the two
+  // still matches.
+  function matchGoogleToTracker(clientName, camps, preferPlat){
     if (!clientName) return "";
     const cn = clientName.toLowerCase().trim();
-    const googCamps = camps.filter(c => c.platform === "SEM" || c.platform === "YT");
-    if (!googCamps.length) return "";
-    // 1. Exact match on campaignName
-    const exact = googCamps.find(c => c.campaignName.trim().toLowerCase() === cn);
-    if (exact) return String(exact.id);
-    // 2. Tracker campaignName contains the full client name as a substring
-    const sub = googCamps.find(c => c.campaignName.trim().toLowerCase().includes(cn));
-    if (sub) return String(sub.id);
-    // 3. Client name contains the full tracker campaignName as a substring
-    //    Guard: tracker campaignName must be ≥8 chars to avoid trivial matches (e.g. "SEM","YT","Bank")
-    const rev = googCamps.find(c => {
-      const cname = c.campaignName.trim().toLowerCase();
-      return cname.length >= 8 && cn.includes(cname);
-    });
-    if (rev) return String(rev.id);
-    // 4. Word-overlap — uses DISTINCTIVE words only (strips generic financial/industry terms).
-    //    Prevents "Envista Credit Union" matching "Pearl Hawaii Federal Credit Union" just because
-    //    both share "credit" and "union".  Requires >70% ratio AND ≥1 distinctive word match.
     const googleGeneric = new Set([
       "credit","union","federal","bank","banking","financial","services","service",
       "group","national","community","cooperative","corp","corporation","inc","llc",
       "company","enterprise","partners","solutions","health","care","school","schools",
       "university","college","institute","foundation","association","agency"
     ]);
-    const distinctiveWords = cn.split(/\s+/).filter(w => w.length > 3 && !googleGeneric.has(w));
-    if (distinctiveWords.length > 0) {
-      let best = null, bestCount = 0;
-      googCamps.forEach(c => {
-        const campLower = c.campaignName.trim().toLowerCase();
-        const matches = distinctiveWords.filter(w => campLower.includes(w)).length;
-        const ratio = matches / distinctiveWords.length;
-        // Require >70% ratio AND at least 1 distinctive word hit — prevents generic-word false matches
-        if (ratio > 0.7 && matches >= 1 && matches > bestCount) { best = c; bestCount = matches; }
-      });
-      if (best) return String(best.id);
-    }
+    const tryPool = (plats) => {
+      const pool = camps.filter(c => plats.includes(c.platform));
+      if (!pool.length) return "";
+      const exact = pool.find(c => c.campaignName.trim().toLowerCase() === cn);
+      if (exact) return String(exact.id);
+      const sub = pool.find(c => c.campaignName.trim().toLowerCase().includes(cn));
+      if (sub) return String(sub.id);
+      const rev = pool.find(c => { const cname = c.campaignName.trim().toLowerCase(); return cname.length >= 8 && cn.includes(cname); });
+      if (rev) return String(rev.id);
+      const distinctiveWords = cn.split(/\s+/).filter(w => w.length > 3 && !googleGeneric.has(w));
+      if (distinctiveWords.length > 0) {
+        let best = null, bestCount = 0;
+        pool.forEach(c => {
+          const campLower = c.campaignName.trim().toLowerCase();
+          const matches = distinctiveWords.filter(w => campLower.includes(w)).length;
+          if (matches / distinctiveWords.length > 0.7 && matches >= 1 && matches > bestCount) { best = c; bestCount = matches; }
+        });
+        if (best) return String(best.id);
+      }
+      return "";
+    };
+    // Route to the row's own tactic first, then the other platform as fallback.
+    const order = preferPlat === "YT" ? [["YT"],["SEM"]] : preferPlat === "SEM" ? [["SEM"],["YT"]] : [["SEM","YT"]];
+    for (const plats of order) { const id = tryPool(plats); if (id) return id; }
     return "";
   }
 
@@ -13620,9 +13641,12 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       // A Google file can ONLY match SEM/YT campaigns; a TradeDesk file can ONLY match TD/TDV/etc.
       // This is the primary guard against cross-platform false matches.
       const sourcePlats = SOURCE_PLATFORMS[source];
-      const matchCandidates = sourcePlats
-        ? qciFiltered.filter(c => sourcePlats.has(c.platform))
-        : qciFiltered;
+      // Also drop campaigns that haven't started yet (start date in the future) — they have no delivery
+      // to match against, so a check-in row that lands on one is almost always a wrong match. They stay
+      // available in the manual dropdown; this only trims the AUTO-match candidate pool.
+      const _qciToday = getToday();
+      const matchCandidates = (sourcePlats ? qciFiltered.filter(c => sourcePlats.has(c.platform)) : qciFiltered)
+        .filter(c => !(c.startDate && c.startDate.slice(0,10) > _qciToday));
 
       if(source==="TradeDesk"){
         // TradeDesk: match by advertiser name (client name) — exact/substring, not fuzzy guessing
@@ -13688,7 +13712,10 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         // Account names are stable across exports; campaign names change per ad set/keyword group
         const accName = getGoogleAccountName(row);
         const clientName = getGoogleClientName(accName);
-        const matchedId = matchGoogleToTracker(clientName, matchCandidates);
+        // Route this row to its own tactic first: a YouTube row → the client's YT campaign, a Search
+        // row → their SEM campaign. Both rows carry the SAME Account Name, so without this they'd both
+        // land on ONE campaign and the Search spend would book onto the YouTube line (or vice-versa).
+        const matchedId = matchGoogleToTracker(clientName, matchCandidates, googleRowIsYouTube(row) ? "YT" : "SEM");
         if(matchedId){ initMap[i]=matchedId; initConf[i]=0.8; autoCount++; }
         else {
           // Fallback: fuzzy match on campaign name in case Account Name is missing
@@ -14385,7 +14412,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                         if(mid){reMap[i]=mid;reConf[i]=0.8;autoC++;}
                       } else if(fileSource==="Google"){
                         const aN=getGoogleAccountName(row); const clN=getGoogleClientName(aN);
-                        const mid=matchGoogleToTracker(clN,cands2);
+                        const mid=matchGoogleToTracker(clN,cands2,googleRowIsYouTube(row)?"YT":"SEM");
                         if(mid){reMap[i]=mid;reConf[i]=0.8;autoC++;}
                         else {
                           const csvN=getCampName(row,fileSource);
