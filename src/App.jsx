@@ -16187,6 +16187,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
               if (focusPendingCount > 0) parts.push(`${focusPendingCount} pending`);
               return parts.length ? parts.join(" · ") : "no active campaigns";
             })()},
+            // Device-targeting surcharge — a real cost that reduces profit but was previously invisible in
+            // the topline, so Revenue − Spend never equaled Profit. Shown as its own deduction (only when
+            // there is one) so the tiles reconcile: Revenue − Spend − Device Fee = Profit.
+            ...(fmDeviceFee > 0 ? [{label:"Device Fee", val:"−"+$fc(fmDeviceFee), color:"#c084fc", sub:"device-targeting surcharge"}] : []),
             {label:"Profit (so far)",  val:fmRevWithSpend>0?(fmProfit>=0?"+":"")+$f(fmProfit):"—", color:profitColor(fmProfit), sub: fmPendingCount>0?`excludes ${fmPendingCount} pending`:fmRevWithSpend>0?"all campaigns tracked":"no spend data yet"},
             {label:"Margin",  val:fmRevWithSpend>0?fmMargin.toFixed(1)+"%":"—", color:marginColor(fmMargin), sub:"on tracked revenue"},
           ].map(s=>(
@@ -16391,6 +16395,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         {[
           {label:"Revenue", val:$fc(totRevWithSpend), color:"#7a9bbf", sub:(totRev-totRevWithSpend)>0?`+ ${$fk(totRev-totRevWithSpend)} pending (no spend)`:`${months.length} mo · ${filtered.length} flights`},
           {label:"Tracked Spend",  val:$fc(totSpend),  color:"#f59e0b", sub:`${trackableCampaigns.length} of ${filtered.length} campaigns`},
+          ...(totDeviceFee > 0 ? [{label:"Device Fee", val:"−"+$fc(totDeviceFee), color:"#c084fc", sub:"device-targeting surcharge"}] : []),
           {label:"Total Profit",   val:totRevWithSpend>0?(totProfit>=0?"+":"")+$f(totProfit):"—", color:profitColor(totProfit), sub:"on tracked campaigns"},
           {label:"Avg Margin",     val:totRevWithSpend>0?totMargin.toFixed(1)+"%":"—", color:marginColor(totMargin), sub:"on tracked campaigns"},
         ].map(s=>(
