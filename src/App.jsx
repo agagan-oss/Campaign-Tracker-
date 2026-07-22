@@ -10421,7 +10421,13 @@ function freshCampaignCopy(c) {
 // whose tactic was then changed (e.g. an FB copy retasked to YT keeps FB's metaSnapshots/breakdown).
 const SNAPSHOT_PLATFORMS = {
   metaSnapshots:   ["FB","FBV","IG"],
-  ttdSnapshots:    ["TD","TDV","TDA","CTV","OTT","OTTD"],
+  // ttdSnapshots is the SHARED slot for everything that rides The Trade Desk's snapshot store: TradeDesk's
+  // own tactics, the streaming-CTV codes that group under Trade Desk (NFLX/HULU/DSNY/AMZN/PCOK), AND Madhive
+  // (GCTV/PCTV/AECTV), which reuse this slot (they never collide with TradeDesk campaigns). This list MUST
+  // stay in sync with PLATFORM_SNAPSHOT_FIELD (~line 707) and the ReassignLineModal map — omitting Madhive
+  // here made cleanInheritedDelivery treat a Madhive campaign's legit ttdSnapshots as pollution and WIPE all
+  // its QCI/manual metrics on every load (impressions/spend/lastQci*), so Madhive data never persisted.
+  ttdSnapshots:    ["TD","TDV","TDA","CTV","OTT","OTTD","NFLX","HULU","DSNY","AMZN","PCOK","GCTV","PCTV","AECTV"],
   dspSnapshots:    ["DSP"],
   googleSnapshots: ["SEM","YT"],
   snapSnapshots:   ["SP"],
