@@ -1731,7 +1731,7 @@ function parseIOPdf(text, uris = []) {
     { label: "Premium Digital Audio",        key: "premium_audio",     platform: "TDA", prefixAliases: ["Digital Audio"] },
     // Video preroll
     { label: "Instream PreRoll",             key: "instream_preroll",  platform: "TDV" },  // TradeDesk Video
-    { label: "YouTube Trueview",             key: "yt_trueview",       platform: "YT" },
+    { label: "YouTube Trueview",             key: "yt_trueview",       platform: "YT", dealType: "CPV" }, // TrueView = per-view (CPV)
     // CTV variants — every flavor maps to CTV platform; user can change if needed
     { label: "Channel Select CTV",           key: "ctv_channel",     platform: "CTV" },
     { label: "General Audience CTV",         key: "ctv_general",     platform: "GCTV" }, // dedicated platform per Austin's tracker convention
@@ -3327,7 +3327,11 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   // actually changes the platform / goal / CPM. (A fresh Add still fills on mount because its rate/CV
   // are empty — see the has-value guards.)
   const autoFillReady = useRef(false);
-  useEffect(() => { autoFillReady.current = true; }, []);
+  // NOTE: the effect that flips autoFillReady → true is defined LAST (just after the CV effect below),
+  // NOT here. React runs effects in definition order, so on mount the two auto-fill effects must run
+  // FIRST — while autoFillReady is still false — so their "keep the value the form loaded with" guards
+  // actually fire. Defining the flag-setter here (before them) flipped it true before those guards ran,
+  // which clobbered an IO draft's parsed CPM/Contract Value with the learned-rate auto-fill on open.
   // ── Auto-suggest CPM by tactic ── Learns the typical rate for the chosen platform from YOUR existing
   // campaigns (e.g. FBV≈$12.50, DSP≈$6.75, CTV≈$29.50, YT≈$0.10) and fills it in — on Add, and when you
   // switch a campaign's platform on Edit/Duplicate. Preserves an existing rate on open; typing a rate
@@ -3340,9 +3344,30 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     if (!autoFillReady.current && hasRate) return;     // on open, keep the rate the form loaded with
     const sug = suggestRate(f.platform, learnRatesByPlatform(campaigns));
     if (sug && sug.rate > 0) {
-      setF(prev => ({ ...prev, contractRate: String(sug.rate), dealType: prev.dealType || (f.platform === "YT" ? "CPV" : "CPM") }));
+      // Only fill the RATE here — the deal type is owned by the platform-driven effect below (which knows
+      // YT ⇒ CPV, everything else ⇒ CPM). Setting dealType here too would carry a stale "CPM" from a
+      // previous platform across a switch to YT.
+      setF(prev => ({ ...prev, contractRate: String(sug.rate) }));
     }
   }, [f.platform, rateTouched]);
+  // ── Deal type follows the platform ── YouTube bills per-VIEW (CPV); every other tactic bills CPM. When
+  // the user CHANGES the platform, snap dealType to the right basis (YT⇒CPV, else⇒CPM) so a YT campaign is
+  // never left on the wrong basis — this is what makes YouTube default to CPV. Keyed off an actual change
+  // (prevPlatform ref) so OPENING a form never rewrites a saved dealType, and frozen once the user picks a
+  // deal type by hand (dtTouched), mirroring how rateTouched/cvTouched protect manual edits.
+  const [dealTypeTouched, setDealTypeTouched] = useState(false);
+  const prevPlatformRef = useRef(f.platform);
+  useEffect(() => {
+    const changed = prevPlatformRef.current !== f.platform;
+    prevPlatformRef.current = f.platform;
+    if (dealTypeTouched) return;                        // user picked a deal type by hand — leave it
+    if (!f.platform || f.platform === "SEM") return;   // SEM has no CPM/CPV deal type
+    // On a platform CHANGE, snap to the right basis. On OPEN (no change), only fill a BLANK dealType
+    // (fresh Add, or a legacy YT campaign saved without one) — never rewrite a saved deal type.
+    if (!changed && f.dealType) return;
+    const want = f.platform === "YT" ? "CPV" : "CPM";
+    setF(prev => (prev.dealType === want ? prev : { ...prev, dealType: want }));
+  }, [f.platform, dealTypeTouched]);
   // ── Auto-compute Contract Value = total-impressions (Goal) × CPM  (or views × CPV for YouTube) ──
   // Recomputes whenever you change Goal / CPM / platform, until you type a contract value yourself
   // (cvTouched). Preserves an existing contract value on open, so a blended/manual value isn't wiped
@@ -3360,6 +3385,12 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     const cvStr = String(Math.round(cv * 100) / 100);
     if (String(f.contractValue || "") !== cvStr) setF(prev => ({ ...prev, contractValue: cvStr }));
   }, [f.goal, f.contractRate, f.platform, f.dealType, cvTouched]);
+  // Flip auto-fill "ready" ONLY after the two auto-fill effects above have run their mount pass. Because
+  // React runs effects in definition order, placing this LAST guarantees that on open those effects saw
+  // autoFillReady=false and preserved the values the form loaded with (an IO draft's parsed CPM/CV, an
+  // existing campaign's saved rate). From the next render on it's true, so a real platform/goal change
+  // re-enables auto-suggest/auto-compute.
+  useEffect(() => { autoFillReady.current = true; }, []);
   // New-tactic (CTV flavor) platform prompt — editable code, seeded from the suggested default.
   const [tacticCode, setTacticCode] = useState("");
   useEffect(() => { setTacticCode((f._newTactic && f._newTactic.code) || ""); }, [f._newTactic && f._newTactic.code]);
@@ -3692,7 +3723,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                   <div style={{display:"flex",gap:6,alignItems:"center"}}>
                     {/* YT: CPM/CPV select. All others: fixed CPM badge */}
                     {f.platform==="YT" ? (
-                      <select value={f.dealType||""} onChange={e=>set("dealType",e.target.value)}
+                      <select value={f.dealType||""} onChange={e=>{ setDealTypeTouched(true); set("dealType",e.target.value); }}
                         style={{background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:f.dealType?(_lm?"#0f172a":"#d8eaf8"):(_lm?"#94a3b8":"#4d6e8a"),fontSize:12,fontWeight:600,cursor:"pointer",outline:"none",minWidth:80}}>
                         <option value="">Type…</option>
                         <option value="CPM">CPM</option>
