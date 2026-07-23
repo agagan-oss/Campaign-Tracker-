@@ -3272,7 +3272,7 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
   );
 }
 
-function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null, onDiscardAllDrafts=null, onPrevDraft=null, onNextDraft=null, onValuesChange=null, onSaveDraft=null, onDiscardDraft=null }) {
+function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null, onDiscardAllDrafts=null, onPrevDraft=null, onNextDraft=null, onValuesChange=null, onSaveDraft=null, onDiscardDraft=null, onSwitchTactic=null }) {
   const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",ioNumber:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",managementFee:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",targetAudience:"",lastCreativeUpdate:"",clientWebsite:"",
     // Report data fields
     demoAge:"",       // JSON: [{label:"18-24",pct:32},{label:"25-34",pct:28}...]
@@ -3385,6 +3385,76 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     const cvStr = String(Math.round(cv * 100) / 100);
     if (String(f.contractValue || "") !== cvStr) setF(prev => ({ ...prev, contractValue: cvStr }));
   }, [f.goal, f.contractRate, f.platform, f.dealType, cvTouched]);
+  // ── Switch tactic mid-flight ── State for the "this campaign changed tactic partway through the month"
+  // helper (e.g. FB → FBV). Archives the pre-switch portion (frozen, still booked in Revenue capped at the
+  // switch) and spawns a linked new-tactic campaign for the remainder. See the panel below the Extend helper.
+  const [switchOpen, setSwitchOpen]   = useState(false);
+  const [switchPlat, setSwitchPlat]   = useState("");
+  const [switchDate, setSwitchDate]   = useState("");
+  const [switchRate, setSwitchRate]   = useState("");
+  const [switchBasis, setSwitchBasis] = useState("impressions"); // "impressions" (hit the same monthly impressions) | "budget" (hold the monthly $)
+  const [switchDelivered, setSwitchDelivered] = useState(""); // what the OLD tactic already delivered THIS month (impr) — auto from the campaign, editable
+  function openSwitchPanel() {
+    const defPlat = f.platform === "FB" ? "FBV" : f.platform === "FBV" ? "FB" : "";
+    setSwitchPlat(defPlat);
+    const sug = defPlat ? suggestRate(defPlat, learnRatesByPlatform(campaigns)) : null;
+    setSwitchRate(sug && sug.rate ? String(sug.rate) : "");
+    const y = new Date(); y.setDate(y.getDate() - 1);            // default: yesterday
+    setSwitchDate(y.toISOString().slice(0, 10));
+    setSwitchBasis("impressions");
+    // Seed "delivered so far" from the campaign's current month-to-date impressions (the last check-in) so
+    // the remaining-to-goal math is right out of the box; the user can correct it.
+    setSwitchDelivered(String(parseInt(f.impressions) || 0));
+    setSwitchOpen(true);
+  }
+  // ── Goal schedule builder ── The Monthly Goal (Note 1) field already accepts a multi-phase schedule
+  // string ("50K Jul 25K Aug 100K Sep") that parseGoalSchedule/parseMonthlyGoal read month-aware and the
+  // pacing bars honor. This is a friendly builder for it, in three modes:
+  //   flat  — the plain Note 1 text ("25K/Mo").
+  //   month — a grid of impressions per calendar-month in the flight (writes the schedule string).
+  //   dates — a grid of custom flight SEGMENTS {start,end,impr} for month-unaligned / burst flights. Each
+  //           segment is split across the calendar months it touches by DAY-SHARE and summed into the same
+  //           Note 1 schedule (so pacing's flight-clipped daily target comes out right for contiguous
+  //           flights), the campaign Start/End are set to span all segments, and the raw segments are saved
+  //           on the campaign (`flightSegments`) so reopening restores the date view.
+  const [goalMode, setGoalMode] = useState(() => {
+    if (campaign && Array.isArray(campaign.flightSegments) && campaign.flightSegments.length) return "dates";
+    if (parseGoalSchedule((campaign && campaign.note1) || "").hasSchedule) return "month";
+    return "flat";
+  });
+  const [scheduleGoals, setScheduleGoals] = useState({});     // month mode: {monthIdx: "50000"}
+  const [segments, setSegments] = useState([]);               // dates mode: [{start,end,goal}]
+  // Distinct calendar-month indices spanned by the flight, in order (dedup handles multi-year flights —
+  // the schedule format is month-of-year, matching parseGoalSchedule).
+  function flightMonthIdxs(startISO, endISO) {
+    const s=(startISO||"").match(/^(\d{4})-(\d{2})/), e=(endISO||"").match(/^(\d{4})-(\d{2})/);
+    if(!s||!e) return [];
+    let y=+s[1], m=+s[2]-1; const ey=+e[1], em=+e[2]-1; const out=[], seen=new Set();
+    while(y<ey || (y===ey && m<=em)){ if(!seen.has(m)){seen.add(m);out.push(m);} m++; if(m>11){m=0;y++;} if(out.length>24)break; }
+    return out;
+  }
+  function seedSchedule() {
+    const months = flightMonthIdxs(f.startDate, f.endDate);
+    const sched = parseGoalSchedule(f.note1);
+    const flat = parseMonthlyGoal(f.note1) || 0;
+    const init = {};
+    months.forEach(idx => { const v = sched.byMonth[idx] != null ? sched.byMonth[idx] : flat; init[idx] = v>0 ? String(v) : ""; });
+    setScheduleGoals(init);
+  }
+  function seedSegments() {
+    if (campaign && Array.isArray(campaign.flightSegments) && campaign.flightSegments.length) {
+      setSegments(campaign.flightSegments.map(s => ({ start:s.start||"", end:s.end||"", goal: s.goal!=null?String(s.goal):"" })));
+    } else {
+      // start with one segment from the current flight dates + total goal (or the flat monthly)
+      const total = parseGoalGoalTotal(f.goal) || parseMonthlyGoal(f.note1) || 0;
+      setSegments([{ start:f.startDate||"", end:f.endDate||"", goal: total>0?String(total):"" }]);
+    }
+  }
+  // Read the numeric total out of the Goal string ("175K (7/1 - 9/30)" → 175000).
+  function parseGoalGoalTotal(g) { const m=(g||"").match(/([\d.,]+)\s*([KM])?/i); if(!m) return 0; let n=parseFloat(m[1].replace(/,/g,""))||0; const u=(m[2]||"").toUpperCase(); return u==="M"?n*1e6:u==="K"?n*1e3:n; }
+  // On mount, seed whichever builder the campaign opened in.
+  const scheduleSeeded = useRef(false);
+  useEffect(() => { if (!scheduleSeeded.current) { if (goalMode==="month") seedSchedule(); else if (goalMode==="dates") seedSegments(); scheduleSeeded.current = true; } }, []);
   // Flip auto-fill "ready" ONLY after the two auto-fill effects above have run their mount pass. Because
   // React runs effects in definition order, placing this LAST guarantees that on open those effects saw
   // autoFillReady=false and preserved the values the form loaded with (an IO draft's parsed CPM/CV, an
@@ -3631,8 +3701,105 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 <input type="text" value={f["ioNumber"]||""} onChange={e=>set("ioNumber",e.target.value)} placeholder="e.g. 16617480" style={iS}/>
               </div>
               <div style={{marginBottom:12}}>
-                <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Goal</label>
-                <input type="text" value={f["note1"]||""} onChange={e=>set("note1",e.target.value)} style={{...iS,borderColor:f["note1"]?(_lm?"#3B8FFF60":"#00d9ff60"):"#334155"}}/>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3,gap:8,flexWrap:"wrap"}}>
+                  <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",textTransform:"uppercase",letterSpacing:"0.06em"}}>{goalMode==="flat"?"Monthly Goal":"Goal Schedule"}</label>
+                  {/* 3-way mode control: Single flat goal · per-month grid · custom date-range segments */}
+                  <div style={{display:"flex",gap:3}}>
+                    {[["flat","Single"],["month","📅 By month"],["dates","📆 By dates"]].map(([m,lbl])=>{
+                      const on = goalMode===m;
+                      return (
+                        <button key={m} type="button"
+                          onClick={()=>{ setGoalMode(m); if(m==="month") seedSchedule(); else if(m==="dates") seedSegments(); if(m!=="dates") set("flightSegments",[]); }}
+                          style={{background:on?(_lm?"#dbeafe":"#0a2540"):(_lm?"#f1f5f9":"#0e1a2e"),border:`1px solid ${on?(_lm?"#3B8FFF":"#00d9ff60"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:5,color:on?(_lm?"#1d4ed8":"#00d9ff"):(_lm?"#64748b":"#7a9bbf"),fontSize:9,fontWeight:700,padding:"2px 8px",cursor:"pointer",letterSpacing:"0.03em"}}>{lbl}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {/* Flat mode → editable text. month/dates → read-only mirror of the generated schedule string. */}
+                <input type="text" value={f["note1"]||""} readOnly={goalMode!=="flat"} onChange={e=>set("note1",e.target.value)}
+                  placeholder={goalMode==="flat"?"e.g. 25K/Mo":"Fill in the schedule below…"}
+                  style={{...iS,borderColor:f["note1"]?(_lm?"#3B8FFF60":"#00d9ff60"):"#334155",opacity:goalMode!=="flat"?0.75:1,cursor:goalMode!=="flat"?"default":"text",fontFamily:goalMode!=="flat"?"monospace":"inherit",fontSize:goalMode!=="flat"?11:iS.fontSize}}/>
+                {goalMode!=="flat" && (()=>{
+                  const MONF=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                  const MONL=["January","February","March","April","May","June","July","August","September","October","November","December"];
+                  const fmtKs = n => n>=1000000 ? (+(n/1000000).toFixed(2))+"M" : n>=1000 ? (+(n/1000).toFixed(n>=10000?0:1))+"K" : String(Math.round(n));
+                  const dISPs = iso => { const m=(iso||"").match(/^(\d{4})-(\d{2})-(\d{2})/); return m?`${parseInt(m[2])}/${parseInt(m[3])}/${m[1].slice(2)}`:""; };
+                  const daysIncl = (a,b) => { const [ay,am,ad]=a.split("-").map(Number),[by,bm,bd]=b.split("-").map(Number); return Math.round((new Date(by,bm-1,bd)-new Date(ay,am-1,ad))/86400000)+1; };
+                  const boxWrap = {marginTop:8,background:_lm?"#f8fbff":"#081420",border:`1px solid ${_lm?"#dbeafe":"#0a2540"}`,borderRadius:8,padding:"9px 11px"};
+                  const numIn = {background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"};
+
+                  if (goalMode === "month") {
+                    const months = flightMonthIdxs(f.startDate, f.endDate);
+                    const applySchedule = (goalsObj) => {
+                      const parts=[]; let total=0;
+                      months.forEach(idx => { const n=parseInt((goalsObj[idx]||"").toString().replace(/[,\s]/g,""))||0; if(n>0){ parts.push(`${fmtKs(n)} ${MONF[idx]}`); total+=n; } });
+                      set("note1", parts.join(" "));
+                      if(f.startDate && f.endDate && total>0) set("goal", `${fmtKs(total)} (${dISPs(f.startDate)} - ${dISPs(f.endDate)})`);
+                    };
+                    if(!months.length) return <div style={{marginTop:6,fontSize:10,color:_lm?"#dc2626":"#f87171"}}>Set the Start &amp; End dates above first — then each month in the flight appears here to fill in.</div>;
+                    const total = months.reduce((s,idx)=>s+(parseInt((scheduleGoals[idx]||"").toString().replace(/[,\s]/g,""))||0),0);
+                    return (
+                      <div style={boxWrap}>
+                        <div style={{fontSize:9,color:_lm?"#64748b":"#5a7ba0",marginBottom:7,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:700}}>Impressions goal per month · piped straight into the pacing bars</div>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:7}}>
+                          {months.map(idx => (
+                            <div key={idx} style={{display:"flex",alignItems:"center",gap:6}}>
+                              <span style={{fontSize:10,fontWeight:700,color:_lm?"#475569":"#8fb0d4",width:34,flexShrink:0}}>{MONF[idx]}</span>
+                              <input type="number" value={scheduleGoals[idx]||""} placeholder="0" title={MONL[idx]}
+                                onChange={e=>{ const next={...scheduleGoals,[idx]:e.target.value}; setScheduleGoals(next); applySchedule(next); }}
+                                style={{...numIn,flex:1,minWidth:0}}/>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{marginTop:8,paddingTop:7,borderTop:`1px solid ${_lm?"#dbeafe":"#0a2540"}`,display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10}}>
+                          <span style={{color:_lm?"#64748b":"#5a7ba0"}}>{months.length} month{months.length!==1?"s":""} in flight</span>
+                          <span style={{color:_lm?"#1d4ed8":"#00d9ff",fontWeight:700}}>Flight total: {fmtKs(total)} impr</span>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // ── dates mode ── custom flight segments {start,end,goal}
+                  const segMonthSplit = (a,b,goal) => { const out={}; const [ay,am,ad]=a.split("-").map(Number),[by,bm,bd]=b.split("-").map(Number); const start=new Date(ay,am-1,ad),end=new Date(by,bm-1,bd); const td=Math.round((end-start)/86400000)+1; if(td<=0) return out; const cur=new Date(start); let g=0; while(cur<=end&&g<2000){ const mi=cur.getMonth(); out[mi]=(out[mi]||0)+1; cur.setDate(cur.getDate()+1); g++; } Object.keys(out).forEach(k=>{ out[k]=goal*out[k]/td; }); return out; };
+                  const applySegments = (segs) => {
+                    const valid = segs.filter(s=>s.start && s.end && s.end>=s.start && (parseInt((s.goal||"").toString().replace(/[,\s]/g,""))||0)>0);
+                    if(valid.length){ const starts=valid.map(s=>s.start).sort(), ends=valid.map(s=>s.end).sort(); set("startDate",starts[0]); set("endDate",ends[ends.length-1]); }
+                    const byMonth={}; let total=0;
+                    valid.forEach(s=>{ const gg=parseInt((s.goal||"").toString().replace(/[,\s]/g,""))||0; total+=gg; const sp=segMonthSplit(s.start,s.end,gg); Object.keys(sp).forEach(k=>{ byMonth[k]=(byMonth[k]||0)+sp[k]; }); });
+                    let note1="";
+                    if(valid.length){ const starts=valid.map(s=>s.start).sort(), ends=valid.map(s=>s.end).sort(); const order=flightMonthIdxs(starts[0],ends[ends.length-1]); note1=order.filter(i=>byMonth[i]>0).map(i=>`${fmtKs(Math.round(byMonth[i]))} ${MONF[i]}`).join(" "); set("goal", `${fmtKs(Math.round(total))} (${dISPs(starts[0])} - ${dISPs(ends[ends.length-1])})`); }
+                    set("note1", note1);
+                    set("flightSegments", valid.map(s=>({start:s.start,end:s.end,goal:String(parseInt((s.goal||"").toString().replace(/[,\s]/g,""))||0)})));
+                  };
+                  const update = (nextSegs) => { setSegments(nextSegs); applySegments(nextSegs); };
+                  const total = segments.reduce((s,seg)=>s+(parseInt((seg.goal||"").toString().replace(/[,\s]/g,""))||0),0);
+                  return (
+                    <div style={boxWrap}>
+                      <div style={{fontSize:9,color:_lm?"#64748b":"#5a7ba0",marginBottom:7,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:700}}>Custom flight windows · each spreads across its days into the pacing bars</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                        {segments.map((seg,i) => {
+                          const gN = parseInt((seg.goal||"").toString().replace(/[,\s]/g,""))||0;
+                          const dd = (seg.start && seg.end && seg.end>=seg.start) ? daysIncl(seg.start,seg.end) : 0;
+                          const perDay = dd>0 && gN>0 ? Math.round(gN/dd) : 0;
+                          return (
+                            <div key={i} style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                              <input type="date" value={seg.start||""} onChange={e=>update(segments.map((s,j)=>j===i?{...s,start:e.target.value}:s))} style={{...numIn,width:140}}/>
+                              <span style={{color:_lm?"#94a3b8":"#5a7ba0",fontSize:11}}>→</span>
+                              <input type="date" value={seg.end||""} onChange={e=>update(segments.map((s,j)=>j===i?{...s,end:e.target.value}:s))} style={{...numIn,width:140}}/>
+                              <input type="number" value={seg.goal||""} placeholder="impressions" onChange={e=>update(segments.map((s,j)=>j===i?{...s,goal:e.target.value}:s))} style={{...numIn,flex:1,minWidth:90}}/>
+                              <span style={{fontSize:9,color:_lm?"#94a3b8":"#5a7ba0",width:78,textAlign:"right",flexShrink:0}}>{perDay>0?`${fmtKs(perDay)}/day`:(dd>0?`${dd}d`:"")}</span>
+                              {segments.length>1 && <button type="button" onClick={()=>update(segments.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:_lm?"#cbd5e1":"#4d6e8a",fontSize:14,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div style={{marginTop:8,paddingTop:7,borderTop:`1px solid ${_lm?"#dbeafe":"#0a2540"}`,display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,gap:8,flexWrap:"wrap"}}>
+                        <button type="button" onClick={()=>update([...segments,{start:"",end:"",goal:""}])} style={{background:_lm?"#eff6ff":"#0a2540",border:`1px solid ${_lm?"#bfdbfe":"#00d9ff40"}`,borderRadius:5,color:_lm?"#1d4ed8":"#00d9ff",fontSize:10,fontWeight:700,padding:"3px 10px",cursor:"pointer"}}>+ Add flight window</button>
+                        <span style={{color:_lm?"#1d4ed8":"#00d9ff",fontWeight:700}}>Total: {fmtKs(total)} impr</span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
               {/* ── Extend helper ── When a campaign is extended but the MONTHLY goal is unchanged, recompute
                   the total Goal (monthly × flight months), the Goal string's date range, and the Contract
@@ -3670,6 +3837,141 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                       style={{marginLeft:"auto",background:changed?(_lm?"#00e19e":"#002e24"):(_lm?"#f1f5f9":"#0e1a2e"),border:`1px solid ${changed?(_lm?"#00c896":"#00c89660"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,color:changed?(_lm?"#0a1a0a":"#00e5a0"):(_lm?"#94a3b8":"#3d5a72"),fontSize:10,fontWeight:700,padding:"3px 10px",cursor:changed?"pointer":"default",whiteSpace:"nowrap"}}>
                       {changed?"Recalculate totals":"Totals up to date"}
                     </button>
+                  </div>
+                );
+              })()}
+              {/* ── Switch tactic mid-flight ── For a campaign that changed tactic partway through the month
+                  (e.g. Specs Quincy FB → FBV). Archives the pre-switch portion — frozen, still booked in the
+                  Revenue tab up to the switch date, and out of Pacing — and creates a linked new-tactic campaign
+                  for switch-date → flight-end. The switch-MONTH target is what's LEFT to hit goal (monthly goal
+                  minus what the old tactic already delivered), so the two halves add up to the month's number;
+                  later full months carry the normal monthly. Encoded as a multi-phase Note 1 the pacing/revenue
+                  already understand. Two bases: HIT SAME IMPRESSIONS (the new tactic covers the remaining impr)
+                  or HOLD THE BUDGET (the new tactic gets the remaining $, impressions flex with its CPM). Edit
+                  only, not for SEM (fee model, no CPM). */}
+              {!isNew && campaign && f.platform !== "SEM" && onSwitchTactic && (()=>{
+                const fmtK2 = n => n>=1000000 ? (+(n/1000000).toFixed(2))+"M" : n>=1000 ? (+(n/1000).toFixed(n>=10000?0:1))+"K" : String(Math.round(n));
+                const dISP2 = iso => { const m=(iso||"").match(/^(\d{4})-(\d{2})-(\d{2})/); return m?`${parseInt(m[2])}/${parseInt(m[3])}/${m[1].slice(2)}`:""; };
+                const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                if (!switchOpen) {
+                  return (
+                    <div style={{gridColumn:"1 / -1",marginBottom:12}}>
+                      <button type="button" onClick={openSwitchPanel}
+                        style={{background:_lm?"#faf5ff":"#160b24",border:`1px solid ${_lm?"#e9d5ff":"#7c3aed55"}`,borderRadius:8,color:_lm?"#7c3aed":"#c084fc",fontSize:11,fontWeight:700,padding:"6px 12px",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}>
+                        🔀 Switch tactic mid-flight
+                      </button>
+                    </div>
+                  );
+                }
+                const oldPlat = f.platform;
+                const oldMonthlyGoal = parseMonthlyGoal(f.note1) || 0;
+                const oldRate = parseFloat(f.contractRate) || 0;
+                const newRate = parseFloat(switchRate) || 0;
+                const monthlyBudget = (oldMonthlyGoal/1000) * oldRate;                     // this tactic's monthly $
+                const delivered = Math.max(0, parseInt(switchDelivered) || 0);            // old tactic's impr this month
+                const deliveredSpend = (delivered/1000) * oldRate;                        // $ that delivery used, at the old rate
+                // Switch-MONTH remainder for the new tactic (what's left to hit this month's number):
+                const remImpr = switchBasis === "impressions"
+                  ? Math.max(0, oldMonthlyGoal - delivered)                               // hit same impressions → the gap
+                  : (newRate>0 ? Math.round(Math.max(0, monthlyBudget - deliveredSpend)/newRate*1000) : 0); // hold budget → remaining $ ÷ new CPM
+                // Full SUBSEQUENT-month goal for the new tactic:
+                const fullImpr = switchBasis === "impressions"
+                  ? oldMonthlyGoal
+                  : (newRate>0 ? Math.round(monthlyBudget/newRate*1000) : 0);
+                // Months from the switch month through flight end (first = partial switch month).
+                const monthsList = [];
+                { let [yy,mmn]=switchDate.split("-").map(Number); const [ey,em]=(f.endDate||switchDate).split("-").map(Number);
+                  while (yy<ey || (yy===ey && mmn<=em)) { monthsList.push(mmn-1); mmn++; if(mmn>12){mmn=1;yy++;} if(monthsList.length>36)break; } }
+                const laterMonths = monthsList.slice(1);
+                // Multi-phase Note 1: "<rem> <SwitchMon> <full>/Mo <later months>" — the pacing/revenue readers
+                // resolve this per month (parseMonthlyGoal is month-aware), so July shows the remainder and
+                // Aug… show the full monthly. One month only → just the remainder.
+                const newNote1 = laterMonths.length
+                  ? `${fmtK2(remImpr)} ${MON[monthsList[0]]} ${fmtK2(fullImpr)}/Mo ${laterMonths.map(i=>MON[i]).join("/")}`
+                  : `${fmtK2(remImpr)}/Mo`;
+                const newTotalGoal = remImpr + fullImpr*laterMonths.length;
+                const newTotalCV = (newTotalGoal/1000) * newRate;
+                // Validity
+                const dateInFlight = (!f.startDate || switchDate >= f.startDate) && (!f.endDate || switchDate <= f.endDate);
+                const canSwitch = !!switchPlat && switchPlat !== oldPlat && newRate>0 && oldMonthlyGoal>0 && !!switchDate && !!f.endDate && dateInFlight;
+                const lblStyle = {display:"block",fontSize:9,color:_lm?"#7c3aed":"#c084fc",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700};
+                const inStyle = {width:"100%",background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#e9d5ff":"#7c3aed40"}`,borderRadius:5,padding:"6px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"};
+                const dayBefore = (()=>{ const d=new Date(switchDate+"T00:00:00"); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); })();
+                return (
+                  <div style={{gridColumn:"1 / -1",marginBottom:12,background:_lm?"#faf5ff":"#0f0820",border:`1px solid ${_lm?"#e9d5ff":"#7c3aed55"}`,borderRadius:9,padding:"11px 13px"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:9}}>
+                      <span style={{fontSize:11,fontWeight:800,color:_lm?"#7c3aed":"#c084fc"}}>🔀 Switch tactic mid-flight</span>
+                      <button type="button" onClick={()=>setSwitchOpen(false)} style={{background:"transparent",border:"none",color:_lm?"#a78bca":"#6d5a8f",fontSize:15,cursor:"pointer",lineHeight:1}}>×</button>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 92px",gap:8,marginBottom:9}}>
+                      <div>
+                        <label style={lblStyle}>New tactic</label>
+                        <select value={switchPlat} onChange={e=>{ const p=e.target.value; setSwitchPlat(p); const sug=suggestRate(p,learnRatesByPlatform(campaigns)); setSwitchRate(sug&&sug.rate?String(sug.rate):""); }} style={{...inStyle,cursor:"pointer"}}>
+                          <option value="">Pick…</option>
+                          {ALL_PLATFORMS.filter(p=>p!==oldPlat && p!=="SEM").map(p=><option key={p} value={p}>{p}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={lblStyle}>Switched on</label>
+                        <input type="date" value={switchDate} min={f.startDate||undefined} max={f.endDate||undefined} onChange={e=>setSwitchDate(e.target.value)} style={inStyle}/>
+                      </div>
+                      <div>
+                        <label style={lblStyle}>{switchPlat==="YT"?"CPV $":"CPM $"}</label>
+                        <input type="number" step="0.01" value={switchRate} onChange={e=>setSwitchRate(e.target.value)} placeholder="10.00" style={inStyle}/>
+                      </div>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"180px 1fr",gap:8,marginBottom:9,alignItems:"end"}}>
+                      <div>
+                        <label style={lblStyle}>{oldPlat} delivered this month</label>
+                        <input type="number" value={switchDelivered} onChange={e=>setSwitchDelivered(e.target.value)} placeholder="e.g. 15000" style={inStyle}/>
+                      </div>
+                      <div style={{fontSize:9,color:_lm?"#94a3b8":"#5a6b85",paddingBottom:6}}>from the last check-in — edit if the switch-point number differs</div>
+                    </div>
+                    <div style={{display:"flex",gap:14,marginBottom:9,flexWrap:"wrap"}}>
+                      {[{k:"impressions",t:"Hit same impressions",d:"cover the remaining impr"},{k:"budget",t:"Hold the budget",d:"remaining $, impr flex"}].map(o=>(
+                        <label key={o.k} style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:11,color:switchBasis===o.k?(_lm?"#7c3aed":"#c084fc"):(_lm?"#64748b":"#7a9bbf"),fontWeight:switchBasis===o.k?700:500}}>
+                          <input type="radio" name="switchBasis" checked={switchBasis===o.k} onChange={()=>setSwitchBasis(o.k)} style={{accentColor:"#7c3aed",cursor:"pointer"}}/>
+                          {o.t} <span style={{fontSize:9,color:_lm?"#94a3b8":"#5a6b85"}}>({o.d})</span>
+                        </label>
+                      ))}
+                    </div>
+                    {/* Live preview — spells out the remaining-to-goal split */}
+                    <div style={{fontSize:10,lineHeight:1.55,color:_lm?"#475569":"#9db4d0",background:_lm?"#ffffff":"#0a0616",borderRadius:6,padding:"7px 10px",marginBottom:9}}>
+                      {oldMonthlyGoal>0 ? (<>
+                        <div><span style={{color:_lm?"#0f172a":"#d8eaf8",fontWeight:700}}>{oldPlat}</span> through <b>{dISP2(dayBefore)}</b> → archived; keeps its <b>{fmtK2(delivered)}</b> delivered at ${oldRate.toFixed(2)} {oldPlat==="YT"?"CPV":"CPM"} (booked in Revenue).</div>
+                        <div style={{marginTop:2}}><span style={{color:_lm?"#7c3aed":"#c084fc",fontWeight:700}}>{switchPlat||"?"}</span> from <b>{dISP2(switchDate)}</b> → <b>{fmtK2(remImpr)}</b> left this month {switchBasis==="impressions"?<>(to finish the <b>{fmtK2(oldMonthlyGoal)}</b> goal)</>:<>(the remaining <b>${Math.round(Math.max(0,monthlyBudget-deliveredSpend)).toLocaleString()}</b>)</>}{laterMonths.length?<>, then <b>{fmtK2(fullImpr)}</b>/mo for {laterMonths.length} more month{laterMonths.length!==1?"s":""}</>:null}.</div>
+                        <div style={{marginTop:3,paddingTop:3,borderTop:`1px solid ${_lm?"#f1f5f9":"#1a1030"}`,color:_lm?"#7c3aed":"#c084fc"}}>Note 1 → <b>{newNote1}</b> · total <b>{fmtK2(newTotalGoal)}</b> / <b>${Math.round(newTotalCV).toLocaleString()}</b> @ ${newRate.toFixed(2)}</div>
+                      </>) : (
+                        <div style={{color:_lm?"#dc2626":"#f87171"}}>No monthly goal on Note 1 to split — add one (e.g. "25K/Mo") first.</div>
+                      )}
+                    </div>
+                    <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+                      <button type="button" onClick={()=>setSwitchOpen(false)} style={{background:"transparent",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,color:_lm?"#64748b":"#7a9bbf",fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>Cancel</button>
+                      <button type="button" disabled={!canSwitch}
+                        onClick={()=>{
+                          const base = (f.campaignName||"").replace(new RegExp("\\s*[-–]\\s*"+oldPlat+"\\s*$","i"),"").trim();
+                          const oldPatched = { ...campaign, ...f, endDate: dayBefore };   // freeze the pre-switch portion at the switch date
+                          const newCamp = {
+                            ...stripDeliveryFields({ ...campaign, ...f }),
+                            id: Date.now() + Math.random(),
+                            campaignName: `${base} - ${switchPlat}`,
+                            platform: switchPlat,
+                            contractRate: String(newRate),
+                            dealType: switchPlat==="YT" ? "CPV" : "CPM",
+                            startDate: switchDate,
+                            endDate: f.endDate,
+                            note1: newNote1,
+                            goal: `${fmtK2(newTotalGoal)} (${dISP2(switchDate)} - ${dISP2(f.endDate)})`,
+                            contractValue: newTotalCV>0 ? newTotalCV.toFixed(2) : "",
+                            status: "active",
+                            lastChecked: getToday(),
+                          };
+                          onSwitchTactic(oldPatched, newCamp);
+                        }}
+                        style={{background:canSwitch?(_lm?"#7c3aed":"#4c1d95"):(_lm?"#f1f5f9":"#0e1a2e"),border:`1px solid ${canSwitch?(_lm?"#7c3aed":"#7c3aed"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,color:canSwitch?"#ffffff":(_lm?"#94a3b8":"#3d5a72"),fontSize:11,fontWeight:700,padding:"5px 14px",cursor:canSwitch?"pointer":"default"}}>
+                        Switch → {switchPlat||"?"}
+                      </button>
+                    </div>
                   </div>
                 );
               })()}
@@ -21261,9 +21563,16 @@ export default function App() {
             quickCheckInPanel={quickCheckIn ? <QuickCheckInPanel campaigns={campaigns} archive={archive} setArchive={setArchive} filtered={filtered} setCampaigns={setCampaigns} onClose={()=>setQuickCheckIn(false)} autoLoadFile={pendingCheckinFile} onAutoLoadConsumed={consumePendingCheckin}/> : null}
             onActivate={(id)=>setCampaigns(cs=>cs.map(c=>c.id===id?{...c,status:"active"}:c))}
             onSetStatus={(id, status) => {
+              // Pausing/activating moves the campaign between pacing sections (active list ↔ "off" list),
+              // so the list height changes and the clicked button unmounts — the browser would jump to the
+              // top of the page. Capture the scroll position and restore it after the re-render (double
+              // rAF), same as onClearMetrics below.
+              const sy = (typeof window!=="undefined") ? window.scrollY : 0;
               setCampaigns(cs => cs.map(c => c.id === id ? { ...c, status } : c));
               const camp = campaigns.find(c => c.id === id);
               if (camp) addLog({ type: "edited", campaignName: camp.campaignName, partner: camp.mediaPartner, platform: camp.platform, detail: `Status changed → ${status}`, campaignId: id, prevSnapshot: null });
+              if(typeof window!=="undefined" && typeof requestAnimationFrame==="function")
+                requestAnimationFrame(()=>requestAnimationFrame(()=>window.scrollTo(0, sy)));
             }}
             onReassignLine={(target, toCampaignId) => reassignBreakdownLine(target, toCampaignId)}
             onClearLine={(target) => clearBreakdownLine(target)}
@@ -22064,6 +22373,19 @@ export default function App() {
         onValuesChange={u => updateCampaign({...editTarget, ...u})}
         onSave={u=>{ updateCampaign(u); setEditTarget(null); }}
         onClose={()=>setEditTarget(null)}
+        onSwitchTactic={(oldPatched, newCamp)=>{
+          // Mid-flight tactic switch: archive the pre-switch (capped) campaign — it stays booked in the
+          // Revenue tab up to the switch date and drops out of Pacing — and add the new-tactic campaign for
+          // the remainder of the flight. One activity-log entry each so the history is auditable.
+          const tod=getToday(); const [ay,am,ad]=tod.split("-"); const astamp=`${am}/${ad}/${ay}`;
+          const archNote=`${astamp} — Switched tactic to ${newCamp.platform} mid-flight; this ${oldPatched.platform} portion archived (ends ${oldPatched.endDate})`;
+          const archHist=oldPatched.history&&oldPatched.history.trim()?`${archNote}\n${oldPatched.history}`:archNote;
+          setArchive(prev=>[...prev,{...oldPatched, archivedDate:tod, history:archHist}]);
+          setCampaigns(cs=>[...cs.filter(x=>String(x.id)!==String(oldPatched.id)), newCamp]);
+          addLog({type:"edited",campaignName:oldPatched.campaignName,partner:oldPatched.mediaPartner,platform:oldPatched.platform,detail:`Switched tactic → ${newCamp.platform} mid-flight; pre-switch portion archived`,campaignId:oldPatched.id,prevSnapshot:{...oldPatched}});
+          addLog({type:"created",campaignName:newCamp.campaignName,partner:newCamp.mediaPartner,platform:newCamp.platform,detail:`Created from mid-flight tactic switch (was ${oldPatched.platform})`,campaignId:newCamp.id,prevSnapshot:null});
+          setEditTarget(null);
+        }}
         partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()}
         reminders={reminders} setReminders={setReminders} campaigns={campaigns}/>}
       {/* Add Campaign: opens a fresh blank form. Track the latest values in addDraftRef so an X /
