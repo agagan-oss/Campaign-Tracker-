@@ -3700,7 +3700,11 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>🧾 IO #</label>
                 <input type="text" value={f["ioNumber"]||""} onChange={e=>set("ioNumber",e.target.value)} placeholder="e.g. 16617480" style={iS}/>
               </div>
-              <div style={{marginBottom:12}}>
+              {/* In a schedule mode (month/dates) the builder spans ALL 3 field columns — otherwise it's
+                  trapped in one narrow column, which stacks the inputs vertically and leaves the other two
+                  columns empty (the "huge space on the left"). Full width lets each flight window sit on one
+                  line, so the form is far shorter too. Flat mode keeps its normal single-column cell. */}
+              <div style={{marginBottom:12, gridColumn: goalMode!=="flat" ? "1 / -1" : undefined}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3,gap:8,flexWrap:"wrap"}}>
                   <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",textTransform:"uppercase",letterSpacing:"0.06em"}}>{goalMode==="flat"?"Monthly Goal":"Goal Schedule"}</label>
                   {/* 3-way mode control: Single flat goal · per-month grid · custom date-range segments */}
@@ -3725,6 +3729,11 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                   const fmtKs = n => n>=1000000 ? (+(n/1000000).toFixed(2))+"M" : n>=1000 ? (+(n/1000).toFixed(n>=10000?0:1))+"K" : String(Math.round(n));
                   const dISPs = iso => { const m=(iso||"").match(/^(\d{4})-(\d{2})-(\d{2})/); return m?`${parseInt(m[2])}/${parseInt(m[3])}/${m[1].slice(2)}`:""; };
                   const daysIncl = (a,b) => { const [ay,am,ad]=a.split("-").map(Number),[by,bm,bd]=b.split("-").map(Number); return Math.round((new Date(by,bm-1,bd)-new Date(ay,am-1,ad))/86400000)+1; };
+                  // YouTube bills per-VIEW (CPV), so its goals are VIEWS, not impressions — label the builder
+                  // to match (defaults to views the moment the platform is YT). Everything else = impressions.
+                  const isViews = f.platform==="YT" && (f.dealType==="CPV" || !f.dealType);
+                  const unit = isViews ? "views" : "impr";
+                  const unitLong = isViews ? "views" : "impressions";
                   const boxWrap = {marginTop:8,background:_lm?"#f8fbff":"#081420",border:`1px solid ${_lm?"#dbeafe":"#0a2540"}`,borderRadius:8,padding:"9px 11px"};
                   const numIn = {background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"};
 
@@ -3740,7 +3749,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                     const total = months.reduce((s,idx)=>s+(parseInt((scheduleGoals[idx]||"").toString().replace(/[,\s]/g,""))||0),0);
                     return (
                       <div style={boxWrap}>
-                        <div style={{fontSize:9,color:_lm?"#64748b":"#5a7ba0",marginBottom:7,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:700}}>Impressions goal per month · piped straight into the pacing bars</div>
+                        <div style={{fontSize:9,color:_lm?"#64748b":"#5a7ba0",marginBottom:7,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:700}}>{isViews?"Views":"Impressions"} goal per month · piped straight into the pacing bars</div>
                         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:7}}>
                           {months.map(idx => (
                             <div key={idx} style={{display:"flex",alignItems:"center",gap:6}}>
@@ -3753,7 +3762,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                         </div>
                         <div style={{marginTop:8,paddingTop:7,borderTop:`1px solid ${_lm?"#dbeafe":"#0a2540"}`,display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10}}>
                           <span style={{color:_lm?"#64748b":"#5a7ba0"}}>{months.length} month{months.length!==1?"s":""} in flight</span>
-                          <span style={{color:_lm?"#1d4ed8":"#00d9ff",fontWeight:700}}>Flight total: {fmtKs(total)} impr</span>
+                          <span style={{color:_lm?"#1d4ed8":"#00d9ff",fontWeight:700}}>Flight total: {fmtKs(total)} {unit}</span>
                         </div>
                       </div>
                     );
@@ -3783,10 +3792,12 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                           const perDay = dd>0 && gN>0 ? Math.round(gN/dd) : 0;
                           return (
                             <div key={i} style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                              <input type="date" value={seg.start||""} onChange={e=>update(segments.map((s,j)=>j===i?{...s,start:e.target.value}:s))} style={{...numIn,width:140}}/>
+                              {/* Branded DatePicker (the same themed calendar the reminders/date fields use) —
+                                  NOT a raw <input type=date>, whose native popup ignores the dark theme. */}
+                              <div style={{width:150}}><DatePicker value={seg.start||""} onChange={v=>update(segments.map((s,j)=>j===i?{...s,start:v}:s))} placeholder="Start date"/></div>
                               <span style={{color:_lm?"#94a3b8":"#5a7ba0",fontSize:11}}>→</span>
-                              <input type="date" value={seg.end||""} onChange={e=>update(segments.map((s,j)=>j===i?{...s,end:e.target.value}:s))} style={{...numIn,width:140}}/>
-                              <input type="number" value={seg.goal||""} placeholder="impressions" onChange={e=>update(segments.map((s,j)=>j===i?{...s,goal:e.target.value}:s))} style={{...numIn,flex:1,minWidth:90}}/>
+                              <div style={{width:150}}><DatePicker value={seg.end||""} onChange={v=>update(segments.map((s,j)=>j===i?{...s,end:v}:s))} placeholder="End date"/></div>
+                              <input type="number" value={seg.goal||""} placeholder={unitLong} onChange={e=>update(segments.map((s,j)=>j===i?{...s,goal:e.target.value}:s))} style={{...numIn,flex:1,minWidth:90}}/>
                               <span style={{fontSize:9,color:_lm?"#94a3b8":"#5a7ba0",width:78,textAlign:"right",flexShrink:0}}>{perDay>0?`${fmtKs(perDay)}/day`:(dd>0?`${dd}d`:"")}</span>
                               {segments.length>1 && <button type="button" onClick={()=>update(segments.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:_lm?"#cbd5e1":"#4d6e8a",fontSize:14,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>}
                             </div>
@@ -3795,7 +3806,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                       </div>
                       <div style={{marginTop:8,paddingTop:7,borderTop:`1px solid ${_lm?"#dbeafe":"#0a2540"}`,display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,gap:8,flexWrap:"wrap"}}>
                         <button type="button" onClick={()=>update([...segments,{start:"",end:"",goal:""}])} style={{background:_lm?"#eff6ff":"#0a2540",border:`1px solid ${_lm?"#bfdbfe":"#00d9ff40"}`,borderRadius:5,color:_lm?"#1d4ed8":"#00d9ff",fontSize:10,fontWeight:700,padding:"3px 10px",cursor:"pointer"}}>+ Add flight window</button>
-                        <span style={{color:_lm?"#1d4ed8":"#00d9ff",fontWeight:700}}>Total: {fmtKs(total)} impr</span>
+                        <span style={{color:_lm?"#1d4ed8":"#00d9ff",fontWeight:700}}>Total: {fmtKs(total)} {unit}</span>
                       </div>
                     </div>
                   );
@@ -4429,6 +4440,9 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     SEM:   { metric:"CTR", warn:2.0,  bad:1.0,  unit:"%", label:"CTR",             desc:"Search",           cpmWarn:8,  cpmBad:15 },
     CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV",     cpmWarn:25, cpmBad:45 },
     OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming",  cpmWarn:25, cpmBad:45 },
+    GCTV:  { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Madhive General CTV",  cpmWarn:16, cpmBad:22 },
+    PCTV:  { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Madhive Premium CTV",  cpmWarn:22, cpmBad:30 },
+    AECTV: { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Madhive Audience Ext TV", cpmWarn:16, cpmBad:22 },
     TDV:   { metric:"VCR", warn:80,   bad:65,   unit:"%", label:"Completion Rate", desc:"TradeDesk Video",  cpmWarn:8,  cpmBad:15 },
     TDA:   { metric:"VCR", warn:90,   bad:80,   unit:"%", label:"Completion Rate", desc:"TradeDesk Audio",  cpmWarn:8,  cpmBad:15 },
     YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube",          cpmWarn:8,  cpmBad:15 },
@@ -7586,6 +7600,10 @@ const PLT_KPI = {
   SP:    { primary:"CTR", good:0.0008, ok:0.0003, label:"CTR",        tip:"Good >0.08% · OK >0.03%" },
   CTV:   { primary:"VCR", good:0.95,   ok:0.85,   label:"Completion", tip:"Good >95% · OK >85%"     },
   OTT:   { primary:"VCR", good:0.95,   ok:0.85,   label:"Completion", tip:"Good >95% · OK >85%"     },
+  // Madhive CTV (General/Premium/Audience-Extension) — completion-rate driven, same as other CTV.
+  GCTV:  { primary:"VCR", good:0.95,   ok:0.85,   label:"Completion", tip:"Good >95% · OK >85%"     },
+  PCTV:  { primary:"VCR", good:0.95,   ok:0.85,   label:"Completion", tip:"Good >95% · OK >85%"     },
+  AECTV: { primary:"VCR", good:0.95,   ok:0.85,   label:"Completion", tip:"Good >95% · OK >85%"     },
   TDV:   { primary:"VCR", good:0.80,   ok:0.65,   label:"Completion", tip:"Good >80% · OK >65%"     },
   TDA:   { primary:"VCR", good:0.90,   ok:0.80,   label:"Completion", tip:"Good >90% · OK >80% (audio listen-through)" },
   SEM:   { primary:"CTR", good:0.05,   ok:0.02,   label:"CTR",        tip:"Good >5% · OK >2%"       },
@@ -8731,6 +8749,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                         <span style={{fontSize:10,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:600,fontVariantNumeric:"tabular-nums"}} title="MTD impressions">{parseInt(b.impressions||0).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}> impr</span></span>
                         {b.spend>0&&<span style={{fontSize:10,color:"#f472b6",fontWeight:600}} title="MTD spend">${Math.round(b.spend).toLocaleString()}</span>}
                         {b.ctr>0&&<span style={{fontSize:10,color:"#00ffb3",fontWeight:600}} title="MTD CTR">{b.ctr.toFixed(2)}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}>%</span></span>}
+                        {b.vcr>0&&<span style={{fontSize:10,color:"#818cf8",fontWeight:600}} title="MTD video completion rate">{Math.round(b.vcr)}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400}}>% VCR</span></span>}
                         {/* Move-line button — see TableRow version for context */}
                         <button onClick={()=>setReassignTarget({ line:b, fromCampaignId:c.id, snapField, snapKey })}
                           title="Move this line to a different campaign"
@@ -9405,7 +9424,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               return (
                 <div key={b.id} style={{display:"flex",alignItems:"center",gap:10,background:lightMode?"#ffffff":"#0a1320",border:`1px solid ${isQuiet?(lightMode?"#fca5a5":"#7f1d1d"):(lightMode?"#e2e8f0":"#1a2744")}`,borderRadius:5,padding:"6px 10px"}}>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:11,color:lightMode?"#334155":"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={b.name}>{b.name}</div>
+                    {/* Name + (left-side) NOT RUNNING badge. Keeping the badge here — in the flex:1 column
+                        that absorbs slack — means a not-running line never widens the fixed metric columns,
+                        so MTD/Yest values stay perfectly aligned across every row. */}
+                    <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+                      <span style={{fontSize:11,color:lightMode?"#334155":"#a8c4e0",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}} title={b.name}>{b.name}</span>
+                      {yestLead===0&&<span style={{flexShrink:0,fontSize:9,color:lightMode?"#dc2626":"#ef4444",fontWeight:700,background:lightMode?"#fee2e2":"#3a0010",padding:"1px 5px",borderRadius:3}}>NOT RUNNING</span>}
+                    </div>
                     <div style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",marginTop:1}}>{pctOfTotal.toFixed(0)}% of total {leadLabel}{isQuiet?" · ⚠ not running":""}</div>
                   </div>
                   {/* MTD column — every cell is a fixed slot so columns stay aligned
@@ -9415,7 +9440,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                     <span style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",fontWeight:700,textTransform:"uppercase"}}>MTD</span>
                     <span style={{fontSize:11,color:lightMode?"#0f172a":"#d8eaf8",fontWeight:700,fontVariantNumeric:"tabular-nums",minWidth:70,textAlign:"right"}}>{parseInt(bLead||0).toLocaleString()}<span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400,fontSize:9}}> {leadLabel}</span></span>
                     <span style={{fontSize:11,color:b.clicks>0?"#a3bffa":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{b.clicks>0?`${parseInt(b.clicks).toLocaleString()} clk`:"—"}</span>
-                    <span style={{fontSize:11,color:b.ctr>0?"#00ffb3":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{b.ctr>0?`${b.ctr.toFixed(2)}%`:"—"}</span>
+                    {/* CTV/video lines carry a completion rate (VCR) instead of a meaningful CTR — show it. */}
+                    {b.vcr>0
+                      ? <span style={{fontSize:11,color:"#818cf8",fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}} title="MTD video completion rate">{Math.round(b.vcr)}% <span style={{color:lightMode?"#94a3b8":"#3d5a72",fontWeight:400,fontSize:9}}>VCR</span></span>
+                      : <span style={{fontSize:11,color:b.ctr>0?"#00ffb3":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{b.ctr>0?`${b.ctr.toFixed(2)}%`:"—"}</span>}
                     <span style={{fontSize:11,color:b.spend>0?"#f472b6":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{b.spend>0?`$${Math.round(b.spend).toLocaleString()}`:"—"}</span>
                   </div>
                   {/* YESTERDAY column — fixed slots same as MTD so values line up
@@ -9431,7 +9459,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                       </span>
                       <span style={{fontSize:11,color:(yestClk!=null&&yestClk>0)?"#a3bffa":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{(yestClk!=null&&yestClk>0)?`${yestClk.toLocaleString()} clk`:"—"}</span>
                       <span style={{fontSize:11,color:(yestSpend!=null&&yestSpend>0)?"#f472b6":lmTxtD,fontWeight:600,minWidth:55,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{(yestSpend!=null&&yestSpend>0)?`$${Math.round(yestSpend).toLocaleString()}`:"—"}</span>
-                      {yestLead===0&&<span style={{fontSize:9,color:lightMode?"#dc2626":"#ef4444",fontWeight:700,background:lightMode?"#fee2e2":"#3a0010",padding:"1px 5px",borderRadius:3}}>NOT RUNNING</span>}
                     </div>
                   )}
                   {/* Reassign button — opens search modal to move this line to another campaign.
@@ -13777,27 +13804,36 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       scoped.forEach(r => {
         const name = String(r["Campaign Name"]||"").trim(); if(!name) return;
         const a = agg[name] || (agg[name] = { name, impr:0, spend:0, clicks:0, clicksKnown:false,
-                                              completed:0, days:new Set(), adgroups:new Set(), last:"" });
+                                              completed:0, days:new Set(), adgroups:new Set(), last:"", byGroup:{} });
         const impr = parseInt(String(r["Impressions"]??"").replace(/[^0-9-]/g,""))||0;
+        const spend = parseFloat(String(r["Spend"]??"").replace(/[$,\s]/g,""))||0;
         a.impr  += impr;
-        a.spend += parseFloat(String(r["Spend"]??"").replace(/[$,\s]/g,""))||0;
+        a.spend += spend;
         // Click === -1 is TVsci's "not available" sentinel, NOT a count — CTV placements often report
         // no clicks at all (a real 0 shows up separately, so -1 can't mean zero). It's ~43% of rows.
         // Summing -1s hands a campaign NEGATIVE clicks. Count only real rows; if none, stay unknown.
         const rawClick = parseFloat(String(r["Click"]??""));
-        if(Number.isFinite(rawClick) && rawClick >= 0){ a.clicks += rawClick; a.clicksKnown = true; }
+        const realClick = Number.isFinite(rawClick) && rawClick >= 0;
+        if(realClick){ a.clicks += rawClick; a.clicksKnown = true; }
         // Completed View Rate % is a RATE (0.96 = 96%), so it can't be averaged flat across rows of
         // wildly different size — weight it by that row's impressions and divide at the end.
         const cvr = parseFloat(String(r["Completed View Rate %"]??""))||0;
-        a.completed += (cvr <= 1 ? cvr : cvr/100) * impr;
+        const cvrCompleted = (cvr <= 1 ? cvr : cvr/100) * impr;
+        a.completed += cvrCompleted;
         const dk = tvsciDate(r["Date"]);
         if(dk){ const iso = `${dk.getFullYear()}-${String(dk.getMonth()+1).padStart(2,"0")}-${String(dk.getDate()).padStart(2,"0")}`;
                 a.days.add(iso); if(iso > a.last) a.last = iso; }
         // Both spellings seen: "Adgroup Name" (per-day export) and "Ad Group Name" (the MTD one).
         const grp = r["Ad Group Name"] ?? r["Adgroup Name"];
+        const grpName = (grp && String(grp).trim()) || "(no ad group)";
         if(grp) a.adgroups.add(String(grp).trim());
+        // Per-ad-group sub-totals → the line-item breakdown shown in the Pacing dropdown (like FB ad sets).
+        const bg = a.byGroup[grpName] || (a.byGroup[grpName] = { impr:0, spend:0, completed:0, clicks:0, clicksKnown:false });
+        bg.impr += impr; bg.spend += spend; bg.completed += cvrCompleted;
+        if(realClick){ bg.clicks += rawClick; bg.clicksKnown = true; }
       });
-      // One synthetic row per campaign, carrying the canonical keys extractMetrics reads below.
+      // One synthetic row per campaign, carrying the canonical keys extractMetrics reads below, plus a
+      // pre-built __breakdown of its ad groups (the apply picks this up instead of one lump line).
       rows = Object.values(agg).map(a => ({
         "Campaign Name": a.name,
         "Impressions": a.impr,
@@ -13805,6 +13841,15 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         ...(a.clicksKnown ? { "Click": a.clicks } : {}),           // omitted entirely when unknown
         "Completed View Rate %": a.impr > 0 ? (a.completed / a.impr) * 100 : 0,
         __days: a.days.size, __adgroups: a.adgroups.size, __lastDate: a.last,
+        __breakdown: Object.entries(a.byGroup).map(([gname,bg])=>({
+          name: gname,
+          impressions: bg.impr,
+          spend: bg.spend,
+          clicks: bg.clicksKnown ? bg.clicks : 0,
+          ctr: (bg.clicksKnown && bg.impr>0) ? (bg.clicks/bg.impr)*100 : 0,
+          vcr: bg.impr>0 ? (bg.completed/bg.impr)*100 : 0,
+          videoViews: 0,
+        })).sort((x,y)=>y.impressions-x.impressions),
       }));
       // Only the per-day shape can date itself. When it can, stamp "data as of" from the file's own
       // most recent day instead of leaving it at "now" — these are whole-day totals, so the data runs
@@ -14216,21 +14261,27 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if(m.videoViews>0) updates[campId].videoViews+=m.videoViews;
       if(m.completionRate>0) updates[campId].completionRate=m.completionRate;
       if(parseFloat(m.frequency)>0){ updates[campId].frequency+=parseFloat(m.frequency); updates[campId].freqCount++; }
-      // Per-line breakdown — preserve each CSV row's stats so user can see what's happening
-      // at the ad-set / line-item level (e.g. retargeting vs prospecting under one FB campaign)
-      const lineName = ((fileSource==="DSP"||fileSource==="Madhive") ? (row["Line Item Name"]||row["line item name"]||"") : getCampName(row, fileSource)) || `Line ${updates[campId].breakdown.length+1}`;
-      // CTR displayed as percent (0-100); m.ctr is stored as ratio (0.003 = 0.3%)
-      const lineCtr = m.ctr > 1 ? m.ctr : m.ctr * 100;
-      updates[campId].breakdown.push({
-        id: `${idxStr}-${campId}`,
-        name: lineName,
-        impressions: m.impressions,
-        clicks: m.clicks,
-        spend: m.spend,
-        ctr: lineCtr,
-        videoViews: m.videoViews,
-        vcr: m.completionRate,
-      });
+      // Per-line breakdown — preserve each CSV row's stats so user can see what's happening at the
+      // ad-set / line-item level (e.g. retargeting vs prospecting under one FB campaign).
+      // TVsci Daily rows carry a PRE-BUILT __breakdown (one line per ad group, since the source rolls all
+      // its daily rows up to one synthetic campaign row) — splice those in whole instead of a lump line.
+      if (Array.isArray(row.__breakdown) && row.__breakdown.length) {
+        row.__breakdown.forEach((bl, bi) => updates[campId].breakdown.push({ id:`${idxStr}-${campId}-${bi}`, ...bl }));
+      } else {
+        const lineName = ((fileSource==="DSP"||fileSource==="Madhive") ? (row["Line Item Name"]||row["line item name"]||"") : getCampName(row, fileSource)) || `Line ${updates[campId].breakdown.length+1}`;
+        // CTR displayed as percent (0-100); m.ctr is stored as ratio (0.003 = 0.3%)
+        const lineCtr = m.ctr > 1 ? m.ctr : m.ctr * 100;
+        updates[campId].breakdown.push({
+          id: `${idxStr}-${campId}`,
+          name: lineName,
+          impressions: m.impressions,
+          clicks: m.clicks,
+          spend: m.spend,
+          ctr: lineCtr,
+          videoViews: m.videoViews,
+          vcr: m.completionRate,
+        });
+      }
     });
     // Build the updated campaign object from a base campaign `c` and its aggregated update `u`.
     // Shared by both the active-campaign map and the recently-archived map below, so a final
@@ -14256,6 +14307,10 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                       // Madhive → ttdSnapshots so its per-line breakdown shows in the Pacing viewer,
                       // just like FB. Madhive's GCTV/PCTV/AECTV never collide with TradeDesk campaigns.
                       : fileSource==="Madhive"       ? "ttdSnapshots"
+                      // TVsci Daily → ttdSnapshots too, so CTV/OTT campaigns get a snapshot + per-ad-group
+                      // breakdown in the Pacing dropdown (CTV/OTT/OTTD are ttd-family in SNAPSHOT_PLATFORMS,
+                      // so no collision). Without this the source wrote flat fields only — no breakdown.
+                      : fileSource==="TVsci Daily"   ? "ttdSnapshots"
                       : null;
       // Roll over the existing breakdown into priorBreakdown ONLY if its date is
       // earlier than today — that's what lets us diff yesterday's per-line stats
@@ -22371,7 +22426,15 @@ export default function App() {
       {editTarget && <Modal
         campaign={editTarget}
         onValuesChange={u => updateCampaign({...editTarget, ...u})}
-        onSave={u=>{ updateCampaign(u); setEditTarget(null); }}
+        onSave={u=>{
+          // Saving re-renders the whole list, which drops the scroll position (bumps to the top) — most
+          // noticeable when editing from deep in the Pacing tab. Capture scroll and restore it after the
+          // re-render (double rAF), same as the pacing pause/clear handlers.
+          const sy = (typeof window!=="undefined") ? window.scrollY : 0;
+          updateCampaign(u); setEditTarget(null);
+          if(typeof window!=="undefined" && typeof requestAnimationFrame==="function")
+            requestAnimationFrame(()=>requestAnimationFrame(()=>window.scrollTo(0, sy)));
+        }}
         onClose={()=>setEditTarget(null)}
         onSwitchTactic={(oldPatched, newCamp)=>{
           // Mid-flight tactic switch: archive the pre-switch (capped) campaign — it stays booked in the
