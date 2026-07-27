@@ -216,6 +216,57 @@ const initialCampaigns = [{"mediaPartner":"WVR","campaignName":"Harry Green CDJR
 const ALL_PLATFORMS_DEFAULT = ["FB","FBV","DSP","CTV","GCTV","PCTV","AECTV","OTT","OTTD","SP","SEM","TD","TDV","TDA","NFLX","HULU","DSNY","AMZN","PCOK","TT","IG","YT","EMAIL"];
 const CUSTOM_PLATFORMS_KEY = "campaign-tracker-custom-platforms";
 const CUSTOM_BENCHMARKS_KEY = "campaign-tracker-zeus-benchmarks";
+
+// ── KPI benchmarks — ONE source of truth ──────────────────────────────────────────────────────────
+// The Zeus tab's Benchmarks editor writes localStorage["zeus-benchmarks"]; the Pacing tab AND the Home
+// health drill-down read the SAME values through here, so a threshold Austin sets shows up everywhere.
+// CTR warn/bad are in PERCENT (0.10 = 0.10%); VCR warn/bad are 0–100; cpmWarn/cpmBad are dollars.
+const BENCHMARKS_DEFAULT = {
+  FB:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Meta Feed",        cpmWarn:12, cpmBad:20 },
+  FBV:   { metric:"VCR", warn:50,   bad:30,   unit:"%", label:"Video Completion", desc:"Meta Video",       cpmWarn:10, cpmBad:18 },
+  IG:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Instagram",        cpmWarn:12, cpmBad:20 },
+  DSP:   { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"DSP Display",      cpmWarn:6,  cpmBad:12 },
+  TD:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"The Trade Desk",   cpmWarn:6,  cpmBad:12 },
+  SP:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"Snapchat",         cpmWarn:5,  cpmBad:10 },
+  SEM:   { metric:"CTR", warn:2.0,  bad:1.0,  unit:"%", label:"CTR",             desc:"Search",           cpmWarn:8,  cpmBad:15 },
+  CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV",     cpmWarn:25, cpmBad:45 },
+  OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming",  cpmWarn:25, cpmBad:45 },
+  GCTV:  { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Madhive General CTV",  cpmWarn:16, cpmBad:22 },
+  PCTV:  { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Madhive Premium CTV",  cpmWarn:22, cpmBad:30 },
+  AECTV: { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Madhive Audience Ext TV", cpmWarn:16, cpmBad:22 },
+  TDV:   { metric:"VCR", warn:80,   bad:65,   unit:"%", label:"Completion Rate", desc:"TradeDesk Video",  cpmWarn:8,  cpmBad:15 },
+  TDA:   { metric:"VCR", warn:90,   bad:80,   unit:"%", label:"Completion Rate", desc:"TradeDesk Audio",  cpmWarn:8,  cpmBad:15 },
+  YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube",          cpmWarn:8,  cpmBad:15 },
+  TT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"Video Completion", desc:"TikTok",           cpmWarn:8,  cpmBad:14 },
+  EMAIL: { metric:"CTR", warn:1.0,  bad:0.5,  unit:"%", label:"Click Rate",      desc:"Email",            cpmWarn:5,  cpmBad:10 },
+};
+function loadBenchmarks(){ try { const s=localStorage.getItem("zeus-benchmarks"); return s ? {...BENCHMARKS_DEFAULT, ...JSON.parse(s)} : BENCHMARKS_DEFAULT; } catch { return BENCHMARKS_DEFAULT; } }
+const _bnum = v => { const x=parseFloat(String(v==null?"":v).replace(/[^0-9.\-]/g,"")); return isNaN(x)?null:x; };
+// Grade one campaign's KPIs against a benchmark set. sev: 0 = good/none, 2 = yellow (below warn / above cpmWarn),
+// 3 = red (below bad / above cpmBad). Returns whichever of ctr/vcr/cpm apply, plus the worst severity.
+function gradeCampaignKpis(c, benchmarks){
+  const bm = (benchmarks||BENCHMARKS_DEFAULT)[c.platform] || null;
+  const out = { ctr:null, vcr:null, cpm:null, worst:0, bm };
+  if(!bm) return out;
+  if(bm.metric==="CTR"){
+    const r=_bnum(c.ctr); // stored as a ratio (0.0025 = 0.25%)
+    if(r!=null && (_bnum(c.impressions)||0)>0){ const pct=r*100; const sev = pct>=bm.warn?0:pct>=bm.bad?2:3; if(sev) out.ctr={pct,sev}; }
+  } else if(bm.metric==="VCR"){
+    const pct=_bnum(c.completionRate); // stored as a percent (85 = 85%)
+    if(pct!=null && pct>0){ const sev = pct>=bm.warn?0:pct>=bm.bad?2:3; if(sev) out.vcr={pct,sev}; }
+  }
+  const cpm=_bnum(c.cpm);
+  if(cpm!=null && cpm>0 && bm.cpmWarn!=null){ const sev = cpm<=bm.cpmWarn?0:cpm<=bm.cpmBad?2:3; if(sev) out.cpm={val:cpm,sev}; }
+  out.worst = Math.max(out.ctr?.sev||0, out.vcr?.sev||0, out.cpm?.sev||0);
+  return out;
+}
+// Severe pacing test — shared by the Home drill-down and the Pacing "trouble" filter.
+function severePacing(pacing){
+  if(!pacing) return null;
+  if(pacing.label==="Behind" && pacing.ratio!=null && pacing.ratio<0.6) return { dir:"under", pct:Math.round(pacing.ratio*100) };
+  if(pacing.pctRaw!=null && pacing.pctRaw>1.25) return { dir:"over", pct:Math.round(pacing.pctRaw*100) };
+  return null;
+}
 function loadCustomPlatforms() { try{const s=localStorage.getItem(CUSTOM_PLATFORMS_KEY);return s?JSON.parse(s):{platforms:[],colors:{}}}catch{return{platforms:[],colors:{}}}}
 function saveCustomPlatforms(d){try{localStorage.setItem(CUSTOM_PLATFORMS_KEY,JSON.stringify(d))}catch(e){}}
 // ALL_PLATFORMS stays as a live array that includes custom additions
@@ -323,6 +374,7 @@ function resolveInboxUrl(manifestUrl, fileUrl){
 // signs in with their own Microsoft 365 account and sees only THEIR own calendar. Powered by MSAL
 // (window.msal, loaded in index.html). Everything degrades gracefully when unconfigured / offline.
 const OUTLOOK_CFG_KEY = "campaign-tracker-outlook"; // { clientId, tenantId, redirectUri, enabled }
+const OUTLOOK_EVENTS_CACHE = "zeus-outlook-events"; // { ts, events } — last synced meetings, so the AI brief can read the calendar
 function loadOutlookCfg(){ try{ const s=localStorage.getItem(OUTLOOK_CFG_KEY); return s?{clientId:"",tenantId:"",redirectUri:"",enabled:false,...JSON.parse(s)}:{clientId:"",tenantId:"",redirectUri:"",enabled:false}; }catch{ return {clientId:"",tenantId:"",redirectUri:"",enabled:false}; } }
 function saveOutlookCfg(c){ try{ localStorage.setItem(OUTLOOK_CFG_KEY, JSON.stringify(c||{})); }catch(e){} }
 const OUTLOOK_SCOPES = ["User.Read", "Calendars.Read"];
@@ -4429,26 +4481,8 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     });
   }
 
-  // ── Editable KPI benchmarks ─────────────────────────────────────────────────
-  const defaultBenchmarks = {
-    FB:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Meta Feed",        cpmWarn:12, cpmBad:20 },
-    FBV:   { metric:"VCR", warn:50,   bad:30,   unit:"%", label:"Video Completion", desc:"Meta Video",       cpmWarn:10, cpmBad:18 },
-    IG:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Instagram",        cpmWarn:12, cpmBad:20 },
-    DSP:   { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"DSP Display",      cpmWarn:6,  cpmBad:12 },
-    TD:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"The Trade Desk",   cpmWarn:6,  cpmBad:12 },
-    SP:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"Snapchat",         cpmWarn:5,  cpmBad:10 },
-    SEM:   { metric:"CTR", warn:2.0,  bad:1.0,  unit:"%", label:"CTR",             desc:"Search",           cpmWarn:8,  cpmBad:15 },
-    CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV",     cpmWarn:25, cpmBad:45 },
-    OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming",  cpmWarn:25, cpmBad:45 },
-    GCTV:  { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Madhive General CTV",  cpmWarn:16, cpmBad:22 },
-    PCTV:  { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Madhive Premium CTV",  cpmWarn:22, cpmBad:30 },
-    AECTV: { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Madhive Audience Ext TV", cpmWarn:16, cpmBad:22 },
-    TDV:   { metric:"VCR", warn:80,   bad:65,   unit:"%", label:"Completion Rate", desc:"TradeDesk Video",  cpmWarn:8,  cpmBad:15 },
-    TDA:   { metric:"VCR", warn:90,   bad:80,   unit:"%", label:"Completion Rate", desc:"TradeDesk Audio",  cpmWarn:8,  cpmBad:15 },
-    YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube",          cpmWarn:8,  cpmBad:15 },
-    TT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"Video Completion", desc:"TikTok",           cpmWarn:8,  cpmBad:14 },
-    EMAIL: { metric:"CTR", warn:1.0,  bad:0.5,  unit:"%", label:"Click Rate",      desc:"Email",            cpmWarn:5,  cpmBad:10 },
-  };
+  // ── Editable KPI benchmarks (shared module-level default — see BENCHMARKS_DEFAULT) ──────────────
+  const defaultBenchmarks = BENCHMARKS_DEFAULT;
   const [kpiBenchmarks, setKpiBenchmarks] = useState(() => {
     try { const s = localStorage.getItem("zeus-benchmarks"); return s ? {...defaultBenchmarks,...JSON.parse(s)} : defaultBenchmarks; } catch { return defaultBenchmarks; }
   });
@@ -4471,9 +4505,12 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
   // ── LLM settings ─────────────────────────────────────────────────────────────
   // ── LLM Settings ─────────────────────────────────────────────────────────────
   const LLM_DEFAULTS = {
-    mode: "groq",          // "groq" | "ollama" | "superagent"
+    mode: "groq",          // "groq" | "claude" | "ollama" | "superagent"
     groqApiKey: "",        // stored in localStorage only — never in code
     groqModel: "llama-3.3-70b-versatile",
+    anthropicApiKey: "",   // Austin's own Claude key — browser-local only, never in code/GitHub
+    anthropicModel: "claude-haiku-4-5", // cheapest Claude ($1/$5 per 1M) — plenty for the brief
+    anthropicMaxOut: 1500,
     endpoint: "http://localhost:11434",
     model: "gemma4:e4b",
     superagentEndpoint: "http://localhost:11434",
@@ -4489,8 +4526,14 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
   });
   useEffect(() => { try { localStorage.setItem("zeus-llm-settings", JSON.stringify(llmSettings)); } catch(e) {} }, [llmSettings]);
 
+  const CLAUDE_MODELS = [
+    { model:"claude-haiku-4-5", label:"Claude Haiku 4.5", desc:"Cheapest — $1/$5 per 1M · best for daily brief" },
+    { model:"claude-sonnet-5",  label:"Claude Sonnet 5",  desc:"Sharper — $3/$15 per 1M" },
+    { model:"claude-opus-4-8",  label:"Claude Opus 4.8",  desc:"Most capable — $5/$25 per 1M" },
+  ];
   const activeModelLabel =
     llmSettings.mode === "groq" ? `Groq · ${llmSettings.groqModel||"llama-3.3-70b-versatile"}` :
+    llmSettings.mode === "claude" ? `Claude · ${(CLAUDE_MODELS.find(m=>m.model===llmSettings.anthropicModel)||{}).label||llmSettings.anthropicModel||"Haiku 4.5"}` :
     llmSettings.mode === "superagent" ? (llmSettings.superagentModel||"Superagent") :
     `Ollama · ${llmSettings.model||"gemma4:e4b"}`;
 
@@ -4531,6 +4574,38 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
         if (!text) throw new Error("Empty response from Groq");
         return text;
       }
+
+    } else if (llmSettings.mode === "claude") {
+      // Anthropic Messages API, called direct from the browser for LOCAL TESTING with Austin's own
+      // key. The key lives only in his browser (localStorage) — never in code or GitHub. Note: a
+      // browser-direct call exposes the key to anyone with devtools on this machine, so this is fine
+      // for his own laptop but a tiny proxy is required before the tracker is shared/deployed.
+      const key = llmSettings.anthropicApiKey;
+      if (!key) throw new Error("No Claude API key set. Add it in Zeus ⚙️ Settings → Claude.");
+      const model = llmSettings.anthropicModel || "claude-haiku-4-5";
+      // Anthropic takes the system prompt as a top-level param, and user/assistant turns only.
+      const convo = messages.filter(m=>m.role!=="system").map(m=>({ role:m.role, content:m.content }));
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({ model, max_tokens: maxTokens, system: SYSTEM, messages: convo }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        if (res.status === 401) throw new Error("Claude rejected the key (401). Double-check the key in Settings → Claude.");
+        if (res.status === 429) throw new Error("Claude rate/credit limit hit (429). Check your usage credits at console.anthropic.com.");
+        throw new Error(`Claude error ${res.status}: ${err.slice(0,200)}`);
+      }
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message||"Claude error");
+      const text = (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("").trim();
+      if (!text) throw new Error("Empty response from Claude");
+      return text;
 
     } else if (llmSettings.mode === "superagent") {
       if (!llmSettings.superagentEndpoint) throw new Error("No superagent endpoint set.");
@@ -4669,6 +4744,14 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     const kpiAlerts = getKpiAlerts();
     const predictions = getPredictions();
 
+    // Days since a campaign last had REAL data (metric update / QCI drop / manual check).
+    const daysSinceData = (c)=>{
+      const cand = [c.lastMetricUpdate, c.lastQciDate, c.lastChecked].filter(x=>x&&/^\d{4}-\d{2}-\d{2}/.test(x)).map(x=>x.slice(0,10)).sort();
+      const last = cand.pop(); if(!last) return null;
+      return Math.max(0, Math.round((new Date(today+"T00:00:00") - new Date(last+"T00:00:00"))/86400000));
+    };
+    const _hlthScores = []; // collected for the portfolio roll-up
+
     // ── Lean row builder — only include fields that have values ──────────────
     const rows = active.map(c => {
       const disp = resolveMetrics(c, dateRange.preset);
@@ -4708,6 +4791,16 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       if(kpiValue)            row.kpi  = `${kpiLabel}:${kpiValue}`;
       if(pacing)              row.pac  = `${pacing.label}:${Math.round(pacing.pct*100)}%:${pacing.delivered}/${pacing.goal}`;
       if(pred)                row.pred = `${pred.status}:${pred.projectedPct}%`;
+      // Deterministic health score (same fn the Home hero uses) — so the AI ranks the day by it.
+      const _dsd = daysSinceData(c);
+      const _hs = scoreCampaignHealth({
+        pacingLabel: pacing?pacing.label:null, pacingRatio: pacing?pacing.ratio:null, pacingPctRaw: pacing?pacing.pctRaw:null,
+        daysSinceData: _dsd, hasData: !!(c.lastMetricUpdate||c.lastQciDate) || (parseFloat(c.impressions)||0)>0,
+        daysLeft: getDaysLeft(c.endDate), hasRate: (parseFloat(c.contractRate)||0)>0, isSEM: c.platform==="SEM",
+      });
+      row.hlth = _hs.score;
+      if(_hs.reasons.length) row.hwhy = _hs.reasons.join("; ");
+      _hlthScores.push(_hs.score);
       if(c.monthlyFlight)     row.mf   = 1;
       if(c.retargeting)       row.rt   = 1;
       // Only include last 2 history lines to save space
@@ -4746,6 +4839,19 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       }));
     } catch(e) {}
 
+    // ── Calendar (Outlook) — next-7-day meetings from the last sync, so the brief can prioritise
+    //    the day around real appointments, not just campaigns. Read from the cache the Home sync writes.
+    let meetings = [];
+    try {
+      const oc = JSON.parse(localStorage.getItem(OUTLOOK_EVENTS_CACHE)||"null");
+      if(oc && Array.isArray(oc.events)) {
+        meetings = oc.events
+          .filter(ev=>ev && ev.start && String(ev.start).slice(0,10) >= today)
+          .slice(0,12)
+          .map(ev=>({ when:String(ev.start).slice(0,16).replace("T"," "), title:ev.subject, allDay:!!ev.allDay, online:!!ev.online, loc:ev.location||undefined }));
+      }
+    } catch(e) {}
+
     // ── Zeus memory ───────────────────────────────────────────────────────────
     let zeusMemory = "";
     try {
@@ -4753,11 +4859,21 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       zeusMemory = buildMemoryString(parseStructuredMemory(raw)).slice(0,500);
     } catch(e) {}
 
+    // Portfolio health = average of active-campaign scores + A/B/C/D distribution.
+    const portfolioHealth = _hlthScores.length ? (()=>{
+      const avg = Math.round(_hlthScores.reduce((a,b)=>a+b,0)/_hlthScores.length);
+      const band = healthBand(avg);
+      const dist = {A:0,B:0,C:0,D:0}; _hlthScores.forEach(s=>{ dist[healthBand(s).grade]++; });
+      return { score:avg, grade:band.grade, label:band.label, dist };
+    })() : undefined;
+
     return {
       today,
       active:active.length,
       archived:archive.length,
       overdueReminders:reminders.filter(r=>!r.dismissed&&r.date<today).length,
+      health: portfolioHealth,
+      meetings: meetings.length>0?meetings:undefined,
       endingSoon,
       alerts:slimAlerts,
       atRisk:slimPreds,
@@ -5044,32 +5160,42 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
           status:dt.status, daysLeft:dt.daysLeft } : null;
       }).filter(Boolean);
 
-      const prompt = `Today is ${dayName}, ${dateStr}. Generate Austin's morning campaign briefing.
+      const prompt = `Today is ${dayName}, ${dateStr}. Generate Austin's morning campaign briefing AND prioritize his day.
 
 Full tracker data:
 ${JSON.stringify({...ctx, dailyPacing:dailySnap})}
+
+Data notes:
+- "health" is the portfolio health score (0–100) with an A/B/C/D distribution. Each campaign row has "hlth" (its 0–100 score) and "hwhy" (why it lost points). LOWER score = more urgent. Use these to rank what matters.
+- "meetings" is Austin's Outlook calendar for the next 7 days (may be absent if not connected).
 
 Write a clean morning briefing in this EXACT format — no extra sections, no fluff:
 
 GOOD MORNING, AUSTIN ☀️
 ${dayName}, ${dateStr}
 
+💚 PORTFOLIO HEALTH
+[One line: the health score out of 100, its grade, and the A/B/C/D split. Then name the 1–2 lowest-scoring campaigns (lowest "hlth") and why, using "hwhy". If no health data, skip this section.]
+
 🚨 NEEDS ATTENTION TODAY
-[List any campaigns that are behind pace, have critical KPIs, are ending this week, or have stale creatives. One line each: Campaign name · Partner · issue · specific number. If nothing urgent, write "All clear — no critical flags."]
+[Campaigns that are behind pace, have critical KPIs, are ending this week, or are stale. One line each: Campaign name · Partner · issue · specific number. If nothing urgent, write "All clear — no critical flags."]
 
 📊 PACING SNAPSHOT
 [For each campaign with impression data, one line: Campaign name (Platform) — X delivered, needs Y/day, [On Track / Behind / Ahead]. Group by partner. Skip campaigns with no impressions.]
 
+📅 TODAY'S SCHEDULE
+[If "meetings" has items today, list today's meetings: time · title. If none today, write "No meetings today." Skip this section entirely only if "meetings" is absent.]
+
 ⏰ ENDING THIS WEEK
 [Campaigns ending in 7 days. Name · Partner · end date · days left. If none, skip this section entirely.]
 
-💡 3 THINGS TO DO TODAY
-[Exactly 3 specific actions, ranked by priority. Be direct — "Call Alpha Jackson about Job Corps CTR" not "Consider reviewing performance".]
+💡 YOUR DAY, PRIORITIZED
+[Exactly 3 specific actions, ranked most-urgent first. Weigh them by campaign health (lowest "hlth" first), things ending soonest, and any meetings that need prep. Be direct and concrete — "Call Alpha Jackson about Job Corps — behind at 58%, needs 12K/day" not "Consider reviewing performance". If a meeting today relates to a campaign, tie the prep to it.]
 
 ---
 Briefing by Zeus ⚡
 
-Rules: Use real campaign names and numbers from the data. Keep each line short and scannable. No corporate language. If a section has nothing to report, skip it entirely except PACING SNAPSHOT and 3 THINGS TO DO TODAY which are always included.`;
+Rules: Use real campaign names and numbers from the data. Keep each line short and scannable. No corporate language. If a section has nothing to report, skip it entirely except PACING SNAPSHOT and YOUR DAY, PRIORITIZED which are always included.`;
 
       const text = await callLLM([{role:"user", content:prompt}], 1200);
       setBriefing(text);
@@ -5476,7 +5602,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                   {briefing.split("\n").map((line,i)=>{
                     if (!line.trim()) return <div key={i} style={{height:6}}/>;
                     // Section headers
-                    if (/^(🚨|📊|⏰|💡|GOOD MORNING|---)/i.test(line.trim())) {
+                    if (/^(🚨|📊|⏰|💡|💚|📅|GOOD MORNING|---)/i.test(line.trim())) {
                       if (line.trim().startsWith("---")) return <div key={i} style={{borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,margin:"12px 0"}}/>;
                       if (line.trim().startsWith("GOOD MORNING")) return <div key={i} style={{fontSize:16,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginBottom:2}}>{line}</div>;
                       return <div key={i} style={{fontSize:13,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginTop:16,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>{line}</div>;
@@ -6035,9 +6161,10 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
           {/* Mode tabs */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
             {[
-              {key:"groq",       label:"⚡ Groq",        desc:"Free cloud API — recommended", color:"#f97316"},
+              {key:"groq",       label:"⚡ Groq",        desc:"Free cloud API",              color:"#f97316"},
+              {key:"claude",     label:"🧠 Claude",      desc:"Anthropic — best quality",    color:"#d97757"},
               {key:"ollama",     label:"🤖 Local Ollama", desc:"Your PC, runs offline",        color:"#00e5a0"},
               {key:"superagent", label:"🌩 Superagent",   desc:"Future superintelligence slot", color:"#f59e0b"},
             ].map(m=>(
@@ -6097,6 +6224,50 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                 <strong style={{color:_lm?"#059669":"#00d48a"}}>Free tier includes:</strong> 100 requests/day on 70B model, 6,000 tokens/minute.
                 More than enough for daily tracker use. No credit card required.
                 <br/><strong style={{color:_lm?"#059669":"#00d48a",marginTop:4,display:"block"}}>Speed:</strong> Groq runs on custom AI chips — responses are typically 2–5 seconds, much faster than local models.
+              </div>
+            </div>
+          )}
+
+          {/* ── CLAUDE (Anthropic) ── */}
+          {llmSettings.mode==="claude"&&(
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid #d97757`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"20px 22px"}}>
+                <div style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:4}}>Claude API Key</div>
+                <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginBottom:14,lineHeight:1.6}}>
+                  Your own key — stored in this browser only, never in code or GitHub. Get one at <strong style={{color:"#d97757"}}>console.anthropic.com</strong>. Uses your existing usage credits.
+                </div>
+                <div style={{position:"relative"}}>
+                  <input
+                    type="password"
+                    value={llmSettings.anthropicApiKey||""}
+                    onChange={e=>setLlmSettings(p=>({...p,anthropicApiKey:e.target.value}))}
+                    placeholder="sk-ant-..."
+                    style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${llmSettings.anthropicApiKey?"#d97757":(_lm?"#cbd5e1":"#334155")}`,borderRadius:7,padding:"10px 14px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontFamily:"monospace",boxSizing:"border-box",outline:"none",transition:"border-color .15s"}}
+                  />
+                  {llmSettings.anthropicApiKey&&<span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:11,color:_lm?"#059669":"#00d48a",fontWeight:700}}>✓</span>}
+                </div>
+              </div>
+
+              <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
+                <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Model</div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {CLAUDE_MODELS.map(m=>{
+                    const sel=(llmSettings.anthropicModel||"claude-haiku-4-5")===m.model;
+                    return (
+                      <button key={m.model} onClick={()=>setLlmSettings(p=>({...p,anthropicModel:m.model}))}
+                        style={{background:sel?(_lm?"#fff7ed":"#1a0e08"):(_lm?"#f1f5f9":"#0e1a2e"),
+                          border:`1px solid ${sel?"#d9775780":(_lm?"#cbd5e1":"#1e293b")}`,
+                          borderRadius:8,padding:"10px 14px",cursor:"pointer",transition:"all .15s",textAlign:"left"}}>
+                        <div style={{fontSize:12.5,fontWeight:700,color:sel?"#d97757":(_lm?"#0f172a":"#d8eaf8")}}>{m.label}{sel&&" ✓"}</div>
+                        <div style={{fontSize:10.5,color:_lm?"#64748b":"#4d6e8a",marginTop:1}}>{m.desc}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:10,padding:"14px 16px",fontSize:11,color:_lm?"#92400e":"#fcd34d",lineHeight:1.7}}>
+                <strong>⚠ Browser-direct — for testing on this computer.</strong> The key is sent straight from your browser to Anthropic, so anyone with dev tools on <em>this machine</em> could read it. That's fine for testing your own account here, but before the tracker is shared with the team or deployed, this needs to route through a tiny proxy (I can build the Cloudflare Worker) so the key never ships in the page. Cost on Haiku 4.5 is about a tenth of a cent per brief.
               </div>
             </div>
           )}
@@ -7787,25 +7958,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const lmTxtD  = lightMode ? "#94a3b8"  : "#3d5a72";   // dim / placeholder text
   const lmTxtM  = lightMode ? "#475569"  : "#7a9bbf";   // medium-tone text (edit buttons, spend)
   // Read benchmarks from localStorage (same key AIAdvisor writes to) — no prop needed
-  const [kpiBenchmarks, setKpiBenchmarks] = useState(() => {
-    const defaults = {
-      FB:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Meta Feed",        cpmWarn:12, cpmBad:20 },
-      FBV:   { metric:"VCR", warn:50,   bad:30,   unit:"%", label:"Video Completion", desc:"Meta Video",       cpmWarn:10, cpmBad:18 },
-      IG:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Instagram",        cpmWarn:12, cpmBad:20 },
-      DSP:   { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"DSP Display",      cpmWarn:6,  cpmBad:12 },
-      TD:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"The Trade Desk",   cpmWarn:6,  cpmBad:12 },
-      SP:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"Snapchat",         cpmWarn:5,  cpmBad:10 },
-      SEM:   { metric:"CTR", warn:2.0,  bad:1.0,  unit:"%", label:"CTR",             desc:"Search",           cpmWarn:8,  cpmBad:15 },
-      CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV",     cpmWarn:25, cpmBad:45 },
-      OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming",  cpmWarn:25, cpmBad:45 },
-      TDV:   { metric:"VCR", warn:80,   bad:65,   unit:"%", label:"Completion Rate", desc:"TradeDesk Video",  cpmWarn:8,  cpmBad:15 },
-      TDA:   { metric:"VCR", warn:90,   bad:80,   unit:"%", label:"Completion Rate", desc:"TradeDesk Audio",  cpmWarn:8,  cpmBad:15 },
-      YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube",          cpmWarn:8,  cpmBad:15 },
-      TT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"Video Completion", desc:"TikTok",           cpmWarn:8,  cpmBad:14 },
-      EMAIL: { metric:"CTR", warn:1.0,  bad:0.5,  unit:"%", label:"Click Rate",      desc:"Email",            cpmWarn:5,  cpmBad:10 },
-    };
-    try { const s = localStorage.getItem("zeus-benchmarks"); return s ? {...defaults, ...JSON.parse(s)} : defaults; } catch { return defaults; }
-  });
+  const [kpiBenchmarks, setKpiBenchmarks] = useState(() => loadBenchmarks());
   // Re-sync if AIAdvisor updates benchmarks while pacing tab is open
   useEffect(() => {
     const onStorage = (e) => {
@@ -7871,6 +8024,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [sortDir,        setSortDir]        = useState(_persisted.sortDir || SORT_DEFAULT_DIR[_initSortKey] || "asc");
   const [clearPendingId, setClearPendingId] = useState(null); // campaign id awaiting clear confirm
   const [todayFilter,    setTodayFilter]    = useState(_persisted.todayFilter || "all"); // "all" | "today" | "not-today"
+  const [troubleOnly,    setTroubleOnly]    = useState(!!_persisted.troubleOnly); // show only KPI-yellow/red + severe pacers
   // How many days back still counts as "updated" for the ✓/✕ pair. 1 = today only (the original
   // behaviour). Drops arrive in batches and a line checked yesterday isn't stale, so "today or
   // nothing" flagged too much — this widens the window without changing what the buttons mean.
@@ -7891,10 +8045,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     try {
       localStorage.setItem(PACING_FILTER_KEY, JSON.stringify({
         search, fPartner, fPlatforms: [...fPlatforms], sortKey, sortDir, todayFilter, updatedDays, pacingView,
-        lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter,
+        troubleOnly, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter,
       }));
     } catch {}
-  }, [search, fPartner, fPlatforms, sortKey, sortDir, todayFilter, updatedDays, pacingView, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter]);
+  }, [search, fPartner, fPlatforms, sortKey, sortDir, todayFilter, updatedDays, pacingView, troubleOnly, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter]);
   function clickSort(k) {
     if (sortKey === k) { setSortDir(d => d === "asc" ? "desc" : "asc"); return; }  // toggle direction
     setSortKey(k);
@@ -7989,27 +8143,46 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const lastUpdateDisp = lastUpdateISO && /^\d{4}-\d{2}-\d{2}$/.test(lastUpdateISO)
     ? (()=>{ const [y,m,d]=lastUpdateISO.split("-"); return `${m}/${d}/${y}`; })()
     : (lastUpdateISO || "—");
-  const filtered = allRows.filter(({c})=>{
+  // "Trouble" = at least one YELLOW or RED KPI (CTR / view rate / CPM, graded against Austin's own
+  // benchmarks) OR a severe under/over pacer. Grades the SAME values the row shows (resolved `disp`
+  // over the stored fields), so the filter agrees with the coloured KPI cells. Severe pacing only
+  // counts when the data is FRESH (checked within 4 days) — stale pacing is misleading (Austin).
+  const rowIsTrouble = (row) => {
+    const { c, disp, pacing } = row;
+    const merged = { platform:c.platform,
+      ctr: (disp && disp.ctr) || c.ctr,
+      cpm: (disp && disp.cpm) || c.cpm,
+      completionRate: (disp && disp.completionRate) || c.completionRate,
+      impressions: (disp && disp.impressions) || c.impressions };
+    if(gradeCampaignKpis(merged, kpiBenchmarks).worst >= 2) return true;
+    return dataUpdatedWithin(c, 4) && !!severePacing(pacing);
+  };
+  const filtered = allRows.filter((row)=>{
+    const { c } = row;
     if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
     if(todayFilter==="today"     && !dataUpdatedWithin(c, updatedDays)) return false; // fresh within the window
     if(todayFilter==="not-today" &&  dataUpdatedWithin(c, updatedDays)) return false; // stale beyond the window
+    if(troubleOnly && !rowIsTrouble(row)) return false; // only KPI-flagged / severe-pacing campaigns
     return true;
   });
 
+  const troubleCount = allRows.filter(rowIsTrouble).length; // live count for the "Trouble" toggle badge
   const withGoal  = filtered.filter(r=>r.monthlyGoal);
   const noGoalRows= filtered.filter(r=>!r.monthlyGoal);
 
   // Apply the same search/partner/platform filter to off-campaign rows so the
   // section respects whatever filters the user has set on the page.
-  const offFiltered = offRows.filter(({c})=>{
+  const offFiltered = offRows.filter((row)=>{
+    const { c } = row;
     if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
     // Updated/Not-updated filter applies to Off campaigns too (same as the active sections).
     if(todayFilter==="today"     && !dataUpdatedWithin(c, updatedDays)) return false;
     if(todayFilter==="not-today" &&  dataUpdatedWithin(c, updatedDays)) return false;
+    if(troubleOnly && !rowIsTrouble(row)) return false;
     return true;
   });
 
@@ -8068,7 +8241,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
   const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
   const noPace  = withGoal.filter(r=>!r.pacing);
-  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || todayFilter!=="all";
+  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || todayFilter!=="all" || troubleOnly;
 
   // ── Lifetime / contract pacing data ────────────────────────────────────────
   // Cumulative delivery across the WHOLE flight = every CLOSED month's final numbers
@@ -10063,6 +10236,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           {FRESHNESS_DAY_OPTIONS.map(d=><option key={"not"+d} value={`not:${d}`}>✕ Not updated {d===1?"today":`in ${d} days`} ({campaigns.length-freshCount(d)})</option>)}
         </optgroup>
       </select>
+      {/* Trouble filter — one click narrows the list to campaigns that need a look: a yellow OR red
+          KPI (CTR / view rate / CPM vs Austin's benchmarks) or a severe under/over pacer. */}
+      <button onClick={()=>setTroubleOnly(v=>!v)}
+        title="Show only campaigns with a yellow/red KPI (CTR, view rate, or CPM) or severe under/over-pacing (fresh data only)"
+        style={{display:"flex",alignItems:"center",gap:6,padding:"6px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",fontSize:11,fontWeight:troubleOnly?700:500,flexShrink:0,
+          background:troubleOnly?(lightMode?"#fef2f2":"#2a0b0b"):lmBgInp,
+          border:`1px solid ${troubleOnly?"#ef4444":lmBrd}`,
+          color:troubleOnly?"#ef4444":lmTxtS}}>
+        🚩 Trouble
+        {troubleCount>0 && <span style={{background:troubleOnly?"#ef4444":(lightMode?"#fee2e2":"#3a0010"),color:troubleOnly?"#fff":(lightMode?"#dc2626":"#fca5a5"),borderRadius:9,padding:"0 6px",fontSize:10,fontWeight:800}}>{troubleCount}</span>}
+      </button>
       {/* Last update — read-only chip showing the most recent check-in date,
           with the date itself in electric blue. */}
       <div title="Most recent check-in date across all campaigns"
@@ -10131,7 +10315,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     </div>
     {anyFilter&&<div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
       <span style={{fontSize:11,color:lmTxtS}}>Showing {filtered.length} of {allActive.length}</span>
-      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayFilter("all");}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
+      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayFilter("all");setTroubleOnly(false);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
     </div>}
 
     {pacingView === "lifetime" ? renderLifetime() : (<React.Fragment>
@@ -17121,7 +17305,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                               return <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:3}}>
                                 {unitTxt} = <span style={{color:_lm?"#059669":"#00c896",fontWeight:700}}>${Math.round(r.focusCell.rev||r.monthlyRev||0).toLocaleString()}</span>
                                 <span style={{color:usingActual?"#f59e0b":(_lm?"#94a3b8":"#3d5a72"),marginLeft:4}}>
-                                  {usingActual?"(actual delivered so far)":"(goal — nothing delivered yet)"}
+                                  {usingActual?"actual":"goal"}
                                 </span>
                               </div>;
                             }
@@ -17173,10 +17357,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                         if(fee<=0 && r.focusCell.profit==null && !budget) return null;
                         return (
                           <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
-                            <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>How this profit is calculated · management fee</div>
+                            <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Fee math</div>
                             {feeMissing ? (
                               <div style={{fontSize:12.5,color:_lm?"#d97706":"#f59e0b",lineHeight:1.6}}>
-                                No management fee set for this SEM campaign. Add the monthly fee in the campaign's <b>Management Fee</b> field — that's your profit. (Note 1's “${budget?budget.toLocaleString():"X"}/Mo” is the client's media budget, not the fee.)
+                                No <b>Management Fee</b> set — add it (that's the profit). Note 1's “${budget?budget.toLocaleString():"X"}/Mo” is the media budget, not the fee.
                               </div>
                             ) : (
                               <>
@@ -17188,15 +17372,15 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                   <span style={{color:profitColor(prof),fontWeight:800}}>{(prof>=0?"+":"")+$fc(prof)}</span> profit
                                 </div>
                                 <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
-                                  Media spend <span style={{color:"#f59e0b",fontWeight:700}}>{$fc(actual||0)}</span> of <span style={{fontWeight:700}}>{budget?$fc(budget):"—"}</span> budget this month ·{" "}
+                                  Media <span style={{color:"#f59e0b",fontWeight:700}}>{$fc(actual||0)}</span> of <span style={{fontWeight:700}}>{budget?$fc(budget):"—"}</span> budget ·{" "}
                                   {overage>0
-                                    ? <span style={{color:"#ef4444",fontWeight:700}}>{$fc(overage)} over flight-to-date — eating into the fee</span>
+                                    ? <span style={{color:"#ef4444",fontWeight:700}}>{$fc(overage)} over · eats the fee</span>
                                     : overage<0
-                                    ? <span style={{color:_lm?"#059669":"#00d48a",fontWeight:700}}>under budget — winning back {$fc(-overage)} of an earlier over-spend</span>
-                                    : <span style={{color:_lm?"#059669":"#00d48a"}}>within budget (pass-through)</span>}
+                                    ? <span style={{color:_lm?"#059669":"#00d48a",fontWeight:700}}>under · +{$fc(-overage)} recovered</span>
+                                    : <span style={{color:_lm?"#059669":"#00d48a"}}>within budget</span>}
                                 </div>
                                 <div style={{fontSize:10.5,color:_lm?"#94a3b8":"#3d5a72",marginTop:4,fontStyle:"italic"}}>
-                                  Over-budget is tracked across the whole flight — an over-spend one month can be won back by an under-spend later.
+                                  Over-budget tracked flight-wide — a later under-spend wins it back.
                                 </div>
                               </>
                             )}
@@ -17223,10 +17407,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       if(rev<=0 && spend==null) return null;
                       return (
                         <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
-                          <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>How this profit is calculated · updates in real time</div>
+                          <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Profit math</div>
                           {profit==null ? (
                             <div style={{fontSize:12.5,color:_lm?"#475569":"#9fb8d4",lineHeight:1.6}}>
-                              Earned <span style={{color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:700}}>{$fc(rev)}</span> so far{hasUnit?` (${eq})`:""}. Profit appears here the moment this month's spend is entered.
+                              Earned <span style={{color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:700}}>{$fc(rev)}</span> so far{hasUnit?` · ${eq}`:""} · profit shows once spend is entered.
                             </div>
                           ) : (
                             <div>
@@ -17246,7 +17430,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                   the goal while its media spend still counts against profit. */}
                               {overUnits > 0 && (
                                 <div style={{fontSize:11.5,color:_lm?"#d97706":"#fbbf24",marginTop:5,lineHeight:1.5}}>
-                                  Delivered {isCPV?`${Math.round(overUnits).toLocaleString()} views`:`${(overUnits/1000).toFixed(1)}K impr`} <b>over goal</b> — not billable, so revenue is capped at the goal ({$fc(rev)}). The extra delivery still costs spend, which is why overserving lowers profit.
+                                  {isCPV?`${Math.round(overUnits).toLocaleString()} views`:`${(overUnits/1000).toFixed(1)}K impr`} <b>over goal</b> · not billable · revenue capped at {$fc(rev)} · extra spend cuts profit
                                 </div>
                               )}
                               {/* Spend entered but nothing delivered → $0 revenue. This trips people up on a
@@ -17254,7 +17438,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                   not on spend. Tell them exactly how to book it. */}
                               {rev<=0 && rateNum>0 && spend!=null && !(delivered>0) && (
                                 <div style={{fontSize:12,color:_lm?"#d97706":"#fbbf24",marginTop:6,lineHeight:1.55}}>
-                                  ⚠ No delivered {isCPV?"views":"impressions"} logged for {focusLabelShort}, so there's <b>$0 revenue</b> to bill — this campaign earns on delivery ({isCPV?"views × $"+rateNum.toFixed(3)+"/view":"impr × $"+rateNum.toFixed(2)+" CPM"}), not on spend. Enter its delivered {isCPV?"views":"impressions"} in the campaign's metrics and the revenue will populate.
+                                  ⚠ No {isCPV?"views":"impr"} logged for {focusLabelShort} → <b>$0 revenue</b>. Bills on delivery ({isCPV?"views × $"+rateNum.toFixed(3):"impr × $"+rateNum.toFixed(2)+" CPM"}), not spend — enter delivered {isCPV?"views":"impr"} to populate.
                                 </div>
                               )}
                               {isCPV && costPer!=null && (
@@ -17285,7 +17469,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                 if (activeMonth===thisMonth) {
                                   return (
                                     <div style={{fontSize:11.5,color:_lm?"#d97706":"#caa46a",marginTop:5}}>
-                                      📱 Device surcharge on — no device line in the latest check-in yet ($0).
+                                      📱 Device surcharge on · no device line yet ($0)
                                     </div>
                                   );
                                 }
@@ -19167,6 +19351,41 @@ function IODraftReviewModal({ drafts, meta, lightMode, existingPartners, onAppro
 const MORNING_BRIEF_KEY = "zeus-morning-brief"; // { text, ts, source } — the brief agent writes here; we render it if fresh
 function loadMorningBrief(){ try { return JSON.parse(localStorage.getItem(MORNING_BRIEF_KEY) || "null"); } catch { return null; } }
 
+// ── Campaign health score (0–100) — DETERMINISTIC, no AI ──────────────────────
+// One number rolled up from the same signals the Home "needs attention" queue and the Pacing tab
+// already use: pacing vs goal, data freshness, whether a rate is set. Kept as a pure module-level
+// function so the Home hero, the morning brief, and the AI-brief context all score identically.
+// Every deduction is explainable (that's why it returns `reasons`) — Austin can always see WHY a
+// campaign is a B and not an A. Hoisted, so App.buildContext (defined earlier) can call it too.
+function scoreCampaignHealth({ pacingLabel, pacingRatio, pacingPctRaw, daysSinceData, hasData, daysLeft, hasRate, isSEM }){
+  let s = 100; const reasons = [];
+  // Pacing — the dominant signal (up to −40)
+  if(pacingLabel==="Behind"){
+    if(pacingRatio!=null && pacingRatio<0.7){ s -= 40; reasons.push(`behind pace (${Math.round((pacingRatio||0)*100)}% of target)`); }
+    else { s -= 20; reasons.push("slightly behind pace"); }
+  } else if(pacingLabel==="Ahead" || (pacingPctRaw!=null && pacingPctRaw>1.05)){
+    if(pacingPctRaw!=null && pacingPctRaw>1.15){ s -= 12; reasons.push(`over-delivering (${Math.round(pacingPctRaw*100)}% of goal — margin risk)`); }
+  }
+  // Data freshness (up to −20)
+  if(!hasData){ s -= 18; reasons.push("no delivery data yet"); }
+  else if(daysSinceData!=null){
+    if(daysSinceData>=5){ s -= 20; reasons.push(`stale — ${daysSinceData}d since last check-in`); }
+    else if(daysSinceData>=3){ s -= 10; reasons.push(`${daysSinceData}d since last check-in`); }
+  }
+  // Revenue readiness (−15)
+  if(!isSEM && !hasRate){ s -= 15; reasons.push("no rate set — revenue can't book"); }
+  // Compounding risk: ending very soon while behind (−8)
+  if(daysLeft!=null && daysLeft>=0 && daysLeft<=3 && pacingLabel==="Behind"){ s -= 8; reasons.push(`ends in ${daysLeft}d while behind`); }
+  s = Math.max(0, Math.min(100, Math.round(s)));
+  return { score:s, reasons };
+}
+function healthBand(score){
+  if(score>=85) return { grade:"A", label:"Healthy", color:"#00d48a" };
+  if(score>=70) return { grade:"B", label:"On track", color:"#7dd3fc" };
+  if(score>=50) return { grade:"C", label:"Watch", color:"#f59e0b" };
+  return { grade:"D", label:"At risk", color:"#ef4444" };
+}
+
 function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCheckins, lightMode, outlookEvents=[], outlookStatus={}, onConnectOutlook, onRefreshOutlook, onNavigate, onEdit, onStartCheckIn, onAddCampaign, onOpenReminders, onGoToPacing }) {
   const _lm = lightMode;
   const card = { background:_lm?"#ffffff":"#0c1625", border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`, borderRadius:14 };
@@ -19185,6 +19404,7 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
   useEffect(()=>{ const id=setInterval(()=>_clockTick(t=>t+1), 30000); return ()=>clearInterval(id); }, []);
   const [attnOpen, setAttnOpen] = useState(false);       // "Needs attention" collapsed by default (less crowding)
   const [calendarOpen, setCalendarOpen] = useState(false); // full calendar popout (meetings + reminders)
+  const [healthOpen, setHealthOpen] = useState(false);   // click the health score → KPI + severe-pacing drill-down
   const [statsOpen, setStatsOpen] = useState(()=>{ try{ return localStorage.getItem("home-show-stats")==="1"; }catch{ return false; } }); // health stats collapsed by default (mirror Campaigns tab)
   const clockTime = now.toLocaleTimeString("en-US", { hour:"numeric", minute:"2-digit", timeZone: trackerTZ() });
   const tzShort = (()=>{ try { const p = new Intl.DateTimeFormat("en-US", { timeZoneName:"short", timeZone: trackerTZName() }).formatToParts(now).find(x=>x.type==="timeZoneName"); return p ? p.value : ""; } catch { return ""; } })();
@@ -19208,16 +19428,26 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
   const attention = []; // { c, reason, sev(1-3), tab, check? }
   const seenAttn = new Set(); // one row per campaign — highest-severity reason wins
   const pushAttn = (item)=>{ if(seenAttn.has(item.c.id)) { return; } seenAttn.add(item.c.id); attention.push(item); };
+  // Per-campaign health score (0–100), same signals as the queue below. Portfolio = average.
+  const scored = []; // { c, score, band, reasons }
+  // Quality drill-down behind the health score (click to open): poor KPIs + severe pacing.
+  const kpiIssues = []; // { c, kind:"PACE"|"CTR"|"VCR"|"CPM", label, value, bench, sev(2-3) }
+  const benchmarks = loadBenchmarks(); // Austin's own thresholds from the Zeus tab (shared everywhere)
   // Collect ALL reasons first, then keep the worst per campaign.
   const raw = [];
   running.forEach(c=>{
     const p = computeMonthlyPacing(c, {}, c.note1);
+    // Freshness gate: a campaign not checked in within ~4 days has STALE numbers — its "behind/ahead"
+    // reading is just old data, not a real pace problem. So we DON'T surface pacing flags for it; the
+    // only thing worth saying is "this one needs a check-in." (Austin: don't clutter Home with pacing
+    // updates on campaigns that haven't reported in a few days — just nudge the few that need a drop.)
+    const fresh = updatedWithin(c, 4);
     if(!p) health.nodata++;
     else if(p.label==="Behind"){
-      if(p.ratio!=null && p.ratio<0.7){ health.risk++; raw.push({c, reason:`Behind pace — at ${Math.round((p.ratio||0)*100)}% of where it should be`, sev:3, tab:"pacing"}); }
+      if(p.ratio!=null && p.ratio<0.7){ health.risk++; if(fresh) raw.push({c, reason:`Behind pace — at ${Math.round((p.ratio||0)*100)}% of where it should be`, sev:3, tab:"pacing"}); }
       else health.behind++;
     }
-    else if(p.label==="Ahead" || p.pctRaw>1.05){ health.ahead++; if(p.pctRaw>1.15) raw.push({c, reason:`Over-delivering at ${Math.round(p.pctRaw*100)}% of goal — eating margin`, sev:2, tab:"pacing"}); }
+    else if(p.label==="Ahead" || p.pctRaw>1.05){ health.ahead++; if(fresh && p.pctRaw>1.15) raw.push({c, reason:`Over-delivering at ${Math.round(p.pctRaw*100)}% of goal — eating margin`, sev:2, tab:"pacing"}); }
     else health.ontrack++;
 
     const dLeft = daysFromToday(c.endDate);
@@ -19225,8 +19455,54 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
 
     if((parseFloat(c.contractRate)||0)<=0 && c.platform!=="SEM") raw.push({c, reason:"No rate set — revenue can't be booked", sev:2, tab:"revenue"});
 
-    if(!updatedWithin(c,3)){ const ld=lastDataDate(c); const since=ld?Math.abs(daysFromToday(ld)):null; raw.push({c, reason: ld?`No check-in in ${since} day${since!==1?"s":""}`:"No delivery data yet", sev: (ld&&since>=5)?2:1, tab:"pacing", check:true}); }
+    const _ld = lastDataDate(c); const _hasData = !!(c.lastMetricUpdate||c.lastQciDate) || (parseFloat(c.impressions)||0)>0;
+    const _since = _ld ? Math.abs(daysFromToday(_ld)) : null;
+    // The general "needs a check-in" update — the ONLY Home flag for a stale campaign (>4 days).
+    if(!fresh){ raw.push({c, reason: _ld?`No check-in in ${_since} days — numbers may be stale`:"No delivery data yet", sev: (_ld&&_since>=6)?2:1, tab:"pacing", check:true}); }
+
+    // Roll the same signals into one 0–100 score.
+    const hs = scoreCampaignHealth({
+      pacingLabel: p?p.label:null, pacingRatio: p?p.ratio:null, pacingPctRaw: p?p.pctRaw:null,
+      daysSinceData: _since, hasData: _hasData, daysLeft: dLeft,
+      hasRate: (parseFloat(c.contractRate)||0)>0, isSEM: c.platform==="SEM",
+    });
+    scored.push({ c, score:hs.score, band:healthBand(hs.score), reasons:hs.reasons });
+
+    // ── Quality drill-down: poor KPI + high CPM + SEVERE pacing ──────────────────────────────────
+    // Graded against Austin's OWN benchmarks (the Zeus tab's Benchmarks editor → shared gradeCampaignKpis).
+    // sev 2 = yellow (below warn / above cpmWarn), sev 3 = red (below bad / above cpmBad).
+    const g = gradeCampaignKpis(c, benchmarks);
+    if(g.ctr) kpiIssues.push({ c, kind:"CTR", label:"Low CTR", value:g.ctr.pct.toFixed(2)+"%", bench:`warn <${g.bm.warn}% · red <${g.bm.bad}%`, sev:g.ctr.sev });
+    if(g.vcr) kpiIssues.push({ c, kind:"VCR", label: g.bm.label==="View Rate"?"Low view rate":"Low completion", value:Math.round(g.vcr.pct)+"%", bench:`warn <${g.bm.warn}% · red <${g.bm.bad}%`, sev:g.vcr.sev });
+    if(g.cpm) kpiIssues.push({ c, kind:"CPM", label:"High CPM", value:`$${g.cpm.val.toFixed(2)}`, bench:`warn >$${g.bm.cpmWarn} · red >$${g.bm.cpmBad}`, sev:g.cpm.sev });
+    // Severe under/over-pacing (fresh data only — stale pacing is misleading, per the queue gate above).
+    if(fresh){
+      const sp = severePacing(p);
+      if(sp) kpiIssues.push({ c, kind:"PACE",
+        label: sp.dir==="under" ? "Severely under-pacing" : "Severely over-pacing",
+        value: sp.dir==="under" ? `${sp.pct}% of pace` : `${sp.pct}% of goal`,
+        bench: sp.dir==="under" ? "catch up or it misses" : "over-serving — eats margin",
+        sev: sp.dir==="under" ? 3 : 2 });
+    }
   });
+  // Group the drill-down by kind (severe pacing first, then CTR, view/completion, CPM), worst within each.
+  const KIND_ORDER = ["PACE","CTR","VCR","CPM"];
+  const KIND_META = {
+    PACE:{ title:"⚠ Severe pacing", color:"#ef4444" },
+    CTR: { title:"Low CTR",         color:"#f59e0b" },
+    VCR: { title:"Low view / completion rate", color:"#a855f7" },
+    CPM: { title:"High CPM",        color:"#f97316" },
+  };
+  const issueGroups = KIND_ORDER
+    .map(k=>({ kind:k, ...KIND_META[k], items: kpiIssues.filter(i=>i.kind===k).sort((a,b)=>b.sev-a.sev) }))
+    .filter(g=>g.items.length>0);
+  const issueCampaignCount = new Set(kpiIssues.map(i=>i.c.id)).size;
+  // Portfolio health = average of running-campaign scores; band-count distribution for the mini bar.
+  const portfolioScore = scored.length ? Math.round(scored.reduce((a,b)=>a+b.score,0)/scored.length) : null;
+  const portfolioBand = portfolioScore!=null ? healthBand(portfolioScore) : null;
+  const bandCounts = { A:0, B:0, C:0, D:0 };
+  scored.forEach(s=>{ bandCounts[s.band.grade]++; });
+  const weakest = scored.slice().sort((a,b)=>a.score-b.score).slice(0,3); // lowest-scoring campaigns
   raw.sort((a,b)=>b.sev-a.sev);
   raw.forEach(pushAttn);
   const topAttention = attention.slice(0, 8);
@@ -19304,6 +19580,7 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
   const fallbackBrief = (()=>{
     if(running.length===0) return "No campaigns are running right now. Add a campaign or activate one to start tracking pacing and revenue.";
     const bits = [];
+    if(portfolioScore!=null) bits.push(`Portfolio health is ${portfolioScore}/100 (${portfolioBand.grade} · ${portfolioBand.label}).`);
     bits.push(`You have ${running.length} campaign${running.length!==1?"s":""} running.`);
     const flagged = health.risk;
     if(flagged>0) bits.push(`${flagged} ${flagged!==1?"are":"is"} behind pace and need a push.`);
@@ -19362,6 +19639,41 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
           <span style={{...labelStyle, color:_lm?"#475569":"#7a9bbf"}}>Morning brief</span>
           <span style={{fontSize:9, fontWeight:700, padding:"1px 7px", borderRadius:9, background:_lm?"#e0e7ff":"#00d9ff18", color:_lm?"#4338ca":"#00d9ff"}}>{briefFresh?(brief.source||"AI"):"auto"}</span>
         </div>
+
+        {/* Portfolio health score — the deterministic grade for every running campaign, rolled into one
+            number. A gauge + a mini band bar (how many A/B/C/D) so it's a glance, not a spreadsheet. */}
+        {portfolioScore!=null && (
+          <div onClick={()=>setHealthOpen(true)} title="Click to see the campaigns with poor CTR / view rates / high CPM / severe pacing"
+            style={{display:"flex", alignItems:"center", gap:14, flexWrap:"wrap", padding:"10px 12px", marginBottom:12, borderRadius:10, background:_lm?"#ffffff":"#081320", border:`1px solid ${portfolioBand.color}${_lm?"55":"40"}`, cursor:"pointer"}}>
+            <div style={{display:"flex", alignItems:"baseline", gap:6}}>
+              <span style={{fontSize:30, fontWeight:800, color:portfolioBand.color, lineHeight:1, letterSpacing:"-0.02em"}}>{portfolioScore}</span>
+              <span style={{fontSize:12, fontWeight:700, color:_lm?"#94a3b8":"#4d6e8a"}}>/100</span>
+              <span style={{marginLeft:4, fontSize:11, fontWeight:800, color:"#fff", background:portfolioBand.color, borderRadius:6, padding:"2px 8px"}}>{portfolioBand.grade}</span>
+              <span style={{fontSize:12, fontWeight:700, color:portfolioBand.color}}>{portfolioBand.label}</span>
+            </div>
+            <div style={{flex:1, minWidth:150}}>
+              <div style={{fontSize:9.5, color:_lm?"#64748b":"#4d6e8a", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:700, marginBottom:4}}>Campaign health</div>
+              <div style={{display:"flex", height:8, borderRadius:5, overflow:"hidden", background:_lm?"#f1f5f9":"#0e1a2e"}}>
+                {[{g:"A",c:"#00d48a"},{g:"B",c:"#7dd3fc"},{g:"C",c:"#f59e0b"},{g:"D",c:"#ef4444"}].map(b=> bandCounts[b.g]>0 && (
+                  <div key={b.g} title={`${bandCounts[b.g]} ${b.g}`} style={{width:`${bandCounts[b.g]/scored.length*100}%`, background:b.c}}/>
+                ))}
+              </div>
+              <div style={{display:"flex", gap:10, marginTop:5, flexWrap:"wrap"}}>
+                {[{g:"A",c:"#00d48a"},{g:"B",c:"#7dd3fc"},{g:"C",c:"#f59e0b"},{g:"D",c:"#ef4444"}].map(b=> bandCounts[b.g]>0 && (
+                  <span key={b.g} style={{fontSize:10, fontWeight:700, color:_lm?"#475569":"#9fb4cf"}}><span style={{color:b.c}}>●</span> {bandCounts[b.g]} {b.g}</span>
+                ))}
+              </div>
+            </div>
+            {/* Flagged-count chip — the click affordance. Shows how many campaigns have a KPI/pacing problem. */}
+            <div style={{display:"flex", alignItems:"center", gap:6, flexShrink:0}}>
+              {issueCampaignCount>0
+                ? <span style={{fontSize:11, fontWeight:800, color:"#fff", background:"#ef4444", borderRadius:8, padding:"3px 9px"}}>{issueCampaignCount} to review</span>
+                : <span style={{fontSize:11, fontWeight:700, color:"#00d48a"}}>✓ KPIs clean</span>}
+              <span style={{fontSize:13, color:_lm?"#94a3b8":"#4d6e8a"}}>→</span>
+            </div>
+          </div>
+        )}
+
         <div style={{fontSize:14.5, lineHeight:1.6, color:_lm?"#1e293b":"#d8eaf8"}}>{briefFresh ? brief.text : fallbackBrief}</div>
         {!briefFresh && <div style={{fontSize:10, color:_lm?"#94a3b8":"#3d5a72", marginTop:8}}>Auto-generated from today's numbers — your morning-brief agent will replace this once it's connected.</div>}
       </div>
@@ -19496,6 +19808,61 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
           </div>
         </div>
       </div>
+
+      {/* ── Campaign health drill-down — click the score to see poor KPIs + severe pacing ── */}
+      {healthOpen && (
+        <div onClick={e=>{ if(e.target===e.currentTarget) setHealthOpen(false); }}
+          style={{position:"fixed", inset:0, background:"#000a", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:20}}>
+          <div style={{background:_lm?"#ffffff":"#0c1625", border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`, borderRadius:14, width:"100%", maxWidth:680, maxHeight:"88vh", overflow:"auto"}}>
+            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, padding:"14px 20px", borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`, position:"sticky", top:0, background:_lm?"#ffffff":"#0c1625", zIndex:2}}>
+              <div>
+                <div style={{fontSize:16, fontWeight:800, color:_lm?"#0f172a":"#edf4ff"}}>💚 Campaign health — needs a look</div>
+                <div style={{fontSize:11, color:_lm?"#64748b":"#4d6e8a", marginTop:2}}>
+                  {portfolioScore!=null ? `Portfolio ${portfolioScore}/100 · ` : ""}{issueCampaignCount>0 ? `${issueCampaignCount} campaign${issueCampaignCount!==1?"s":""} flagged for a KPI or pacing problem` : "Poor CTR / view rate / high CPM / severe pacing"}
+                </div>
+              </div>
+              <button onClick={()=>setHealthOpen(false)} style={{background:"none", border:`1px solid ${_lm?"#e2e8f0":"#334155"}`, borderRadius:7, padding:"6px 12px", color:_lm?"#475569":"#4d6e8a", fontSize:12, cursor:"pointer"}}>✕ Close</button>
+            </div>
+            <div style={{padding:"8px 16px 16px"}}>
+              {issueGroups.length===0 ? (
+                <div style={{fontSize:13, color:_lm?"#94a3b8":"#4d6e8a", padding:"22px 6px", textAlign:"center"}}>
+                  Nothing flagged — every running campaign with fresh data is above its CTR / view-rate / CPM benchmark and pacing normally. ✅
+                </div>
+              ) : issueGroups.map(g=>(
+                <div key={g.kind} style={{marginTop:12}}>
+                  <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
+                    <span style={{fontSize:11.5, fontWeight:800, color:g.color, textTransform:"uppercase", letterSpacing:"0.05em"}}>{g.title}</span>
+                    <span style={{fontSize:10, fontWeight:700, color:"#fff", background:g.color, borderRadius:8, padding:"1px 7px"}}>{g.items.length}</span>
+                  </div>
+                  {g.items.map((it,i)=>{
+                    const pc = PLT_COLORS[it.c.platform]||PLT_COLORS.default;
+                    const vcol = it.sev>=3 ? "#ef4444" : "#f59e0b"; // red = below "bad", amber = below "warn"
+                    return (
+                      <div key={it.c.id+"-"+i} onClick={()=>{ setHealthOpen(false); (onGoToPacing ? onGoToPacing(it.c) : onEdit(it.c)); }}
+                        title="Show this campaign in the Pacing tab"
+                        style={{display:"flex", alignItems:"center", gap:10, padding:"9px 6px", borderTop:i>0?`1px solid ${_lm?"#f1f5f9":"#111e33"}`:"none", cursor:"pointer"}}>
+                        <span style={{background:pc+"22", color:pc, borderRadius:3, padding:"1px 6px", fontSize:9.5, fontWeight:800, flexShrink:0}}>{it.c.platform}</span>
+                        <div style={{minWidth:0, flex:1}}>
+                          <div style={{fontSize:12.5, fontWeight:700, color:_lm?"#0f172a":"#edf4ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{(it.c.campaignName||"").trim()}</div>
+                          <div style={{fontSize:11, color:_lm?"#64748b":"#7a9bbf", marginTop:1}}>{(it.c.mediaPartner||"").trim()}{it.bench?` · ${it.bench}`:""}</div>
+                        </div>
+                        <div style={{textAlign:"right", flexShrink:0}}>
+                          <div style={{fontSize:13, fontWeight:800, color:vcol, fontVariantNumeric:"tabular-nums"}}>{it.value}</div>
+                          <div style={{fontSize:9.5, color:_lm?"#94a3b8":"#4d6e8a"}}>{it.label}</div>
+                        </div>
+                        <span style={{fontSize:11, color:_lm?"#94a3b8":"#4d6e8a", flexShrink:0}}>→</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              <div style={{fontSize:10, color:_lm?"#94a3b8":"#3d5a72", marginTop:14, lineHeight:1.6, borderTop:`1px solid ${_lm?"#f1f5f9":"#111e33"}`, paddingTop:10}}>
+                Graded against each platform's benchmark (the same ones the Pacing tab uses). Only values below the "OK" line show. Pacing flags use fresh check-ins only. Click any row to open it in Pacing.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Calendar popout — meetings (at their times) and reminders, side by side ── */}
       {calendarOpen && (
@@ -19652,6 +20019,7 @@ export default function App() {
     try {
       const evs = await outlookFetchEvents(cfg, 7);
       setOutlookEvents(evs);
+      try { localStorage.setItem(OUTLOOK_EVENTS_CACHE, JSON.stringify({ ts:Date.now(), events:evs })); } catch(e) {}
       setOutlookStatus(s => ({ ...s, connected:true, loading:false, lastSync:new Date().toISOString(), error:null }));
     } catch (e) {
       setOutlookStatus(s => ({ ...s, loading:false, error:String(e.message||e) }));
@@ -19672,6 +20040,7 @@ export default function App() {
   const disconnectOutlook = async () => {
     try { await outlookSignOut(loadOutlookCfg()); } catch(e){}
     setOutlookEvents([]);
+    try { localStorage.removeItem(OUTLOOK_EVENTS_CACHE); } catch(e) {}
     setOutlookStatus({ connected:false, loading:false, error:null, lastSync:null, account:null });
     saveOutlookCfgAnd({ enabled:false });
   };
