@@ -13116,6 +13116,9 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if (!rows || !rows.length) return "Generic";
     const cols = Object.keys(rows[0]).join("|").toLowerCase();
     if (cols.includes("paid impressions")||cols.includes("ecpc")) return "Snapchat";
+    // New Snapchat PLATFORM export (straight from Snapchat, one row per AD): "Ad Squad Name" + "Swipes"/
+    // "Swipe Up Rate". Different columns from the old TapClicks "Paid Impressions"/"eCPC" sheet — both → SP.
+    if ((cols.includes("swipes")||cols.includes("swipe up rate")) && (cols.includes("ad squad name")||cols.includes("ad account name"))) return "Snapchat";
     if (cols.includes("amount spent (usd)")||cols.includes("ctr (link click-through rate)")) return "Facebook/Meta";
     // TVsci report. Two shapes seen in the wild, both handled: a per-DAY export (has a Date column,
     // "Adgroup Name") and the month-to-date export Austin actually receives (NO Date column, one row
@@ -14045,6 +14048,56 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       setSavedMsg(hasDate
         ? `Rolled ${before.toLocaleString()} daily rows → ${rows.length} campaign${rows.length!==1?"s":""} · through ${fmtDate(lastDate)}`
         : `Rolled ${before.toLocaleString()} rows (${groups} ad group${groups!==1?"s":""}) → ${rows.length} campaign${rows.length!==1?"s":""} · month-to-date`);
+    }
+
+    // ── Snapchat platform export (ad-level): roll up to one row per campaign + build the creative
+    //    breakdown, ALL IN ONE check-in (Austin's ask). The new export straight from Snapchat is one row
+    //    per AD — columns Ad Account Name / Ad Squad Name / Campaign Name / Ad Name / Impressions /
+    //    Swipes / Swipe Up Rate / Spend (Swipes = clicks). We sum impr/swipes/spend per campaign into the
+    //    canonical Snap columns extractMetrics reads (Paid Impressions / Clicks / Amount Spent), and
+    //    attach a __breakdown of the ads — same mechanism as FB ad sets / TVsci ad groups — so the Pacing
+    //    dropdown shows the per-creative lines. CTR/CPM are recomputed from the aggregate in buildUpdated.
+    if(source==="Snapchat" && rows.length && ("Swipes" in rows[0] || "Ad Squad Name" in rows[0])){
+      const before = rows.length;
+      const numS = v => { const n=parseFloat(String(v==null?"":v).replace(/[$,%\s]/g,"")); return isNaN(n)?0:n; };
+      // Client from the Ad Account Name — strip the media-partner prefix ("WVR-") and rep suffix ("_AG"):
+      // "WVR-Fairmont State University_AG" → "Fairmont State University".
+      const snapClient = acct => String(acct||"").replace(/_[A-Za-z]{2,4}\s*$/,"").replace(/^[A-Za-z]{2,4}-/,"").trim();
+      const agg = {};
+      rows.forEach(r => {
+        const campNm = String(r["Campaign Name"]||"").trim();
+        const client = snapClient(r["Ad Account Name"]);
+        if(!campNm && !client) return;
+        // Match name: use the campaign name when it already carries the client; otherwise prefix the
+        // client so a generic "Device Targeting (MTS)" still resolves to the right tracker campaign.
+        const firstClientWord = (client.toLowerCase().match(/[a-z0-9]+/)||[""])[0];
+        const carries = firstClientWord && campNm.toLowerCase().includes(firstClientWord);
+        const matchName = (!client || carries) ? campNm : `${client} — ${campNm}`;
+        const key = `${client}||${campNm}`;
+        const a = agg[key] || (agg[key] = { name: matchName || client || campNm, impr:0, swipes:0, spend:0, ads:{} });
+        const impr = Math.round(numS(r["Impressions"])), swipes = Math.round(numS(r["Swipes"])), spend = numS(r["Spend"]);
+        a.impr += impr; a.swipes += swipes; a.spend += spend;
+        // Per-ad breakdown line. Trim the campaign name off the (often long) ad-squad label so the line
+        // reads concisely, e.g. "5.19.26 (Static) · CPM".
+        const adName = String(r["Ad Name"]||"").trim();
+        const squad = String(r["Ad Squad Name"]||"").trim().replace(campNm,"").replace(/^[\s\-–—]+/,"").trim();
+        const lineName = [adName, squad].filter(Boolean).join(" · ") || String(r["Ad Squad Name"]||"").trim() || "(ad)";
+        const bk = a.ads[lineName] || (a.ads[lineName] = { impr:0, swipes:0, spend:0 });
+        bk.impr += impr; bk.swipes += swipes; bk.spend += spend;
+      });
+      rows = Object.values(agg).map(a => ({
+        "Campaign Name": a.name,
+        "Paid Impressions": a.impr,
+        "Clicks": a.swipes,
+        "Amount Spent": a.spend,
+        "Paid Reach": 0,
+        __breakdown: Object.entries(a.ads).map(([nm,bk])=>({
+          name: nm, impressions: bk.impr, clicks: bk.swipes, spend: bk.spend,
+          ctr: bk.impr>0 ? (bk.swipes/bk.impr)*100 : 0, videoViews:0, vcr:0,
+        })).sort((x,y)=>y.impressions-x.impressions),
+      }));
+      const totalAds = Object.values(agg).reduce((s,a)=>s+Object.keys(a.ads).length,0);
+      setSavedMsg(`Rolled ${before.toLocaleString()} Snapchat ad row${before!==1?"s":""} (${totalAds} ad${totalAds!==1?"s":""}) → ${rows.length} campaign${rows.length!==1?"s":""} · month-to-date`);
     }
 
     // ── TradeDesk export: filter to only _AG rows (this account's campaigns) ──
