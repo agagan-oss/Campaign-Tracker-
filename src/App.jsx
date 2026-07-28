@@ -7,6 +7,35 @@ const REMINDERS_KEY = "campaign-tracker-reminders";
 const ACTIVITY_KEY = "campaign-tracker-activity";
 const ARCHIVE_KEY = "campaign-tracker-archive";
 const CSV_MAPPINGS_KEY = "campaign-tracker-csv-mappings";
+// Which Quick Check-in FILE SOURCE a tracker platform's delivery comes from — used to seed check-in
+// name-memory (so e.g. a mid-flight tactic switch's campaigns are REMEMBERED on the next drop, not
+// re-matched by a weak fuzzy score). Mirrors SOURCE_PLATFORMS (the inverse map) in QuickCheckInPanel.
+function platformToFileSource(platform){
+  if(["FB","FBV","IG"].includes(platform)) return "Facebook/Meta";
+  if(platform==="SP") return "Snapchat";
+  if(["TD","TDV","TDA","CTV","OTT","OTTD"].includes(platform)) return "TradeDesk";
+  if(platform==="DSP") return "DSP";
+  if(["SEM","YT"].includes(platform)) return "Google";
+  if(["GCTV","PCTV","AECTV"].includes(platform)) return "Madhive";
+  return null;
+}
+// Write check-in name-memory entries directly (App-side), so a flow OUTSIDE the QCI panel (like the
+// switch-tactic helper) can pre-teach the mapping. The QCI reads this key fresh each time it opens.
+function seedCheckinMemory(seeds){ // seeds: [{name, campId, platform}]
+  try{
+    const maps = JSON.parse(localStorage.getItem(CSV_MAPPINGS_KEY)||"{}");
+    let wrote=0;
+    seeds.forEach(({name, campId, platform})=>{
+      const src = platformToFileSource(platform);
+      const nm = String(name||"").trim();
+      if(!src || !nm || !campId) return;
+      maps[`${src}||${nm.toLowerCase()}`] = { campId:String(campId), campName:nm, source:src, learnedAt:(typeof getToday==="function"?getToday():"") };
+      wrote++;
+    });
+    if(wrote) localStorage.setItem(CSV_MAPPINGS_KEY, JSON.stringify(maps));
+    return wrote;
+  }catch(e){ return 0; }
+}
 const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 const VAULT_KEY = "campaign-tracker-report-vault"; // [{id, savedAt, client, title, dateRange, brandColor, totals, campaigns, notes}]
 const MONTH_LOCK_KEY = "campaign-tracker-month-locks"; // {"2026-05":{lockedAt,label,totalRevenue,totalSpend,totalProfit,margin,campaigns:[]}}
@@ -7223,8 +7252,12 @@ function CampaignArchive({ archive, onRestore, onBulkRestore, onClear }) {
       || (c.goal||"").toLowerCase().includes(q)
       || (c.note1||"").toLowerCase().includes(q)
       || (c.endDate||"").includes(q);
+    // When there's a search query, span the WHOLE archive — the month tabs only group the browse view,
+    // they shouldn't hide a campaign you're looking for (Austin: "it's hard to find campaigns sometimes").
+    // With no query, keep the month view (rows already show each campaign's End Date, so cross-month
+    // search results stay clear).
     const inMonth = (c.endDate||"").slice(0,7) === effectiveMonth;
-    return ms && inMonth;
+    return ms && (q ? true : inMonth);
   });
 
   const groups = {};
@@ -7303,6 +7336,11 @@ function CampaignArchive({ archive, onRestore, onBulkRestore, onClear }) {
           </div>
         )}
 
+        {search && (
+          <div style={{fontSize:11.5,color:_lm?"#0369a1":"#7dd3fc",marginBottom:12,display:"flex",alignItems:"center",gap:6}}>
+            🔎 Searching the whole archive — {filtered.length} match{filtered.length!==1?"es":""} across all months.
+          </div>
+        )}
         {filtered.length === 0 ? (
           <div style={{textAlign:"center",padding:"40px 0",color:_lm?"#94a3b8":"#3d5a72",fontSize:13}}>No campaigns match your search.</div>
         ) : (
@@ -15699,11 +15737,6 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, dspCpm, curImpr
           style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"8px 18px",color:dirty?"#06222b":"#3b5070",fontSize:13,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>{dirty?"Save":"Saved ✓"}</button>
         <span style={{fontSize:12,color:_lm?"#475569":"#9fb8d4",paddingBottom:8}}>= <b style={{color:_lm?"#059669":"#00e5a0"}}>{$r(rev)}</b> revenue{cost!=null&&<> − <b style={{color:"#f59e0b"}}>{$r(cost)}</b> = <b style={{color:profit>=0?(_lm?"#059669":"#00d48a"):"#ef4444"}}>{(profit>=0?"+":"−")+"$"+Math.round(Math.abs(profit)).toLocaleString()}</b> profit</>}</span>
       </div>
-      {overCap && (
-        <div style={{fontSize:10.5,color:_lm?"#d97706":"#fbbf24",marginTop:6,lineHeight:1.5}}>
-          Delivery is over the monthly goal — revenue is capped at the goal ({$r(goalRev)}); the extra {isCPV?"views":"impressions"} aren't billable but still cost spend.
-        </div>
-      )}
       <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:6,fontStyle:"italic"}}>Updates this month's P&amp;L right away{locked?" — including the 🔒 locked snapshot, no unlock needed":""}.</div>
     </div>
   );
@@ -22867,6 +22900,15 @@ export default function App() {
           const archHist=oldPatched.history&&oldPatched.history.trim()?`${archNote}\n${oldPatched.history}`:archNote;
           setArchive(prev=>[...prev,{...oldPatched, archivedDate:tod, history:archHist}]);
           setCampaigns(cs=>[...cs.filter(x=>String(x.id)!==String(oldPatched.id)), newCamp]);
+          // Pre-teach the Quick Check-in name-memory for BOTH campaigns so the next daily drop maps each
+          // at 100% (remembered) instead of a weak fuzzy score — the archived old-tactic campaign kept
+          // "forgetting" and re-matching at ~50% every day. Keyed by each campaign's own name under its
+          // platform's file source; the old (archived) campaign keeps its original name, so the file row
+          // that used to feed it now sticks to the archived record.
+          seedCheckinMemory([
+            { name: oldPatched.campaignName, campId: oldPatched.id, platform: oldPatched.platform },
+            { name: newCamp.campaignName,    campId: newCamp.id,    platform: newCamp.platform },
+          ]);
           addLog({type:"edited",campaignName:oldPatched.campaignName,partner:oldPatched.mediaPartner,platform:oldPatched.platform,detail:`Switched tactic → ${newCamp.platform} mid-flight; pre-switch portion archived`,campaignId:oldPatched.id,prevSnapshot:{...oldPatched}});
           addLog({type:"created",campaignName:newCamp.campaignName,partner:newCamp.mediaPartner,platform:newCamp.platform,detail:`Created from mid-flight tactic switch (was ${oldPatched.platform})`,campaignId:newCamp.id,prevSnapshot:null});
           setEditTarget(null);
