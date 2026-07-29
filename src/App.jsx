@@ -986,6 +986,36 @@ function proratedMonthlyGoalFromTotal(totalGoal, startDate, endDate, monthDate) 
   return Math.round(totalGoal * (monDays / totalDays));
 }
 
+// A one-line FLIGHT label ("📆 182K impr · 7/20–8/16") for a date-flighted campaign — shown under the
+// campaign name (Campaigns tab) in place of a monthly goal, so the slot is never blank (Austin: "with
+// specific dates there's nothing under the name — could we have the flights there?"). Reads the custom
+// windows from `flightSegments` when present; else derives the flight from the total Goal string + the
+// start/end dates when the campaign has no monthly Note-1 goal (covers a flight-total campaign that never
+// stored segments). Returns null for a normal monthly campaign.
+function flightGoalLabel(c) {
+  if (!c) return null;
+  const md = iso => { const m=String(iso||"").match(/^\d{4}-(\d{2})-(\d{2})/); return m?`${parseInt(m[1])}/${parseInt(m[2])}`:""; };
+  const fmtK = n => n>=1000000?(+(n/1000000).toFixed(2))+"M":n>=1000?(+(n/1000).toFixed(n>=10000?0:1))+"K":String(Math.round(n));
+  const gNum = s => parseInt(String(s==null?"":s).replace(/[,\s]/g,""))||0;
+  const u = (c.platform==="YT" && (c.dealType==="CPV"||!c.dealType)) ? "views" : "impr";
+  const segs = Array.isArray(c.flightSegments) ? c.flightSegments.filter(s=>s&&s.start&&s.end) : [];
+  if (segs.length) {
+    const total = segs.reduce((s,x)=>s+gNum(x.goal),0);
+    const starts=segs.map(s=>s.start).sort(), ends=segs.map(s=>s.end).sort();
+    const label = segs.length===1
+      ? `📆 ${fmtK(total)} ${u} · ${md(starts[0])}–${md(ends[ends.length-1])}`
+      : `📆 ${fmtK(total)} ${u} · ${segs.length} flights (${md(starts[0])}–${md(ends[ends.length-1])})`;
+    const tip = segs.map(s=>`${md(s.start)}–${md(s.end)}: ${fmtK(gNum(s.goal))}`).join(" · ");
+    return { label, tip };
+  }
+  // No segments + no monthly Note-1 goal, but a total goal + flight dates → still a flight-total campaign.
+  if (!(c.note1 && c.note1.trim()) && c.startDate && c.endDate) {
+    const total = parseGoalNumber(c.goal);
+    if (total > 0) return { label:`📆 ${fmtK(total)} ${u} · ${md(c.startDate)}–${md(c.endDate)}`, tip:`Flight total ${fmtK(total)} ${u} · ${md(c.startDate)}–${md(c.endDate)}` };
+  }
+  return null;
+}
+
 // The effective monthly pacing goal for a campaign: the explicit monthly goal from Note 1 (e.g.
 // "125K/Mo") if present, otherwise the current pacing month's prorated share of the TOTAL contract
 // Goal (for flight-spanning campaigns entered with a total Goal + flight dates but no monthly goal).
@@ -2484,8 +2514,14 @@ function useBackdropClose(onClose) {
   return { onMouseDown, onClick };
 }
 
-function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampaignId=null, onNavigate=null }) {
+function ReminderModal({ campaigns, archive=[], onClose, reminders, setReminders, focusCampaignId=null, onNavigate=null }) {
   const blank = { id:null, type:"other", campaignId:"", note:"", date:"", repeat:"none", dismissed:false };
+  // A reminder links to a campaign by id. Resolve that id against ACTIVE + ARCHIVED campaigns, so a
+  // reminder keeps showing its campaign (name/platform/link) after the campaign is archived. (Austin:
+  // "when I archive a campaign the reminder link to that campaign breaks — make it stick.")
+  const campPool = [...campaigns, ...archive];
+  const findCamp = (id) => campPool.find(c=>c.id===id) || null;
+  const isArchivedCamp = (id) => archive.some(a=>a.id===id);
   const [form, setForm] = useState(blank);
   const [view, setView] = useState("list");
   const sf = (k,v) => setForm(p=>({...p,[k]:v}));
@@ -2502,13 +2538,13 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
   function addOnDate(date) { setForm({...blank,date}); setView("add"); }
 
   const today = getToday();
-  const focusCampaign = focusCampaignId ? campaigns.find(c=>c.id===focusCampaignId) : null;
+  const focusCampaign = focusCampaignId ? findCamp(focusCampaignId) : null;
   const [search, setSearch] = useState(() => focusCampaign ? focusCampaign.campaignName.trim() : "");
   const sorted = [...reminders].sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
   function matchesSearch(r) {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
-    const camp = campaigns.find(c=>c.id===r.campaignId);
+    const camp = findCamp(r.campaignId);
     const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[0];
     return (r.note||"").toLowerCase().includes(q)
       || rt.label.toLowerCase().includes(q)
@@ -2524,7 +2560,8 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
 
   const ReminderCard = ({ r, showEdit=true }) => {
     const rt = REMINDER_TYPES.find(t=>t.value===r.type)||REMINDER_TYPES[0];
-    const camp = campaigns.find(c=>c.id===r.campaignId);
+    const camp = findCamp(r.campaignId);
+    const campArchived = camp && isArchivedCamp(r.campaignId);
     const dLeft = getDaysLeft(r.date);
     const isPast = r.date<today;
     const pCol = camp ? (PLT_COLORS[camp.platform]||PLT_COLORS.default) : "#4d6e8a";
@@ -2535,10 +2572,11 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:3}}>
             {camp ? (
               <span onClick={()=>{ if(onNavigate) { onNavigate(camp.id); onClose(); } }}
-                title={onNavigate?"Click to jump to this campaign":undefined}
+                title={onNavigate?(campArchived?"Click to open this campaign in the Archive":"Click to jump to this campaign"):undefined}
                 style={{display:"inline-flex",alignItems:"center",gap:6,cursor:onNavigate?"pointer":"default"}}>
                 <span style={{color:_lm?"#0f172a":"#edf4ff",fontWeight:800,fontSize:13.5}}>{camp.campaignName.trim()}</span>
                 <span style={{background:pCol+"22",color:pCol,border:`1px solid ${pCol}45`,borderRadius:4,padding:"0 6px",fontSize:10,fontWeight:800}}>{camp.platform}</span>
+                {campArchived && <span title="This campaign is archived — the reminder is still linked to it" style={{background:_lm?"#f1f5f9":"#162236",color:_lm?"#64748b":"#7a9bbf",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:4,padding:"0 6px",fontSize:9,fontWeight:700}}>🗄 archived</span>}
                 {onNavigate && <span style={{color:pCol,opacity:0.6,fontSize:10}}>↗</span>}
               </span>
             ) : (
@@ -2644,6 +2682,9 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
               <select value={form.campaignId||""} onChange={e=>sf("campaignId",e.target.value?parseInt(e.target.value):"")} style={iS}>
                 <option value="">— No specific campaign —</option>
                 {campaigns.map(c=><option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}</option>)}
+                {/* Keep an archived campaign selectable/visible when the reminder is already linked to it,
+                    so editing the reminder doesn't blank the link. */}
+                {form.campaignId && !campaigns.some(c=>c.id===form.campaignId) && (()=>{ const a=findCamp(form.campaignId); return a ? <option key={a.id} value={a.id}>{a.campaignName.trim()} · {a.platform} · {a.mediaPartner} (archived)</option> : null; })()}
               </select>
             </div>
             <div style={{marginBottom:12}}>
@@ -2666,7 +2707,7 @@ function ReminderModal({ campaigns, onClose, reminders, setReminders, focusCampa
             </div>
           </div>
         ) : view==="calendar" ? (
-          <ReminderCalendar reminders={reminders} setReminders={setReminders} onAdd={addOnDate} campaigns={campaigns}/>
+          <ReminderCalendar reminders={reminders} setReminders={setReminders} onAdd={addOnDate} campaigns={campPool}/>
         ) : (
           <div>
             {overdue.length>0 && (
@@ -3521,18 +3562,49 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     const init = {};
     months.forEach(idx => { const v = sched.byMonth[idx] != null ? sched.byMonth[idx] : flat; init[idx] = v>0 ? String(v) : ""; });
     setScheduleGoals(init);
+    return { init, months };
   }
   function seedSegments() {
+    let segs;
     if (campaign && Array.isArray(campaign.flightSegments) && campaign.flightSegments.length) {
-      setSegments(campaign.flightSegments.map(s => ({ start:s.start||"", end:s.end||"", goal: s.goal!=null?String(s.goal):"" })));
+      segs = campaign.flightSegments.map(s => ({ start:s.start||"", end:s.end||"", goal: s.goal!=null?String(s.goal):"" }));
     } else {
       // start with one segment from the current flight dates + total goal (or the flat monthly)
       const total = parseGoalGoalTotal(f.goal) || parseMonthlyGoal(f.note1) || 0;
-      setSegments([{ start:f.startDate||"", end:f.endDate||"", goal: total>0?String(total):"" }]);
+      segs = [{ start:f.startDate||"", end:f.endDate||"", goal: total>0?String(total):"" }];
     }
+    setSegments(segs);
+    return segs;
   }
   // Read the numeric total out of the Goal string ("175K (7/1 - 9/30)" → 175000).
   function parseGoalGoalTotal(g) { const m=(g||"").match(/([\d.,]+)\s*([KM])?/i); if(!m) return 0; let n=parseFloat(m[1].replace(/,/g,""))||0; const u=(m[2]||"").toUpperCase(); return u==="M"?n*1e6:u==="K"?n*1e3:n; }
+  // Write a set of date-flight segments straight to the form fields (note1 = per-month day-share string,
+  // goal = "<total> (start - end)", flightSegments = raw windows, start/end = the span). Called the moment
+  // you SWITCH to By-dates — not only when a segment is edited — so the flights save even if you don't
+  // re-type anything. (Austin: "it made me remove the monthly goal before it saved the flights.") Mirrors
+  // the builder's inline applySegments; kept in sync with it.
+  const _gNum = s => parseInt(String(s==null?"":s).replace(/[,\s]/g,""))||0;
+  const _MONF = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const _fmtKs = n => n>=1000000?(+(n/1000000).toFixed(2))+"M":n>=1000?(+(n/1000).toFixed(n>=10000?0:1))+"K":String(Math.round(n));
+  const _dISPs = iso => { const m=(iso||"").match(/^(\d{4})-(\d{2})-(\d{2})/); return m?`${parseInt(m[2])}/${parseInt(m[3])}/${m[1].slice(2)}`:""; };
+  function applySegmentsToForm(segs){
+    const segMonthSplit=(a,b,goal)=>{const out={};const [ay,am,ad]=a.split("-").map(Number),[by,bm,bd]=b.split("-").map(Number);const start=new Date(ay,am-1,ad),end=new Date(by,bm-1,bd);const td=Math.round((end-start)/86400000)+1;if(td<=0)return out;const cur=new Date(start);let g=0;while(cur<=end&&g<2000){const mi=cur.getMonth();out[mi]=(out[mi]||0)+1;cur.setDate(cur.getDate()+1);g++;}Object.keys(out).forEach(k=>{out[k]=goal*out[k]/td;});return out;};
+    const valid=(segs||[]).filter(s=>s&&s.start&&s.end&&s.end>=s.start&&_gNum(s.goal)>0);
+    if(valid.length){const starts=valid.map(s=>s.start).sort(),ends=valid.map(s=>s.end).sort();set("startDate",starts[0]);set("endDate",ends[ends.length-1]);}
+    const byMonth={};let total=0;
+    valid.forEach(s=>{const gg=_gNum(s.goal);total+=gg;const sp=segMonthSplit(s.start,s.end,gg);Object.keys(sp).forEach(k=>{byMonth[k]=(byMonth[k]||0)+sp[k];});});
+    let note1="";
+    if(valid.length){const starts=valid.map(s=>s.start).sort(),ends=valid.map(s=>s.end).sort();const order=flightMonthIdxs(starts[0],ends[ends.length-1]);note1=order.filter(i=>byMonth[i]>0).map(i=>`${_fmtKs(Math.round(byMonth[i]))} ${_MONF[i]}`).join(" ");set("goal",`${_fmtKs(Math.round(total))} (${_dISPs(starts[0])} - ${_dISPs(ends[ends.length-1])})`);}
+    set("note1",note1);
+    set("flightSegments",valid.map(s=>({start:s.start,end:s.end,goal:String(_gNum(s.goal))})));
+  }
+  function applyScheduleToForm(goalsObj, months){
+    const parts=[];let total=0;
+    (months||[]).forEach(idx=>{const n=_gNum(goalsObj[idx]);if(n>0){parts.push(`${_fmtKs(n)} ${_MONF[idx]}`);total+=n;}});
+    set("note1",parts.join(" "));
+    if(f.startDate&&f.endDate&&total>0)set("goal",`${_fmtKs(total)} (${_dISPs(f.startDate)} - ${_dISPs(f.endDate)})`);
+    set("flightSegments",[]);
+  }
   // On mount, seed whichever builder the campaign opened in.
   const scheduleSeeded = useRef(false);
   useEffect(() => { if (!scheduleSeeded.current) { if (goalMode==="month") seedSchedule(); else if (goalMode==="dates") seedSegments(); scheduleSeeded.current = true; } }, []);
@@ -3794,7 +3866,14 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                       const on = goalMode===m;
                       return (
                         <button key={m} type="button"
-                          onClick={()=>{ setGoalMode(m); if(m==="month") seedSchedule(); else if(m==="dates") seedSegments(); if(m!=="dates") set("flightSegments",[]); }}
+                          onClick={()=>{
+                            setGoalMode(m);
+                            // APPLY the seed on switch, so note1/goal/flightSegments are written immediately —
+                            // no need to re-type a segment or manually clear the old monthly goal for it to save.
+                            if(m==="month"){ const s=seedSchedule(); applyScheduleToForm(s.init, s.months); }
+                            else if(m==="dates"){ const segs=seedSegments(); applySegmentsToForm(segs); }
+                            else { set("flightSegments",[]); } // flat: keep note1 editable, drop any segments
+                          }}
                           style={{background:on?(_lm?"#dbeafe":"#0a2540"):(_lm?"#f1f5f9":"#0e1a2e"),border:`1px solid ${on?(_lm?"#3B8FFF":"#00d9ff60"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:5,color:on?(_lm?"#1d4ed8":"#00d9ff"):(_lm?"#64748b":"#7a9bbf"),fontSize:9,fontWeight:700,padding:"2px 8px",cursor:"pointer",letterSpacing:"0.03em"}}>{lbl}</button>
                       );
                     })}
@@ -11047,14 +11126,22 @@ function cleanInheritedDelivery(c) {
 // Monthly revenue for a rate-based campaign. Pass `monthIdx` (0-11) to use that month's goal
 // for a multi-phase flight (e.g. June → 47K for "94K/Mo Mar/Apr/May 47K/Mo June"); omit for the
 // flat/headline figure.
-function calcMonthlyRevenue(c, monthIdx) {
+function calcMonthlyRevenue(c, monthIdx, monthDate) {
   if (!c || c.platform === "SEM") return null;
   const rate = parseFloat(c.contractRate);
   if (!rate || rate <= 0) return null;
   // Non-YT platforms always bill CPM; YT needs an explicit dealType
   const effectiveDt = c.platform === "YT" ? (c.dealType || "") : "CPM";
   if (!effectiveDt) return null;
-  const goal = parseMonthlyGoal(c.note1, monthIdx);
+  let goal = parseMonthlyGoal(c.note1, monthIdx);
+  // FLIGHT fallback: a date-flighted campaign may have NO per-month goal in Note 1 (the flight lives in
+  // `flightSegments` + a total `goal` string). Prorate the total across THIS month by day-share — the
+  // same fallback pacing/computeDailyTarget already use — so revenue books instead of reading $0. Without
+  // this, switching a campaign to By-dates (which can leave Note 1 blank) zeroed its Revenue-tab number.
+  if ((!goal || goal <= 0) && c.goal) {
+    const md = monthDate || new Date(new Date().getFullYear(), (monthIdx != null ? monthIdx : new Date().getMonth()), 1);
+    goal = proratedMonthlyGoalFromTotal(parseGoalNumber(c.goal), c.startDate, c.endDate, md);
+  }
   if (!goal || goal <= 0) return null;
   if (effectiveDt === "CPM") return (goal / 1000) * rate;
   if (effectiveDt === "CPV") return goal * rate;
@@ -11162,7 +11249,7 @@ function revenueMapForCampaign(c) {
     const endMo = new Date(end.getFullYear(), end.getMonth(), 1);
     while (cur <= endMo) {
       const mo  = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`;
-      const rev = calcMonthlyRevenue(c, cur.getMonth());
+      const rev = calcMonthlyRevenue(c, cur.getMonth(), cur);   // pass the month DATE so the flight fallback prorates the right month
       if (rev != null) map[mo] = rev;
       cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1);
     }
@@ -15359,12 +15446,20 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                         // Show the "show all" escape hatch whenever the list is narrowed — by the smart
                         // filter OR by a left-panel selection — so the user can always reach every campaign.
                         const isFiltered = (hasSmartMatch && displayList.length < pool.length) || (selected.size > 0 && !showingAll);
+                        // ALSO surface "show all" whenever the FULL pool (active + the whole archive) has more
+                        // source-matching campaigns than we're currently showing — so an archived campaign (past
+                        // the 31-day auto-match window) and a lower-keyword-score same-client campaign are always
+                        // reachable. Without this, a non-TD file with no smart match hid the link entirely, and a
+                        // second same-name campaign (e.g. two "ImOn" lines) or an old archived one couldn't be picked.
+                        const _spAll = (typeof SOURCE_PLATFORMS!=="undefined") ? SOURCE_PLATFORMS[fileSource] : null;
+                        const _reachable = fullPool.filter(c => isTTD ? TTD_PLATFORMS.has(c.platform) : (_spAll ? _spAll.has(c.platform) : true));
+                        const canRevealMore = !showingAll && _reachable.length > displayList.length;
 
                         return (
                           <div style={{display:"flex",flexDirection:"column",gap:2,minWidth:160,maxWidth:230}}>
                             <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textAlign:"right",display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
                               {isTTD && !showingAll && <span style={{color:"#a78bfa",fontSize:9}}>TD/TDA/TDV</span>}
-                              {(isFiltered||isTTD) && (
+                              {(isFiltered||isTTD||canRevealMore) && (
                                 <button onClick={()=>setShowAllMap(m=>({...m,[i]:!m[i]}))}
                                   style={{background:"none",border:"none",color:_lm?"#64748b":"#4d6e8a",fontSize:9,cursor:"pointer",textDecoration:"underline",padding:0}}>
                                   {showingAll ? (isTTD?"TD/TDA/TDV only":"smart filter") : "show all"}
@@ -19472,7 +19567,7 @@ function healthBand(score){
   return { grade:"D", label:"At risk", color:"#ef4444" };
 }
 
-function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCheckins, lightMode, outlookEvents=[], outlookStatus={}, onConnectOutlook, onRefreshOutlook, onNavigate, onEdit, onStartCheckIn, onAddCampaign, onOpenReminders, onGoToPacing }) {
+function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDrafts, pendingCheckins, lightMode, outlookEvents=[], outlookStatus={}, onConnectOutlook, onRefreshOutlook, onNavigate, onEdit, onStartCheckIn, onAddCampaign, onOpenReminders, onGoToPacing }) {
   const _lm = lightMode;
   const card = { background:_lm?"#ffffff":"#0c1625", border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`, borderRadius:14 };
   const labelStyle = { fontSize:10, color:_lm?"#64748b":"#4d6e8a", textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 };
@@ -19638,7 +19733,8 @@ function HomeDashboard({ campaigns, reminders, activityLog, pdfDrafts, pendingCh
     const overdue = r.date < todayISO;
     if(!overdue && !inHorizon(r.date)) return;
     const rt = (typeof REMINDER_TYPES!=="undefined") ? (REMINDER_TYPES.find(t=>t.value===r.type)||null) : null;
-    const camp = r.campaignId ? campaigns.find(c=>c.id===r.campaignId) : null;
+    // Resolve against active + archived so a reminder still shows its campaign name after it's archived.
+    const camp = r.campaignId ? (campaigns.find(c=>c.id===r.campaignId) || archive.find(c=>c.id===r.campaignId)) : null;
     const noteTxt = r.note || (rt?rt.label:"Reminder");
     // Campaign name is the headline (Austin: "I need to see the campaign name more than anything");
     // the reminder type + note drop to the sub-line. Unlinked reminders fall back to the note.
@@ -21695,6 +21791,7 @@ export default function App() {
         {activeTab==="home" ? (
           <HomeDashboard
             campaigns={campaigns}
+            archive={archive}
             reminders={reminders}
             activityLog={activityLog}
             pdfDrafts={pdfDrafts}
@@ -22633,13 +22730,24 @@ export default function App() {
                                   {campReminders.length>0 && <button onClick={()=>setShowReminderModal(c.id)} style={{background:"#f59e0b20",border:"1px solid #f59e0b60",borderRadius:10,padding:"1px 6px",fontSize:10,color:"#f59e0b",fontWeight:700,cursor:"pointer"}}>🔔 {campReminders.length}</button>}
                                   {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:lightMode?"#fee2e2":"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"1px 5px",fontSize:9,color:"#ef4444",fontWeight:700,whiteSpace:"nowrap"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                                 </div>
-                                {c.note1&&c.note1.trim()&&(()=>{
+                                {(()=>{
                                   const disp=resolveMetrics(c,dateRange.preset);
                                   const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate,c.goal);
+                                  const dtChip = dt&&dt.dailyTarget>0&&showDailyGoal ? <span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:lightMode?"#7c3aed":"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span> : null;
+                                  // Date-flighted campaigns → show the FLIGHT (total + date range) here in the same
+                                  // electric blue as a monthly goal, so the slot is never blank. Else the Note-1 goal.
+                                  const fl = flightGoalLabel(c);
+                                  if(fl) return (
+                                    <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,paddingLeft:12,flexWrap:"wrap"}}>
+                                      <div title={fl.tip} style={{fontSize:11,color:lightMode?"#0891b2":"#00d9ff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{fl.label}</div>
+                                      {dtChip}
+                                    </div>
+                                  );
+                                  if(!(c.note1&&c.note1.trim())) return null;
                                   return (
                                     <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,paddingLeft:12,flexWrap:"wrap"}}>
                                       <div style={{fontSize:11,color:lightMode?"#0891b2":"#00d9ff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}}>{c.note1.trim()}</div>
-                                      {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:lightMode?"#7c3aed":"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
+                                      {dtChip}
                                     </div>
                                   );
                                 })()}
@@ -22740,13 +22848,24 @@ export default function App() {
                             )}
 {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{background:lightMode?"#fee2e2":"#200808",border:`1px solid ${lightMode?"#ef4444":"#ef444460"}`,borderRadius:3,padding:"1px 5px",fontSize:9,color:lightMode?"#b91c1c":"#ef4444",fontWeight:700,letterSpacing:"0.05em",whiteSpace:"nowrap",flexShrink:0,cursor:"default"}}>⚠ {c.note2.trim().length>18?c.note2.trim().slice(0,18)+"…":c.note2.trim()}</span>}
                           </div>
-                          {c.note1&&c.note1.trim()&&(()=>{
+                          {(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
                             const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate,c.goal);
+                            const dtChip = dt&&dt.dailyTarget>0&&showDailyGoal ? <span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:lightMode?"#7c3aed":"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span> : null;
+                            // Date-flighted campaigns → show the FLIGHT (total + range) here in the same electric blue
+                            // as a monthly goal so the slot is never blank. Else fall back to the Note-1 goal.
+                            const fl = flightGoalLabel(c);
+                            if(fl) return (
+                              <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,flexWrap:"wrap"}}>
+                                <div title={fl.tip} style={{fontSize:11,color:lightMode?"#0891b2":"#00d9ff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:220}}>{fl.label}</div>
+                                {dtChip}
+                              </div>
+                            );
+                            if(!(c.note1&&c.note1.trim())) return null;
                             return (
                               <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,flexWrap:"wrap"}}>
                                 <div style={{fontSize:11,color:lightMode?"#0891b2":"#00d9ff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:180}} title={c.note1}>{c.note1.trim()}</div>
-                                {dt&&dt.dailyTarget>0&&showDailyGoal&&<span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:lightMode?"#7c3aed":"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span>}
+                                {dtChip}
                               </div>
                             );
                           })()}
@@ -22931,7 +23050,12 @@ export default function App() {
         onSaveDraft={(f)=>{ stashManualDraft(f || addDraftRef.current); setShowAdd(false); }}
         onDiscardDraft={()=>{ addDraftRef.current = null; setShowAdd(false); }}
         partners={[...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].sort()} campaigns={campaigns}/>}
-      {showReminderModal && <ReminderModal campaigns={campaigns} reminders={reminders} setReminders={setReminders} focusCampaignId={typeof showReminderModal==="number"?showReminderModal:null} onClose={()=>setShowReminderModal(null)} onNavigate={(campId)=>{ setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; }); setSearch(""); setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },200); }}/>}
+      {showReminderModal && <ReminderModal campaigns={campaigns} archive={archive} reminders={reminders} setReminders={setReminders} focusCampaignId={typeof showReminderModal==="number"?showReminderModal:null} onClose={()=>setShowReminderModal(null)} onNavigate={(campId)=>{
+        // If the reminder's campaign was archived, it's not in the Campaigns tab — send them to the
+        // Archive tab instead (its search now spans every month) so the link still lands somewhere useful.
+        if(archive.some(a=>a.id===campId)){ setActiveTab("archive"); return; }
+        setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; }); setSearch(""); setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },200);
+      }}/>}
       {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
       {/* ── IO PDF drop box — a focused drag-and-drop lightbox, opened from the "Drop IO PDF" header
              button (mirrors the Quick Check-in drop zone). Drop or browse a PDF → it parses into review
