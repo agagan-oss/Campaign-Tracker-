@@ -54,11 +54,33 @@ const ARCHIVE_DAYS = 5;
 const FSA_SUPPORTED = typeof window !== "undefined" && "showDirectoryPicker" in window;
 function _backupIdb(){
   return new Promise((res,rej)=>{
-    const r = indexedDB.open("zeus-backup", 1);
-    r.onupgradeneeded = () => { try { r.result.createObjectStore("handles"); } catch(e){} };
+    const r = indexedDB.open("zeus-backup", 2);
+    r.onupgradeneeded = () => { try { const db=r.result;
+      if(!db.objectStoreNames.contains("handles"))   db.createObjectStore("handles");
+      if(!db.objectStoreNames.contains("snapshots"))  db.createObjectStore("snapshots"); // full-payload safety copies
+    } catch(e){} };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
   });
+}
+// A durable, OUT-OF-localStorage copy of the whole tracker. IndexedDB is a separate store that survives a
+// localStorage wipe (it survived Austin's 2026-07-29 power-loss wipe — the folder handle lived here), so
+// this is the copy that makes data loss recoverable even with NO file backup. Keeps "latest" + dated ones.
+async function idbSaveSnapshot(jsonStr){
+  try{
+    const db=await _backupIdb();
+    const date=new Date().toISOString().slice(0,10), rec={ at:Date.now(), date, json:jsonStr };
+    await new Promise((res,rej)=>{ const tx=db.transaction("snapshots","readwrite"); const st=tx.objectStore("snapshots");
+      st.put(rec,"latest"); st.put(rec,"day:"+date); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); });
+    try{ await new Promise((res)=>{ const tx=db.transaction("snapshots","readwrite"); const st=tx.objectStore("snapshots");
+      const rq=st.getAllKeys(); rq.onsuccess=()=>{ const cut=new Date(Date.now()-21*86400000).toISOString().slice(0,10);
+        (rq.result||[]).forEach(k=>{ if(typeof k==="string" && k.startsWith("day:") && k.slice(4)<cut) st.delete(k); }); res(); }; rq.onerror=()=>res(); }); }catch(e){}
+    db.close(); return true;
+  }catch(e){ return false; }
+}
+async function idbGetSnapshot(){
+  try{ const db=await _backupIdb(); const v=await new Promise((res,rej)=>{ const tx=db.transaction("snapshots","readonly");
+    const rq=tx.objectStore("snapshots").get("latest"); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>rej(rq.error); }); db.close(); return v; }catch(e){ return null; }
 }
 async function idbSetDirHandle(h){ try{ const db=await _backupIdb(); await new Promise((res,rej)=>{ const tx=db.transaction("handles","readwrite"); tx.objectStore("handles").put(h,"dir"); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); db.close(); }catch(e){ console.error("backup idb set",e); } }
 async function idbGetDirHandle(){ try{ const db=await _backupIdb(); const h=await new Promise((res,rej)=>{ const tx=db.transaction("handles","readonly"); const rq=tx.objectStore("handles").get("dir"); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>rej(rq.error); }); db.close(); return h; }catch(e){ return null; } }
@@ -15399,25 +15421,25 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                         // archived campaign is reachable/mappable (needed for accurate monthly revenue on
                         // campaigns archived more than 31 days ago).
                         const dropdownBase = (showingAll || qciSearch) ? fullPool : assignPool;
-                        // Respect the user's left-panel selection + platform + search filters in the
-                        // assign dropdown. "show all" bypasses these to reveal every campaign.
-                        const qciPool = showingAll ? dropdownBase : dropdownBase.filter(c => {
-                          // If the user has CHECKED campaigns on the left, they've told us exactly which
-                          // campaign(s) this file is for — restrict the dropdown to just those. A typed
-                          // search overrides this so the archive is always reachable by name.
-                          if (selected.size > 0 && !selected.has(c.id) && !qciSearch) return false;
-                          if (qciPlatforms.size > 0 && !qciPlatforms.has(c.platform)) return false;
-                          if (qciSearch) {
+                        // The FILE's platforms — a DSP file should only ever offer DSP campaigns, a TD file
+                        // only TD-family, etc. This gate applies EVEN in "show all" (Austin: "if I'm linking
+                        // Olympia Hills DSP I don't need all FB campaigns to show up"). "show all" then just
+                        // widens the ARCHIVE + drops the smart-keyword narrowing, staying on-platform.
+                        const _srcGate = (typeof SOURCE_PLATFORMS!=="undefined") ? SOURCE_PLATFORMS[fileSource] : null;
+                        const pool = dropdownBase.filter(c => {
+                          if (_srcGate && !_srcGate.has(c.platform)) return false;   // stay within the file's platforms
+                          if (!showingAll) {
+                            // If the user has CHECKED campaigns on the left, they've told us exactly which
+                            // campaign(s) this file is for — restrict to just those (a typed search overrides).
+                            if (selected.size > 0 && !selected.has(c.id) && !qciSearch) return false;
+                            if (qciPlatforms.size > 0 && !qciPlatforms.has(c.platform)) return false;
+                          }
+                          if (qciSearch) {   // the check-in search box filters the mapping options too
                             const q = qciSearch.toLowerCase();
                             if (!c.campaignName.toLowerCase().includes(q) && !(c.mediaPartner||"").toLowerCase().includes(q)) return false;
                           }
                           return true;
                         });
-                        // Default pool for TradeDesk: TD/TDV/TDA/CTV/OTT campaigns within the qci filter
-                        const tdPool = isTTD && !showingAll
-                          ? qciPool.filter(c => TTD_PLATFORMS.has(c.platform))
-                          : qciPool;
-                        const pool = isTTD ? tdPool : qciPool;
 
                         // Score candidates — use all words ≥2 chars
                         const scored = pool.map(c=>{
@@ -21362,8 +21384,25 @@ export default function App() {
 
   // Build the complete backup payload (campaigns + reminders + archive + log + revenue-critical
   // keys). Shared by the manual JSON export AND the auto-backup safety net so they're identical.
+  // Every small settings/memory key that lives OUTSIDE the campaigns array — partner codes, custom
+  // platforms, Quick-Check-in name memory, KPI benchmarks, etc. These were NOT in the backup, so a
+  // power-loss wipe of these keys was unrecoverable (Austin, 2026-07-29 — lost partner codes + custom
+  // platforms + all QCI mappings even after importing a backup). Stored as RAW strings so the import
+  // can write them straight back, format-agnostic.
+  const BACKUP_SETTINGS_KEYS = [
+    "campaign-tracker-partner-abbr",       // partner display codes (SPIN, ALL-KITV…)
+    "campaign-tracker-partner-prefixes",   // IO prefix aliases
+    CUSTOM_PLATFORMS_KEY,                  // custom platforms + colors
+    CSV_MAPPINGS_KEY,                      // Quick Check-in name memory (auto-map)
+    "zeus-benchmarks",                     // per-platform KPI benchmarks
+    TIMEZONE_KEY,                          // tracker time zone
+    "qci-ignored-names",                   // QCI ignore list
+    PARTNER_ABBR_KEY,                      // (alias of partner-abbr constant, in case it differs)
+  ];
   const buildBackupPayload = () => {
     const _read = (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } };
+    const settings = {};
+    BACKUP_SETTINGS_KEYS.forEach(k => { try { const v = localStorage.getItem(k); if (v != null) settings[k] = v; } catch(e){} });
     return {
       campaigns,
       reminders,
@@ -21375,8 +21414,9 @@ export default function App() {
       monthLocks:     _read(MONTH_LOCK_KEY),
       monthlyBackups: _read(MONTHLY_BACKUP_KEY),
       monthResetKey:  (()=>{ try { return localStorage.getItem(MONTH_RESET_KEY); } catch { return null; } })(),
+      settings,       // NEW (v4): partner codes, custom platforms, QCI mappings, benchmarks, time zone
       exportDate: new Date().toISOString(),
-      exportVersion: 3,
+      exportVersion: 4,
     };
   };
 
@@ -21405,6 +21445,9 @@ export default function App() {
       const stamp = getToday();
       const jsonStr = JSON.stringify(buildBackupPayload(), null, 2);
       const filename = `campaign-tracker-${stamp}.json`;
+      // ALWAYS write the durable IndexedDB safety copy first — independent of whether the folder/download
+      // write succeeds. This is the copy the load-time auto-recovery reads if localStorage ever gets wiped.
+      idbSaveSnapshot(jsonStr);
       let method = null, folderName = readBackupCfg().folderName || null;
       if (FSA_SUPPORTED) {
         const h = await idbGetDirHandle();
@@ -21446,6 +21489,64 @@ export default function App() {
     const t = setTimeout(() => { runBackup("load"); }, 1800);
     return () => clearTimeout(t);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the durable IndexedDB safety copy NEAR-CURRENT (not just once a day) — a wipe then costs at most
+  // the last ~30s of work, not a whole day. Debounced: writes 30s after the last data change. Runs
+  // regardless of whether folder/file backups are set up, so there is ALWAYS a recent recoverable copy.
+  useEffect(() => {
+    const t = setTimeout(() => { try { idbSaveSnapshot(JSON.stringify(buildBackupPayload())); } catch(e){} }, 30000);
+    return () => clearTimeout(t);
+  }, [campaigns, archive, reminders, activityLog]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load-time AUTO-RECOVERY ────────────────────────────────────────────────────────────────────
+  // If the app opened with NO campaigns but the IndexedDB safety copy still has some, localStorage was
+  // almost certainly wiped (power loss / corruption / cleared cache) — offer a one-click restore instead
+  // of the silent "everything's gone" that cost Austin a day on 2026-07-29.
+  const [recoverySnap, setRecoverySnap] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const snap = await idbGetSnapshot();
+        if (!snap || !snap.json) return;
+        const parsed = JSON.parse(snap.json);
+        const snapCamps = Array.isArray(parsed.campaigns) ? parsed.campaigns.length : 0;
+        const snapRems  = Array.isArray(parsed.reminders) ? parsed.reminders.length : 0;
+        const rawCamp = (localStorage.getItem(STORAGE_KEY)   || "").length;
+        const rawRem  = (localStorage.getItem(REMINDERS_KEY) || "").length;
+        // FULL wipe — no campaigns in storage but the snapshot has them → restore everything.
+        if (campaigns.length === 0 && rawCamp <= 20 && snapCamps > 0) {
+          setRecoverySnap({ mode:"full", date:snap.date, at:snap.at, n:snapCamps, remN:snapRems, archiveN:Array.isArray(parsed.archive)?parsed.archive.length:0, parsed });
+          return;
+        }
+        // REMINDERS-only wipe — campaigns are fine but the reminders key vanished while the snapshot still
+        // holds a batch. Restore JUST the reminders so a corrupted reminders write can't quietly lose them.
+        if (reminders.length === 0 && rawRem <= 20 && snapRems >= 5) {
+          setRecoverySnap({ mode:"reminders", date:snap.date, at:snap.at, n:snapCamps, remN:snapRems, parsed });
+        }
+      } catch (e) {}
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const doRecoverFromSnapshot = () => {
+    const p = recoverySnap && recoverySnap.parsed; if (!p) return;
+    const mode = (recoverySnap && recoverySnap.mode) || "full";
+    try {
+      if (mode === "reminders") {
+        // Only reminders were lost — restore just those (+ fill any MISSING settings), leave campaigns alone.
+        if (Array.isArray(p.reminders)) localStorage.setItem(REMINDERS_KEY, JSON.stringify(p.reminders));
+        if (p.settings && typeof p.settings === "object") Object.entries(p.settings).forEach(([k,v]) => { try { if (typeof v === "string" && !localStorage.getItem(k)) localStorage.setItem(k, v); } catch(e){} });
+      } else {
+        if (Array.isArray(p.campaigns))    localStorage.setItem(STORAGE_KEY, JSON.stringify(p.campaigns));
+        if (Array.isArray(p.archive))      localStorage.setItem(ARCHIVE_KEY, JSON.stringify(p.archive));
+        if (Array.isArray(p.reminders))    localStorage.setItem(REMINDERS_KEY, JSON.stringify(p.reminders));
+        if (Array.isArray(p.activityLog))  localStorage.setItem(ACTIVITY_KEY, JSON.stringify(p.activityLog));
+        if (p.monthLocks)     localStorage.setItem(MONTH_LOCK_KEY, JSON.stringify(p.monthLocks));
+        if (p.monthlyBackups) localStorage.setItem(MONTHLY_BACKUP_KEY, JSON.stringify(p.monthlyBackups));
+        if (p.monthResetKey)  localStorage.setItem(MONTH_RESET_KEY, p.monthResetKey);
+        if (p.settings && typeof p.settings === "object") Object.entries(p.settings).forEach(([k,v]) => { try { if (typeof v === "string") localStorage.setItem(k, v); } catch(e){} });
+      }
+      location.reload();
+    } catch (e) { alert("Restore failed: " + (e && e.message)); }
+  };
 
   const doImport = (file) => {
     if(!file) return;
@@ -21519,6 +21620,12 @@ export default function App() {
           if (p.monthLocks)     localStorage.setItem(MONTH_LOCK_KEY, JSON.stringify(p.monthLocks));
           if (p.monthlyBackups) localStorage.setItem(MONTHLY_BACKUP_KEY, JSON.stringify(p.monthlyBackups));
           if (p.monthResetKey)  localStorage.setItem(MONTH_RESET_KEY, p.monthResetKey);
+          // Settings bundle (v4 exports): partner codes, custom platforms, QCI mappings, benchmarks,
+          // time zone. Each value is a raw string → write it straight back. Restoring these is what makes
+          // an import bring EVERYTHING back, not just campaigns (the gap that made the 7/29 recovery painful).
+          if (p.settings && typeof p.settings === "object") {
+            Object.entries(p.settings).forEach(([k,v]) => { try { if (typeof v === "string") localStorage.setItem(k, v); } catch(e){} });
+          }
         } catch(storageErr) {
           alert("❌ Import failed — could not write to storage (possibly full). No data was changed.\n\n" + storageErr.message);
           return;
@@ -23057,6 +23164,43 @@ export default function App() {
         setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; }); setSearch(""); setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },200);
       }}/>}
       {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
+      {/* ── Auto-recovery prompt — tracker opened empty but a durable IndexedDB safety copy exists ── */}
+      {recoverySnap && (
+        <div style={{position:"fixed",inset:0,background:"#000c",zIndex:100000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:lightMode?"#ffffff":"#0c1625",border:`1px solid ${lightMode?"#e2e8f0":"#1a2744"}`,borderRadius:16,maxWidth:520,width:"100%",padding:"26px 28px",boxShadow:"0 30px 90px rgba(0,0,0,.6)"}}>
+            <div style={{fontSize:34,marginBottom:10}}>🛟</div>
+            <div style={{fontSize:19,fontWeight:800,color:lightMode?"#0f172a":"#edf4ff",marginBottom:8}}>{recoverySnap.mode==="reminders"?"Recover your reminders?":"Recover your data?"}</div>
+            {recoverySnap.mode==="reminders" ? (
+              <div style={{fontSize:14,lineHeight:1.7,color:lightMode?"#334155":"#c8d8ec",marginBottom:6}}>
+                Your <b>reminders</b> came up empty, but a safety backup here in this browser still has
+                <b style={{color:lightMode?"#0891b2":"#00d9ff"}}> {recoverySnap.remN} reminder{recoverySnap.remN!==1?"s":""}</b>,
+                from <b>{recoverySnap.at ? new Date(recoverySnap.at).toLocaleString() : fmtDate(recoverySnap.date)}</b>. Your campaigns are untouched.
+              </div>
+            ) : (
+              <div style={{fontSize:14,lineHeight:1.7,color:lightMode?"#334155":"#c8d8ec",marginBottom:6}}>
+                Your tracker opened <b>empty</b>, but a safety backup is stored right here in this browser —
+                it has <b style={{color:lightMode?"#0891b2":"#00d9ff"}}>{recoverySnap.n} campaign{recoverySnap.n!==1?"s":""}</b>{recoverySnap.archiveN>0?<> and <b>{recoverySnap.archiveN} archived</b></>:null}{recoverySnap.remN>0?<>, <b>{recoverySnap.remN} reminder{recoverySnap.remN!==1?"s":""}</b></>:null},
+                from <b>{recoverySnap.at ? new Date(recoverySnap.at).toLocaleString() : fmtDate(recoverySnap.date)}</b>.
+              </div>
+            )}
+            <div style={{fontSize:12,color:lightMode?"#64748b":"#7a9bbf",marginBottom:20}}>
+              {recoverySnap.mode==="reminders"
+                ? "This restores only your reminders — your campaigns, pacing, and revenue stay exactly as they are."
+                : "This usually means a power cut or cleared cache. Restoring brings back your campaigns, archive, reminders, partner codes, custom platforms, and mappings — everything."}
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={doRecoverFromSnapshot} className="glow-btn"
+                style={{flex:1,background:lightMode?"#00e19e":"#002e24",border:`1px solid ${lightMode?"#00c896":"#00c89660"}`,borderRadius:9,padding:"12px 0",color:lightMode?"#06222b":"#00e5a0",fontSize:14,fontWeight:800,cursor:"pointer"}}>
+                🛟 {recoverySnap.mode==="reminders"?"Restore my reminders":"Restore my data"}
+              </button>
+              <button onClick={()=>setRecoverySnap(null)}
+                style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:9,padding:"12px 18px",color:lightMode?"#475569":"#7a9bbf",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+                Not now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ── IO PDF drop box — a focused drag-and-drop lightbox, opened from the "Drop IO PDF" header
              button (mirrors the Quick Check-in drop zone). Drop or browse a PDF → it parses into review
              drafts (the draft queue modal opens automatically). ── */}
