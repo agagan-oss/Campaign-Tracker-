@@ -8251,7 +8251,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     .sort((a,b)=>a.startDate.localeCompare(b.startDate));
   const allActive = campaigns.filter(c=>c.status!=="off" && !(c.startDate && c.startDate.slice(0,10) > todayStr));
   const partners  = ["all", ...new Set(allActive.map(c=>c.mediaPartner).filter(Boolean))].sort();
-  const platforms = sortPlatforms([...new Set([...allActive.map(c=>c.platform).filter(Boolean), ...ALL_PLATFORMS])]);
+  // Only platforms Austin actually has campaigns on (active + off) — don't list platforms with zero
+  // campaigns on the tracker. Uses the full `campaigns` prop (not just allActive) so a platform used
+  // only by an Off campaign still appears. (Reverted 2026-07-30 from the all-platforms union.)
+  const platforms = sortPlatforms([...new Set(campaigns.map(c=>c.platform).filter(Boolean))]);
 
   // Build rows for ALL active
   const allRows = allActive.map(c=>{
@@ -21123,9 +21126,9 @@ export default function App() {
     }
   },[]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Show EVERY known platform in the filter (built-in defaults + custom), not just the ones an active
-  // campaign happens to use right now — so a platform never silently drops off the "All Platforms" list.
-  const platforms = useMemo(()=>sortPlatforms([...new Set([...campaigns.map(c=>c.platform).filter(Boolean), ...ALL_PLATFORMS])]),[campaigns]);
+  // Only the platforms Austin actually has campaigns on (active + off) — no point listing platforms
+  // with zero campaigns in the pacing filter. (Reverted 2026-07-30 from the all-platforms union.)
+  const platforms = useMemo(()=>sortPlatforms([...new Set(campaigns.map(c=>c.platform).filter(Boolean))]),[campaigns]);
   const filtered  = useMemo(()=>{
     let list = campaigns.filter(c=>{
       const q=search.toLowerCase();
@@ -22732,7 +22735,7 @@ export default function App() {
             { key:"stale",    label:"🕒 Not Updated Recently", active:fStaleDays>0,         toggle:()=>setFStaleDays(d=>d>0?0:3) },
             { key:"monthly",  label:"★ Monthly Flights",       active:fMonthly,             toggle:()=>setFMonthly(v=>!v) },
             { key:"goalMo",   label:"📅 Monthly Goal",         active:fGoalType==="monthly", toggle:()=>setFGoalType(v=>v==="monthly"?"all":"monthly") },
-            { key:"goalFl",   label:"📆 Flight Dates",         active:fGoalType==="flights", toggle:()=>setFGoalType(v=>v==="flights"?"all":"flights") },
+            { key:"goalFl",   label:"✈️ Flight Dates",         active:fGoalType==="flights", toggle:()=>setFGoalType(v=>v==="flights"?"all":"flights") },
             { key:"reminder", label:"🔔 Has Reminder",         active:sortKey==="reminder", toggle:()=>setSortKey(k=>k==="reminder"?"endDate":"reminder") },
             { key:"goalHit",  label:"🎯 Goal Hit",             active:fGoalHit,             toggle:()=>{ setFGoalHit(v=>!v); setFExcludeGoalHit(false); } },
             { key:"close",    label:"⏳ Close to Goal",         active:fCloseToGoal,         toggle:()=>setFCloseToGoal(v=>!v) },
