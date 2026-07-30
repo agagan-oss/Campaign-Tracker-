@@ -82,6 +82,10 @@ async function idbGetSnapshot(){
   try{ const db=await _backupIdb(); const v=await new Promise((res,rej)=>{ const tx=db.transaction("snapshots","readonly");
     const rq=tx.objectStore("snapshots").get("latest"); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>rej(rq.error); }); db.close(); return v; }catch(e){ return null; }
 }
+// Pre-import stash → makes an Import UNDOABLE (a wrong/older file over newer data is the classic footgun).
+async function idbSavePreimport(jsonStr){ try{ const db=await _backupIdb(); await new Promise((res,rej)=>{ const tx=db.transaction("snapshots","readwrite"); tx.objectStore("snapshots").put({ at:Date.now(), json:jsonStr },"preimport"); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); db.close(); return true; }catch(e){ return false; } }
+async function idbGetPreimport(){ try{ const db=await _backupIdb(); const v=await new Promise((res,rej)=>{ const tx=db.transaction("snapshots","readonly"); const rq=tx.objectStore("snapshots").get("preimport"); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>rej(rq.error); }); db.close(); return v; }catch(e){ return null; } }
+async function idbClearPreimport(){ try{ const db=await _backupIdb(); await new Promise((res)=>{ const tx=db.transaction("snapshots","readwrite"); tx.objectStore("snapshots").delete("preimport"); tx.oncomplete=res; tx.onerror=res; }); db.close(); }catch(e){} }
 async function idbSetDirHandle(h){ try{ const db=await _backupIdb(); await new Promise((res,rej)=>{ const tx=db.transaction("handles","readwrite"); tx.objectStore("handles").put(h,"dir"); tx.oncomplete=res; tx.onerror=()=>rej(tx.error); }); db.close(); }catch(e){ console.error("backup idb set",e); } }
 async function idbGetDirHandle(){ try{ const db=await _backupIdb(); const h=await new Promise((res,rej)=>{ const tx=db.transaction("handles","readonly"); const rq=tx.objectStore("handles").get("dir"); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>rej(rq.error); }); db.close(); return h; }catch(e){ return null; } }
 async function idbClearDirHandle(){ try{ const db=await _backupIdb(); await new Promise((res)=>{ const tx=db.transaction("handles","readwrite"); tx.objectStore("handles").delete("dir"); tx.oncomplete=res; tx.onerror=res; }); db.close(); }catch(e){} }
@@ -8247,7 +8251,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     .sort((a,b)=>a.startDate.localeCompare(b.startDate));
   const allActive = campaigns.filter(c=>c.status!=="off" && !(c.startDate && c.startDate.slice(0,10) > todayStr));
   const partners  = ["all", ...new Set(allActive.map(c=>c.mediaPartner).filter(Boolean))].sort();
-  const platforms = sortPlatforms([...new Set(allActive.map(c=>c.platform).filter(Boolean))]);
+  const platforms = sortPlatforms([...new Set([...allActive.map(c=>c.platform).filter(Boolean), ...ALL_PLATFORMS])]);
 
   // Build rows for ALL active
   const allRows = allActive.map(c=>{
@@ -18239,6 +18243,16 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
     PLT_COLORS[name] = color;
   }
 
+  // Reset a platform back to its built-in default color (drops any saved override).
+  // Works for built-in codes; custom platforms fall back to the neutral default hue.
+  function resetPlatformColor(name) {
+    const colors = {...customData.colors}; delete colors[name];
+    const updated = {...customData, colors};
+    saveCustomPlatforms(updated);
+    setCustomData(updated);
+    PLT_COLORS[name] = PLT_COLORS_DEFAULT[name] || PLT_COLORS_DEFAULT.default;
+  }
+
   useEffect(()=>{
     try { localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg)); } catch(e){}
   },[cfg]);
@@ -19133,6 +19147,36 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
               <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:10}}>⚠ Removing a platform doesn't affect existing campaigns that use it — they'll still show the platform code, it just won't appear in the add/edit dropdown.</div>
             </div>
           )}
+
+          {/* Built-in platform colors — recolor any standard platform (TDV, Hulu, Peacock, etc.) and
+              reset back to the default. Overrides live in the same custom-platforms config, so they
+              ride along in every backup. */}
+          <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:12,padding:"16px 20px",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+            <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4}}>Platform Colors</div>
+            <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginBottom:12,lineHeight:1.5}}>The color each platform shows in Pacing, Campaigns, Revenue and Zeus. Click a swatch to recolor it; ↺ puts it back to the default.</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:8}}>
+              {sortPlatforms(ALL_PLATFORMS_DEFAULT).map(p=>{
+                const def = PLT_COLORS_DEFAULT[p] || PLT_COLORS_DEFAULT.default;
+                const color = customData.colors[p] || def;
+                const overridden = !!customData.colors[p] && customData.colors[p].toLowerCase() !== def.toLowerCase();
+                const count = campaigns.filter(c=>c.platform===p).length;
+                const chip = _lm
+                  ? (()=>{const cr=parseInt(color.slice(1,3),16)/255,cg=parseInt(color.slice(3,5),16)/255,cb=parseInt(color.slice(5,7),16)/255;const ct=(0.299*cr+0.587*cg+0.114*cb)>0.45?"#0a1a0a":"#ffffff";return <span style={{fontWeight:800,color:ct,background:color,borderRadius:5,padding:"2px 8px",fontSize:12,fontFamily:"monospace",minWidth:48,textAlign:"center"}}>{p}</span>;})()
+                  : <span style={{fontWeight:800,color,background:color+"22",border:`1px solid ${color}50`,borderRadius:5,padding:"2px 8px",fontSize:12,fontFamily:"monospace",minWidth:48,textAlign:"center"}}>{p}</span>;
+                return (
+                  <div key={p} title={count?`${count} active campaign${count!==1?"s":""}`:"no active campaigns"}
+                    style={{display:"flex",alignItems:"center",gap:8,background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#162236"}`,borderRadius:8,padding:"7px 10px"}}>
+                    {chip}
+                    <span style={{flex:1}}/>
+                    {overridden && <button onClick={()=>resetPlatformColor(p)} title="Reset to default color"
+                      style={{background:"transparent",border:"none",color:_lm?"#94a3b8":"#4d6e8a",fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1}}>↺</button>}
+                    <input type="color" value={color} onChange={e=>updateCustomColor(p,e.target.value)}
+                      title={`Change ${p} color`} style={{width:30,height:26,border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:4,background:_lm?"#f8fafc":"#162236",cursor:"pointer",padding:1}}/>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
           {customData.platforms.length===0&&(
             <div style={{background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"28px",textAlign:"center",color:_lm?"#64748b":"#3d5a72"}}>
@@ -20171,6 +20215,10 @@ export default function App() {
   const [fStatuses, setFStatuses] = useState(()=> new Set(_campPersisted.fStatuses || []));  // multi-select status filter; empty = all
   const [fPlatforms, setFPlatforms] = useState(new Set(_campPersisted.fPlatforms || []));
   const [fMonthly, setFMonthly]   = useState(_campPersisted.fMonthly || false);
+  // Goal-type filter: "all" | "monthly" (recurring per-month goal) | "flights" (specific date-range
+  // flight). Computed from the goal structure, NOT the manual ★ monthlyFlight star — lets Austin
+  // isolate the recurring-monthly campaigns at month-end and hide the odd-window flights (or vice-versa).
+  const [fGoalType, setFGoalType] = useState(_campPersisted.fGoalType || "all");
   const [sortKey, setSortKey]     = useState(_campPersisted.sortKey || "endDate");
   const [sortDir, setSortDir]     = useState(_campPersisted.sortDir || "asc");
   const [editTarget, setEditTarget] = useState(null);
@@ -20662,11 +20710,11 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem(CAMPAIGNS_FILTER_KEY, JSON.stringify({
-        search, fStatuses: [...fStatuses], fPlatforms: [...fPlatforms], fMonthly, sortKey, sortDir,
+        search, fStatuses: [...fStatuses], fPlatforms: [...fPlatforms], fMonthly, fGoalType, sortKey, sortDir,
         groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fStaleDays, fNote2, fHasData, fNoRetargeting,
       }));
     } catch {}
-  }, [search, fStatuses, fPlatforms, fMonthly, sortKey, sortDir, groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fStaleDays, fNote2, fHasData, fNoRetargeting]);
+  }, [search, fStatuses, fPlatforms, fMonthly, fGoalType, sortKey, sortDir, groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fStaleDays, fNote2, fHasData, fNoRetargeting]);
   const [showDailyGoal, setShowDailyGoal]       = useState(false);
   const [showPacingBar, setShowPacingBar]       = useState(false);
   const [quickCheckIn, setQuickCheckIn]         = useState(false);
@@ -20956,8 +21004,13 @@ export default function App() {
   }
 
   useEffect(()=>{ try { localStorage.setItem(STORAGE_KEY,JSON.stringify(campaigns)); setSaved(true); setSaveError(false); setTimeout(()=>setSaved(false),1400); } catch(e){ console.error(e); setSaveError(true); } },[campaigns]);
-  useEffect(()=>{ try { localStorage.setItem(REMINDERS_KEY,JSON.stringify(reminders)); } catch(e){console.error(e);} },[reminders]);
+  useEffect(()=>{ try { localStorage.setItem(REMINDERS_KEY,JSON.stringify(reminders)); } catch(e){ console.error(e); setSaveError(true); } },[reminders]); // reminders are precious — surface a failed save too
   useEffect(()=>{ try { localStorage.setItem(ARCHIVE_KEY,JSON.stringify(archive)); } catch(e){ console.error(e); setSaveError(true); } },[archive]);
+  // PROACTIVE storage-health gauge — warn BEFORE the ~5MB browser cap so saves never start silently
+  // failing. localStorage is UTF-16 (~2 bytes/char); ~2.6M chars is the practical danger line, so this is
+  // the fraction of that. Recomputed when the big data changes.
+  const [storagePct, setStoragePct] = useState(0);
+  useEffect(()=>{ try { let total=0; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); total += (k?k.length:0) + (localStorage.getItem(k)||"").length; } setStoragePct(total/2600000); } catch(e){} },[campaigns, archive, activityLog, reminders]);
   // One-time repair of stale pre-reset check-in entries on load (see repairMetricSeries). Idempotent —
   // once cleaned there's nothing to remove, so it won't keep rewriting. Covers active + archived.
   useEffect(()=>{
@@ -21070,7 +21123,9 @@ export default function App() {
     }
   },[]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const platforms = useMemo(()=>sortPlatforms([...new Set(campaigns.map(c=>c.platform).filter(Boolean))]),[campaigns]);
+  // Show EVERY known platform in the filter (built-in defaults + custom), not just the ones an active
+  // campaign happens to use right now — so a platform never silently drops off the "All Platforms" list.
+  const platforms = useMemo(()=>sortPlatforms([...new Set([...campaigns.map(c=>c.platform).filter(Boolean), ...ALL_PLATFORMS])]),[campaigns]);
   const filtered  = useMemo(()=>{
     let list = campaigns.filter(c=>{
       const q=search.toLowerCase();
@@ -21122,6 +21177,14 @@ export default function App() {
         if(fHasData==="yes" && !hasMetrics) return false;
         if(fHasData==="no"  &&  hasMetrics) return false;
       }
+      if(fGoalType!=="all"){
+        // A campaign is a "flight" when it shows the 📆 flight chip under its name (has flightSegments,
+        // or a total goal + dates with no monthly Note-1 goal) — the same test flightGoalLabel drives.
+        // "Monthly" = anything else that actually carries a per-month goal (excludes goal-less rows).
+        const isFlight = !!flightGoalLabel(c);
+        if(fGoalType==="flights" && !isFlight) return false;
+        if(fGoalType==="monthly" && (isFlight || !(effectiveMonthlyGoal(c)>0))) return false;
+      }
       return ms&&(fStatuses.size===0||fStatuses.has(c.status||""))&&(fPlatforms.size===0||fPlatforms.has(c.platform))&&(!fMonthly||c.monthlyFlight);
     });
     return [...list].sort((a,b)=>{
@@ -21152,7 +21215,7 @@ export default function App() {
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
     });
-  },[campaigns,reminders,search,fStatuses,fPlatforms,fMonthly,fGoalHit,fCloseToGoal,fExcludeGoalHit,fRecentDays,fStaleDays,fNote2,fNoRetargeting,fHasData,sortKey,sortDir,dateRange.preset]);
+  },[campaigns,reminders,search,fStatuses,fPlatforms,fMonthly,fGoalType,fGoalHit,fCloseToGoal,fExcludeGoalHit,fRecentDays,fStaleDays,fNote2,fNoRetargeting,fHasData,sortKey,sortDir,dateRange.preset]);
 
   const stats = useMemo(()=>({
     total: campaigns.length,
@@ -21548,6 +21611,37 @@ export default function App() {
     } catch (e) { alert("Restore failed: " + (e && e.message)); }
   };
 
+  // ── Undo Import ── After an import reloads, if a recent pre-import stash exists, offer to put the
+  // previous data back (in case the wrong/older file was imported over newer data).
+  const [undoImport, setUndoImport] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const pre = await idbGetPreimport();
+        if (!pre || !pre.json || !pre.at) return;
+        if (Date.now() - pre.at > 20 * 60000) { idbClearPreimport(); return; }   // stale (>20 min) — drop it
+        const parsed = JSON.parse(pre.json);
+        const n = Array.isArray(parsed.campaigns) ? parsed.campaigns.length : 0;
+        setUndoImport({ at: pre.at, n, remN: Array.isArray(parsed.reminders) ? parsed.reminders.length : 0, parsed });
+      } catch (e) {}
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const doUndoImport = () => {
+    const p = undoImport && undoImport.parsed; if (!p) return;
+    try {
+      if (Array.isArray(p.campaigns))   localStorage.setItem(STORAGE_KEY, JSON.stringify(p.campaigns));
+      if (Array.isArray(p.archive))     localStorage.setItem(ARCHIVE_KEY, JSON.stringify(p.archive));
+      if (Array.isArray(p.reminders))   localStorage.setItem(REMINDERS_KEY, JSON.stringify(p.reminders));
+      if (Array.isArray(p.activityLog)) localStorage.setItem(ACTIVITY_KEY, JSON.stringify(p.activityLog));
+      if (p.monthLocks)     localStorage.setItem(MONTH_LOCK_KEY, JSON.stringify(p.monthLocks));
+      if (p.monthlyBackups) localStorage.setItem(MONTHLY_BACKUP_KEY, JSON.stringify(p.monthlyBackups));
+      if (p.monthResetKey)  localStorage.setItem(MONTH_RESET_KEY, p.monthResetKey);
+      if (p.settings && typeof p.settings === "object") Object.entries(p.settings).forEach(([k,v]) => { try { if (typeof v === "string") localStorage.setItem(k, v); } catch(e){} });
+      idbClearPreimport();
+      location.reload();
+    } catch (e) { alert("Undo failed: " + (e && e.message)); }
+  };
+
   const doImport = (file) => {
     if(!file) return;
     const reader=new FileReader();
@@ -21609,6 +21703,11 @@ export default function App() {
         ].filter(Boolean).join(", ");
 
         if (!await confirm({title:`Import ${summary}?`,message:"This will replace ALL current data including your archive. Make sure you've exported first.",confirmLabel:"Import",danger:true})) return;
+
+        // Stash the CURRENT (pre-import) state to a dedicated durable slot first, so importing the WRONG or
+        // OLDER file is UNDOABLE (exactly what bit Austin on 7/29 — a 7/27 file over newer data). After the
+        // reload, an "↩ Undo import" banner offers to put it right back.
+        try { idbSavePreimport(JSON.stringify(buildBackupPayload())); } catch(e){}
 
         // Write to localStorage first — if any fail, abort before touching state
         try {
@@ -21721,7 +21820,7 @@ export default function App() {
       <div style={{background:lightMode?"#ffffff":"linear-gradient(180deg,#0e2038 0%,#0c1625 100%)",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#00c89628"}`,borderTop:"3px solid #00c896",padding:"12px 20px",position:"sticky",top:0,zIndex:50,boxShadow:lightMode?"0 1px 8px rgba(0,0,0,0.08)":"none"}}>
         <div style={{maxWidth:1920,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:17,fontWeight:800,color:"#00c896",letterSpacing:"-0.03em"}}>Campaign Tracker</span>
+            <span onClick={()=>{window.scrollTo({top:0,behavior:"smooth"});setTimeout(()=>{if(window.scrollY>0)window.scrollTo(0,0);},500);}} title="Back to top" style={{fontSize:17,fontWeight:800,color:"#00c896",letterSpacing:"-0.03em",cursor:"pointer"}}>Campaign Tracker</span>
             <span style={{fontSize:11,padding:"2px 7px",borderRadius:4,background:saved?(lightMode?"#dcfce7":"#00200f"):"transparent",color:saved?"#00c896":"transparent",border:saved?"1px solid #00c89640":"1px solid transparent",transition:"all .3s",fontWeight:600}}>✓ Saved</span>
             {SHOW_SYNC_BADGES && <>
             {metaSyncStatus==="syncing" && <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:lightMode?"#dbeafe":"#0e1a2e",border:`1px solid ${lightMode?"#93c5fd":"#3b82f640"}`,color:lightMode?"#1d4ed8":"#60a5fa",fontWeight:600}}>⟳ Syncing Meta…</span>}
@@ -21861,6 +21960,22 @@ export default function App() {
           </div>
         </div>
 
+        {undoImport && (
+          <div style={{background:lightMode?"#eff6ff":"#0a1626",border:`1px solid ${lightMode?"#3b82f6":"#3b82f680"}`,borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:18}}>↩</span>
+              <div>
+                <div style={{color:lightMode?"#1d4ed8":"#7dd3fc",fontWeight:700,fontSize:13}}>You just imported over your data</div>
+                <div style={{color:lightMode?"#1e40af":"#60a5fa",fontSize:11,marginTop:1}}>If that was the wrong file, undo it — this puts back what was here before (<b>{undoImport.n} campaign{undoImport.n!==1?"s":""}</b>{undoImport.remN>0?<>, {undoImport.remN} reminder{undoImport.remN!==1?"s":""}</>:null}).</div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={doUndoImport} style={{background:"#3b82f6",border:"none",borderRadius:7,padding:"7px 16px",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>↩ Undo import</button>
+              <button onClick={()=>{ setUndoImport(null); idbClearPreimport(); }} style={{background:"none",border:`1px solid ${lightMode?"#93c5fd":"#3b82f660"}`,borderRadius:7,padding:"7px 12px",color:lightMode?"#1d4ed8":"#7dd3fc",fontWeight:600,fontSize:12,cursor:"pointer"}}>Keep the import</button>
+            </div>
+          </div>
+        )}
+
         {saveError && (
           <div style={{background:lightMode?"#fef2f2":"#2a0a0a",border:`1px solid ${lightMode?"#ef4444":"#ef444480"}`,borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -21873,6 +21988,23 @@ export default function App() {
             <div style={{display:"flex",gap:8}}>
               <button onClick={doExport} style={{background:"#ef4444",border:"none",borderRadius:7,padding:"7px 16px",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>↓ Export now</button>
               <button onClick={()=>setSaveError(false)} style={{background:"none",border:`1px solid ${lightMode?"#fca5a5":"#ef444460"}`,borderRadius:7,padding:"7px 12px",color:lightMode?"#b91c1c":"#fca5a5",fontWeight:600,fontSize:12,cursor:"pointer"}}>Dismiss</button>
+            </div>
+          </div>
+        )}
+
+        {/* Proactive storage warning — fires at ~80% full so you can act BEFORE saves start failing. */}
+        {!saveError && storagePct >= 0.8 && (
+          <div style={{background:lightMode?"#fffbeb":"#1a1200",border:`1px solid ${storagePct>=0.92?(lightMode?"#f59e0b":"#f59e0b90"):(lightMode?"#fcd34d":"#f59e0b55")}`,borderRadius:10,padding:"12px 18px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:18}}>{storagePct>=0.92?"🚨":"⚠️"}</span>
+              <div>
+                <div style={{color:lightMode?"#b45309":"#fcd34d",fontWeight:700,fontSize:13}}>Browser storage is about {Math.min(99,Math.round(storagePct*100))}% full</div>
+                <div style={{color:lightMode?"#92400e":"#f59e0b",fontSize:11,marginTop:1}}>You're getting close to the limit — once it's full, new saves stop working. Back up now, then free up space (Config → Storage cleanup, or archive old campaigns).</div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={doExport} style={{background:"#f59e0b",border:"none",borderRadius:7,padding:"7px 16px",color:"#1a1200",fontWeight:700,fontSize:12,cursor:"pointer"}}>↓ Back up now</button>
+              <button onClick={()=>setActiveTab("config")} style={{background:"none",border:`1px solid ${lightMode?"#fcd34d":"#f59e0b55"}`,borderRadius:7,padding:"7px 12px",color:lightMode?"#b45309":"#fcd34d",fontWeight:600,fontSize:12,cursor:"pointer"}}>Free up space</button>
             </div>
           </div>
         )}
@@ -22599,6 +22731,8 @@ export default function App() {
           <QuickFiltersMultiSelect lightMode={lightMode} items={[
             { key:"stale",    label:"🕒 Not Updated Recently", active:fStaleDays>0,         toggle:()=>setFStaleDays(d=>d>0?0:3) },
             { key:"monthly",  label:"★ Monthly Flights",       active:fMonthly,             toggle:()=>setFMonthly(v=>!v) },
+            { key:"goalMo",   label:"📅 Monthly Goal",         active:fGoalType==="monthly", toggle:()=>setFGoalType(v=>v==="monthly"?"all":"monthly") },
+            { key:"goalFl",   label:"📆 Flight Dates",         active:fGoalType==="flights", toggle:()=>setFGoalType(v=>v==="flights"?"all":"flights") },
             { key:"reminder", label:"🔔 Has Reminder",         active:sortKey==="reminder", toggle:()=>setSortKey(k=>k==="reminder"?"endDate":"reminder") },
             { key:"goalHit",  label:"🎯 Goal Hit",             active:fGoalHit,             toggle:()=>{ setFGoalHit(v=>!v); setFExcludeGoalHit(false); } },
             { key:"close",    label:"⏳ Close to Goal",         active:fCloseToGoal,         toggle:()=>setFCloseToGoal(v=>!v) },
@@ -23340,4 +23474,56 @@ export default function App() {
   </div>
   );
 }
-window.App = App;
+// ── Crash safety net ──────────────────────────────────────────────────────────────────────────────
+// A render error anywhere used to white-screen the whole app — data stays SAFE in storage, but it LOOKS
+// like total loss (the exact panic to avoid). This boundary catches any render/runtime error and shows a
+// recovery screen instead of a blank page: reload, download a full rescue file, or one-click restore from
+// the durable IndexedDB safety copy. Also shields against a future edit crashing on an unexpected data shape.
+class ErrorBoundary extends React.Component {
+  constructor(props){ super(props); this.state = { err:null, snap:null, busy:false }; }
+  static getDerivedStateFromError(err){ return { err }; }
+  componentDidCatch(err, info){
+    try { console.error("Zeus render crash:", err, info); } catch(e){}
+    try { idbGetSnapshot().then(s => { if (s && s.json) { try { const p = JSON.parse(s.json); const n = Array.isArray(p.campaigns) ? p.campaigns.length : 0; if (n > 0) this.setState({ snap:{ at:s.at, date:s.date, n } }); } catch(e){} } }).catch(()=>{}); } catch(e){}
+  }
+  _downloadAll(){ try { const dump={}; for (let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); dump[k]=localStorage.getItem(k); } downloadBackupFile("zeus-rescue-"+Date.now()+".json", JSON.stringify(dump)); } catch(e){ alert("Couldn't export: "+(e&&e.message)); } }
+  async _restore(){
+    this.setState({ busy:true });
+    try {
+      const s = await idbGetSnapshot();
+      if (!s || !s.json) { alert("No safety copy was found in this browser."); this.setState({ busy:false }); return; }
+      const p = JSON.parse(s.json);
+      const set = (k,v) => { try { localStorage.setItem(k, typeof v==="string" ? v : JSON.stringify(v)); } catch(e){} };
+      if (Array.isArray(p.campaigns))   set("campaign-tracker-v3", p.campaigns);
+      if (Array.isArray(p.archive))     set("campaign-tracker-archive", p.archive);
+      if (Array.isArray(p.reminders))   set("campaign-tracker-reminders", p.reminders);
+      if (Array.isArray(p.activityLog)) set("campaign-tracker-activity", p.activityLog);
+      if (p.monthLocks)     set("campaign-tracker-month-locks", p.monthLocks);
+      if (p.monthlyBackups) set("campaign-tracker-monthly-backups", p.monthlyBackups);
+      if (p.monthResetKey)  set("campaign-tracker-last-month-reset", p.monthResetKey);
+      if (p.settings && typeof p.settings==="object") Object.entries(p.settings).forEach(([k,v]) => { if (typeof v==="string") set(k,v); });
+      location.reload();
+    } catch(e){ alert("Restore failed: "+(e&&e.message)); this.setState({ busy:false }); }
+  }
+  render(){
+    if (!this.state.err) return this.props.children;
+    const s = this.state.snap, bs = { borderRadius:9, padding:"12px 16px", fontSize:13, fontWeight:700, cursor:"pointer" };
+    return (
+      <div style={{minHeight:"100vh",background:"#07101c",color:"#d8eaf8",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"-apple-system,'Segoe UI',sans-serif"}}>
+        <div style={{maxWidth:580,width:"100%",background:"#0c1625",border:"1px solid #1a2744",borderRadius:16,padding:"30px 32px",boxShadow:"0 30px 90px rgba(0,0,0,.6)"}}>
+          <div style={{fontSize:38,marginBottom:12}}>⚠️</div>
+          <div style={{fontSize:21,fontWeight:800,color:"#edf4ff",marginBottom:10}}>The tracker hit an error</div>
+          <div style={{fontSize:14,lineHeight:1.7,color:"#c8d8ec",marginBottom:12}}>Your data is <b>safe</b> — this is a display problem, not data loss. Try <b>Reload</b> first. If it keeps happening, <b>download a copy</b> and send it to me.</div>
+          {s && <div style={{fontSize:13,color:"#00d9ff",background:"#081320",border:"1px solid #00d9ff40",borderRadius:8,padding:"10px 12px",marginBottom:16}}>🛟 A safety copy with <b>{s.n} campaign{s.n!==1?"s":""}</b> from {s.at?new Date(s.at).toLocaleString():s.date} is available in this browser.</div>}
+          <pre style={{fontSize:11,color:"#7a9bbf",background:"#060d18",border:"1px solid #162236",borderRadius:8,padding:"10px 12px",marginBottom:18,whiteSpace:"pre-wrap",maxHeight:120,overflow:"auto"}}>{String((this.state.err&&(this.state.err.stack||this.state.err.message))||this.state.err).slice(0,500)}</pre>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <button onClick={()=>location.reload()} style={{...bs,flex:"1 1 130px",background:"#00200f",border:"1px solid #22c55e40",color:"#00d48a",fontWeight:800}}>↻ Reload</button>
+            <button onClick={()=>this._downloadAll()} style={{...bs,flex:"1 1 130px",background:"#0e1a2e",border:"1px solid #334155",color:"#9fb4cf"}}>⬇ Download my data</button>
+            {s && <button onClick={()=>this._restore()} disabled={this.state.busy} style={{...bs,flex:"1 1 130px",background:"#002e24",border:"1px solid #00c89660",color:"#00e5a0"}}>{this.state.busy?"Restoring…":"🛟 Restore safety copy"}</button>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+}
+window.App = function ZeusRoot(){ return React.createElement(ErrorBoundary, null, React.createElement(App)); };
