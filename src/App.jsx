@@ -1741,7 +1741,11 @@ function parseIOPdf(text, uris = []) {
       // SEM-specific: management fee is on TOP of the media spend, and the
       // client's total contract = budget + fee. We parse the fee separately so
       // buildDraftsFromIO can add it into contractValue for accurate revenue.
-      managementFee: tryFields(prefix, "Recrue Media Management Fee", "Management Fee"),
+      // The buyer name in front of "Management Fee" varies by form ("Recrue Media" vs "CTVBuyer"), and
+      // getField anchors the label right after the service prefix — so "SEM: CTVBuyer Management Fee"
+      // won't match a bare "Management Fee" (the "CTVBuyer" sits between). List the buyer-prefixed
+      // variants explicitly, most-specific first.
+      managementFee: tryFields(prefix, "Recrue Media Management Fee", "CTVBuyer Management Fee", "Management Fee to Recrue", "Management Fee"),
       mediaSpend:    tryFields(prefix, "Media Spend"),
       // Data/device integration flag (CTV products). Value looks like
       // "Yes (additional $2.50 CPM - $21.50 CPM)" — the higher CPM is the billed rate.
@@ -1753,9 +1757,12 @@ function parseIOPdf(text, uris = []) {
       // Geographic breakout (zips / market list) → the campaign's 🌎 Geo field.
       geoBreakout: getFreeText(prefix, /Geographic Breakout/),
       // Target-audience description → its own field. Prefer the full label so its "in as much detail as
-      // possible" tail is consumed; fall back to the short label and strip that tail if it leaks in.
-      targetAudience: getFreeText(prefix, /Description of target audience in as much detail as possible/)
-        || getFreeText(prefix, /Description of target audience/, /^in as much detail as possible\s*/i),
+      // possible" tail is consumed; the SEM form extends it with "/Keywords to use" (e.g. "Description of
+      // target audience/Keywords to use in as much detail as possible") — allow that optional segment so
+      // the label is fully swallowed and doesn't leak into the value. Fall back to the short label and
+      // strip either tail if it leaks in.
+      targetAudience: getFreeText(prefix, /Description of target audience(?:\/Keywords to use)? in as much detail as possible/)
+        || getFreeText(prefix, /Description of target audience/, /^(?:\/Keywords to use\s*)?in as much detail as possible\s*/i),
     };
   }
 
@@ -1852,11 +1859,14 @@ function parseIOPdf(text, uris = []) {
     { label: "Audience Extension TV", key: "audience_ext_tv", platform: "AECTV" },
     // tvScientific streaming — one "tvScientific Included?" flag, three sub-lines (CTV/OTT/Display).
     // CTV/OTT are Austin's TVsci platforms (NOT Madhive). Zero-impression sub-lines are auto-skipped.
-    { label: "tvScientific CTV",     key: "tvsci_ctv",  platform: "CTV", flag: "tvScientific" },
-    { label: "tvScientific OTT",     key: "tvsci_ott",  platform: "OTT", flag: "tvScientific" },
-    { label: "tvScientific Display", key: "tvsci_disp", platform: "DSP", flag: "tvScientific" },
-    // Device-ID display line rides the "Display Included?" flag → its own DSP campaign (device surcharge).
-    { label: "Device ID with Display", key: "device_id_display", platform: "DSP", flag: "Display" },
+    { label: "tvScientific CTV",     key: "tvsci_ctv",  platform: "CTV",  flag: "tvScientific" },
+    { label: "tvScientific OTT",     key: "tvsci_ott",  platform: "OTT",  flag: "tvScientific" },
+    // tvScientific Display is a distinct OTT-display product (NOT programmatic DSP) → its own OTTD platform.
+    { label: "tvScientific Display", key: "tvsci_disp", platform: "OTTD", flag: "tvScientific" },
+    // Device-ID display rides the "Display Included?" flag. It's a TradeDesk (TD) buy that just costs more
+    // because of the device-ID integration — so it maps to TD, not DSP (DSP = mobile only, per Austin).
+    // Defaults to a $5 CPM when the IO doesn't carry a rate (Austin: "$5 CPM for the most part").
+    { label: "Device ID with Display", key: "device_id_display", platform: "TD", flag: "Display", defaultCpm: 5 },
     // Spinnaker YouTube is a TrueView CPV buy: goal is VIEWS, rate is a CPV ($/view), dealType CPV.
     { label: "YouTube",              key: "youtube_io", platform: "YT", dealType: "CPV" },
     // Programmatic display
@@ -1904,6 +1914,7 @@ function parseIOPdf(text, uris = []) {
       splitPair: sd.splitPair,
       socialSplit: sd.socialSplit,
       dealType: sd.dealType,     // e.g. YouTube TrueView → "CPV" (goal is views, rate is $/view)
+      defaultCpm: sd.defaultCpm, // fallback CPM when the IO carries no rate (e.g. Device ID Display → $5)
       // Fields read from the service's own label (+ any prefix aliases). The PARENT flag is passed as a
       // DATE-ONLY fallback so a sub-product (tvScientific CTV/OTT, the …FB&IG VIDEO line) inherits the
       // parent's shared Start/End dates without ever pulling the parent's impressions/CPM/budget.
@@ -1984,26 +1995,41 @@ function buildDraftsFromIO(io) {
       const videoImpr    = parseNum(d.videoImpr);
       const staticBudget = parseNum(d.staticBudget);
       const videoBudget  = parseNum(d.videoBudget);
-      const staticCpm    = parseNum(d.staticCpm);
-      const videoCpm     = parseNum(d.videoCpm);
+      let   staticCpm    = parseNum(d.staticCpm);
+      let   videoCpm     = parseNum(d.videoCpm);
       if (staticImpr <= 0 && videoImpr <= 0 && staticBudget <= 0 && videoBudget <= 0) return;
+      // Recover a missing CPM from budget ÷ impressions (× 1000). Some Universal-IO forms wrap the
+      // "CPM Rate to Recrue Media" label across the value line (e.g. "CPM Rate to 10.75 / Recrue Media
+      // ($):") so the labelled field doesn't parse — derive it so the social leg still gets its rate.
+      if (!(staticCpm > 0) && staticImpr > 0 && staticBudget > 0) staticCpm = +(staticBudget / staticImpr * 1000).toFixed(2);
+      if (!(videoCpm  > 0) && videoImpr  > 0 && videoBudget  > 0) videoCpm  = +(videoBudget  / videoImpr  * 1000).toFixed(2);
       const socialPlat = (d.socialPlatform || "").toLowerCase();
       const isTikTok = /tiktok/i.test(socialPlat);
       const staticPlat = isTikTok ? "TT"  : "FB";
       const videoPlat  = isTikTok ? "TT"  : "FBV";
       const socialNote2 = "";  // Note 2 is warnings-only; the IO's notes go to change history (see noteToHistory)
-      if (staticImpr > 0 || staticBudget > 0) {
-        const monthlyImpr = Math.round(staticImpr / months);
+      // "Mobile to Social" (svc.split==="FB") is a HALF-mobile / HALF-social product: each of the Static
+      // and Video lines splits 50/50 between the SOCIAL platform (FB static / FBV video) and MOBILE (DSP).
+      // So 50K Static + 50K Video → 25K FB + 25K FBV + a combined 50K DSP (the two mobile halves merged).
+      // The pure AMB "Social Media" product (svc.socialSplit) is 100% social — no DSP half (socialF=1).
+      const isM2S = svc.split === "FB";
+      const socialF = isM2S ? 0.5 : 1;
+      const sImprSocial = Math.round(staticImpr * socialF);
+      const vImprSocial = Math.round(videoImpr * socialF);
+      const sBudSocial  = staticBudget * socialF;
+      const vBudSocial  = videoBudget * socialF;
+      if (sImprSocial > 0 || sBudSocial > 0) {
+        const monthlyImpr = Math.round(sImprSocial / months);
         drafts.push({
           mediaPartner: ioPartner,
           campaignName: `${advertiser} - ${staticPlat} Static`,
           platform: staticPlat,
           startDate, endDate,
           status: "off",
-          goal: staticImpr > 0 ? String(staticImpr) : "",
+          goal: sImprSocial > 0 ? String(sImprSocial) : "",
           contractRate: staticCpm ? String(staticCpm) : "",
           dealType: staticCpm ? "CPM" : "",
-          contractValue: staticBudget.toFixed(2),
+          contractValue: sBudSocial.toFixed(2),
           note1: monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "",
           note2: socialNote2,
           geoTarget: (d.geoBreakout || "").trim(),
@@ -2012,18 +2038,18 @@ function buildDraftsFromIO(io) {
           history: noteToHistory(d.notes),
         });
       }
-      if (videoImpr > 0 || videoBudget > 0) {
-        const monthlyImpr = Math.round(videoImpr / months);
+      if (vImprSocial > 0 || vBudSocial > 0) {
+        const monthlyImpr = Math.round(vImprSocial / months);
         drafts.push({
           mediaPartner: ioPartner,
           campaignName: `${advertiser} - ${videoPlat}`,
           platform: videoPlat,
           startDate, endDate,
           status: "off",
-          goal: videoImpr > 0 ? String(videoImpr) : "",
+          goal: vImprSocial > 0 ? String(vImprSocial) : "",
           contractRate: videoCpm ? String(videoCpm) : "",
           dealType: videoCpm ? "CPM" : "",
-          contractValue: videoBudget.toFixed(2),
+          contractValue: vBudSocial.toFixed(2),
           note1: monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "",
           note2: socialNote2,
           geoTarget: (d.geoBreakout || "").trim(),
@@ -2031,6 +2057,35 @@ function buildDraftsFromIO(io) {
           ioNumber: io.reference || "",
           history: noteToHistory(d.notes),
         });
+      }
+      // Mobile (DSP) half — the leftover impressions/budget from BOTH the Static and Video lines,
+      // merged into ONE "… - DSP" campaign (Austin books the mobile side as a single DSP line). The CPM
+      // is blended (budget ÷ impr × 1000) so revenue = goal × CPM still equals the two mobile halves'
+      // dollars exactly (e.g. 25K@$6.75 + 25K@$10.75 → 50K @ $8.75 = $437.50).
+      if (isM2S) {
+        const dspImpr   = (staticImpr - sImprSocial) + (videoImpr - vImprSocial);
+        const dspBudget = (staticBudget - sBudSocial) + (videoBudget - vBudSocial);
+        if (dspImpr > 0 || dspBudget > 0) {
+          const dspCpm = dspImpr > 0 ? (dspBudget / dspImpr * 1000) : 0;
+          const monthlyImpr = Math.round(dspImpr / months);
+          drafts.push({
+            mediaPartner: ioPartner,
+            campaignName: `${advertiser} - DSP`,
+            platform: "DSP",
+            startDate, endDate,
+            status: "off",
+            goal: dspImpr > 0 ? String(dspImpr) : "",
+            contractRate: dspCpm ? String(+dspCpm.toFixed(2)) : "",
+            dealType: dspCpm ? "CPM" : "",
+            contractValue: dspBudget.toFixed(2),
+            note1: monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "",
+            note2: socialNote2,
+            geoTarget: (d.geoBreakout || "").trim(),
+            targetAudience: (d.targetAudience || "").trim(),
+            ioNumber: io.reference || "",
+            history: noteToHistory(d.notes),
+          });
+        }
       }
       return;
     }
@@ -2056,6 +2111,13 @@ function buildDraftsFromIO(io) {
     // list dollars + impressions but no "Hard Cost"/"CPM Rate" line (e.g. $5,600 ÷ 400K = $14 CPM).
     let cpmDerived = false;
     if (cpm <= 0 && totalImpr > 0 && totalBudget > 0) { cpm = totalBudget / totalImpr * 1000; cpmDerived = true; }
+    // Service-level DEFAULT CPM — used only when the IO carried no usable rate AND none could be derived
+    // from budget ÷ impressions (e.g. Device ID Display → $5, Austin's "$5 CPM for the most part"). If the
+    // budget is also missing, derive it from the default rate × impressions so contract value still fills.
+    if (cpm <= 0 && svc.defaultCpm > 0) {
+      cpm = svc.defaultCpm;
+      if (totalBudget <= 0 && totalImpr > 0) { totalBudget = totalImpr / 1000 * cpm; budgetDerived = true; }
+    }
 
     // Skip blocks with no budget/impressions — likely the IO has the field but it's $0
     if (totalImpr <= 0 && totalBudget <= 0) return;
@@ -3837,6 +3899,40 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               <strong>⚠ Low-confidence draft — unrecognized IO format.</strong> These fields were guessed from a whole-document scan, not a known IO layout. <strong>Verify every value against the PDF</strong> — platform, dates, impressions, CPM, and budget — before approving. The "Detected:" summary is in Note 2.
             </div>
           )}
+          {/* Pre-save sanity check — flags anything that would make a saved draft wrong (blank rate/goal,
+              a CPM/CPV that looks mis-parsed, budget that doesn't reconcile with rate × goal, or a name
+              that collides with a sibling draft / an existing campaign). Draft-only; skipped for the
+              low-confidence fallback (which already says "verify everything"). Warnings, not blockers. */}
+          {draftQueueInfo && !draftQueueInfo.lowConfidence && (()=>{
+            const plat = f.platform;
+            const isCPV = f.dealType === "CPV" || plat === "YT";
+            const isSEM = plat === "SEM";
+            const rate  = parseFloat(f.contractRate) || 0;
+            const goalN = parseGoalNumber(f.goal);
+            const cv    = parseFloat(f.contractValue) || 0;
+            const nm    = (f.campaignName || "").trim().toLowerCase();
+            const w = [];
+            if (rate <= 0 && !isSEM) w.push(`No ${isCPV ? "CPV" : "CPM"} rate — revenue can't calculate until you set one.`);
+            if (goalN <= 0 && !isSEM) w.push(`No ${isCPV ? "view" : "impression"} goal set.`);
+            if (rate > 0 && !isCPV && !isSEM && (rate < 0.5 || rate > 100)) w.push(`The CPM ($${rate.toFixed(2)}) looks unusual — double-check it parsed correctly.`);
+            if (rate > 0 && isCPV && rate > 2) w.push(`The CPV ($${rate.toFixed(2)}) looks high for a per-view rate — verify.`);
+            if (!isSEM && rate > 0 && goalN > 0 && cv > 0) {
+              const expect = goalN / 1000 * rate;
+              if (Math.abs(expect - cv) / cv > 0.05) w.push(`Budget ($${cv.toFixed(2)}) doesn't match rate × goal (~$${expect.toFixed(2)}) — one of them may be off.`);
+            }
+            const sibDupes = (draftQueueInfo.siblingNames || []).filter(s => (s || "").trim().toLowerCase() === nm).length;
+            if (nm && sibDupes > 1) w.push(`Another draft in this IO has the same name — rename one, or they'll collide in check-ins & revenue.`);
+            if (nm && campaigns.some(c => (c.campaignName || "").trim().toLowerCase() === nm && c.platform === plat)) w.push(`An existing campaign already uses this exact name + platform — saving would create a duplicate.`);
+            if (!w.length) return null;
+            return (
+              <div style={{marginBottom:16,padding:"11px 15px",background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#f59e0b":"#f59e0b66"}`,borderRadius:9,fontSize:12.5,color:_lm?"#b45309":"#fcd34d",lineHeight:1.55}}>
+                <div style={{fontWeight:700,marginBottom:5}}>⚠ Check before saving:</div>
+                <ul style={{margin:0,paddingLeft:18}}>
+                  {w.map((msg,i)=><li key={i} style={{marginBottom:i<w.length-1?3:0}}>{msg}</li>)}
+                </ul>
+              </div>
+            );
+          })()}
           {/* New-tactic banner — this IO uses a CTV streaming flavor that doesn't have its own platform
               yet. Offer to create a dedicated platform (like GCTV/PCTV) and assign this draft to it. */}
           {f._newTactic && !ALL_PLATFORMS.includes((tacticCode||f._newTactic.code).trim().toUpperCase()) && (
@@ -19653,6 +19749,7 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
   const [, _clockTick] = useState(0);
   useEffect(()=>{ const id=setInterval(()=>_clockTick(t=>t+1), 30000); return ()=>clearInterval(id); }, []);
   const [attnOpen, setAttnOpen] = useState(false);       // "Needs attention" collapsed by default (less crowding)
+  const [priosOpen, setPriosOpen] = useState(()=>{ try{ return localStorage.getItem("home-show-priorities")!=="0"; }catch{ return true; } }); // Today's priorities — open by default, collapsible + persisted
   const [calendarOpen, setCalendarOpen] = useState(false); // full calendar popout (meetings + reminders)
   const [healthOpen, setHealthOpen] = useState(false);   // click the health score → KPI + severe-pacing drill-down
   const [statsOpen, setStatsOpen] = useState(()=>{ try{ return localStorage.getItem("home-show-stats")==="1"; }catch{ return false; } }); // health stats collapsed by default (mirror Campaigns tab)
@@ -19851,6 +19948,19 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
     </div>
   );
 
+  // ── Today's Priorities — ONE ranked, deterministic action plan (loads instantly, no AI). Merges the
+  // reminders due with the per-campaign attention signals into a single worst-first list, each row a
+  // one-click jump. IO drafts / email check-ins are intentionally left OUT (the amber inbox nudge above
+  // already surfaces those prominently) so nothing is listed twice. This is the "what do I do first" view.
+  const priorities = [];
+  if(remOverdue>0) priorities.push({ key:"remOd", sev:3, icon:"🔔", text:`${remOverdue} overdue reminder${remOverdue!==1?"s":""} — clear or reschedule`, act:()=> onOpenReminders&&onOpenReminders() });
+  if(remToday>0)   priorities.push({ key:"remTd", sev:2, icon:"🔔", text:`${remToday} reminder${remToday!==1?"s":""} due today`, act:()=> onOpenReminders&&onOpenReminders() });
+  attention.forEach(it=> priorities.push({ key:"c"+it.c.id, sev:it.sev, plt:it.c.platform, camp:it.c,
+    text:`${(it.c.campaignName||"").trim()} — ${it.reason}`,
+    act:()=> it.check ? onStartCheckIn() : (it.tab==="pacing" && onGoToPacing) ? onGoToPacing(it.c) : onEdit(it.c) }));
+  priorities.sort((a,b)=> b.sev-a.sev);
+  const topPriorities = priorities.slice(0, 6);
+
   return (
     <div>
       {/* Header row + (future) My Day / Team toggle */}
@@ -19882,6 +19992,24 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
           {checkinCount>0 && <button onClick={onStartCheckIn} style={{background:"transparent", border:`1px solid #f59e0b`, borderRadius:7, padding:"5px 12px", color:_lm?"#b45309":"#fcd34d", fontSize:11, fontWeight:700, cursor:"pointer"}}>Review check-ins →</button>}
         </div>
       )}
+
+      {/* Health stats — quick counts at the top of the page, right above the campaign-health score.
+          Collapsible + persisted (choice remembered in localStorage). */}
+      <div style={{display:"flex", gap:6, flexWrap:"wrap", alignItems:"center", marginBottom:14}}>
+        <button onClick={()=>setStatsOpen(v=>{ const nv=!v; try{localStorage.setItem("home-show-stats", nv?"1":"0");}catch{} return nv; })}
+          title={statsOpen?"Hide the stat counts":"Show the stat counts"}
+          style={{display:"flex", alignItems:"center", gap:5, background:_lm?"#f8fafc":"#0e1a2e", border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`, borderRadius:6, padding:"3px 9px", color:_lm?"#64748b":"#7a9bbf", fontSize:10, fontWeight:700, cursor:"pointer", textTransform:"uppercase", letterSpacing:"0.04em", whiteSpace:"nowrap"}}>
+          <span style={{fontSize:8, display:"inline-block", transform:statsOpen?"rotate(90deg)":"none", transition:"transform .15s"}}>▸</span>
+          📊 Stats
+        </button>
+        {statsOpen && [
+          statChip({label:"Running", val:running.length, color:_lm?"#0f172a":"#edf4ff", sub:"active campaigns", onClick:()=>onNavigate("pacing")}),
+          statChip({label:"On pace", val:health.ontrack+health.ahead, color:"#00d48a", sub:`${health.ahead} ahead`, onClick:()=>onNavigate("pacing")}),
+          statChip({label:"Behind / risk", val:health.behind+health.risk, color:(health.risk>0?"#ef4444":health.behind>0?"#f59e0b":"#4d6e8a"), sub:`${health.risk} need a push`, onClick:()=>onNavigate("pacing")}),
+          statChip({label:"Needs check-in", val:staleCount, color:(staleCount>0?"#f59e0b":"#4d6e8a"), sub:"no data in 3+ days", onClick:onStartCheckIn}),
+          statChip({label:"Proj. revenue", val:$k(projRev), color:_lm?"#0ea5e9":"#7dd3fc", sub:"this month · goal × rate", onClick:()=>onNavigate("revenue")}),
+        ]}
+      </div>
 
       {/* Morning brief */}
       <div style={{...card, padding:"16px 20px", marginBottom:14, background:_lm?"linear-gradient(135deg,#f8fafc,#eef4ff)":"linear-gradient(135deg,#0c1625,#0a1f30)"}}>
@@ -19929,23 +20057,41 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
         {!briefFresh && <div style={{fontSize:10, color:_lm?"#94a3b8":"#3d5a72", marginTop:8}}>Auto-generated from today's numbers — your morning-brief agent will replace this once it's connected.</div>}
       </div>
 
-      {/* Health stats — compact, collapsed by default (mirrors the Campaigns tab). The morning brief
-          above already narrates these, so they stay tucked away unless you want the exact counts. */}
-      <div style={{display:"flex", gap:6, flexWrap:"wrap", alignItems:"center", marginBottom:14}}>
-        <button onClick={()=>setStatsOpen(v=>{ const nv=!v; try{localStorage.setItem("home-show-stats", nv?"1":"0");}catch{} return nv; })}
-          title={statsOpen?"Hide the stat counts":"Show the stat counts"}
-          style={{display:"flex", alignItems:"center", gap:5, background:_lm?"#f8fafc":"#0e1a2e", border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`, borderRadius:6, padding:"3px 9px", color:_lm?"#64748b":"#7a9bbf", fontSize:10, fontWeight:700, cursor:"pointer", textTransform:"uppercase", letterSpacing:"0.04em", whiteSpace:"nowrap"}}>
-          <span style={{fontSize:8, display:"inline-block", transform:statsOpen?"rotate(90deg)":"none", transition:"transform .15s"}}>▸</span>
-          📊 Stats
-        </button>
-        {statsOpen && [
-          statChip({label:"Running", val:running.length, color:_lm?"#0f172a":"#edf4ff", sub:"active campaigns", onClick:()=>onNavigate("pacing")}),
-          statChip({label:"On pace", val:health.ontrack+health.ahead, color:"#00d48a", sub:`${health.ahead} ahead`, onClick:()=>onNavigate("pacing")}),
-          statChip({label:"Behind / risk", val:health.behind+health.risk, color:(health.risk>0?"#ef4444":health.behind>0?"#f59e0b":"#4d6e8a"), sub:`${health.risk} need a push`, onClick:()=>onNavigate("pacing")}),
-          statChip({label:"Needs check-in", val:staleCount, color:(staleCount>0?"#f59e0b":"#4d6e8a"), sub:"no data in 3+ days", onClick:onStartCheckIn}),
-          statChip({label:"Proj. revenue", val:$k(projRev), color:_lm?"#0ea5e9":"#7dd3fc", sub:"this month · goal × rate", onClick:()=>onNavigate("revenue")}),
-        ]}
-      </div>
+      {/* Today's priorities — the ranked action plan (sits below the morning brief + campaign health).
+          Collapsible: open by default, the header toggles it and the choice persists (like the flagged
+          campaigns card). Each row one-click jumps to the campaign / check-in / reminders. */}
+      {topPriorities.length>0 && (
+        <div style={{...card, padding:"14px 18px", marginBottom:14}}>
+          <button onClick={()=>setPriosOpen(v=>{ const nv=!v; try{localStorage.setItem("home-show-priorities", nv?"1":"0");}catch{} return nv; })}
+            title={priosOpen?"Hide today's priorities":"Show today's priorities"}
+            style={{display:"flex", alignItems:"center", gap:8, width:"100%", background:"none", border:"none", cursor:"pointer", padding:0, marginBottom: priosOpen?10:0, textAlign:"left"}}>
+            <span style={{fontSize:10, color:_lm?"#64748b":"#4d6e8a", display:"inline-block", transform:priosOpen?"rotate(90deg)":"none", transition:"transform .15s"}}>▸</span>
+            <span style={{...labelStyle, margin:0}}>🎯 Today's priorities</span>
+            <span style={{flex:1}}/>
+            <span style={{fontSize:12, fontWeight:800, color:_lm?"#0f172a":"#edf4ff"}}>{priorities.length}</span>
+          </button>
+          {priosOpen && (<>
+            <div style={{display:"flex", flexDirection:"column"}}>
+              {topPriorities.map((p,i)=>{
+                const sevColor = p.sev>=3?"#ef4444":p.sev===2?"#f59e0b":(_lm?"#64748b":"#7a9bbf");
+                const pc = p.plt ? (PLT_COLORS[p.plt]||PLT_COLORS.default) : null;
+                return (
+                  <div key={p.key} onClick={p.act} title="Jump to it"
+                    style={{display:"flex", alignItems:"center", gap:11, padding:"9px 6px", borderTop:i>0?`1px solid ${_lm?"#f1f5f9":"#111e33"}`:"none", cursor:"pointer"}}>
+                    <span style={{fontSize:11.5, fontWeight:800, color:"#fff", background:sevColor, borderRadius:6, width:20, height:20, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0}}>{i+1}</span>
+                    {pc
+                      ? <span style={{background:pc+"22", color:pc, borderRadius:3, padding:"1px 6px", fontSize:9.5, fontWeight:800, flexShrink:0}}>{p.plt}</span>
+                      : <span style={{fontSize:13, flexShrink:0, width:20, textAlign:"center"}}>{p.icon}</span>}
+                    <div style={{fontSize:12.5, fontWeight:600, color:_lm?"#0f172a":"#edf4ff", flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{p.text}</div>
+                    <span style={{fontSize:11, color:_lm?"#94a3b8":"#4d6e8a", flexShrink:0}}>→</span>
+                  </div>
+                );
+              })}
+            </div>
+            {priorities.length>topPriorities.length && <div style={{fontSize:10.5, color:_lm?"#94a3b8":"#4d6e8a", marginTop:8}}>+{priorities.length-topPriorities.length} more in the full list below</div>}
+          </>)}
+        </div>
+      )}
 
       {/* Two-column body */}
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))", gap:14, alignItems:"start"}}>
@@ -19953,7 +20099,7 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
         <div style={{...card, padding:"14px 16px"}}>
           <button onClick={()=>setAttnOpen(v=>!v)} style={{display:"flex", alignItems:"center", gap:8, width:"100%", background:"none", border:"none", cursor:"pointer", padding:0, marginBottom: attnOpen?10:0, textAlign:"left"}}>
             <span style={{fontSize:10, color:_lm?"#64748b":"#4d6e8a", display:"inline-block", transform:attnOpen?"rotate(90deg)":"none", transition:"transform .15s"}}>▸</span>
-            <span style={{...labelStyle, margin:0}}>🎯 Needs your attention today</span>
+            <span style={{...labelStyle, margin:0}}>📋 All flagged campaigns</span>
             {attnUrgent>0 && <span style={{fontSize:10, fontWeight:800, color:"#fff", background:"#ef4444", borderRadius:9, padding:"1px 7px"}}>{attnUrgent} urgent</span>}
             <span style={{flex:1}}/>
             <span style={{fontSize:12, fontWeight:800, color:attention.length>0?(_lm?"#0f172a":"#edf4ff"):(_lm?"#94a3b8":"#4d6e8a")}}>{attention.length}</span>
@@ -20036,27 +20182,6 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
             </button>
           </div>
 
-          {/* Recent activity */}
-          <div style={{...card, padding:"14px 16px"}}>
-            <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
-              <span style={{...labelStyle, flex:1}}>📜 Recent activity</span>
-              <button onClick={()=>onNavigate("activity")} style={{background:"none", border:"none", color:_lm?"#0ea5e9":"#7dd3fc", fontSize:11, fontWeight:700, cursor:"pointer"}}>All →</button>
-            </div>
-            {(!activityLog || activityLog.length===0) ? (
-              <div style={{fontSize:12, color:_lm?"#94a3b8":"#4d6e8a"}}>No activity yet.</div>
-            ) : activityLog.slice(0,6).map((e,i)=>{
-              const ago = (()=>{ const s=Math.max(0,(Date.now()-(e.ts||0))/1000); if(s<3600) return Math.round(s/60)+"m"; if(s<86400) return Math.round(s/3600)+"h"; return Math.round(s/86400)+"d"; })();
-              return (
-                <div key={e.id||i} style={{display:"flex", alignItems:"center", gap:8, padding:"5px 0", borderTop:i>0?`1px solid ${_lm?"#f1f5f9":"#111e33"}`:"none"}}>
-                  <div style={{minWidth:0, flex:1}}>
-                    <span style={{fontSize:11.5, fontWeight:600, color:_lm?"#334155":"#9fb4cf"}}>{(e.campaignName||"").trim()||"—"}</span>
-                    <span style={{fontSize:11, color:_lm?"#94a3b8":"#4d6e8a"}}> · {e.type||e.detail||"updated"}</span>
-                  </div>
-                  <span style={{fontSize:10, color:_lm?"#cbd5e1":"#3d5a72", flexShrink:0}}>{ago}</span>
-                </div>
-              );
-            })}
-          </div>
         </div>
       </div>
 
@@ -23422,6 +23547,9 @@ export default function App() {
               canNext: safeIdx < pdfDrafts.length - 1,
               remaining: pdfDrafts.length,
               lowConfidence: pdfMeta?.lowConfidence,
+              // Sibling draft names in this queue — the validation banner uses them to catch two drafts
+              // that would land with the SAME name (e.g. two "… - DSP" lines from one IO).
+              siblingNames: pdfDrafts.map(d => d.campaignName),
             }}
             // Auto-save every edit back into the queue so prev/next/close don't lose work.
             onValuesChange={(values) => {
