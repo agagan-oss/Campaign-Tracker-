@@ -21500,10 +21500,11 @@ export default function App() {
     const curMonth = (()=>{ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`; })();
     let prevMonth = curMonth;
     try { prevMonth = localStorage.getItem(MONTH_RESET_KEY) || curMonth; } catch {}
+    const prevMonthLabel = (()=>{ const [y,m]=prevMonth.split("-").map(Number); return m ? new Date(y,m-1,1).toLocaleDateString("en-US",{month:"long",year:"numeric"}) : prevMonth; })();
     const dataCount = campaigns.filter(c=>(parseInt(c.impressions)||0)>0 || (parseFloat(c.spend)||0)>0).length;
     if(!await confirm({
-      title:"Start a new month?",
-      message:`Saves a backup of last month's closing numbers, then zeroes impressions, clicks, spend, etc. on all ${campaigns.length} active campaigns (${dataCount} have data) so you start clean. Goal badges clear too. Archived campaigns and your full history stay intact.`,
+      title:`Close out ${prevMonthLabel}?`,
+      message:`Saves ${prevMonthLabel}'s closing numbers — including any you entered by hand — then zeroes impressions, clicks, spend, etc. on all ${campaigns.length} active campaigns (${dataCount} have data) so you start clean. Goal badges clear too. Archived campaigns and your full history stay intact.`,
       confirmLabel:"Back up & clear",
     })) return;
     // 1) Backup closing numbers, keyed by the month being closed out (last ~12 kept).
@@ -21511,12 +21512,23 @@ export default function App() {
       const backups = JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}");
       backups[prevMonth] = {
         savedAt: getToday(),
-        campaigns: campaigns.map(c=>({ id:c.id, campaignName:c.campaignName, platform:c.platform, mediaPartner:c.mediaPartner,
-          impressions:c.impressions, clicks:c.clicks, ctr:c.ctr, cpm:c.cpm, spend:c.spend,
-          videoViews:c.videoViews, completionRate:c.completionRate, frequency:c.frequency, note1:c.note1,
-          // Freeze the device-targeting surcharge NOW, while the live line-breakdown still exists —
-          // step 2 below clears metaSnapshots, so this is the only chance to retain it for history.
-          deviceFee: deviceFeeCurrent(c), deviceLineImpr: c.deviceSurcharge ? deviceLineImpr(c) : 0 })),
+        campaigns: campaigns.map(c=>{
+          // Freeze the RESOLVED month-to-date (snapshot-aware), not just the raw c.* fields. Madhive
+          // (GCTV/PCTV/AECTV) and other snapshot-backed campaigns keep their true MTD in ttdSnapshots.mtd,
+          // which the flat fields don't always mirror — so reading through resolveMetrics is what makes
+          // manually-entered / snapshot-only numbers survive the clear and keep the closed month's revenue
+          // correct. Falls back to the live field whenever the resolver has nothing.
+          const rm = resolveMetrics(c, "mtd");
+          const pick = (r, live) => (r != null && r !== "" ? r : (live || ""));
+          return { id:c.id, campaignName:c.campaignName, platform:c.platform, mediaPartner:c.mediaPartner,
+            impressions:pick(rm.impressions,c.impressions), clicks:pick(rm.clicks,c.clicks), ctr:pick(rm.ctr,c.ctr),
+            cpm:pick(rm.cpm,c.cpm), spend:pick(rm.spend,c.spend),
+            videoViews:pick(rm.videoViews,c.videoViews), completionRate:pick(rm.completionRate,c.completionRate),
+            frequency:c.frequency, note1:c.note1,
+            // Freeze the device-targeting surcharge NOW, while the live line-breakdown still exists —
+            // step 2 below clears metaSnapshots, so this is the only chance to retain it for history.
+            deviceFee: deviceFeeCurrent(c), deviceLineImpr: c.deviceSurcharge ? deviceLineImpr(c) : 0 };
+        }),
       };
       const keys = Object.keys(backups).sort();
       while(keys.length>12){ delete backups[keys.shift()]; }
@@ -21526,15 +21538,33 @@ export default function App() {
       await confirm({title:"Backup failed — nothing cleared",message:"Couldn't save the backup, so no metrics were cleared. Export your data manually (↓ JSON), then use Bulk edit → Clear Metrics.",confirmLabel:"OK"});
       return;
     }
-    // 2) Clear metrics + goal flags on every active campaign. metricSeries is preserved.
+    // 2) Clear metrics + goal flags on every active campaign. metricSeries is preserved — AND we first
+    //    stamp this month's closing MTD onto it, so a campaign whose numbers were MANUAL / snapshot-only
+    //    (Madhive, hand-entered CTV) with no daily check-in history still leaves a reset-proof record the
+    //    Revenue tab reads. This is a second safety net alongside the monthly backup in step 1.
     const stamp = getToday();
-    setCampaigns(cs=>cs.map(c=>({ ...c,
-      impressions:"", ctr:"", cpm:"", spend:"", clicks:"", reach:"", frequency:"", videoViews:"", completionRate:"", conversions:"",
-      checkInLog:"", lastCheckInImpr:"",
-      metaSnapshots:undefined, ttdSnapshots:undefined, dspSnapshots:undefined, googleSnapshots:undefined, snapSnapshots:undefined,
-      goalHit:false, closeToGoal:false, goalHitDismissed:false, closeToGoalDismissed:false,
-      lastChecked:stamp,
-    })));
+    const [_py,_pm] = prevMonth.split("-").map(Number);
+    const closeStamp = (_py && _pm) ? `${String(_pm).padStart(2,"0")}/${String(new Date(_py,_pm,0).getDate()).padStart(2,"0")}/${_py}` : null;
+    setCampaigns(cs=>cs.map(c=>{
+      let metricSeries = Array.isArray(c.metricSeries) ? c.metricSeries : [];
+      if (closeStamp) {
+        const rm = resolveMetrics(c, "mtd");
+        const impr  = parseInt(rm.impressions || c.impressions) || 0;
+        const spend = parseFloat(rm.spend || c.spend) || 0;
+        const views = parseInt(rm.videoViews || c.videoViews) || 0;
+        if (impr > 0 || spend > 0 || views > 0) {
+          metricSeries = metricSeries.filter(e => !(e && e.d === closeStamp));
+          metricSeries = [...metricSeries, { d:closeStamp, i:impr, s:spend, vv:views }];
+        }
+      }
+      return { ...c, metricSeries,
+        impressions:"", ctr:"", cpm:"", spend:"", clicks:"", reach:"", frequency:"", videoViews:"", completionRate:"", conversions:"",
+        checkInLog:"", lastCheckInImpr:"",
+        metaSnapshots:undefined, ttdSnapshots:undefined, dspSnapshots:undefined, googleSnapshots:undefined, snapSnapshots:undefined,
+        goalHit:false, closeToGoal:false, goalHitDismissed:false, closeToGoalDismissed:false,
+        lastChecked:stamp,
+      };
+    }));
     addLog({ type:"edited", campaignName:"All campaigns", partner:"", platform:"",
       detail:`New month reset — metrics cleared for ${campaigns.length} campaigns (closing numbers for ${prevMonth} backed up)`, prevSnapshot:null, campaignId:null });
     try { localStorage.setItem(MONTH_RESET_KEY, curMonth); } catch {}
