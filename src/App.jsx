@@ -17183,7 +17183,12 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                   const isFocus = mo===activeMonth;
                   const isCurr  = mo===thisMonth;
                   const hasTrackable = t.revenueWithSpend > 0;
-                  const hasPending = !hasTrackable && t.revenue > 0;
+                  // The LIVE month draws a dotted "pace target" ghost bar (below) whenever we have a
+                  // profit projection for it. Don't ALSO draw the dashed "pending" bar in that case —
+                  // otherwise a freshly-cleared current month (revenue booked, no spend yet) renders BOTH
+                  // and shows two overlapping bars. Pending is for FUTURE booked months only.
+                  const hasGhost = isCurr && projProfit != null && projProfit !== 0;
+                  const hasPending = !hasTrackable && t.revenue > 0 && !hasGhost;
                   const label = moDate(mo).toLocaleDateString("en-US",{month:"short"});
                   const yr = mo.slice(2,4);
                   const posH = hasTrackable && profit > 0 ? Math.max(6, Math.min(POS_H-4, (profit/chartMax)*POS_H)) : 0;
