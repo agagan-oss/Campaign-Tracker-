@@ -1264,12 +1264,20 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
 
   const ratio = expected > 0 ? delivered / expected : null;
 
-  // Days left in the (flight-clipped) pacing window. A deficit that's easily catchable early in the
-  // month becomes unrecoverable near the end, so tighten the "Behind" cutoff as runway shrinks: being
-  // 17% short of pace is "On Track" on the 10th (20 days to recover) but "Behind" on the 28th with 2
-  // days left. Without this, a campaign at 77% of a 93%-expected pace reads On Track right up to the end.
-  const daysLeft = Math.max(0, Math.round((winEnd - today0) / _dayMs));
-  const behindCutoff = daysLeft <= 2 ? 0.95 : daysLeft <= 5 ? 0.90 : daysLeft <= 9 ? 0.85 : 0.80;
+  // The "Behind" bar scales with how far through the flight window we are (`timeElapsed`, 0→1) — NOT
+  // absolute days, so it works the same for a 5-day burst and a full month. LOOSE at the start (delivery
+  // is lumpy and a slow first few days is easily recovered with a whole month ahead — don't cry wolf) and
+  // STRICT at the end (no runway left to catch up). So the same campaign at ~80% of pace reads "On Track"
+  // on the 3rd but "Behind" on the 29th. Campaigns with ZERO delivery already return null above (No data),
+  // so this only softens the early flag for campaigns that ARE delivering, just lumpily.
+  const behindCutoff =
+      timeElapsed < 0.10 ? 0.30 :   // first ~few days — only a near-total no-show reads as behind
+      timeElapsed < 0.25 ? 0.55 :
+      timeElapsed < 0.50 ? 0.70 :
+      timeElapsed < 0.70 ? 0.80 :   // mid-month — about the old flat bar
+      timeElapsed < 0.85 ? 0.88 :
+      timeElapsed < 0.95 ? 0.94 :
+                           0.98;    // last day or two — must be essentially on goal or it's behind
 
   let color, label;
   if (ratio === null)         { color="#4d6e8a"; label="No data";  }
@@ -8104,6 +8112,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // campaigns) is expanded. Defaults OPEN — Austin wants to see them by default
   // since they're intentionally paused (hit goal, etc.) and the data is useful.
   const [showOffSection, setShowOffSection] = useState(true);
+  // Collapsible "Not started yet" section (future-dated flights). Defaults OPEN so they're easy to
+  // glance at, but they stay out of the pacing buckets + freshness filter (no data to pace/update yet).
+  const [showNotStarted, setShowNotStarted] = useState(true);
   // showMoM: month-over-month compare. When on, each row shows last month's delivery at the
   // SAME point in the month (pulled from retained check-in history) with a +/- delta, so a
   // slipping campaign is visible before the client notices. Off by default to keep rows clean.
@@ -8425,6 +8436,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(todayFilter==="today"     && !dataUpdatedWithin(c, updatedDays)) return false;
     if(todayFilter==="not-today" &&  dataUpdatedWithin(c, updatedDays)) return false;
     if(troubleOnly && !rowIsTrouble(row)) return false;
+    return true;
+  });
+
+  // "Not started yet" list — future-dated flights. Only the STRUCTURAL filters apply (search / partner /
+  // platform); the freshness + trouble filters don't, because a campaign that hasn't started has no data
+  // to have "updated" — that's exactly the noise Austin hit when filtering "not updated today."
+  const notStartedFiltered = notStartedRunning.filter(c=>{
+    if(q && !c.campaignName.toLowerCase().includes(q) && !(c.mediaPartner||"").toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
+    if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
+    if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
     return true;
   });
 
@@ -10863,6 +10884,40 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         </div>
       );
     })()}
+    {/* ── Not started yet ──────────────────────────────────────────────────
+        Active campaigns whose flight begins in the FUTURE. They're held out of the pacing buckets
+        (nothing to pace against) and out of the freshness filter (they'd always read "not updated" —
+        the noise Austin hit), so they get their own collapsible list here with their start dates. */}
+    {notStartedFiltered.length > 0 && (
+      <div style={{marginTop:4}}>
+        <div onClick={()=>setShowNotStarted(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:showNotStarted?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
+          <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",color:lmC("#7ec8ff")}}>🔜 Not Started Yet ({notStartedFiltered.length})</span>
+          <span style={{fontSize:10,color:lmTxtS,fontStyle:"italic"}}>· flights begin in the future — no delivery expected until then</span>
+          <span style={{color:lmTxtD,fontSize:10,display:"inline-block",transform:showNotStarted?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
+        </div>
+        {showNotStarted && (
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {notStartedFiltered.map(c=>{
+              const pc = PLT_COLORS[c.platform]||PLT_COLORS.default;
+              const [y,m,d] = c.startDate.slice(0,10).split("-");
+              const inDays = Math.max(0, Math.round((new Date(c.startDate.slice(0,10)+"T00:00:00") - new Date(todayStr+"T00:00:00"))/86400000));
+              return (
+                <div key={c.id} onClick={()=>onEdit(c)} title="Open this campaign"
+                  style={{display:"flex",alignItems:"center",gap:10,padding:"8px 11px",borderRadius:8,cursor:"pointer",
+                    background:lightMode?"#f8fafc":"#0b1626",border:`1px solid ${lightMode?"#e2e8f0":"#16233a"}`}}>
+                  <span style={{background:pc+"22",color:pc,borderRadius:3,padding:"1px 7px",fontSize:10,fontWeight:800,flexShrink:0}}>{c.platform}</span>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontSize:12.5,fontWeight:700,color:lightMode?"#0f172a":"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{(c.campaignName||"").trim()}</div>
+                    <div style={{fontSize:10.5,color:lmTxtS}}>{c.mediaPartner||"—"}</div>
+                  </div>
+                  <span style={{fontSize:11,fontWeight:700,color:lmC("#7ec8ff"),flexShrink:0,whiteSpace:"nowrap"}}>🔜 Starts {parseInt(m)}/{parseInt(d)}/{y.slice(2)}{inDays<=45?` · in ${inDays}d`:""}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    )}
     </React.Fragment>)}
     {/* Reassign-line modal — renders when the user clicks ↪ on a breakdown line */}
     {reassignTarget && (
@@ -16303,9 +16358,22 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       // the dashboard's "ended before this month" hide rule (dateVisibleRows) so the two always agree.
       if (c.endDate && c.endDate.slice(0, 7) < mo) return null;
       const actual = getActualMtdSpend(c);
-      if (actual != null && actual > 0) return actual;
       const manual = getManualSpend(c);
-      if (manual > 0) return manual;
+      const mtdSpend = (actual != null && actual > 0) ? actual : (manual > 0 ? manual : 0);
+      if (mtdSpend > 0) {
+        // Feeds arrive staggered — a platform's spend can land before its impressions. A rate-based
+        // campaign that shows spend but has delivered NOTHING yet this month hasn't earned anything, so
+        // booking it as −spend would flash a scary "loss" that self-corrects on the next drop. Hold the
+        // month PENDING (null) until delivery shows up. Scoped to the LIVE month only — a closed month
+        // keeps its real recorded outcome (a genuine spent-nothing month stays a real loss in history).
+        const rate = parseFloat(c.contractRate) || 0;
+        if (rate > 0) {
+          const isCPV = c.platform === "YT" && c.dealType === "CPV";
+          const delivered = isCPV ? actualViewsForMonth(c, mo) : actualImprForMonth(c, mo);
+          if (!(delivered != null && delivered > 0)) return null;
+        }
+        return mtdSpend;
+      }
     }
     return prorated;
   }
@@ -16392,6 +16460,42 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // never appears in the graph, month strip, per-month grid, or totals.
   if (dataStartMonth) months = months.filter(mo => mo >= dataStartMonth);
 
+  // ─── Billed revenue for a campaign-month — the ONE place goal revenue becomes billed revenue ───
+  // Used by BOTH the KPI-tile/chart rollups AND the per-campaign table, so the two can never drift.
+  // `goalRev` is that month's goal×rate (the billable ceiling). Applies, in order:
+  //  • SEM: a CLOSED month with no reported media spend books $0 fee — it wasn't running, so the fee
+  //    wasn't earned. (The live month is already held pending via semOverageForMonth; locked months are
+  //    frozen below.)
+  //  • CPM/CPV: bill on ACTUAL delivery (impr×CPM / views×CPV), capped at goalRev — over-delivery isn't
+  //    billable. Spent-but-nothing-delivered → $0 here, and stays PENDING via spendForMonth (see #7).
+  //  • Locked month: the frozen lock value always wins over a live recompute.
+  function billedRevenue(c, mo, goalRev) {
+    let rev = goalRev;
+    if (c.platform === "SEM") {
+      if (mo < thisMonth) {
+        const cm = closedMonthMetrics(c, mo);
+        if (!(cm && cm.spend > 0)) rev = 0;
+      }
+    } else if (mo <= thisMonth && rev > 0) {
+      const rate = parseFloat(c.contractRate);
+      const effectiveDt = c.platform === "YT" ? (c.dealType || "") : "CPM";
+      if (rate > 0 && effectiveDt === "CPM") {
+        const actualImpr = actualImprForMonth(c, mo);
+        if (actualImpr != null && actualImpr > 0) rev = Math.min((actualImpr / 1000) * rate, goalRev);
+        else if (spendForMonth(c, mo) != null) rev = 0;
+      } else if (rate > 0 && effectiveDt === "CPV") {
+        const actualViews = actualViewsForMonth(c, mo);
+        if (actualViews != null && actualViews > 0) rev = Math.min(actualViews * rate, goalRev);
+        else if (spendForMonth(c, mo) != null) rev = 0;
+      }
+    }
+    if (monthLocks[mo]) {
+      const _lk = monthLocks[mo].campaigns?.find(rr => String(rr.id) === String(c.id));
+      rev = _lk ? (_lk.revenue || 0) : 0;
+    }
+    return rev;
+  }
+
   // Aggregate per-month rollups
   // A campaign's revenue counts toward profit ONLY in months where we have real spend data for it.
   // Otherwise that month's revenue is "pending" (shown amber, excluded from profit math).
@@ -16401,48 +16505,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     const spread = revenueMapForCampaign(c);
     Object.entries(spread).forEach(([mo, rev]) => {
       if (!monthTotals[mo]) return;
-      // For the current month, CPM campaigns: use ACTUAL delivered impressions × CPM
-      // instead of goal × CPM, so underdelivering campaigns don't inflate the bar graph
-      // and KPI tiles. This mirrors the same adjustment the per-campaign rows builder
-      // makes below — keeps the bar graph, KPI tiles, and Export P&L numbers in sync.
-      let adjRev = rev;
-      if (mo <= thisMonth && rev > 0 && c.platform !== "SEM") {
-        const rate = parseFloat(c.contractRate);
-        const effectiveDt = c.platform === "YT" ? (c.dealType||"") : "CPM";
-        if (rate > 0 && effectiveDt === "CPM") {
-          const actualImpr = actualImprForMonth(c, mo); // live MTD for this month, backup for closed months
-          if (actualImpr != null && actualImpr > 0) {
-            // CAP at the monthly goal: impressions delivered OVER goal aren't billable to the client
-            // (Austin), so revenue can never exceed goal×CPM (= `rev`). Overserving then only shows up
-            // as extra spend, which correctly reduces profit rather than inflating revenue.
-            adjRev = Math.min((actualImpr / 1000) * rate, rev);
-          } else if (spendForMonth(c, mo) != null) {
-            // Spent this month but no impressions logged yet → nothing earned to book.
-            // (Without spend, keep the full-goal projection so it still shows as pending forecast.)
-            adjRev = 0;
-          }
-        } else if (rate > 0 && effectiveDt === "CPV") {
-          // YouTube per-view deals: bill on views actually DELIVERED so far (not the full-month
-          // goal), so a few days in shows a few days of earned revenue — not the whole month.
-          // Also capped at the goal (`rev`) — over-delivered views aren't billable.
-          const actualViews = actualViewsForMonth(c, mo);
-          if (actualViews != null && actualViews > 0) {
-            adjRev = Math.min(actualViews * rate, rev);
-          } else if (spendForMonth(c, mo) != null) {
-            // Money spent this month but no views logged yet → nothing earned to book.
-            // (Without spend, keep the full-goal projection so it still shows as pending forecast.)
-            adjRev = 0;
-          }
-        }
-      }
-      // Locked month: revenue is FROZEN in the lock (mirrors spendForMonth reading the lock for spend).
-      // Without this, a live recompute (e.g. a goal-parsing or rate change since the lock) drifts a closed
-      // month's dashboard revenue away from its frozen P&L export. A campaign not in the lock (restored
-      // after locking) contributes $0 until the month is re-locked — matching the export.
-      if (monthLocks[mo]) {
-        const _lk = monthLocks[mo].campaigns?.find(rr => String(rr.id) === String(c.id));
-        adjRev = _lk ? (_lk.revenue || 0) : 0;
-      }
+      // Goal→billed via the shared resolver (delivery cap · SEM paused-month · lock freeze) so the tiles,
+      // chart, and Export P&L always match the per-campaign table below.
+      const adjRev = billedRevenue(c, mo, rev);
       monthTotals[mo].revenue += adjRev;
       const s = spendForMonth(c, mo);
       if (s != null) {
@@ -16510,41 +16575,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     const monthCells = {};
     let windowRev=0, windowSpend=0, windowDeviceFee=0, windowHasSpend=false;
     months.forEach(mo => {
-      let rev = spread[mo] || 0;
-      // CPM campaigns: use ACTUAL delivered impressions × rate instead of goal × rate, so
-      // under/over-delivery is reflected. Current month uses live MTD; a closed month uses the
-      // reset backup (accurate & reset-proof). Future months keep the projection.
-      // `goalRev` is that month's goal×rate — the BILLABLE CEILING. Delivering over goal isn't
-      // billable to the client (Austin), so revenue is capped here; the overserved impressions still
-      // cost media spend, so they reduce profit instead of raising revenue.
-      const goalRev = rev;
-      if (mo <= thisMonth && rev > 0 && c.platform !== "SEM") {
-        const rate = parseFloat(c.contractRate);
-        const effectiveDt = c.platform === "YT" ? (c.dealType||"") : "CPM";
-        if (rate > 0 && effectiveDt === "CPM") {
-          const actualImpr = actualImprForMonth(c, mo);
-          if (actualImpr != null && actualImpr > 0) {
-            rev = Math.min((actualImpr / 1000) * rate, goalRev);
-          } else if (spendForMonth(c, mo) != null) {
-            rev = 0; // spent but no impressions logged yet → nothing earned (keep goal only when pending/no-spend)
-          }
-        } else if (rate > 0 && effectiveDt === "CPV") {
-          // YouTube per-view deals: bill on views actually DELIVERED so far, not the full-month goal.
-          const actualViews = actualViewsForMonth(c, mo);
-          if (actualViews != null && actualViews > 0) {
-            rev = Math.min(actualViews * rate, goalRev);
-          } else if (spendForMonth(c, mo) != null) {
-            rev = 0; // spent but no views logged yet → nothing earned (keep goal only when pending/no-spend)
-          }
-        }
-      }
-      // Locked month: use the FROZEN lock revenue (mirrors spendForMonth reading the lock for spend), so
-      // the breakdown table can't drift from the frozen P&L export on a live recompute. Not in the lock
-      // (restored after locking) → $0 until re-locked.
-      if (monthLocks[mo]) {
-        const _lk = monthLocks[mo].campaigns?.find(rr => String(rr.id) === String(c.id));
-        rev = _lk ? (_lk.revenue || 0) : 0;
-      }
+      // Goal→billed via the shared resolver — bills on actual delivery (capped at goal), zeroes a closed
+      // SEM month with no spend, and freezes to the lock. Same function the tile/chart rollups use, so
+      // the table can never drift from the headline numbers or the Export P&L.
+      const rev = billedRevenue(c, mo, spread[mo] || 0);
       // Spend: ask the resolver directly (it already returns null when there's no data, and
       // pulls a closed month's actual spend from the backup even after live metrics are cleared).
       const spn = spendForMonth(c, mo);
