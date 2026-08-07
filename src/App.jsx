@@ -3924,10 +3924,9 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             if (goalN <= 0 && !isSEM) w.push(`No ${isCPV ? "view" : "impression"} goal set.`);
             if (rate > 0 && !isCPV && !isSEM && (rate < 0.5 || rate > 100)) w.push(`The CPM ($${rate.toFixed(2)}) looks unusual — double-check it parsed correctly.`);
             if (rate > 0 && isCPV && rate > 2) w.push(`The CPV ($${rate.toFixed(2)}) looks high for a per-view rate — verify.`);
-            if (!isSEM && rate > 0 && goalN > 0 && cv > 0) {
-              const expect = goalN / 1000 * rate;
-              if (Math.abs(expect - cv) / cv > 0.05) w.push(`Budget ($${cv.toFixed(2)}) doesn't match rate × goal (~$${expect.toFixed(2)}) — one of them may be off.`);
-            }
+            // (Removed the "budget ≠ rate × goal" check — Contract Value AUTO-FILLS from goal × rate, so it
+            //  only ever mismatched for the one render between a goal keystroke and the auto-fill catching
+            //  up, which made the whole banner flash on every keystroke. The auto-fill keeps them in sync.)
             const sibDupes = (draftQueueInfo.siblingNames || []).filter(s => (s || "").trim().toLowerCase() === nm).length;
             if (nm && sibDupes > 1) w.push(`Another draft in this IO has the same name — rename one, or they'll collide in check-ins & revenue.`);
             if (nm && campaigns.some(c => (c.campaignName || "").trim().toLowerCase() === nm && c.platform === plat)) w.push(`An existing campaign already uses this exact name + platform — saving would create a duplicate.`);
@@ -14525,12 +14524,22 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     let savedCount=0;
     let autoCount=0;
 
+    // Respect the user's platform selection (the IG/FB/… buttons) for MEMORY matches too — not just the
+    // auto-match in Step 3. A Meta export covers FB/FBV/IG, so without this a remembered FB/FBV row would
+    // still get re-assigned from name-memory even when the user picked ONLY IG, pulling in campaigns from
+    // platforms they didn't select. Empty selection = all platforms (no restriction).
+    const passesQciPlatform = (id) => {
+      if (qciPlatforms.size === 0) return true;
+      const c = fullPool.find(x => String(x.id) === String(id));
+      return !!(c && qciPlatforms.has(c.platform));
+    };
+
     // Step 1: per-name memory (reliable — persists across different file exports)
     // For TradeDesk: lookupMemory uses advertiser name (stable). For others: uses campaign name.
     rows.forEach((row,i)=>{
       const csvName=getCampName(row,source);
       const rememberedId=platformMatchesSource(redirectToActiveTwin(lookupMemory(source,csvName,row)),source);
-      if(rememberedId){ initMap[i]=rememberedId; savedCount++; memMap[i]=rememberedId; }
+      if(rememberedId && passesQciPlatform(rememberedId)){ initMap[i]=rememberedId; savedCount++; memMap[i]=rememberedId; }
       else initMap[i]="";
     });
 
@@ -14542,7 +14551,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         if(initMap[i]) return;
         const csvName=getCampName(row,source);
         const entry=legacySaved.find(e=>e.csvName===csvName);
-        if(entry&&fullPool.find(c=>String(c.id)===String(entry.campId))){ const rid=platformMatchesSource(redirectToActiveTwin(String(entry.campId)),source); if(rid){ initMap[i]=rid; savedCount++; memMap[i]=rid; } }
+        if(entry&&fullPool.find(c=>String(c.id)===String(entry.campId))){ const rid=platformMatchesSource(redirectToActiveTwin(String(entry.campId)),source); if(rid && passesQciPlatform(rid)){ initMap[i]=rid; savedCount++; memMap[i]=rid; } }
       });
     }
 
