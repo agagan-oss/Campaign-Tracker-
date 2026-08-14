@@ -1291,6 +1291,54 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
   return { pct: Math.min(1, pct), pctRaw: pct, expectedPct: timeElapsed, ratio, color, label, delivered, goal, expected, metricKind, unit };
 }
 
+// Sum a campaign's delivery from every month-close backup STRICTLY BEFORE `curMonthKey`, in its pacing
+// metric. Reads the monthly-backup store directly so it's usable from module scope.
+function priorMonthsDeliveredFromBackups(c, curMonthKey) {
+  const mk = pacingMetricFor(c.platform);
+  let sum = 0;
+  try {
+    const b = JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY) || "{}");
+    for (const mo in b) {
+      if (!/^\d{4}-\d{2}$/.test(mo) || mo >= curMonthKey) continue;
+      const rec = ((b[mo] && b[mo].campaigns) || []).find(r => String(r.id) === String(c.id));
+      if (!rec) continue;
+      if (mk === "views")      sum += parseInt(rec.videoViews) || 0;
+      else if (mk === "spend") sum += parseFloat(rec.spend) || 0;
+      else                     sum += parseInt(rec.impressions) || 0;
+    }
+  } catch {}
+  return sum;
+}
+// Cross-month FLIGHT pacing. A By-dates / total-goal buy whose flight STARTED in a prior calendar month
+// and still runs this month can't be paced on month-to-date alone — the daily platform drops reset MTD
+// on the 1st, so the current-month number EXCLUDES everything delivered before this month and the bar
+// reads artificially "behind" (Austin's Kennedy Mall 7/20–8/16 case). For those, pace the WHOLE flight:
+// cumulative delivered (closed-month backups + live MTD) vs the flight's TOTAL goal, over the flight
+// window. Returns a pacing object in the SAME shape computeMonthlyPacing gives (so the row renders
+// unchanged), tagged `flightBasis:true`; returns null when it's NOT a cross-month flight (→ caller keeps
+// normal monthly pacing). Gated so the backup read only happens for the few flights that qualify.
+function crossMonthFlightPacing(c) {
+  if (!c || !c.startDate || !c.endDate) return null;
+  const n = new Date(); const curMonthKey = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;
+  if (!(c.startDate.slice(0,7) < curMonthKey && c.endDate.slice(0,7) >= curMonthKey)) return null;
+  if (!flightGoalLabel(c)) return null;   // only real flights (By-dates / total-goal), not recurring "/Mo"
+  const mk = pacingMetricFor(c.platform);
+  const d = resolveMetrics(c, "mtd") || {};
+  const liveMtd = mk === "views" ? (parseInt(d.videoViews || c.videoViews) || 0)
+    : mk === "spend" ? (parseFloat(d.spend || c.spend) || 0)
+    : (parseInt(d.impressions || c.impressions) || 0);
+  const delivered = priorMonthsDeliveredFromBackups(c, curMonthKey) + liveMtd;
+  const lp = computeLifetimePacing(c, delivered, parseGoalNumber(c.goal));
+  if (!lp) return null;
+  return { ...lp,
+    pctRaw: lp.pct,
+    pct: Math.min(1, lp.pct),
+    ratio: (lp.expected > 0) ? lp.delivered / lp.expected : null,
+    expectedPct: lp.timeFrac != null ? lp.timeFrac : 0,
+    flightBasis: true,
+  };
+}
+
 // Daily target breakdown — for morning check against yesterday's stats
 function computeDailyTarget(impressions, note1, startDate, endDate, totalGoalRaw) {
   const now = pacingNow(); now.setHours(0,0,0,0);
@@ -9079,9 +9127,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         // so the comparison is immediate (did we deliver enough yesterday vs what
         // we need each remaining day to hit goal?)
         const boxes = [
-          {label:"Delivered",val:del>0?del.toLocaleString():"—",color:"#00e5a0"},
-          {label:"Expected", val:exp?exp.toLocaleString():"—",  color:"#7a9bbf"},
-          {label:"Remaining",val:del>0?rem.toLocaleString():"—",color:rem>0?"#f59e0b":"#00d48a"},
+          {label:"Delivered",val:del>0?del.toLocaleString():"—",color:"#00e5a0",title:"What you've actually delivered so far this month (or flight)."},
+          {label:"Expected", val:exp?exp.toLocaleString():"—",  color:"#7a9bbf",title:"Where you should be right now to stay on track — the goal × the share of the month/flight elapsed. Compare it to Delivered: above = ahead, below = behind."},
+          {label:"Remaining",val:del>0?rem.toLocaleString():"—",color:rem>0?"#f59e0b":"#00d48a",title:"Goal minus what you've delivered — how much is left to hit the goal."},
           {label:"Need/Day", val:fmtNpd, color:pacing?.label==="Behind"?"#ef4444":"#f97316"},
         ];
         // Insert Yesterday right after Need/Day for direct visual comparison
@@ -9238,7 +9286,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // grid columns: name | platform | status | pacing bar | goal | impr/views | gap | need/day | yest | CTR/VCR | Clicks | CPM | spend | freq | edit
   // Bumped name min from 200→280px so multi-line ad-set names don't get truncated
   // (e.g. "Shining Star Christian Schools - Device Targeting (FBV)" needs the room)
-  const GRID = "minmax(280px,1.4fr) 72px 240px 80px 100px 84px 84px 84px 90px 68px 76px 76px 76px 62px 60px";
+  const GRID = "minmax(280px,1.4fr) 72px 240px 80px 124px 84px 84px 84px 90px 68px 76px 76px 76px 62px 60px";
 
   function TableRow({c,disp,pacing,monthlyGoal}){
     // Breakdown-expanded state is lifted to the parent (expandedRows Set, keyed by campaign id) so it
@@ -9350,6 +9398,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     } else {
       primaryFmt = primaryRaw >= 1000000 ? (primaryRaw/1000000).toFixed(2)+"M" : primaryRaw >= 1000 ? (primaryRaw/1000).toFixed(1)+"K" : primaryRaw > 0 ? String(primaryRaw) : null;
     }
+    // "On-pace" target — how many impr/views (or $) you SHOULD be at by today to stay on track for the
+    // goal (= goal × share of the month/flight elapsed). Shown as a small sub-line under Delivered so the
+    // have-vs-should-have comparison is immediate; same value the GAP column and the bar's cyan tick use.
+    const expFmt = (exp == null || exp <= 0) ? null
+      : metricKind === "spend"
+        ? (exp >= 1000 ? "$"+(exp/1000).toFixed(1)+"k" : "$"+exp.toFixed(0))
+        : (exp >= 1000000 ? (exp/1000000).toFixed(2)+"M" : exp >= 1000 ? (exp/1000).toFixed(1)+"K" : String(exp));
     // Flag if no activity at all on an active campaign
     const noActivity = !primaryRaw && (c.status==="active"||c.status==="behind"||c.status==="ahead");
 
@@ -9390,7 +9445,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const npd = npdDaysLeft > 0 && monthlyGoal > 0 ? Math.round(npdRem / npdDaysLeft) : null;
     const npdFmt = npd === null ? null
       : metricKind === "spend" ? "$"+(npd>=1000?(npd/1000).toFixed(1)+"k":npd.toFixed(0))
-      : npd >= 1000 ? (npd/1000).toFixed(0)+"K" : String(npd);
+      // One decimal in the K range (1.4K, not "1K") — the rounded-to-whole-K version hid a big
+      // difference (1.0K vs 1.4K/day is ~40%). Matches the served/expected column's precision.
+      : npd >= 1000 ? (npd/1000).toFixed(1)+"K" : String(npd);
     // Need/Day is a REFERENCE number ("deliver this much per remaining day"), not a status. The old
     // rule (paceGap<0 ? red : orange) painted it red the instant a line was behind by a SINGLE
     // impression and orange the rest of the time — it had no neutral state, so every row read as
@@ -9511,13 +9568,18 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Primary delivery metric — Views (YT), Spend (SEM), or Impressions */}
       <div title={metricKind==="views" ? "Views delivered this period (MTD)" : metricKind==="spend" ? "Spend delivered this period (MTD)" : "Impressions delivered this period (MTD)"}>
         {primaryFmt
-          ? <div style={{display:"flex",alignItems:"baseline",gap:3}}>
-              <span style={{fontSize:12,fontWeight:800,color:lmC(primaryColor),letterSpacing:"-0.01em"}}>{primaryFmt}</span>
+          ? <div style={{display:"flex",alignItems:"baseline",gap:3,flexWrap:"wrap"}}
+              title={expFmt?`Served ${primaryRaw.toLocaleString()} ${primaryLabel} vs ${exp.toLocaleString()} expected by today — ${primaryRaw>=exp?"ahead of":"behind"} pace.`:undefined}>
+              <span style={{fontSize:12,fontWeight:800,color:lightMode?"#0891b2":"#38bdf8",letterSpacing:"-0.01em"}}>{primaryFmt}</span>
+              {expFmt && <span style={{fontSize:11,fontWeight:700,color:lightMode?"#0891b2":"#38bdf8"}}>/ {expFmt}</span>}
               <span style={{fontSize:9,color:lmTxtD}}>{primaryLabel}</span>
             </div>
           : noActivity
             ? <span style={{fontSize:11,fontWeight:700,color:"#ef4444"}}>—</span>
             : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
+        {/* served (delivered-color) / expected (cyan, matches the bar's glowing tick). Tiny caption
+            so the "/ 10.5K" reads unambiguously as the expected-by-today figure, not another metric. */}
+        {expFmt && <div style={{fontSize:8,color:lmTxtD,marginTop:1,whiteSpace:"nowrap",letterSpacing:"0.02em"}}>served / expected</div>}
         {/* Projected end-of-month finish (toggle) — current pace × remaining flight days */}
         {showForecast && monthlyGoal>0 && (()=>{
           const dt = computeDailyTarget(primaryRaw, c.note1, c.startDate, c.endDate, c.goal);
@@ -10776,6 +10838,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </div>
     )}
 
+    {/* Horizontal scroll wrapper — on a laptop the wide table (~1720px) gets cut off on the right; this
+        lets you scroll right to the hidden columns. The header + every table section scroll together in
+        sync so columns stay aligned. Only applied in table view — card view stays fully responsive. */}
+    <div className={viewMode==="table"?"pacing-hscroll":undefined}>
+    <div style={viewMode==="table"?{minWidth:1720}:undefined}>
     {(behind.length||onTrack.length||ahead.length)>0 && (
       <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"hidden",background:lmBg,marginBottom:8}}>
         <TableHeader/>
@@ -10883,6 +10950,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         </div>
       );
     })()}
+    </div>{/* /minWidth */}
+    </div>{/* /pacing-hscroll */}
     {/* ── Not started yet ──────────────────────────────────────────────────
         Active campaigns whose flight begins in the FUTURE. They're held out of the pacing buckets
         (nothing to pace against) and out of the freshness filter (they'd always read "not updated" —
@@ -15531,6 +15600,12 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                 // changes / fuzzy auto-matches never qualify — so the check is a trustworthy signal that
                 // this exact line→campaign mapping was confirmed in a previous check-in.
                 const isMemory  = !!assigned && memoryMap[i] != null && String(memoryMap[i]) === String(assigned);
+                // "↪ moved here" flag: the campaign this row maps to has a saved record that a line of THIS
+                // name was reassigned onto it before (via the Pacing "move metrics" fix). Surfaced so you can
+                // confirm the mapping stuck instead of silently re-mapping to the wrong campaign each time.
+                const _mvNm = (name || "").trim().toLowerCase();
+                const wasMoved = !!assignedCamp && Array.isArray(assignedCamp.reassignedLines)
+                  && assignedCamp.reassignedLines.some(m => m && m.name === _mvNm);
                 return (
                   <div key={i}
                     onClick={isPickTarget ? ()=>{ assignRow(i, String(leftPickCampId)); setLeftPickCampId(null); } : undefined}
@@ -15560,6 +15635,10 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                           {isMemory&&(
                             <span title="Remembered from a previous session"
                               style={{fontSize:9,color:"#a78bfa",flexShrink:0}}>✓</span>
+                          )}
+                          {wasMoved&&(
+                            <span title="You MOVED metrics onto this campaign before — double-check this is the right one so you don't have to re-move it."
+                              style={{fontSize:9,fontWeight:800,color:_lm?"#0891b2":"#00d9ff",background:_lm?"#ecfeff":"#04222b",border:`1px solid ${_lm?"#67e8f9":"#00d9ff40"}`,borderRadius:3,padding:"0 4px",whiteSpace:"nowrap",flexShrink:0}}>↪ moved</span>
                           )}
                         </div>
                         <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:1,display:"flex",gap:8}}>
@@ -20799,43 +20878,54 @@ export default function App() {
           completionRate: t.vcr > 0 ? String(parseFloat(t.vcr.toFixed(2))) : "",
           status: c.status === "" ? "active" : c.status,
           lastChecked: today,
+          // Moving metrics here IS a real data update today — stamp the freshness fields the "updated
+          // today" filter actually reads (lastMetricUpdate / lastQciDate), not just lastChecked. The
+          // moved numbers came from a check-in that ran today, so both apply.
+          lastMetricUpdate: today,
+          lastQciDate: today,
+          // Persistent "a line was moved onto this campaign" marker (dedup by line name, capped) — drives
+          // the ↪ indicator in the next Quick Check-in so you can confirm the mapping instead of re-fixing it.
+          reassignedLines: (() => {
+            const nm = (line.name || "").trim().toLowerCase();
+            const prev = Array.isArray(c.reassignedLines) ? c.reassignedLines.filter(m => m && m.name !== nm) : [];
+            return [...prev, { name: nm, date: today }].slice(-30);
+          })(),
         });
       }
       return c;
     }));
 
-    // ── Update saved mapping memory so future CSV drops route this line correctly ──
+    // ── Update saved mapping memory so the NEXT check-in routes this line to the CORRECT campaign ──
+    const fromCamp = campaigns.find(c => c.id === fromCampaignId);
+    const toCamp = campaigns.find(c => c.id === toCampaignId);
     try {
-      const sourceMap = { metaSnapshots: "Facebook/Meta", ttdSnapshots: "TradeDesk", dspSnapshots: "DSP-Internal", googleSnapshots: "Google", snapSnapshots: "Snapchat" };
-      const source = sourceMap[snapField];
-      if (source) {
-        const stored = JSON.parse(localStorage.getItem("campaign-tracker-csv-mappings") || "{}");
-        // Update any existing entry that points to the OLD campaign AND references this line name
-        const lineNameLower = line.name.toLowerCase();
-        Object.keys(stored).forEach(key => {
-          const entry = stored[key];
-          if (!entry || String(entry.campId) !== String(fromCampaignId)) return;
-          if (key.toLowerCase().includes(lineNameLower) ||
-              (entry.campName && entry.campName.toLowerCase().includes(lineNameLower)) ||
-              (entry.ttdCampName && entry.ttdCampName.toLowerCase() === lineNameLower)) {
-            stored[key] = { ...entry, campId: String(toCampaignId), learnedAt: today };
-          }
-        });
-        // Also write a fresh legacy-style key so future drops match by line name alone
-        stored[`${source}||${line.name.trim().toLowerCase()}`] = {
-          campId: String(toCampaignId),
-          source,
-          learnedAt: today,
-        };
-        localStorage.setItem("campaign-tracker-csv-mappings", JSON.stringify(stored));
-      }
+      const stored = JSON.parse(localStorage.getItem(CSV_MAPPINGS_KEY) || "{}");
+      const lineNameLower = (line.name || "").trim().toLowerCase();
+      // (1) Repoint any EXISTING memory entry that still points to the WRONG (source) campaign for this
+      //     line — regardless of which file-source key it's filed under — so the old mapping can't win.
+      Object.keys(stored).forEach(key => {
+        const entry = stored[key];
+        if (!entry || String(entry.campId) !== String(fromCampaignId)) return;
+        if (key.toLowerCase().includes(lineNameLower) ||
+            (entry.campName && entry.campName.toLowerCase().includes(lineNameLower)) ||
+            (entry.ttdCampName && entry.ttdCampName.toLowerCase() === lineNameLower)) {
+          stored[key] = { ...entry, campId: String(toCampaignId), learnedAt: today, viaMove: true };
+        }
+      });
+      // (2) Write a fresh key under BOTH the TARGET-platform source (what the QCI actually looks up — this
+      //     is the fix for Madhive lines that ride ttdSnapshots but come from "Madhive" files, etc.) AND the
+      //     raw snapshot-field source (covers the "DSP-Internal" file variant that shares dspSnapshots).
+      const snapFieldSource = { metaSnapshots:"Facebook/Meta", ttdSnapshots:"TradeDesk", dspSnapshots:"DSP-Internal", googleSnapshots:"Google", snapSnapshots:"Snapchat" }[snapField];
+      const platSource = toCamp ? platformToFileSource(toCamp.platform) : null;
+      [...new Set([platSource, snapFieldSource].filter(Boolean))].forEach(src => {
+        stored[`${src}||${lineNameLower}`] = { campId:String(toCampaignId), campName: toCamp ? toCamp.campaignName.trim() : "", source:src, learnedAt:today, viaMove:true };
+      });
+      localStorage.setItem(CSV_MAPPINGS_KEY, JSON.stringify(stored));
     } catch (e) {
       console.warn("Failed to update mapping memory after line reassign:", e);
     }
 
     // Log the action so it's recoverable / auditable
-    const fromCamp = campaigns.find(c => c.id === fromCampaignId);
-    const toCamp = campaigns.find(c => c.id === toCampaignId);
     if (fromCamp && toCamp) {
       addLog({
         type: "edited",
@@ -21997,6 +22087,13 @@ export default function App() {
         .note1-text{color:#3B8FFF!important;text-shadow:0 0 8px #3B8FFF40;}
         .eb-glow{box-shadow:0 0 0 1px #3B8FFF40,0 0 8px #3B8FFF20;}
         input::placeholder{color:${lightMode?"#94a3b8":"#1e3a50"};}
+        /* Pacing table horizontal scroller — a taller, more visible scrollbar than the global 5px so it's
+           obvious you can scroll right to the cut-off columns on a smaller screen. */
+        .pacing-hscroll{overflow-x:auto;overflow-y:visible;scrollbar-width:thin;scrollbar-color:${lightMode?"#94a3b8 #e2e8f0":"#33507a #0b1624"};}
+        .pacing-hscroll::-webkit-scrollbar{height:11px;}
+        .pacing-hscroll::-webkit-scrollbar-track{background:${lightMode?"#e2e8f0":"#0b1624"};border-radius:6px;}
+        .pacing-hscroll::-webkit-scrollbar-thumb{background:${lightMode?"#94a3b8":"#33507a"};border-radius:6px;border:2px solid ${lightMode?"#e2e8f0":"#0b1624"};}
+        .pacing-hscroll::-webkit-scrollbar-thumb:hover{background:${lightMode?"#64748b":"#4a6a9a"};}
         .crow:hover td{background:${lightMode?"#f1f5f9":"#0a1c32"}!important;}
         .crow:hover .star-toggle{opacity:1!important;}
         button{font-family:inherit;}
@@ -23201,7 +23298,7 @@ export default function App() {
                               </TD>
                               <TD><StatusBadge status={c.status}/></TD>
                               <TD><span style={{fontSize:12,color:(PLT[c.platform]||PLT.default),fontWeight:700}}>{c.platform}</span></TD>
-                              <TD><span style={{fontSize:11,color:lightMode?"#475569":"#7a9bbf"}}>{c.note1||"—"}</span>{(()=>{ const p=computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:lmCol(p.color),display:"block",marginTop:2}}>{Math.round(p.pct*100)}% mo pace</span> : null; })()}</TD>
+                              <TD><span style={{fontSize:11,color:lightMode?"#475569":"#7a9bbf"}}>{c.note1||"—"}</span>{(()=>{ const p=crossMonthFlightPacing(c) || computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${p.flightBasis?"flight":getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:lmCol(p.color),display:"block",marginTop:2}}>{Math.round(p.pct*100)}% {p.flightBasis?"flight":"mo"} pace</span> : null; })()}</TD>
                               <TD><span style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a"}}>{c.startDate?fmtDate(c.startDate):"—"}</span></TD>
                               <TD><EndChip d={c.endDate}/></TD>
                               <TD>
@@ -23319,20 +23416,44 @@ export default function App() {
 
                           {showPacingBar&&!open&&(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
-                            const pacing=computeMonthlyPacing(c, disp, c.note1);
+                            // Cross-month FLIGHT → pace the whole flight (cumulative delivery vs total goal)
+                            // instead of this month's MTD, so a By-dates buy that started last month isn't
+                            // read as "behind" just because the daily drops reset MTD on the 1st. This bar
+                            // reads delivered/goal/% straight off the pacing object, so it stays consistent.
+                            const pacing=crossMonthFlightPacing(c) || computeMonthlyPacing(c, disp, c.note1);
                             if(!pacing) return null;
                             const pacingTipDel = pacing.unit==="$" ? "$"+Math.round(pacing.delivered).toLocaleString() : pacing.delivered.toLocaleString()+" "+pacing.unit;
                             const pacingTipGoal = pacing.unit==="$" ? "$"+Math.round(pacing.goal).toLocaleString() : pacing.goal.toLocaleString()+" "+pacing.unit;
                             return (
                               <div style={{marginTop:4,width:140}} title={`${pacing.label}: ${pacingTipDel} of ${pacingTipGoal} goal`}>
                                 <div style={{position:"relative",background:lightMode?"#e2e8f0":"#0e1a2e",borderRadius:3,height:5,width:"100%",overflow:"visible",marginBottom:2}}>
-                                  <div style={{position:"absolute",top:-2,left:`${Math.min(97,pacing.expectedPct*100)}%`,width:2,height:9,background:lightMode?"#94a3b8":"#334155",borderRadius:1,zIndex:2}}/>
+                                  <div title="Expected marker — where the filled bar should reach today to stay on track for the goal" style={{position:"absolute",top:-3,left:`${Math.min(97,pacing.expectedPct*100)}%`,width:3,height:11,background:"#38bdf8",borderRadius:1,zIndex:3,boxShadow:"0 0 6px #38bdf8, 0 0 12px #38bdf888"}}/>
                                   <div style={{background:lmCol(pacing.color),height:"100%",width:`${Math.min(100,pacing.pct*100)}%`,borderRadius:3,transition:"width .3s"}}/>
                                 </div>
                                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                                  <span style={{fontSize:9,color:lmCol(pacing.color),fontWeight:700,letterSpacing:"0.03em"}}>{(pacing.pct*100).toFixed(0)}% of goal</span>
-                                  <span style={{fontSize:9,color:lightMode?"#94a3b8":"#2a4060",fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>{getPeriodLabel(dateRange.preset)}</span>
+                                  {/* Served % / Expected % — the expected% is kept the SAME status color as the served%
+                                      (per Austin) so it stays subtle/low-visibility; the tooltip still spells it out. */}
+                                  <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.03em"}}>
+                                    <span style={{color:lmCol(pacing.color)}}>{(pacing.pct*100).toFixed(0)}%</span>
+                                    <span title={`You should be at about ${(pacing.expectedPct*100).toFixed(0)}% of goal by today to stay on pace`} style={{color:lmCol(pacing.color)}}> / {(pacing.expectedPct*100).toFixed(0)}%</span>
+                                    <span style={{color:lightMode?"#64748b":"#4d6e8a"}}> of goal</span>
+                                  </span>
+                                  <span title={pacing.flightBasis?"Paced against the whole flight (all months of delivery vs the total goal) — not just this month, since the flight started before this month.":undefined} style={{fontSize:9,color:pacing.flightBasis?lmCol("#38bdf8"):(lightMode?"#94a3b8":"#2a4060"),fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>{pacing.flightBasis?"FLIGHT":getPeriodLabel(dateRange.preset)}</span>
                                 </div>
+                                {/* Served vs Expected impression counts — PINK (#ff4df0) per Austin for readable contrast
+                                    against the bar/percent row above. */}
+                                {pacing.expected>0&&(()=>{
+                                  const pink="#ff4df0";
+                                  const fmtC=v=>pacing.unit==="$"
+                                    ? (Math.abs(v)>=1000?"$"+(v/1000).toFixed(1)+"k":"$"+Math.round(v))
+                                    : (v>=1000000?(v/1000000).toFixed(2)+"M":v>=1000?(v/1000).toFixed(1)+"K":String(Math.round(v)));
+                                  const u=pacing.unit==="$"?"":(pacing.unit||"");
+                                  const ahead=pacing.delivered>=pacing.expected;
+                                  return <div title={`Served ${Math.round(pacing.delivered).toLocaleString()}${u?" "+u:""} vs ${Math.round(pacing.expected).toLocaleString()} expected by today — ${ahead?"ahead of":"behind"} pace.`} style={{marginTop:1}}>
+                                    <div style={{fontSize:9,fontWeight:700,color:pink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>◆ {fmtC(pacing.delivered)} / {fmtC(pacing.expected)}{u?" "+u:""}</div>
+                                    <div style={{fontSize:8,color:lightMode?"#94a3b8":"#3d5a72",letterSpacing:"0.02em"}}>served / expected</div>
+                                  </div>;
+                                })()}
                               </div>
                             );
                           })()}
@@ -23354,7 +23475,7 @@ export default function App() {
                           {/* "% mo pace" now only shows when the Pacing Bar toggle is on (Austin: keep the
                               Goal column just the goal by default). The full pacing bar under the campaign
                               name already appears with the same toggle, so the two stay in sync. */}
-                          {showPacingBar && (()=>{ const p=computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:lmCol(p.color),display:"block",marginTop:2}}>{Math.round(p.pct*100)}% mo pace</span> : null; })()}
+                          {showPacingBar && (()=>{ const p=crossMonthFlightPacing(c) || computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${p.flightBasis?"flight":getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:lmCol(p.color),display:"block",marginTop:2}}>{Math.round(p.pct*100)}% {p.flightBasis?"flight":"mo"} pace</span> : null; })()}
                         </TD>
                         <TD>
                           {c.startDate ? (
