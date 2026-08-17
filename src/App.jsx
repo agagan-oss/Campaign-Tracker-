@@ -276,10 +276,10 @@ const CUSTOM_BENCHMARKS_KEY = "campaign-tracker-zeus-benchmarks";
 // The Zeus tab's Benchmarks editor writes localStorage["zeus-benchmarks"]; the Pacing tab AND the Home
 // health drill-down read the SAME values through here, so a threshold Austin sets shows up everywhere.
 // CTR warn/bad are in PERCENT (0.10 = 0.10%); VCR warn/bad are 0–100. `rate` is the COST KPI each tactic
-// is judged on — "CPM" ($/1K impr, most tactics), "CPV" ($/view, YouTube), "CPC" ($/click, Search/SEM), or
-// "none" (no cost KPI). cpmWarn/cpmBad are the good/high dollar thresholds for whatever `rate` is (so for
-// YT they're per-VIEW cents, for SEM per-CLICK dollars). Austin: YouTube is judged on CPV not CPM, and SEM
-// doesn't use CPM (it's a per-click game).
+// is judged on — "CPM" ($/1K impr, most tactics), "CPV" ($/view, YouTube), or "none" (no cost KPI).
+// cpmWarn/cpmBad are the good/high dollar thresholds for whatever `rate` is (so for YT they're per-VIEW
+// cents). Austin: YouTube is judged on CPV not CPM; SEM is billed as a flat management fee, so it has NO
+// cost-per-unit KPI at all (no CPM, no CPC) — its rate is "none" and the cost column reads "—".
 const BENCHMARKS_DEFAULT = {
   FB:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Meta Feed",        rate:"CPM", cpmWarn:12,   cpmBad:20 },
   FBV:   { metric:"VCR", warn:50,   bad:30,   unit:"%", label:"Video Completion", desc:"Meta Video",       rate:"CPM", cpmWarn:10,   cpmBad:18 },
@@ -287,7 +287,7 @@ const BENCHMARKS_DEFAULT = {
   DSP:   { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"DSP Display",      rate:"CPM", cpmWarn:6,    cpmBad:12 },
   TD:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"The Trade Desk",   rate:"CPM", cpmWarn:6,    cpmBad:12 },
   SP:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"Snapchat",         rate:"CPM", cpmWarn:5,    cpmBad:10 },
-  SEM:   { metric:"CTR", warn:3.0,  bad:1.5,  unit:"%", label:"CTR",             desc:"Search",           rate:"CPC", cpmWarn:2.5,  cpmBad:5 },
+  SEM:   { metric:"CTR", warn:3.0,  bad:1.5,  unit:"%", label:"CTR",             desc:"Search",           rate:"none", cpmWarn:2.5,  cpmBad:5 },
   CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV",     rate:"CPM", cpmWarn:25,   cpmBad:45 },
   OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming",  rate:"CPM", cpmWarn:25,   cpmBad:45 },
   GCTV:  { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Madhive General CTV",  rate:"CPM", cpmWarn:16, cpmBad:22 },
@@ -300,9 +300,12 @@ const BENCHMARKS_DEFAULT = {
   EMAIL: { metric:"CTR", warn:1.0,  bad:0.5,  unit:"%", label:"Click Rate",      desc:"Email",            rate:"CPM", cpmWarn:5,    cpmBad:10 },
 };
 function loadBenchmarks(){ try { const s=localStorage.getItem("zeus-benchmarks"); return s ? {...BENCHMARKS_DEFAULT, ...JSON.parse(s)} : BENCHMARKS_DEFAULT; } catch { return BENCHMARKS_DEFAULT; } }
-// Effective cost-KPI for a benchmark — honors a stored `rate`, else derives from platform (YT→CPV, SEM→CPC,
+// Effective cost-KPI for a benchmark — honors a stored `rate`, else derives from platform (YT→CPV,
 // everything else→CPM). Lets older saved benchmark blobs (pre-`rate`) still do the right thing.
-function benchRate(bm, platform){ return (bm && bm.rate) || ({YT:"CPV", SEM:"CPC"}[platform]) || "CPM"; }
+// SEM is FORCED to "none" here regardless of any stored benchmark: it's a flat management-fee tactic with
+// no per-click/per-impression cost, so it never shows a CPC (or CPM) — this also overrides an old saved
+// SEM benchmark that still carries rate:"CPC".
+function benchRate(bm, platform){ if(platform==="SEM") return "none"; return (bm && bm.rate) || ({YT:"CPV"}[platform]) || "CPM"; }
 // Warn/bad thresholds in the rate's unit, with a guard: if a CPV/CPC tactic still carries a big CPM-scale
 // threshold from an old save (e.g. YT cpmWarn 8), fall back to a sane per-view/click default.
 function benchRateThresholds(bm, platform){
@@ -9211,11 +9214,19 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         // Insert Yesterday right after Need/Day for direct visual comparison
         if (yest) {
           const multiDay = yest.gapDays > 1;
+          // Speak the campaign's pacing unit — spend ($) for SEM, views for YT, else impressions.
+          const _mk = pacingMetricFor(c.platform);
+          const _unit = _mk==="spend" ? "spend" : _mk==="views" ? "views" : "impr";
+          const _fmtM = (n) => _mk==="spend"
+            ? (n>=1000 ? "$"+(n/1000).toFixed(1)+"k" : "$"+Math.round(n).toLocaleString())
+            : Math.round(n).toLocaleString()+" "+_unit;
           const yLabel = (multiDay ? "Yest/day" : "Yest") + (yest.pctOfNeeded != null ? ` (${yest.pctOfNeeded.toFixed(0)}%)` : "");
-          const yVal = yest.deliveredPerDay.toLocaleString();
+          const yVal = _mk==="spend"
+            ? (yest.deliveredPerDay>=1000 ? "$"+(yest.deliveredPerDay/1000).toFixed(1)+"k" : "$"+Math.round(yest.deliveredPerDay))
+            : yest.deliveredPerDay.toLocaleString();
           const yTitle = multiDay
-            ? `${yest.delivered.toLocaleString()} impr over ${yest.gapDays} days (a check-in was skipped) = ${yest.deliveredPerDay.toLocaleString()}/day · Needed/day: ${yest.neededPerDay.toLocaleString()} · ${yest.status} (baseline ${yest.baseDate})`
-            : `Yesterday delivered ${yest.delivered.toLocaleString()} impr · Needed/day: ${yest.neededPerDay.toLocaleString()} · ${yest.status} (baseline ${yest.baseDate})`;
+            ? `${_fmtM(yest.delivered)} over ${yest.gapDays} days (a check-in was skipped) = ${_fmtM(yest.deliveredPerDay)}/day · Needed/day: ${_fmtM(yest.neededPerDay)} · ${yest.status} (baseline ${yest.baseDate})`
+            : `Yesterday delivered ${_fmtM(yest.delivered)} · Needed/day: ${_fmtM(yest.neededPerDay)} · ${yest.status} (baseline ${yest.baseDate})`;
           boxes.push({ label: yLabel, val: yVal, color: yest.color, title: yTitle, highlight: true });
         }
         return (
@@ -9362,7 +9373,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // grid columns: name | platform | status | pacing bar | goal | impr/views | gap | need/day | yest | CTR/VCR | Clicks | CPM | spend | freq | edit
   // Bumped name min from 200→280px so multi-line ad-set names don't get truncated
   // (e.g. "Shining Star Christian Schools - Device Targeting (FBV)" needs the room)
-  const GRID = "minmax(280px,1.4fr) 72px 240px 80px 124px 84px 84px 84px 90px 68px 76px 76px 76px 62px 60px";
+  // Yest widened 84→104: the chip can carry $value + pct + "Nd" (e.g. "$702 156% 2d") and was bleeding
+  // into the CTR column; the extra room + the chip trims below keep it inside its own cell.
+  const GRID = "minmax(280px,1.4fr) 72px 240px 80px 124px 84px 84px 104px 90px 68px 76px 76px 76px 62px 60px";
 
   function TableRow({c,disp,pacing,monthlyGoal,flightChart}){
     // Breakdown-expanded state is lifted to the parent (expandedRows Set, keyed by campaign id) so it
@@ -9594,6 +9607,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             ? <span style={{fontSize:9,color:"#00d48a",fontWeight:700,background:lightMode?"#dcfce7":"#00200f",border:"1px solid #00d48a40",borderRadius:3,padding:"0px 4px",flexShrink:0}}>✓ today</span>
             : <span style={{fontSize:9,color:lmTxtS,fontWeight:400,flexShrink:0}}>{(()=>{ const d=lastDataDate(c); return d&&/^\d{4}-\d{2}-\d{2}$/.test(d)?(([y,m,dd])=>`${+m}/${+dd}`)(d.split("-")):"—"; })()}</span>
           }
+          {/* Note-2 flag — surfaces WHY a campaign (esp. an OFF one) isn't running: "no creatives",
+              "no FB access", etc. (Austin). Truncated with the full note on hover. */}
+          {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{fontSize:9,fontWeight:700,color:lightMode?"#b91c1c":"#fca5a5",background:lightMode?"#fee2e2":"#200808",border:`1px solid ${lightMode?"#fecaca":"#ef444455"}`,borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200,flexShrink:1}}>⚠ {c.note2.trim()}</span>}
         </div>
       </div>
 
@@ -9698,8 +9714,19 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         if (!yest) return <div><span style={{fontSize:11,color:lmTxtD}}>—</span></div>;
         const multiDay = yest.gapDays > 1;
         const yVal = yest.deliveredPerDay; // per-day average (spreads delivery across any skipped check-in days)
-        const fmtY = yVal >= 1000 ? (yVal/1000).toFixed(1)+"K" : String(yVal);
-        const pctTxt = yest.pctOfNeeded != null ? `${yest.pctOfNeeded.toFixed(0)}%` : "";
+        // The yesterday value is the campaign's PACING metric — spend ($) for SEM, views for YT, else
+        // impressions — so both the chip and the tooltip must speak that unit, not a hard-coded "impr".
+        const unitWord = metricKind==="spend" ? "spend" : metricKind==="views" ? "views" : "impr";
+        const fmtY = metricKind==="spend"
+          ? (yVal>=1000 ? "$"+(yVal/1000).toFixed(1)+"k" : "$"+Math.round(yVal))
+          : (yVal >= 1000 ? (yVal/1000).toFixed(1)+"K" : String(yVal));
+        // Tooltip formatter: money gets a $ (the symbol carries the meaning); counts get the unit word.
+        const fmtYmoney = (n) => metricKind==="spend"
+          ? (n>=1000 ? "$"+(n/1000).toFixed(1)+"k" : "$"+Math.round(n).toLocaleString())
+          : Math.round(n).toLocaleString()+" "+unitWord;
+        // Cap the % so an extreme over-delivery (e.g. 1560%) can't blow the chip width into the CTR
+        // column — anything ≥1000% just reads "999%+" (the colour already flags it as way over pace).
+        const pctTxt = yest.pctOfNeeded != null ? (yest.pctOfNeeded >= 1000 ? "999%+" : `${yest.pctOfNeeded.toFixed(0)}%`) : "";
         // When the monthly goal is already hit there's no "needed/day", so yest.color is a
         // dim gray that buries real delivery. Use a readable neutral blue for that case, and
         // render the value as a tinted chip (matching the app's KPI-badge style) so the column
@@ -9707,13 +9734,13 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         const baseCol = yest.pctOfNeeded == null ? (lightMode ? "#0284c7" : "#7aa7ff") : lmC(yest.color);
         const chip = { color: baseCol, background: baseCol + (lightMode ? "14" : "22"), border: "1px solid " + baseCol + (lightMode ? "33" : "45") };
         return (
-          <div title={multiDay
-            ? `${yest.delivered.toLocaleString()} impr over ${yest.gapDays} days (a check-in was skipped) = ${yest.deliveredPerDay.toLocaleString()}/day · Needed/day: ${yest.neededPerDay.toLocaleString()} · ${yest.status} (baseline ${fmtDate(yest.baseDate)} → ${fmtDate(today)})`
-            : `Yesterday: ${yest.delivered.toLocaleString()} impr · Needed/day: ${yest.neededPerDay.toLocaleString()} · ${yest.status} (baseline ${fmtDate(yest.baseDate)} → ${fmtDate(today)})`}>
-            <span style={{display:"inline-flex",alignItems:"baseline",gap:3,fontSize:11,fontWeight:800,borderRadius:5,padding:"2px 7px",...chip}}>
+          <div style={{minWidth:0,overflow:"hidden"}} title={multiDay
+            ? `${fmtYmoney(yest.delivered)} over ${yest.gapDays} days (a check-in was skipped) = ${fmtYmoney(yest.deliveredPerDay)}/day · Needed/day: ${fmtYmoney(yest.neededPerDay)} · ${yest.status} (baseline ${fmtDate(yest.baseDate)} → ${fmtDate(today)})`
+            : `Yesterday: ${fmtYmoney(yest.delivered)} · Needed/day: ${fmtYmoney(yest.neededPerDay)} · ${yest.status} (baseline ${fmtDate(yest.baseDate)} → ${fmtDate(today)})`}>
+            <span style={{display:"inline-flex",alignItems:"baseline",gap:3,maxWidth:"100%",whiteSpace:"nowrap",fontSize:11,fontWeight:800,borderRadius:5,padding:"2px 6px",...chip}}>
               {fmtY}
               {pctTxt&&<span style={{fontSize:9,fontWeight:700,opacity:.8}}>{pctTxt}</span>}
-              {multiDay&&<span title={`Averaged over ${yest.gapDays} days — a check-in was skipped`} style={{fontSize:8,fontWeight:700,opacity:.7}}>{yest.gapDays}d avg</span>}
+              {multiDay&&<span title={`Averaged over ${yest.gapDays} days — a check-in was skipped`} style={{fontSize:8,fontWeight:700,opacity:.7}}>{yest.gapDays}d</span>}
             </span>
           </div>
         );
@@ -10182,7 +10209,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   function TableHeader(){
     return <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"6px 16px",borderBottom:"1px solid "+(lightMode?"#e2e8f0":"#1a2744"),marginBottom:2}}>
-      {["Campaign","Platform","Mo. Pacing","Goal","Impr / Views","Gap","Need/Day","Yest","CTR / VCR","Clicks","CPM/CPV/CPC","Spend","Budget","Freq",""].map((h,i)=>(
+      {["Campaign","Platform","Mo. Pacing","Goal","Impr / Views","Gap","Need/Day","Yest","CTR / VCR","Clicks","CPM/CPV","Spend","Budget","Freq",""].map((h,i)=>(
         <div key={i} style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,
           ...(i===0?{position:"sticky",left:0,zIndex:3,background:lmBg,boxShadow:`6px 0 8px -6px rgba(0,0,0,${lightMode?0.16:0.55})`}:null)}}>{h}</div>
       ))}
@@ -11020,6 +11047,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         })}
       </div>
     )}
+    {/* No Impressions ABOVE Off Campaigns (Austin): an active campaign delivering ZERO is often an ERROR —
+        it should be running but isn't, or a check-in isn't mapping to it — so it needs eyes BEFORE the
+        intentionally-paused Off list. */}
+    <Section label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>
     {/* ── Off Campaigns section ────────────────────────────────────────────
         Collapsible bucket for status="off" campaigns. Surfaces pacing data
         for campaigns the user intentionally paused (e.g. hit goal, ended early)
@@ -11045,10 +11076,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         )}
       </div>
     )}
-    {/* "No Impressions" and "Needs Monthly Goal" pushed BELOW Off Campaigns —
-        these are housekeeping buckets (campaigns that aren't producing data yet
-        or aren't configured to pace), so they belong at the bottom of the page. */}
-    <Section label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>
+    {/* "Needs Monthly Goal" stays at the bottom (a config bucket, not an error). */}
     {noGoalRows.length>0&&(()=>{
       const syncedToday = noGoalRows.filter(r => dataUpdatedToday(r.c));
       const open = showNoGoal || syncedToday.length > 0;
@@ -13555,6 +13583,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   const removeIgnore = (name)=> setIgnoredNames(prev=>{ const next=prev.filter(e=>normIgnore(e.name)!==normIgnore(name)); _persistIgnored(next); return next; });
   const clearAllIgnored = ()=>{ setIgnoredNames([]); _persistIgnored([]); };
   const [showIgnoredList, setShowIgnoredList] = React.useState(false); // collapsed by default — small dropdown
+  const [ignoredSearch, setIgnoredSearch] = React.useState("");        // search box for the ignored list (can grow to 50+)
   // On each file drop: refresh lastSeen for ignored names present in the file, then prune any that
   // haven't shown up in IGNORE_TTL_DAYS days — so the ignore list self-cleans and never grows unbounded.
   React.useEffect(()=>{
@@ -14288,6 +14317,20 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     const entry=savedMappings[key];
     if(entry && fullPool.find(c=>String(c.id)===String(entry.campId))) return entry.campId;
     return null;
+  }
+
+  // Every memory key a row would be saved under (MIRRORS persistNameMappings below). Stamped onto each
+  // breakdown line at apply time so "move metrics to the correct campaign" can repoint the EXACT keys —
+  // including the compound acc/adv keys the lookup checks first, which a name-only guess can't find.
+  function memoryKeysForRow(row, source){
+    const csvName = getCampName(row, source);
+    const keys = [];
+    if(source==="TradeDesk"){ const adv=getTTDAdvertiserName(row); if(adv&&csvName) keys.push(makeTTDNameKey(adv, csvName)); }
+    else if(source==="DSP"){ const adv=getTTDAdvertiserName(row); if(adv) keys.push(`DSP||adv:${adv.trim().toLowerCase()}`); }
+    else if(source==="Google"){ const acc=getGoogleAccountName(row); if(acc) keys.push(makeGoogleNameKey(acc)); }
+    else if(source==="Facebook/Meta"){ const acc=getFBAccountName(row); if(acc){ const sub=(csvName||"").includes(" · ")?csvName.split(" · ").slice(1).join(" · "):""; if(sub) keys.push(`Facebook/Meta||acc:${acc.toLowerCase()}||camp:${sub.toLowerCase()}`); keys.push(`Facebook/Meta||acc:${acc.toLowerCase()}`); } }
+    if(csvName) keys.push(makeNameKey(source, csvName));
+    return [...new Set(keys)];
   }
 
   function persistNameMappings(source, mappingEntries){
@@ -15055,8 +15098,11 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       // ad-set / line-item level (e.g. retargeting vs prospecting under one FB campaign).
       // TVsci Daily rows carry a PRE-BUILT __breakdown (one line per ad group, since the source rolls all
       // its daily rows up to one synthetic campaign row) — splice those in whole instead of a lump line.
+      // The memory keys THIS row is remembered under — stamped on the line so a later "move metrics"
+      // repoints the exact (incl. compound) keys and the next check-in routes to the corrected campaign.
+      const _memKeys = memoryKeysForRow(row, fileSource);
       if (Array.isArray(row.__breakdown) && row.__breakdown.length) {
-        row.__breakdown.forEach((bl, bi) => updates[campId].breakdown.push({ id:`${idxStr}-${campId}-${bi}`, ...bl }));
+        row.__breakdown.forEach((bl, bi) => updates[campId].breakdown.push({ id:`${idxStr}-${campId}-${bi}`, ...bl, memKeys:_memKeys }));
       } else {
         const lineName = ((fileSource==="DSP"||fileSource==="Madhive") ? (row["Line Item Name"]||row["line item name"]||"") : getCampName(row, fileSource)) || `Line ${updates[campId].breakdown.length+1}`;
         // CTR displayed as percent (0-100); m.ctr is stored as ratio (0.003 = 0.3%)
@@ -15070,6 +15116,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
           ctr: lineCtr,
           videoViews: m.videoViews,
           vcr: m.completionRate,
+          memKeys: _memKeys,
         });
       }
     });
@@ -15389,10 +15436,23 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
             🚫 Ignored on check-in ({ignoredNames.length})
             {ignoredInFileCount>0&&<span style={{fontSize:10,fontWeight:400,color:_lm?"#94a3b8":"#3d5a72"}}>· {ignoredInFileCount} skipped in this file</span>}
           </button>
-          {showIgnoredList&&(
+          {showIgnoredList&&(()=>{
+            const q = ignoredSearch.trim().toLowerCase();
+            const shown = q ? ignoredNames.filter(e=>e.name.toLowerCase().includes(q)) : ignoredNames;
+            return (
             <div style={{marginTop:8}}>
-              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                {ignoredNames.map((e,idx)=>{
+              {/* Search — shown once the list is long enough to be worth filtering (can hit 50+). */}
+              {ignoredNames.length>6 && (
+                <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}>
+                  <input value={ignoredSearch} onChange={e=>setIgnoredSearch(e.target.value)} placeholder={`Search ${ignoredNames.length} ignored…`}
+                    style={{flex:1,background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${ignoredSearch?"#00c896":(_lm?"#cbd5e1":"#1e293b")}`,borderRadius:6,padding:"5px 10px",color:_lm?"#0f172a":"#edf4ff",fontSize:11,outline:"none"}}/>
+                  {ignoredSearch && <span style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",whiteSpace:"nowrap"}}>{shown.length} match{shown.length!==1?"es":""}</span>}
+                  {ignoredSearch && <button onClick={()=>setIgnoredSearch("")} style={{background:"none",border:"none",color:_lm?"#64748b":"#4d6e8a",fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1}}>×</button>}
+                </div>
+              )}
+              {/* Scrollable so 50+ ignored names never blow up the panel. */}
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,maxHeight:170,overflowY:"auto",padding:"1px"}}>
+                {shown.map((e,idx)=>{
                   const seenDays=Math.floor((Date.now()-Number(e.lastSeenAt||e.addedAt||Date.now()))/86400000);
                   return (
                     <span key={idx} style={{display:"inline-flex",alignItems:"center",gap:7,background:_lm?"#eef2f7":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:6,padding:"3px 5px 3px 9px",fontSize:10.5,color:_lm?"#475569":"#a8c4e0",maxWidth:280}}
@@ -15403,12 +15463,14 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                     </span>
                   );
                 })}
+                {shown.length===0 && <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",padding:"2px 4px"}}>No ignored name matches “{ignoredSearch}”.</span>}
               </div>
               <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:6}}>
                 Auto-removed after {IGNORE_TTL_DAYS} days without appearing in a dropped file · <button onClick={clearAllIgnored} style={{background:"none",border:"none",color:_lm?"#dc2626":"#f87171",fontSize:9,fontWeight:700,cursor:"pointer",padding:0,textDecoration:"underline"}}>Clear all</button>
               </div>
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
@@ -15735,6 +15797,13 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                 </div>
               );
             })()}
+            {/* Column header — makes it unmistakable which side is the PLATFORM/file name and which is the
+                TRACKER campaign it maps to (Austin: names aren't always 100%, so label which is which). */}
+            <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+              <span style={{flex:1,minWidth:0,color:_lm?"#0369a1":"#7dd3fc"}}>📄 Name in file</span>
+              <span style={{color:_lm?"#94a3b8":"#3d5a72"}}>→</span>
+              <span style={{minWidth:160,maxWidth:230,color:_lm?"#059669":"#00c896"}}>🎯 Your campaign</span>
+            </div>
             <div style={{maxHeight:320,overflowY:"auto",flex:1}}>
               {(rowOrder && rowOrder.length===fileRows.length ? rowOrder : fileRows.map((_,i)=>i)).map((i)=>{
                 const row=fileRows[i];
@@ -15918,7 +15987,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                     </div>
                     {assigned&&(()=>{
                       const c=fullPool.find(x=>String(x.id)===String(assigned));
-                      return c?<div style={{fontSize:9,color:_lm?"#059669":"#00e5a0",paddingLeft:10,paddingBottom:4}}>→ {c.campaignName.trim()} ({c.platform} · {c.mediaPartner}){allArchivedIds.has(String(c.id))?<span style={{color:"#f59e0b"}}> · archived</span>:null}</div>:null;
+                      return c?<div style={{fontSize:9,color:_lm?"#059669":"#00e5a0",paddingLeft:10,paddingBottom:4}}>🎯 <strong>{c.campaignName.trim()}</strong> · {c.mediaPartner}{allArchivedIds.has(String(c.id))?<span style={{color:"#f59e0b"}}> · archived</span>:null}</div>:null;
                     })()}
                   </div>
                 );
@@ -21195,6 +21264,23 @@ export default function App() {
     try {
       const stored = JSON.parse(localStorage.getItem(CSV_MAPPINGS_KEY) || "{}");
       const lineNameLower = (line.name || "").trim().toLowerCase();
+      // (0) MOST RELIABLE — repoint the EXACT memory keys stamped on this line at apply time (incl. the
+      //     compound acc/adv keys the check-in lookup checks FIRST, which a name-only guess can't find).
+      //     Present on any line applied after this fix → the next check-in then routes to the RIGHT campaign.
+      if (Array.isArray(line.memKeys) && line.memKeys.length) {
+        line.memKeys.forEach(k => {
+          stored[k] = { ...(stored[k]||{}), campId: String(toCampaignId), campName: toCamp ? toCamp.campaignName.trim() : (stored[k]?.campName||""), learnedAt: today, viaMove: true };
+        });
+      }
+      // (0b) Immediate fallback for a Meta line applied BEFORE the memKeys fix: its compound + account keys
+      //      are reconstructable from the line name "{Account} · {Campaign}", so repoint the wrong-campaign ones.
+      else if (snapField === "metaSnapshots" && (line.name||"").includes(" · ")) {
+        const acc = line.name.split(" · ")[0].trim().toLowerCase();
+        const sub = line.name.split(" · ").slice(1).join(" · ").trim().toLowerCase();
+        [`Facebook/Meta||acc:${acc}||camp:${sub}`, `Facebook/Meta||acc:${acc}`].forEach(k => {
+          if (stored[k] && String(stored[k].campId) === String(fromCampaignId)) stored[k] = { ...stored[k], campId: String(toCampaignId), learnedAt: today, viaMove: true };
+        });
+      }
       // (1) Repoint any EXISTING memory entry that still points to the WRONG (source) campaign for this
       //     line — regardless of which file-source key it's filed under — so the old mapping can't win.
       Object.keys(stored).forEach(key => {
