@@ -379,7 +379,7 @@ function sortPlatforms(list) {
 // Which vendor you BUY each tactic through — powers the Revenue tab's "by platform, then tactic"
 // profit breakdown (Austin's boss wants to see where the money is made: The Trade Desk rolled up,
 // then split into TD / TDV / TDA, etc.). Custom platforms fall back to their own code as the vendor.
-const PLATFORM_VENDOR = {
+const PLATFORM_VENDOR_DEFAULT = {
   SEM:"Google",   YT:"Google",
   FB:"Meta",      FBV:"Meta",   IG:"Meta",
   TD:"The Trade Desk", TDV:"The Trade Desk", TDA:"The Trade Desk",
@@ -389,6 +389,11 @@ const PLATFORM_VENDOR = {
   GCTV:"Madhive", PCTV:"Madhive", AECTV:"Madhive", // Audience Extension TV — a Madhive product
   DSP:"DSP", SP:"Snapchat", TT:"TikTok", EMAIL:"Email",
 };
+// Custom vendor-group assignments (Config → Platform Groups) merge OVER the defaults, so a new tactic /
+// platform can be grouped with the vendor it's bought through. Stored in the custom-platforms config
+// (rides along in backups); mutated in place at runtime when saved (like PLT_COLORS) so it applies
+// without a reload, and re-read here on refresh.
+const PLATFORM_VENDOR = (()=>{ try{ const c=loadCustomPlatforms(); return {...PLATFORM_VENDOR_DEFAULT, ...(c.vendors||{})}; }catch{ return {...PLATFORM_VENDOR_DEFAULT}; } })();
 function vendorOf(platform){ return PLATFORM_VENDOR[platform] || (platform ? String(platform) : "Other"); }
 // Vendor display order follows the first tactic of each vendor in PLATFORM_GROUP_ORDER, so the
 // breakdown lists vendors in the same familiar order as every platform picker.
@@ -14527,6 +14532,17 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // Filename detection wins — it's explicit. Fall back to header sniffing only if unknown.
     const source = detectSourceFromFilename(file.name) || detectSource(rows);
     setFileSource(source);
+    // ── Auto-select the platform family this file covers ──────────────────────────────────────────
+    // So a teammate never has to know which tactics go together: drop a Trade Desk file → TD/TDV/TDA
+    // light up on their own. Rules: keep a deliberate NARROWER pick that still fits this file (e.g. the
+    // user picked IG-only before dropping a Meta file — respect it); REPLACE a selection that doesn't fit
+    // (a stale pick left over from a previous drop of another type, which would otherwise filter every one
+    // of this file's campaigns out → zero matches). Computed LOCALLY as `activePlats` because a React
+    // state set can't be read back inside this same function, and THIS drop's matching must use it.
+    const _fileFam = SOURCE_PLATFORMS[source] ? new Set([...SOURCE_PLATFORMS[source]].filter(p=>qciPlatformList.includes(p))) : new Set();
+    const _selFitsFile = qciPlatforms.size > 0 && [...qciPlatforms].some(p=>_fileFam.has(p));
+    const activePlats = _selFitsFile ? qciPlatforms : _fileFam;
+    setQciPlatforms(activePlats);
     let dspHiddenLowImpr = 0; // DSP "Mobile" only — count of sub-100-impr rows hidden as prior-month bleed-over
 
     // ── TVsci spend sheet: keep only LIVE Recrue rows ──
@@ -14811,9 +14827,9 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // still get re-assigned from name-memory even when the user picked ONLY IG, pulling in campaigns from
     // platforms they didn't select. Empty selection = all platforms (no restriction).
     const passesQciPlatform = (id) => {
-      if (qciPlatforms.size === 0) return true;
+      if (activePlats.size === 0) return true;   // activePlats = this file's auto-selected family (see drop)
       const c = fullPool.find(x => String(x.id) === String(id));
-      return !!(c && qciPlatforms.has(c.platform));
+      return !!(c && activePlats.has(c.platform));
     };
 
     // Step 1: per-name memory (reliable — persists across different file exports)
@@ -14850,8 +14866,8 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       // Pool = active PLUS recently-archived (assignPool) so a just-cancelled/archived campaign still
       // auto-matches its final trailing delivery. Active campaigns are listed first, and ties keep the
       // first match, so an active campaign always wins over an archived one of the same name (renewals).
-      const qciFiltered = qciPlatforms.size > 0
-        ? assignPool.filter(c => qciPlatforms.has(c.platform))
+      const qciFiltered = activePlats.size > 0
+        ? assignPool.filter(c => activePlats.has(c.platform))
         : assignPool;
 
       // Layer 2: SOURCE_PLATFORMS — hard constraint by file type.
@@ -15332,30 +15348,83 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
 
   return (
     <div style={{background:_lm?"#ffffff":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#00c89640"}`,borderRadius:10,marginBottom:14,overflow:"hidden"}}>
-      {/* ── Header bar ── */}
-      <div style={{background:_lm?"#f8fafc":"#001a2e",padding:"9px 14px",display:"flex",alignItems:"center",gap:12,borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,flexWrap:"wrap"}}>
-        <span style={{fontSize:13,fontWeight:700,color:_lm?"#059669":"#00e5a0",flexShrink:0}}>⚡ Quick Check-in</span>
+      {/* ── Header bar ── two rows: controls on top, the platform filter on its own full-width row so the
+          vendor groups can wrap onto multiple lines as more tactics get added. */}
+      <div style={{background:_lm?"#f8fafc":"#001a2e",padding:"9px 14px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",flexDirection:"column",gap:8}}>
 
-        {/* Search */}
-        <input value={qciSearch} onChange={e=>setQciSearch(e.target.value)}
-          placeholder="Search campaigns…"
-          style={{background:_lm?"#ffffff":"#0a1628",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:6,padding:"4px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none",width:180,flexShrink:0}}/>
+        {/* Row 1 — title + close, search, selection actions, file drop */}
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span style={{fontSize:13,fontWeight:700,color:_lm?"#059669":"#00e5a0",flexShrink:0}}>⚡ Quick Check-in</span>
+          {/* Close — moved up next to the title and made red + prominent (was an easy-to-miss grey × alone
+              in the far corner). */}
+          <button onClick={onClose} title="Close check-in"
+            style={{background:_lm?"#fee2e2":"#2a0a0a",border:`1px solid ${_lm?"#fca5a5":"#ef444470"}`,borderRadius:6,color:_lm?"#dc2626":"#f87171",fontSize:15,fontWeight:800,lineHeight:1,cursor:"pointer",padding:"3px 10px",flexShrink:0}}>✕</button>
 
-        {/* Platform filter — multi-select pill toggles */}
-        <div style={{display:"flex",gap:3,flexWrap:"wrap",alignItems:"center",flexShrink:0}}>
-          {qciPlatformList.map(p=>{
-            const active = qciPlatforms.has(p);
-            return (
-              <button key={p} onClick={()=>setQciPlatforms(prev=>{
-                const next=new Set(prev);
-                next.has(p)?next.delete(p):next.add(p);
-                return next;
-              })}
-              style={{background:active?(_lm?"#eff6ff":"#1a3a5c"):(_lm?"#f1f5f9":"#0a1628"),border:`1px solid ${active?(_lm?"#93c5fd":"#00d9ff"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:4,padding:"2px 8px",color:active?(_lm?"#3B8FFF":"#00d9ff"):(_lm?"#64748b":"#4d6e8a"),fontSize:11,fontWeight:active?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>
-                {p}
-              </button>
-            );
-          })}
+          {/* Search */}
+          <input value={qciSearch} onChange={e=>setQciSearch(e.target.value)}
+            placeholder="Search campaigns…"
+            style={{background:_lm?"#ffffff":"#0a1628",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:6,padding:"4px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none",width:180,flexShrink:0}}/>
+
+          <div style={{display:"flex",gap:5,flexShrink:0}}>
+            {btn(`+ Visible (${visibleCamps.length})`,()=>setSelected(s=>{const n=new Set(s);visibleCamps.forEach(c=>n.add(c.id));return n;}))}
+            {btn("+ All",()=>setSelected(new Set(activeCamps.map(c=>c.id))))}
+            {selected.size>0&&btn("Clear",()=>setSelected(new Set()))}
+          </div>
+          <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",flexShrink:0}}>{selected.size>0?`${selected.size} selected`:"Select campaigns below"}</span>
+
+          {/* File drop — pushed to the right */}
+          <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+            <label style={{display:"flex",alignItems:"center",gap:7,background:_lm?"#f0fdf9":"#001a0e",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:7,padding:"5px 13px",color:_lm?"#059669":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}
+              onDragOver={e=>{e.preventDefault();e.currentTarget.style.background=_lm?"#d1fae5":"#002e24";}}
+              onDragLeave={e=>{e.currentTarget.style.background=_lm?"#f0fdf9":"#001a0e";}}
+              onDrop={e=>{e.preventDefault();e.currentTarget.style.background=_lm?"#f0fdf9":"#001a0e";handleFileDrop(e.dataTransfer.files[0]);}}>
+              📊 Drop CSV or XLSX
+              <input type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={e=>handleFileDrop(e.target.files[0])}/>
+            </label>
+            {/* Rep initials badge — click to change */}
+            <button
+              onClick={()=>setShowInitialsPrompt(p=>!p)}
+              title={userInitials?"Your rep initials (click to change)":"Set your rep initials to filter company-wide files"}
+              style={{background:userInitials?(_lm?"#f0fdf9":"#001a2e"):(_lm?"#fffbeb":"#1a0e00"),border:`1px solid ${userInitials?(_lm?"#00c896":"#00c89640"):(_lm?"#fcd34d":"#f59e0b60")}`,borderRadius:6,padding:"4px 9px",color:userInitials?(_lm?"#059669":"#00c896"):(_lm?"#d97706":"#f59e0b"),fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+              {userInitials?`_${userInitials}`:"Set initials"}
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2 — Platform filter, VENDOR-GROUPED, on its OWN full-width row so the groups can stack onto
+            multiple lines as more tactics are added. Each vendor button selects that whole family in one
+            click (drop a Trade Desk file → hit "Trade Desk" → TD/TDV/TDA all on), so a teammate doesn't
+            have to know which tactics belong together. Individual tactic pills stay for fine-tuning (e.g.
+            IG-only). Single-tactic vendors (DSP, Snapchat…) just show their one pill. Empty = all. */}
+        <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+          {(()=>{
+            const togglePlat = p => setQciPlatforms(prev=>{ const n=new Set(prev); n.has(p)?n.delete(p):n.add(p); return n; });
+            const pillStyle = active => ({background:active?(_lm?"#eff6ff":"#1a3a5c"):(_lm?"#f1f5f9":"#0a1628"),border:`1px solid ${active?(_lm?"#93c5fd":"#00d9ff"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:4,padding:"2px 8px",color:active?(_lm?"#3B8FFF":"#00d9ff"):(_lm?"#64748b":"#4d6e8a"),fontSize:11,fontWeight:active?700:400,cursor:"pointer",whiteSpace:"nowrap"});
+            // Group the platforms Austin actually has (qciPlatformList) by vendor (PLATFORM_VENDOR), in the
+            // usual picker order (vendorRank).
+            const groups=[]; const seen={};
+            qciPlatformList.forEach(p=>{ const v=vendorOf(p); if(!seen[v]){ seen[v]={vendor:v,plats:[]}; groups.push(seen[v]); } seen[v].plats.push(p); });
+            groups.sort((a,b)=>vendorRank(a.vendor)-vendorRank(b.vendor));
+            const VLABEL={"The Trade Desk":"Trade Desk"};
+            return groups.map(g=>{
+              const multi=g.plats.length>1;
+              const allOn=g.plats.every(p=>qciPlatforms.has(p));
+              const someOn=g.plats.some(p=>qciPlatforms.has(p));
+              const label=VLABEL[g.vendor]||g.vendor;
+              const toggleGroup=()=>setQciPlatforms(prev=>{ const n=new Set(prev); if(allOn) g.plats.forEach(p=>n.delete(p)); else g.plats.forEach(p=>n.add(p)); return n; });
+              return (
+                <div key={g.vendor} style={{display:"flex",alignItems:"center",gap:2,...(multi?{border:`1px solid ${allOn?(_lm?"#bfdbfe":"#00d9ff55"):(_lm?"#e2e8f0":"#16283c")}`,borderRadius:6,padding:"2px 3px"}:{})}}>
+                  {multi&&(
+                    <button onClick={toggleGroup} title={`${allOn?"Deselect":"Select"} all ${label} tactics: ${g.plats.join(", ")}`}
+                      style={{background:allOn?(_lm?"#dbeafe":"#0a2f4a"):someOn?(_lm?"#eff6ff":"#0a1f33"):(_lm?"#f8fafc":"#0a1628"),border:`1px solid ${allOn?(_lm?"#60a5fa":"#00d9ff"):someOn?(_lm?"#93c5fd":"#00d9ff70"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:4,padding:"2px 9px",color:someOn?(_lm?"#2563eb":"#00d9ff"):(_lm?"#475569":"#8aa0b6"),fontSize:11,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>
+                      {label}
+                    </button>
+                  )}
+                  {g.plats.map(p=>(<button key={p} onClick={()=>togglePlat(p)} style={pillStyle(qciPlatforms.has(p))}>{p}</button>))}
+                </div>
+              );
+            });
+          })()}
           {qciPlatforms.size>0&&(
             <button onClick={()=>setQciPlatforms(new Set())}
               style={{background:"none",border:"none",color:_lm?"#94a3b8":"#3d5a72",fontSize:10,cursor:"pointer",padding:"0 2px",textDecoration:"underline"}}>
@@ -15363,34 +15432,6 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
             </button>
           )}
         </div>
-
-        <div style={{display:"flex",gap:5,flexShrink:0}}>
-          {btn(`+ Visible (${visibleCamps.length})`,()=>setSelected(s=>{const n=new Set(s);visibleCamps.forEach(c=>n.add(c.id));return n;}))}
-          {btn("+ All",()=>setSelected(new Set(activeCamps.map(c=>c.id))))}
-          {selected.size>0&&btn("Clear",()=>setSelected(new Set()))}
-        </div>
-
-        <span style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",flexShrink:0}}>{selected.size>0?`${selected.size} selected`:"Select campaigns below"}</span>
-
-        {/* File drop — always visible */}
-        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-          <label style={{display:"flex",alignItems:"center",gap:7,background:_lm?"#f0fdf9":"#001a0e",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:7,padding:"5px 13px",color:_lm?"#059669":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}
-            onDragOver={e=>{e.preventDefault();e.currentTarget.style.background=_lm?"#d1fae5":"#002e24";}}
-            onDragLeave={e=>{e.currentTarget.style.background=_lm?"#f0fdf9":"#001a0e";}}
-            onDrop={e=>{e.preventDefault();e.currentTarget.style.background=_lm?"#f0fdf9":"#001a0e";handleFileDrop(e.dataTransfer.files[0]);}}>
-            📊 Drop CSV or XLSX
-            <input type="file" accept=".csv,.xlsx,.xls" style={{display:"none"}} onChange={e=>handleFileDrop(e.target.files[0])}/>
-          </label>
-          {/* Rep initials badge — click to change */}
-          <button
-            onClick={()=>setShowInitialsPrompt(p=>!p)}
-            title={userInitials?"Your rep initials (click to change)":"Set your rep initials to filter company-wide files"}
-            style={{background:userInitials?(_lm?"#f0fdf9":"#001a2e"):(_lm?"#fffbeb":"#1a0e00"),border:`1px solid ${userInitials?(_lm?"#00c896":"#00c89640"):(_lm?"#fcd34d":"#f59e0b60")}`,borderRadius:6,padding:"4px 9px",color:userInitials?(_lm?"#059669":"#00c896"):(_lm?"#d97706":"#f59e0b"),fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
-            {userInitials?`_${userInitials}`:"Set initials"}
-          </button>
-        </div>
-
-        <button onClick={onClose} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",fontSize:18,cursor:"pointer",lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>
       </div>
 
       {/* ── Initials prompt ── */}
@@ -15629,7 +15670,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
               </div>
             )}
             <div style={{padding:"6px 12px",background:_lm?"#f8fafc":"#060d18",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span style={{fontSize:11,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{isCreativeMode?`🎨 ${fileSource==="Snapchat"?"Snapchat":"FB"} Creative Report — ${fileRows.length} ad set${fileRows.length!==1?"s":""}`:`${fileSource==="Generic"?"📊 Generic CSV":fileSource==="TradeDesk"?"📡 TradeDesk (_AG only)":fileSource} — ${fileRows.length} rows`}</span>
+              <span style={{fontSize:11,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>{isCreativeMode?`🎨 ${fileSource==="Snapchat"?"Snapchat":"FB"} Creative Report — ${fileRows.length} ad set${fileRows.length!==1?"s":""}`:(()=>{ const L={"Facebook/Meta":"Meta — Facebook / Instagram","TradeDesk":"The Trade Desk (_AG accounts)","Google":"Google — Search / YouTube","DSP":"DSP — Mobile","DSP-Internal":"DSP","Snapchat":"Snapchat","Madhive":"Madhive CTV","TVsci Daily":"TVsci — CTV / OTT","TVsci Spend":"TVsci — Spend (lifetime)","Generic":"Generic CSV"}; return `📄 Detected: ${L[fileSource]||fileSource} · ${fileRows.length} row${fileRows.length!==1?"s":""}`; })()}</span>
               {(()=>{ const total=fileRows.length-ignoredInFileCount; return <>
                 <span style={{fontSize:10,color:mappedCount<total?"#f59e0b":(_lm?"#059669":"#00e5a0"),fontWeight:600}}>{mappedCount}/{total} matched{ignoredInFileCount>0?` · ${ignoredInFileCount} ignored`:""}</span>
                 {mappedCount<total&&<span style={{fontSize:10,color:"#f59e0b"}}>⚠ assign unmatched rows below</span>}
@@ -15676,7 +15717,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                   }}
                   style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444430"}`,borderRadius:5,padding:"3px 9px",color:_lm?"#dc2626":"#f87171",fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}
                 >🗑 Reset Memory</button>
-                {btn("Clear",()=>{setFileRows(null);setRowOrder(null);setMapping({});setMatchConf({});setMemoryMap({});setIsCreativeMode(false);setCreativeGroups({});setConfirmApplyPending(false);setFileSource("");setSavedMsg("");})}
+                {btn("Clear",()=>{setFileRows(null);setRowOrder(null);setMapping({});setMatchConf({});setMemoryMap({});setIsCreativeMode(false);setCreativeGroups({});setConfirmApplyPending(false);setFileSource("");setSavedMsg("");setQciPlatforms(new Set());})}
                 <button onClick={()=>{
                   if(!mappedCount) return;
                   // Count low-confidence auto-matches (not manually assigned, not memory)
@@ -15987,7 +16028,18 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                     </div>
                     {assigned&&(()=>{
                       const c=fullPool.find(x=>String(x.id)===String(assigned));
-                      return c?<div style={{fontSize:9,color:_lm?"#059669":"#00e5a0",paddingLeft:10,paddingBottom:4}}>🎯 <strong>{c.campaignName.trim()}</strong> · {c.mediaPartner}{allArchivedIds.has(String(c.id))?<span style={{color:"#f59e0b"}}> · archived</span>:null}</div>:null;
+                      if(!c) return null;
+                      // Show the mapped campaign's PLATFORM as a colored pill on the confirmation line. Two
+                      // campaigns can share a name across tactics (an FB and an FBV "Fidelity Bank"); the
+                      // name alone hides a wrong-tactic map, so the platform badge — where the mapping is
+                      // actually confirmed — makes it unmistakable which line the data is about to land on.
+                      const _pcol = (typeof PLT_COLORS!=="undefined" && PLT_COLORS[c.platform]) || (_lm?"#0369a1":"#7dd3fc");
+                      return <div style={{fontSize:9,color:_lm?"#059669":"#00e5a0",paddingLeft:10,paddingBottom:4,display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                        <span>🎯 <strong>{c.campaignName.trim()}</strong></span>
+                        <span title={`Platform: ${c.platform}`} style={{background:_pcol+(_lm?"22":"26"),color:_pcol,border:`1px solid ${_pcol}66`,borderRadius:3,padding:"0 5px",fontWeight:800,letterSpacing:"0.02em",flexShrink:0}}>{c.platform}</span>
+                        <span style={{color:_lm?"#64748b":"#4d6e8a"}}>· {c.mediaPartner}</span>
+                        {allArchivedIds.has(String(c.id))?<span style={{color:"#f59e0b"}}>· archived</span>:null}
+                      </div>;
                     })()}
                   </div>
                 );
@@ -18670,11 +18722,13 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
   const [newPlatName, setNewPlatName] = useState("");
   const [newPlatColor, setNewPlatColor] = useState("#e60069"); // Pinterest red default
   const [platSaved, setPlatSaved] = useState(false);
+  const [newGroupPlat, setNewGroupPlat] = useState(""); // Platform Groups: which platform is typing a brand-new group name
 
   function saveCustomPlatform() {
     const name = newPlatName.trim().toUpperCase().replace(/[^A-Z0-9]/g,"");
     if (!name || ALL_PLATFORMS_DEFAULT.includes(name)) return;
     const updated = {
+      ...customData,   // preserve vendors (Platform Groups) + any other keys
       platforms: [...customData.platforms.filter(p=>p!==name), name],
       colors: {...customData.colors, [name]: newPlatColor},
     };
@@ -18690,15 +18744,33 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
   }
 
   function removeCustomPlatform(name) {
+    const vendors = {...(customData.vendors||{})}; delete vendors[name];
     const updated = {
+      ...customData,
       platforms: customData.platforms.filter(p=>p!==name),
       colors: Object.fromEntries(Object.entries(customData.colors).filter(([k])=>k!==name)),
+      vendors,
     };
     saveCustomPlatforms(updated);
     setCustomData(updated);
     const idx = ALL_PLATFORMS.indexOf(name);
     if (idx > -1) ALL_PLATFORMS.splice(idx, 1);
     delete PLT_COLORS[name];
+    PLATFORM_VENDOR[name] = PLATFORM_VENDOR_DEFAULT[name] || name;
+  }
+
+  // Assign a platform to a vendor GROUP (Config → Platform Groups) — powers the one-click vendor buttons in
+  // Quick Check-in and the Revenue "by vendor" breakdown. Blank or same-as-default clears the override.
+  // Mutates the runtime PLATFORM_VENDOR in place (like the color handlers) so it applies without a reload.
+  function setPlatformVendor(plat, vendorRaw) {
+    const vendor = (vendorRaw||"").trim();
+    const def = PLATFORM_VENDOR_DEFAULT[plat] || "";
+    const vendors = {...(customData.vendors||{})};
+    if (!vendor || vendor === def) { delete vendors[plat]; PLATFORM_VENDOR[plat] = def || plat; }
+    else { vendors[plat] = vendor; PLATFORM_VENDOR[plat] = vendor; }
+    const updated = {...customData, vendors};
+    saveCustomPlatforms(updated);
+    setCustomData(updated);
   }
 
   function updateCustomColor(name, color) {
@@ -19641,6 +19713,55 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
                 );
               })}
             </div>
+          </div>
+
+          {/* Platform Groups — assign each platform to the vendor it's bought through, via a DROPDOWN of
+              your existing groups (+ "＋ New group…" to create one). Groups tactics together so a NEW tactic
+              gets a one-click vendor button in Quick Check-in and rolls up in the Revenue "by vendor"
+              breakdown. */}
+          <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:12,padding:"16px 20px",boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+            <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4}}>Platform Groups (Vendors)</div>
+            <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginBottom:12,lineHeight:1.5}}>Pick each platform's vendor group from the dropdown — this powers the one-click <b>vendor buttons in Quick Check-in</b> (e.g. "Trade Desk" selects TD/TDV/TDA) and the <b>Revenue "by vendor" breakdown</b>. To make a brand-new group, choose <b>＋ New group…</b> and type its name; it then appears in every dropdown. ↺ resets a platform to its default group.</div>
+            {(()=>{
+              // Include every platform's CURRENT vendor (incl. a custom platform's own-code fallback) so the
+              // dropdown always has a matching option to show.
+              const KNOWN_VENDORS=[...new Set([...Object.values(PLATFORM_VENDOR_DEFAULT), ...Object.values(customData.vendors||{}), ...ALL_PLATFORMS.map(vendorOf)])].filter(Boolean).sort((a,b)=>vendorRank(a)-vendorRank(b));
+              const plats=sortPlatforms([...ALL_PLATFORMS]);
+              const selStyle=(isCustom)=>({flex:1,minWidth:0,background:_lm?"#ffffff":"#0a1628",border:`1px solid ${isCustom?(_lm?"#93c5fd":"#00d9ff55"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:5,padding:"4px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,outline:"none",cursor:"pointer"});
+              return (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))",gap:8}}>
+                  {plats.map(p=>{
+                    const cur=vendorOf(p);
+                    const isCustom=!!(customData.vendors||{})[p] && (customData.vendors||{})[p]!==PLATFORM_VENDOR_DEFAULT[p];
+                    const color=customData.colors[p]||PLT_COLORS_DEFAULT[p]||PLT_COLORS_DEFAULT.default;
+                    const chip=_lm
+                      ? (()=>{const cr=parseInt(color.slice(1,3),16)/255,cg=parseInt(color.slice(3,5),16)/255,cb=parseInt(color.slice(5,7),16)/255;const ct=(0.299*cr+0.587*cg+0.114*cb)>0.45?"#0a1a0a":"#ffffff";return <span style={{fontWeight:800,color:ct,background:color,borderRadius:5,padding:"2px 8px",fontSize:12,fontFamily:"monospace",minWidth:48,textAlign:"center"}}>{p}</span>;})()
+                      : <span style={{fontWeight:800,color,background:color+"22",border:`1px solid ${color}50`,borderRadius:5,padding:"2px 8px",fontSize:12,fontFamily:"monospace",minWidth:48,textAlign:"center"}}>{p}</span>;
+                    return (
+                      <div key={p} style={{display:"flex",alignItems:"center",gap:8,background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#e2e8f0":"#162236"}`,borderRadius:8,padding:"7px 10px"}}>
+                        {chip}
+                        {newGroupPlat===p ? (
+                          <input autoFocus placeholder="New group name…"
+                            onKeyDown={e=>{ if(e.key==='Enter'){ e.currentTarget.blur(); } else if(e.key==='Escape'){ e.currentTarget.value=''; e.currentTarget.blur(); } }}
+                            onBlur={e=>{ const v=e.currentTarget.value.trim(); if(v) setPlatformVendor(p, v); setNewGroupPlat(""); }}
+                            style={selStyle(true)}/>
+                        ) : (
+                          <select value={cur}
+                            onChange={e=>{ const v=e.target.value; if(v==='__new__'){ setNewGroupPlat(p); } else { setPlatformVendor(p, v); } }}
+                            title="Vendor group — pick one, or ＋ New group… to create one"
+                            style={selStyle(isCustom)}>
+                            {KNOWN_VENDORS.map(v=><option key={v} value={v}>{v}</option>)}
+                            <option value="__new__">＋ New group…</option>
+                          </select>
+                        )}
+                        {isCustom && newGroupPlat!==p && <button onClick={()=>setPlatformVendor(p,"")} title="Reset to default group"
+                          style={{background:"transparent",border:"none",color:_lm?"#94a3b8":"#4d6e8a",fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1}}>↺</button>}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
           {customData.platforms.length===0&&(
