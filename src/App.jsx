@@ -1372,6 +1372,133 @@ function crossMonthFlightPacing(c) {
   };
 }
 
+// ── Plain-language performance brief ────────────────────────────────────────
+// A 1–2 sentence, client-ready summary of a campaign's current performance, built from the SAME numbers
+// the Pacing tab shows (MTD delivery + flight/monthly pacing + benchmark-graded CTR/VCR). DETERMINISTIC —
+// no AI / API key needed, so it works for everyone instantly and offline. Target style (Austin):
+// "<Name> is pacing well toward its monthly impression goal, generating 26.9K impressions with 115 link
+//  clicks and a strong 0.43% CTR, delivering solid engagement and continued visibility within the market."
+const _BRIEF_SOCIAL = new Set(["FB","FBV","IG","SP","TT"]);
+function generateCampaignBrief(c) {
+  if (!c) return "";
+  const name = (c.campaignName || "This campaign").trim();
+  const disp = resolveMetrics(c, "mtd") || {};
+  const mk   = pacingMetricFor(c.platform);
+  const pacing = crossMonthFlightPacing(c) || computeMonthlyPacing(c, disp, c.note1);
+
+  const fk    = n => { n = Math.round(n||0); return n>=1000000 ? (n/1000000).toFixed(1).replace(/\.0$/,"")+"M" : n>=1000 ? (n/1000).toFixed(1).replace(/\.0$/,"")+"K" : String(n); };
+  const money = n => "$"+(n>=1000 ? (n/1000).toFixed(1).replace(/\.0$/,"")+"K" : String(Math.round(n||0)));
+
+  const impr   = parseInt(disp.impressions || c.impressions) || 0;
+  const clicks = parseInt(disp.clicks || c.clicks) || 0;
+  const spend  = parseFloat(disp.spend || c.spend) || 0;
+  const views  = parseInt(disp.videoViews || c.videoViews) || 0;
+  const ctrRaw = parseFloat(disp.ctr || c.ctr) || 0;
+  const ctr    = ctrRaw > 1 ? ctrRaw : ctrRaw * 100;                 // normalize to percent
+  const vcrRaw = parseFloat(c.completionRate) || 0;
+  const vcr    = vcrRaw <= 0 ? 0 : vcrRaw > 100 ? 0 : vcrRaw > 1 ? vcrRaw : vcrRaw * 100;
+
+  const primary = mk === "views" ? (views || impr) : mk === "spend" ? spend : impr;
+  if (!primary) {   // no delivery yet → honest short line, never a fabricated read
+    const started = c.startDate && c.startDate.slice(0,10) <= getToday();
+    return started
+      ? `${name} is live but hasn't recorded any delivery yet — worth checking that reporting is connected and creative is approved.`
+      : `${name} hasn't started delivering yet${c.startDate ? ` (flight begins ${fmtDate(c.startDate)})` : ""}.`;
+  }
+
+  const bench = loadBenchmarks();
+  const bm = bench[c.platform] || null;
+  const isFlight = !!(pacing && pacing.flightBasis);
+  const goalWord = mk === "views" ? "view" : mk === "spend" ? "budget" : "impression";
+  const period   = isFlight ? "flight" : "monthly";
+  const periodEnd = isFlight ? "flight" : "month";
+  // Pacing % = delivered ÷ goal (pctRaw, so a >100% over-delivery reads as the win it is). CLIENT-facing,
+  // so framing stays positive/constructive — a behind campaign is "building delivery", never "failing" —
+  // but the real % is shown alongside, so it's flattering, not fabricated.
+  const goalPct = pacing ? Math.round(pacing.pctRaw * 100) : null;
+
+  // Deterministic per-campaign seed → the SAME campaign always reads the same (stable across clicks), but
+  // DIFFERENT campaigns pick different phrasings, so a client running many tactics never gets five copies
+  // of one sentence. Each pool draws with its own salt so the pieces vary independently.
+  let _h = 2166136261; { const s = String(c.id||"") + "|" + name; for (let i=0;i<s.length;i++){ _h ^= s.charCodeAt(i); _h = Math.imul(_h, 16777619); } }
+  const seed = _h >>> 0;
+  const pick = (arr, salt) => arr[(Math.imul((seed ^ Math.imul((salt|1), 0x9e3779b1)) >>> 0, 2654435761) >>> 0) % arr.length];
+
+  const state = !pacing ? "nogoal"
+    : pacing.pctRaw >= 1.10 ? "exceeded"
+    : pacing.label === "Ahead" ? "ahead"
+    : pacing.label === "Behind" ? "behind"
+    : "ontrack";
+
+  // ── Delivery clause (varied verb) ──
+  const dValue = mk === "spend" ? money(spend) : mk === "views" ? `${fk(views||impr)} video views` : `${fk(impr)} impressions`;
+  const dVerb  = mk === "spend" ? pick(["spending","investing","deploying"], 2) : pick(["generating","delivering","driving","serving up"], 2);
+  const delivery = mk === "spend" ? `${dVerb} ${dValue} to date` : `${dVerb} ${dValue}`;
+
+  // ── Metric detail (clicks + CTR, or VCR for video) ──
+  const isVideoKpi = bm && bm.metric === "VCR";
+  const ctrQual = ctr <= 0 ? "" : (bm ? (ctr >= (bm.warn||0) ? pick(["strong","robust","healthy"],5) : ctr >= (bm.bad||0) ? pick(["solid","steady"],5) : "developing") : "healthy");
+  const vcrQual = vcr <= 0 ? "" : (bm ? (vcr >= (bm.warn||0) ? pick(["strong","high"],5) : vcr >= (bm.bad||0) ? "solid" : "building") : "healthy");
+  const clickLabel = _BRIEF_SOCIAL.has(c.platform) ? "link clicks" : "clicks";
+  const parts = [];
+  if (clicks > 0) parts.push(`${clicks.toLocaleString()} ${clickLabel}`);
+  if (isVideoKpi && vcr > 0)  parts.push(`a ${vcrQual} ${vcr.toFixed(0)}% completion rate`);
+  else if (ctr > 0)           parts.push(`a ${ctrQual} ${ctr.toFixed(2)}% CTR`);
+  const connector = pick(["with","supported by","backed by","alongside"], 8);
+  const detail = parts.length ? ` ${connector} ${parts.length === 2 ? parts[0]+" and "+parts[1] : parts[0]}` : "";
+
+  // ── Closing (tone follows performance) ──
+  const strongPerf = (state==="ontrack"||state==="ahead"||state==="exceeded") && ((ctrQual && ctrQual!=="developing") || (vcrQual && vcrQual!=="building"));
+  const closing = state==="behind"
+    ? pick([
+        `and well-positioned to build toward its goal through the remainder of the ${periodEnd}`,
+        `with momentum to close the gap over the rest of the ${periodEnd}`,
+        `and set to accelerate through the back half of the ${periodEnd}`,
+      ], 11)
+    : strongPerf
+      ? pick([
+          `delivering solid engagement and continued visibility within the targeted market`,
+          `reflecting strong audience engagement and consistent in-market visibility`,
+          `pointing to healthy audience response and sustained market presence`,
+          `underscoring strong engagement and steady brand visibility in-market`,
+        ], 11)
+      : pick([
+          `maintaining steady delivery and consistent visibility in-market`,
+          `sustaining reliable delivery and audience reach`,
+          `holding steady delivery and dependable market presence`,
+        ], 11);
+
+  // No goal set → describe delivery only (no pace / goal / %).
+  if (state === "nogoal") return `${name} is ${delivery}${detail}, ${closing}.`;
+
+  // Pace phrasing pools, plus TWO sentence structures (chosen by seed) so the skeleton itself varies.
+  const pctPhrase = pick([
+    `now at ${goalPct}% of goal`,
+    `having reached ${goalPct}% of goal`,
+    `at ${goalPct}% to goal`,
+    `currently ${goalPct}% of the way to goal`,
+  ], 14);
+  const paceFull = {
+    exceeded: [`has exceeded its ${period} ${goalWord} goal`, `has already surpassed its ${period} ${goalWord} goal`, `is outperforming its ${period} ${goalWord} goal`],
+    ahead:    [`is pacing ahead of its ${period} ${goalWord} goal`, `is running ahead of its ${period} ${goalWord} goal`, `is outpacing its ${period} ${goalWord} goal`],
+    ontrack:  [`is pacing well toward its ${period} ${goalWord} goal`, `is tracking nicely toward its ${period} ${goalWord} goal`, `is on a healthy pace toward its ${period} ${goalWord} goal`, `is progressing well against its ${period} ${goalWord} goal`],
+    behind:   [`is actively building delivery toward its ${period} ${goalWord} goal`, `is steadily ramping toward its ${period} ${goalWord} goal`, `is continuing to build toward its ${period} ${goalWord} goal`, `is scaling delivery toward its ${period} ${goalWord} goal`],
+  };
+  const paceShort = {
+    exceeded: [`already past its ${period} ${goalWord} goal`, `having outpaced its ${period} ${goalWord} goal`],
+    ahead:    [`pacing ahead of its ${period} ${goalWord} goal`, `running ahead of its ${period} ${goalWord} goal`],
+    ontrack:  [`pacing healthily toward its ${period} ${goalWord} goal`, `tracking well toward its ${period} ${goalWord} goal`, `progressing steadily toward its ${period} ${goalWord} goal`],
+    behind:   [`steadily building toward its ${period} ${goalWord} goal`, `actively scaling toward its ${period} ${goalWord} goal`, `continuing to build toward its ${period} ${goalWord} goal`],
+  };
+
+  if (pick(["A","B"], 99) === "B") {
+    // Delivery-led structure — reads as a run of participial clauses (generating…, pacing…, delivering…).
+    return `${name} is ${delivery}${detail}, ${pick(paceShort[state], 17)} at ${goalPct}%, ${closing}.`;
+  }
+  // Pace-led structure (the original shape, now varied).
+  return `${name} ${pick(paceFull[state], 17)}, ${pctPhrase}, ${delivery}${detail}, ${closing}.`;
+}
+
 // Daily target breakdown — for morning check against yesterday's stats
 function computeDailyTarget(impressions, note1, startDate, endDate, totalGoalRaw) {
   const now = pacingNow(); now.setHours(0,0,0,0);
@@ -9400,6 +9527,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       });
     };
     const [creativesOpen, setCreativesOpen] = useState(false); // Creatives section — collapsed by default (one-off imports, not daily)
+    const [briefCopied, setBriefCopied] = useState(false);     // transient "✓ Copied" after copying the performance brief
+    const [briefOpen, setBriefOpen] = useState(false);         // performance brief shown ON DEMAND via the 📝 button (not on every expand)
     // Weekly/Daily chart toggle. Per-row state (so toggling doesn't remount/collapse the row), but the
     // choice is persisted as the default — so every row you open uses your last-picked granularity.
     const [chartView, setChartView] = useState(()=>{ try { return localStorage.getItem("pacing-chart-view")==="weekly" ? "weekly" : "daily"; } catch { return "daily"; } });
@@ -9574,7 +9703,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       : buildDeliverySeries(c.metricSeries, c.startDate, now);
     const hasWeekly = weekly.length > 0 && weekly.some(w=>w.i>0 || w.c>0 || w.s>0 || w.vv>0);
     const hasCreatives = !!(c.creativeReport && Array.isArray(c.creativeReport.creatives) && c.creativeReport.creatives.length);
-    const canExpand = !!rowBreakdown || hasWeekly || hasCreatives;
+    // Any campaign with delivery can expand — even with no chart history yet — so its dropdown always
+    // offers the "Generate brief" action.
+    const canExpand = !!rowBreakdown || hasWeekly || hasCreatives || primaryRaw > 0;
 
     return <React.Fragment>
     <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 16px",borderBottom:canExpand&&rowBreakdownOpen?"none":"1px solid "+lmBrdR,alignItems:"center",background:lmBg,borderLeft:"3px solid "+col}}>
@@ -9842,6 +9973,34 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               style={{background:lightMode?"#f1f5f9":"none",border:lightMode?"1px solid #cbd5e1":"none",borderRadius:4,color:lightMode?"#94a3b8":"#3d5a72",fontSize:13,padding:"2px 5px",cursor:"pointer",lineHeight:1}}>✕</button>}
       </div>
     </div>
+    {/* Performance brief — plain-language 1–2 sentence summary (deterministic, no AI), first thing in the
+        expanded dropdown, on demand: the dropdown shows a "📝 Generate brief" button (Austin only sends
+        these to clients, so it's not auto-shown on every campaign); clicking it reveals the sentence. */}
+    {rowBreakdownOpen && (
+      !briefOpen ? (
+        <div style={{padding:"9px 16px",borderBottom:"1px solid "+lmBrdR,background:lightMode?"#f8fafc":"#08131f"}}>
+          <button onClick={()=>setBriefOpen(true)}
+            title="Generate a client-ready 1–2 sentence performance summary for this campaign"
+            style={{display:"inline-flex",alignItems:"center",gap:6,background:lightMode?"#e0f2fe":"#0a2540",border:`1px solid ${lightMode?"#7dd3fc":"#1e466e"}`,borderRadius:6,padding:"5px 13px",color:lightMode?"#0369a1":"#7dd3fc",fontSize:11.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+            📝 Generate brief
+          </button>
+        </div>
+      ) : (()=>{
+        const brief = generateCampaignBrief(c);
+        if (!brief) return null;
+        return (
+          <div style={{display:"flex",alignItems:"flex-start",gap:10,padding:"11px 16px",borderBottom:"1px solid "+lmBrdR,background:lightMode?"#f8fafc":"#08131f"}}>
+            <span style={{fontSize:11,fontWeight:800,color:lightMode?"#0891b2":"#00d9ff",textTransform:"uppercase",letterSpacing:"0.05em",flexShrink:0,paddingTop:2,whiteSpace:"nowrap"}}>📝 Brief</span>
+            <div style={{flex:1,minWidth:0,fontSize:12.5,lineHeight:1.55,color:lightMode?"#0f172a":"#d8eaf8",fontStyle:"italic"}}>{brief}</div>
+            <button onClick={()=>{ try{ navigator.clipboard.writeText(brief); }catch(e){} setBriefCopied(true); setTimeout(()=>setBriefCopied(false),1500); }}
+              title="Copy this brief to the clipboard"
+              style={{flexShrink:0,background:briefCopied?(lightMode?"#dcfce7":"#002e24"):(lightMode?"#e0f2fe":"#0a2540"),border:`1px solid ${briefCopied?"#00c896":(lightMode?"#7dd3fc":"#1e466e")}`,borderRadius:6,padding:"4px 11px",color:briefCopied?(lightMode?"#059669":"#00e5a0"):(lightMode?"#0369a1":"#7dd3fc"),fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+              {briefCopied?"✓ Copied":"📋 Copy"}
+            </button>
+          </div>
+        );
+      })()
+    )}
     {/* Weekly delivery-vs-clicks combo chart — shown in the expanded dropdown.
         Bars = weekly delivery of the campaign's pacing metric (impressions, or
         spend for SEM / views for YT), color-coded by how that week tracked vs the
@@ -10575,9 +10734,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         pacingNow); this explains that and offers one-click close. */}
     {monthResetAvailable && <MonthNotClosedBanner status={monthCloseStatus()} onCloseMonth={onCloseMonth}/>}
 
-    {/* View switch (left) + Quick Check-in (far right) — same row so the check-in box lives in the
-        open space beside the This Month / Lifetime toggle instead of floating above the dashboard. */}
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:14}}>
+    {/* View switch (This Month / ✈ Flights). Quick Check-in moved down into the filter toolbar next to
+        Overlays (Austin) — see below. */}
+    <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:14}}>
       <div style={{display:"inline-flex",borderRadius:8,overflow:"hidden",border:"1px solid "+lmBrd}}>
         {[["month","📅 This Month"],["lifetime","✈ Flights"]].map(([k,l],i)=>(
           <button key={k} onClick={()=>setPacingView(k)}
@@ -10590,14 +10749,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           </button>
         ))}
       </div>
-      <button onClick={onToggleQuickCheckIn}
-        style={{background:lightMode?(quickCheckIn?"#f0fdf9":"#f1f5f9"):(quickCheckIn?"#001a2e":"#0e1a2e"),
-          border:`1px solid ${quickCheckIn?"#00c896":(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:8,padding:"6px 15px",
-          color:quickCheckIn?(lightMode?"#059669":"#00e5a0"):(lightMode?"#475569":lmTxtS),
-          fontSize:12,fontWeight:quickCheckIn?700:600,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}
-        title="Quick Check-in — drop a CSV/XLSX to update pacing without leaving this tab">
-        {quickCheckIn?"✓ Quick Check-in":"⚡ Quick Check-in"}
-      </button>
     </div>
     {/* Check-in drop box opens here, right under the toggle row, when active. */}
     {quickCheckInPanel && <div style={{marginBottom:14}}>{quickCheckInPanel}</div>}
@@ -10732,6 +10883,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Overlays — the five on-demand analysis views (vs Last Month, Last Month recap, Quiet Lines,
           Forecast, Anomalies) folded into ONE dropdown of checkboxes instead of five toolbar buttons.
           The badge shows how many are currently on; row badges surface the quiet-line / anomaly counts. */}
+      {/* Overlays + Quick Check-in grouped so they stay side-by-side (QCI right of Overlays) even when the
+          toolbar wraps to a second line — otherwise the wrap split them onto different rows. */}
+      <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
       <div ref={viewMenuRef} style={{position:"relative",flexShrink:0}}>
         {(()=>{ const activeCount=[showMoM,showLastMonth,showQuietLines,showForecast,showAnomalies].filter(Boolean).length; return (
         <button onClick={()=>setViewMenuOpen(o=>!o)} title="Extra analysis overlays: last-month compare, quiet lines, forecast, anomalies"
@@ -10767,6 +10921,18 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             ))}
           </div>
         )}
+      </div>
+      {/* Quick Check-in — sits just RIGHT of Overlays (Austin) and enlarged so it reads as the primary
+          action. Green-tinted always so it stands out from the grey filter controls. */}
+      <button onClick={onToggleQuickCheckIn}
+        style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,
+          background:lightMode?(quickCheckIn?"#dcfce7":"#f0fdf9"):(quickCheckIn?"#003a2e":"#002e24"),
+          border:`1px solid ${quickCheckIn?"#00e5a0":"#00c896"}`,borderRadius:8,padding:"8px 18px",
+          color:lightMode?"#059669":"#00e5a0",
+          fontSize:13.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}
+        title="Quick Check-in — drop a CSV/XLSX to update pacing without leaving this tab">
+        {quickCheckIn?"✓ Quick Check-in":"⚡ Quick Check-in"}
+      </button>
       </div>
       {/* Sort — nine buttons collapsed into one dropdown + a direction toggle. clickSort(k) sets the
           key and its sensible default direction; the ↑/↓ button flips it. */}
