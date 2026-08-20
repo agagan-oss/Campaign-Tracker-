@@ -37,6 +37,12 @@ function seedCheckinMemory(seeds){ // seeds: [{name, campId, platform}]
   }catch(e){ return 0; }
 }
 const USER_INITIALS_KEY = "campaign-tracker-user-initials";
+// The campaign manager whose tracker this is. Set once per person (Config → General) so nothing is
+// hardcoded to one name — this drives the Zeus AI identity + the Home greeting, and is the per-user
+// identity for the multi-CM rollout (each manager runs their own copy). Blank = generic fallback.
+const USER_NAME_KEY = "campaign-tracker-user-name";
+function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
+function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
 const VAULT_KEY = "campaign-tracker-report-vault"; // [{id, savedAt, client, title, dateRange, brandColor, totals, campaigns, notes}]
 const MONTH_LOCK_KEY = "campaign-tracker-month-locks"; // {"2026-05":{lockedAt,label,totalRevenue,totalSpend,totalProfit,margin,campaigns:[]}}
 const MONTH_RESET_KEY = "campaign-tracker-last-month-reset"; // "YYYY-MM" of the last new-month metrics reset handled
@@ -64,7 +70,7 @@ function _backupIdb(){
   });
 }
 // A durable, OUT-OF-localStorage copy of the whole tracker. IndexedDB is a separate store that survives a
-// localStorage wipe (it survived Austin's 2026-07-29 power-loss wipe — the folder handle lived here), so
+// localStorage wipe (it survived the user's 2026-07-29 power-loss wipe — the folder handle lived here), so
 // this is the copy that makes data loss recoverable even with NO file backup. Keeps "latest" + dated ones.
 async function idbSaveSnapshot(jsonStr){
   try{
@@ -118,7 +124,7 @@ function downloadBackupFile(filename, jsonStr){
   const url = URL.createObjectURL(b); const a = document.createElement("a");
   a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 }
-const MAX_LOG_ENTRIES = 250; // was 500 — halved to save localStorage (Austin, 2026-07-17)
+const MAX_LOG_ENTRIES = 250; // was 500 — halved to save localStorage (the user, 2026-07-17)
 // DSP campaigns rarely report real media spend, so we MODEL their cost at a flat assumed CPM. This
 // lets the Revenue tab surface projected revenue/profit for DSP (esp. the "if you hit goal" forecast)
 // before any real impressions/spend exist. Easy to change here; could move to Config for per-user later.
@@ -167,7 +173,7 @@ function clearMetricsUndoSnapshot(c) {
   return rest;
 }
 
-// How far back the archive is kept before a cleanup offers to drop it. Austin: "I only need to
+// How far back the archive is kept before a cleanup offers to drop it. the user: "I only need to
 // archive for 12 months or so."
 const ARCHIVE_RETENTION_MONTHS = 12;
 
@@ -186,7 +192,7 @@ function slimArchivedCampaign(c) {
 
 // REVENUE SAFETY: a campaign that ran recently keeps ALL its data — never slimmed, never dropped —
 // because closedMonthMetrics falls back to a campaign's `metricSeries` to reconstruct a month's
-// delivery when that month has no backup/lock yet (i.e. an unclosed recent month). Austin: "make sure
+// delivery when that month has no backup/lock yet (i.e. an unclosed recent month). the user: "make sure
 // this doesn't affect the campaigns that ran in the past month or so because this will affect revenue."
 // So we protect anything whose flight ended (or, if undated, was archived) within this window. Undated
 // entries are protected too — we can't prove they're old.
@@ -268,26 +274,26 @@ function getStorageBreakdown() {
 
 const initialCampaigns = [{"mediaPartner":"WVR","campaignName":"Harry Green CDJR","platform":"FB","goal":"750K (7/1/25 - 12/31/25)","endDate":"2026-06-30","note1":"125K/Mo","note2":"","lastChecked":"2026-03-02","id":1769125165003,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Compass TK","campaignName":"Farm Bureau Financial-Jim Waters","platform":"TD","goal":"1.58M (8/11/25 - 7/31/26)","endDate":"2026-07-31","note1":"131.6K/Mo","note2":"","lastChecked":"2026-03-02","id":1769125792921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Saginaw","campaignName":"Great Lakes Pace","platform":"FB","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-25","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209400165,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Palm Springs","campaignName":"Carpet Empire Plus","platform":"FB","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-31","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209535972,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Palm Springs","campaignName":"Carpet Empire Plus","platform":"DSP","goal":"863K (8/20/25 - 7/31/26)","endDate":"2026-07-31","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","id":1769209663140,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"TD","goal":"143K (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"12K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214676416,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"FB","goal":"1.08M (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"90K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214678888,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha San Antonio","campaignName":"Olympia Hills Golf","platform":"DSP","goal":"1.08M (10/1/25 - 9/30/26)","endDate":"2026-09-30","note1":"90K/Mo","note2":"","lastChecked":"2026-03-02","id":1769214712742,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Britestar Milwaukee Middle School","platform":"TD","goal":"100K Monthly","endDate":"2026-03-31","note1":"100K Monthly","note2":"","lastChecked":"2026-03-02","id":1769214781502,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"TD","goal":"40K Feb/March","endDate":"2026-03-31","note1":"40K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439021921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"FB","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439025194,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"FBV","goal":"20K Feb/March","endDate":"2026-03-31","note1":"20K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439086411,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"DSP","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439117040,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star South","platform":"SEM","goal":"Need New Budget for February","endDate":"2026-01-31","note1":"Need New Budget for February","note2":"","lastChecked":"2026-03-02","id":1769439141224,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"TD","goal":"40K Feb/March","endDate":"2026-03-31","note1":"40K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439175821,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"FB","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439200352,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"FBV","goal":"20K Feb/March","endDate":"2026-03-31","note1":"20K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439219988,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"DSP","goal":"25K Feb/March","endDate":"2026-03-31","note1":"25K Feb/March","note2":"","lastChecked":"2026-03-02","id":1769439236958,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Spinnaker Media","campaignName":"Shining Star Christian","platform":"SEM","goal":"Need New Budget for February","endDate":"2026-01-31","note1":"Need New Budget for February","note2":"","lastChecked":"2026-03-02","id":1769439252985,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Noyes Development","platform":"TD","goal":"14.5K/Mo","endDate":"2026-03-31","note1":"14.5K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439379921,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"TD","goal":"500K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"97K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439513145,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"CTV","goal":"291K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"66K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439528551,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"OTT","goal":"207K (10/17/25 - 3/31/26)","endDate":"2026-03-31","note1":"47K/Mo","note2":"","lastChecked":"2026-03-02","id":1769439581123,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"Chown Hardware","platform":"EMAIL","goal":"5 Emails","endDate":"2026-03-31","note1":"1/Mo","note2":"","lastChecked":"2026-03-02","id":1769440542802,"status":"off","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"FB","goal":"283K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"41K/Mo (15-20% Oregon)","note2":"","lastChecked":"2026-03-02","id":1769440737136,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities ","platform":"FBV","goal":"175K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","id":1772483657607,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"DSP","goal":"460K (11/3/25 - 5/31/26) ","endDate":"2026-05-31","note1":"67K/Mo (15-20% Oregon)","note2":"","lastChecked":"2026-03-02","id":1772483749345,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities","platform":"TD","goal":"70K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"10K/Mo","note2":"","lastChecked":"2026-03-02","id":1772483792126,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Alpha Portland","campaignName":"WSU Tri Cities Audio","platform":"TD","goal":"296K (11/3/25 - 5/31/26)","endDate":"2026-05-31","note1":"59.5K/Mo","note2":"","lastChecked":"2026-03-02","id":1772483819653,"status":"active","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America","platform":"FB","goal":"900K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"180K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484331559},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America","platform":"DSP","goal":"1.275M (11/4/25 - 3/31/26) ","endDate":"2026-03-31","status":"active","note1":"255K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484347656},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America ","platform":"SP","goal":"375K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"75K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484372498},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America  ","platform":"CTV","goal":"435K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"87K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484401165},{"mediaPartner":"Alpha Jackson","campaignName":"Job Corps Centers of America ","platform":"OTT","goal":"298K (11/4/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"60K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484418938},{"mediaPartner":"WVR","campaignName":"Concord University","platform":"FB","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484485079},{"mediaPartner":"WVR","campaignName":"Concord University ","platform":"SP","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484490232},{"mediaPartner":"WVR","campaignName":"Concord University ","platform":"DSP","goal":"63K (3/1/26 - 5/31/26)","endDate":"2026-05-31","status":"active","note1":"21K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484503162},{"mediaPartner":"Enchanting Media","campaignName":"Waterview Casino","platform":"FB","goal":"95K March","endDate":"2026-03-31","status":"active","note1":"95K March ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484624626},{"mediaPartner":"Enchanting Media","campaignName":"Waterview Casino","platform":"DSP","goal":"95K March","endDate":"2026-03-31","status":"active","note1":"95K March ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484630475},{"mediaPartner":"Alpha Moberly","campaignName":"Right Rate Roofing","platform":"SEM","goal":"5,400 (12/4/25 - 7/30/26) ","endDate":"2026-07-31","status":"active","note1":"$900/Mo ","note2":" $1,564 March ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484709093},{"mediaPartner":"Compass","campaignName":"Bolz Chiro","platform":"FB","goal":"400K (1/1/26 - 4/30/26)","endDate":"2026-03-31","status":"active","note1":"100K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484763564},{"mediaPartner":"Compass","campaignName":"Brownstone","platform":"DSP","goal":"229K (12/12/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"58K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484790999},{"mediaPartner":"Compass","campaignName":"Brownstone ","platform":"FB","goal":"80K (12/12/25 - 3/31/26)","endDate":"2026-03-31","status":"active","note1":"20K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484798543},{"mediaPartner":"Compass","campaignName":"Brownstone  ","platform":"FBV","goal":"148K (12/12/25 - 3/31/26) ","endDate":"2026-03-31","status":"active","note1":"37K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484823373},{"mediaPartner":"Alpha Moberly","campaignName":"Specs Quincy","platform":"FB","goal":"300K (1/1/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484872046},{"mediaPartner":"Alpha Moberly","campaignName":"Specs Quincy","platform":"DSP","goal":"300K (1/1/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"25K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484887059},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Pearl Hawaii Federal Credit Union","platform":"SEM","goal":"$35,091 Media Spend (1/13/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"$2,925/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484925304},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Pearl Hawaii Federal Credit Union ","platform":"CTV","goal":"375K (1/14/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"31,250/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772484928999},{"mediaPartner":"Alpha Moberly","campaignName":"Prairieland FS","platform":"DSP","goal":"445K (1/16/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"37.5K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772484986463},{"mediaPartner":"Alpha Moberly","campaignName":"Prairieland FS ","platform":"FB","goal":"445K (1/16/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"40.5K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485011820},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Holo HIIT","platform":"FBV","goal":"63K (1/16/26 - 3/31/26)","endDate":"2026-03-31","status":"off","note1":"","note2":"FB Access ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485059494},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Holo HIIT ","platform":"FBV","goal":"63K (1/16/26 - 3/31/26)","endDate":"2026-03-31","status":"off","note1":"30K Feb/March","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485067041},{"mediaPartner":"Alpha Moberly","campaignName":"Culligan of Hanibal","platform":"DSP","goal":"758K (1/22/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"72K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485129272},{"mediaPartner":"Alpha Moberly","campaignName":"Quincy Catholic Elementary School","platform":"FB","goal":"125K (2/1/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"100K 2/1 - 4/30 (25K December)","note2":"FB Access/Creatives ","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485194758},{"mediaPartner":"Alpha Moberly","campaignName":"Quincy Catholic Elementary School ","platform":"DSP","goal":"125K (2/1/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"100K 2/1 - 4/30 (25K December)","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485211288},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Leavitt Yamane & Soldner","platform":"DSP","goal":"1.025M (2/9/26 - 12/31/26)","endDate":"2026-12-31","status":"active","note1":"93.5K/Mo ","note2":"Streaming Orders/Mo","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485298961},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Leavitt Yamane & Soldner","platform":"FB","goal":"1.025M (2/9/26 - 12/31/26)","endDate":"2026-12-31","status":"off","note1":"93.5K/Mo ","note2":"FB Access","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485347220},{"mediaPartner":"Allen Media Broadcasting","campaignName":"Aloha Sugarcane Juices","platform":"TD","goal":"172K (2/16/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"58K/Mo ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485429793},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio)","platform":"DSP","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485804286},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio) ","platform":"FB","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485820512},{"mediaPartner":"WVR","campaignName":"Fairmont State University (Ohio) ","platform":"SP","goal":"152K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"38K/Mo March/April/May 19K June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485828817},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA)","platform":"DSP","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485842011},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA)","platform":"FB","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485880132},{"mediaPartner":"WVR","campaignName":"Fairmont State University (PA) ","platform":"SP","goal":"375K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"94K/Mo March/April/May 47K/Mo June","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772485887909},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV)","platform":"DSP","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772485904806},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD)","platform":"DSP","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772486056686},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD) ","platform":"FB","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486135542},{"mediaPartner":"WVR","campaignName":"Fairmont State University (MD)  ","platform":"SP","goal":"44.5K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"11.1K/Mo March/April/May 6K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486155939},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV) ","platform":"FB","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486026268},{"mediaPartner":"WVR","campaignName":"Fairmont State University (WV) ","platform":"SP","goal":"347K (2/15/26 - 6/19/26)","endDate":"2026-06-19","status":"active","note1":"87K/Mo March/April/May 44K June ","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486034400},{"mediaPartner":"Allen Media Broadcasting","campaignName":"King Windward Nissan ","platform":"TD","goal":"179K (2/20/26 - 3/15/26)","endDate":"2026-03-15","status":"active","note1":"","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486199815},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque","platform":"FB","goal":"20K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"10K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486231814},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"FBV","goal":"12K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"6K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486241660},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"FBV","goal":"35K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"18K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486264350},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque ","platform":"YT","goal":"6K Views (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"3K Views/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":false,"id":1772486294122},{"mediaPartner":"Allen Media Broadcasting","campaignName":"City of Dubuque  ","platform":"TD","goal":"91K (3/2/26 - 4/30/26)","endDate":"2026-04-30","status":"active","note1":"46K/Mo","note2":"","lastChecked":"2026-03-02","impressions":"","ctr":"","cpm":"","spend":"","monthlyFlight":true,"id":1772486311325}];
 
-const ALL_PLATFORMS_DEFAULT = ["FB","FBV","DSP","CTV","GCTV","PCTV","AECTV","OTT","OTTD","SP","SEM","TD","TDV","TDA","NFLX","HULU","DSNY","AMZN","PCOK","TT","IG","YT","EMAIL"];
+const ALL_PLATFORMS_DEFAULT = ["FB","FBV","DSP","CTV","GCTV","PCTV","AECTV","OTT","OTTD","SP","SEM","TD","TDV","TDA","NFLX","HULU","DSNY","AMZN","PCOK","TT","IG","LI","YT","EMAIL"];
 const CUSTOM_PLATFORMS_KEY = "campaign-tracker-custom-platforms";
 const CUSTOM_BENCHMARKS_KEY = "campaign-tracker-zeus-benchmarks";
 
 // ── KPI benchmarks — ONE source of truth ──────────────────────────────────────────────────────────
 // The Zeus tab's Benchmarks editor writes localStorage["zeus-benchmarks"]; the Pacing tab AND the Home
-// health drill-down read the SAME values through here, so a threshold Austin sets shows up everywhere.
+// health drill-down read the SAME values through here, so a threshold the user sets shows up everywhere.
 // CTR warn/bad are in PERCENT (0.10 = 0.10%); VCR warn/bad are 0–100. `rate` is the COST KPI each tactic
 // is judged on — "CPM" ($/1K impr, most tactics), "CPV" ($/view, YouTube), or "none" (no cost KPI).
 // cpmWarn/cpmBad are the good/high dollar thresholds for whatever `rate` is (so for YT they're per-VIEW
-// cents). Austin: YouTube is judged on CPV not CPM; SEM is billed as a flat management fee, so it has NO
+// cents). the user: YouTube is judged on CPV not CPM; SEM is billed as a flat management fee, so it has NO
 // cost-per-unit KPI at all (no CPM, no CPC) — its rate is "none" and the cost column reads "—".
 const BENCHMARKS_DEFAULT = {
-  FB:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Meta Feed",        rate:"CPM", cpmWarn:12,   cpmBad:20 },
+  FB:    { metric:"CTR", warn:0.3,  bad:0.25, unit:"%", label:"CTR",             desc:"Meta Feed",        rate:"CPM", cpmWarn:8,    cpmBad:10 },
   FBV:   { metric:"VCR", warn:50,   bad:30,   unit:"%", label:"Video Completion", desc:"Meta Video",       rate:"CPM", cpmWarn:10,   cpmBad:18 },
-  IG:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Instagram",        rate:"CPM", cpmWarn:12,   cpmBad:20 },
+  IG:    { metric:"CTR", warn:0.10, bad:0.05, unit:"%", label:"CTR",             desc:"Instagram",        rate:"CPM", cpmWarn:10,   cpmBad:12 },
   DSP:   { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"DSP Display",      rate:"CPM", cpmWarn:6,    cpmBad:12 },
   TD:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"The Trade Desk",   rate:"CPM", cpmWarn:6,    cpmBad:12 },
   SP:    { metric:"CTR", warn:0.03, bad:0.01, unit:"%", label:"CTR",             desc:"Snapchat",         rate:"CPM", cpmWarn:5,    cpmBad:10 },
-  SEM:   { metric:"CTR", warn:3.0,  bad:1.5,  unit:"%", label:"CTR",             desc:"Search",           rate:"none", cpmWarn:2.5,  cpmBad:5 },
+  SEM:   { metric:"CTR", warn:2,    bad:1,    unit:"%", label:"CTR",             desc:"Search",           rate:"none", cpmWarn:2.5,  cpmBad:5 },
   CTV:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Connected TV",     rate:"CPM", cpmWarn:25,   cpmBad:45 },
   OTT:   { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"OTT / Streaming",  rate:"CPM", cpmWarn:25,   cpmBad:45 },
   GCTV:  { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Madhive General CTV",  rate:"CPM", cpmWarn:16, cpmBad:22 },
@@ -295,9 +301,10 @@ const BENCHMARKS_DEFAULT = {
   AECTV: { metric:"VCR", warn:85,   bad:70,   unit:"%", label:"Completion Rate", desc:"Madhive Audience Ext TV", rate:"CPM", cpmWarn:16, cpmBad:22 },
   TDV:   { metric:"VCR", warn:80,   bad:65,   unit:"%", label:"Completion Rate", desc:"TradeDesk Video",  rate:"CPM", cpmWarn:8,    cpmBad:15 },
   TDA:   { metric:"VCR", warn:90,   bad:80,   unit:"%", label:"Completion Rate", desc:"TradeDesk Audio",  rate:"CPM", cpmWarn:8,    cpmBad:15 },
-  YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube",          rate:"CPV", cpmWarn:0.15, cpmBad:0.30 },
+  YT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"View Rate",       desc:"YouTube",          rate:"CPV", cpmWarn:0.04, cpmBad:0.06 },
   TT:    { metric:"VCR", warn:20,   bad:10,   unit:"%", label:"Video Completion", desc:"TikTok",           rate:"CPM", cpmWarn:8,    cpmBad:14 },
   EMAIL: { metric:"CTR", warn:1.0,  bad:0.5,  unit:"%", label:"Click Rate",      desc:"Email",            rate:"CPM", cpmWarn:5,    cpmBad:10 },
+  LI:    { metric:"CTR", warn:0.40, bad:0.20, unit:"%", label:"CTR",             desc:"LinkedIn",         rate:"CPM", cpmWarn:20,   cpmBad:35 },
 };
 function loadBenchmarks(){ try { const s=localStorage.getItem("zeus-benchmarks"); return s ? {...BENCHMARKS_DEFAULT, ...JSON.parse(s)} : BENCHMARKS_DEFAULT; } catch { return BENCHMARKS_DEFAULT; } }
 // Effective cost-KPI for a benchmark — honors a stored `rate`, else derives from platform (YT→CPV,
@@ -359,7 +366,7 @@ const ALL_PLATFORMS = (()=>{const c=loadCustomPlatforms();return[...ALL_PLATFORM
 // sibling tactics sit together: Google (SEM/YT) · Meta (FB/FBV/IG) · TradeDesk (TD/TDV/TDA) ·
 // TVsci CTV (CTV/OTT/OTTD) · Madhive CTV (GCTV/PCTV) · then DSP/Snapchat/TikTok/Email.
 // Custom platforms aren't listed here, so they fall to the end alphabetically.
-const PLATFORM_GROUP_ORDER = ["SEM","YT","FB","FBV","IG","TD","TDV","TDA","NFLX","HULU","DSNY","AMZN","PCOK","CTV","OTT","OTTD","GCTV","PCTV","AECTV","DSP","SP","TT","EMAIL"];
+const PLATFORM_GROUP_ORDER = ["SEM","YT","FB","FBV","IG","TD","TDV","TDA","NFLX","HULU","DSNY","AMZN","PCOK","CTV","OTT","OTTD","GCTV","PCTV","AECTV","DSP","SP","TT","LI","EMAIL"];
 
 // Day options for BOTH freshness filters, so "3d" means the same thing wherever you are:
 // Pacing's "Within" (updated in the last N days) and the Campaigns tab's "No update in" (stale for
@@ -377,7 +384,7 @@ function sortPlatforms(list) {
 }
 
 // Which vendor you BUY each tactic through — powers the Revenue tab's "by platform, then tactic"
-// profit breakdown (Austin's boss wants to see where the money is made: The Trade Desk rolled up,
+// profit breakdown (the user's boss wants to see where the money is made: The Trade Desk rolled up,
 // then split into TD / TDV / TDA, etc.). Custom platforms fall back to their own code as the vendor.
 const PLATFORM_VENDOR_DEFAULT = {
   SEM:"Google",   YT:"Google",
@@ -387,7 +394,7 @@ const PLATFORM_VENDOR_DEFAULT = {
   NFLX:"The Trade Desk", HULU:"The Trade Desk", DSNY:"The Trade Desk", AMZN:"The Trade Desk", PCOK:"The Trade Desk",
   CTV:"TVsci",    OTT:"TVsci",  OTTD:"TVsci",
   GCTV:"Madhive", PCTV:"Madhive", AECTV:"Madhive", // Audience Extension TV — a Madhive product
-  DSP:"DSP", SP:"Snapchat", TT:"TikTok", EMAIL:"Email",
+  DSP:"DSP", SP:"Snapchat", TT:"TikTok", LI:"LinkedIn", EMAIL:"Email",
 };
 // Custom vendor-group assignments (Config → Platform Groups) merge OVER the defaults, so a new tactic /
 // platform can be grouped with the vendor it's bought through. Stored in the custom-platforms config
@@ -403,7 +410,7 @@ function vendorRank(vendor){
 }
 
 // ── Partner abbreviations ──────────────────────────────────────────────────────────────────────
-// Austin: "for the partners we can just do the initials… For Allen Media we use ALL-KITV or the
+// the user: "for the partners we can just do the initials… For Allen Media we use ALL-KITV or the
 // other stations. Spinnaker is SPIN, etc. Maybe also let me change the initials for them too."
 // So the Campaigns tab shows a short CODE per media partner instead of the full name. A custom code
 // (user-set, per full partner name) always wins; otherwise we derive a reasonable default.
@@ -433,7 +440,7 @@ function partnerAbbrOf(name, map){
 }
 
 // ── Email inbox ingest ─────────────────────────────────────────────────────────────────────────
-// Austin's email→tracker automation (see project_email_ingest). A GitHub Action drops new IO PDFs and
+// the user's email→tracker automation (see project_email_ingest). A GitHub Action drops new IO PDFs and
 // check-in files into a repo folder + a manifest JSON; the tracker fetches that manifest and routes each
 // new file through the SAME parsers a manual drop uses (IO → draft queue; check-in → the review panel).
 // The Action just MOVES files — all parsing + the review gate stay in the tracker, so a bad email can't
@@ -586,8 +593,46 @@ const CTV_TACTIC_PLATFORMS = {
   "CTV Sports Package":              { code:"CTVSP", color:"#16a34a", name:"CTV Sports Package" },
   "MLB Live In Game Sports Package": { code:"MLB",   color:"#041e42", name:"MLB Live In-Game" },
 };
+// ── Fuzzy platform mapping for UNRECOGNIZED IO services ──────────────────────────────────────────────
+// When an IO includes a service the parser has no def for (a new streaming brand, a new tactic), match its
+// label to the closest platform by keyword — like the Quick Check-in's fuzzy name match — so it maps
+// automatically for review instead of being silently dropped. Descriptive terms per platform:
+const PLATFORM_MATCH_TERMS = {
+  NFLX:["netflix"], HULU:["hulu"], DSNY:["disney"], AMZN:["amazon prime","amazon"], PCOK:["peacock"],
+  YT:["youtube","trueview","true view"], SEM:["search","sem","paid search","google ads"],
+  IG:["instagram"], FBV:["facebook video","meta video","fb video"], FB:["facebook","meta","social feed"],
+  SP:["snapchat","snap"], TT:["tiktok"], LI:["linkedin"], EMAIL:["email","newsletter","e-mail"],
+  TDA:["audio","podcast","streaming audio"], TDV:["preroll","pre-roll","instream","in-stream","video pre"],
+  GCTV:["general audience ctv"], PCTV:["premium audience ctv"], AECTV:["audience extension"],
+  OTTD:["ott display"], OTT:["ott","over the top","over-the-top"],
+  CTV:["ctv","connected tv","streaming tv","channel select","smart tv"],
+  TD:["targeted display","display","banner","trade desk"], DSP:["mobile","programmatic","device id","device-id"],
+};
+// Best platform guess for an unrecognized service label. Returns {code, score} — score 0 = no match. Longer
+// matched terms score higher (a "netflix" hit beats a bare "display" hit); specificity wins.
+function fuzzyPlatformGuess(label){
+  const s = " " + (label||"").toLowerCase().replace(/[^a-z0-9+\s]/g," ").replace(/\s+/g," ").trim() + " ";
+  let best = { code:"", score:0 };
+  for (const [code, terms] of Object.entries(PLATFORM_MATCH_TERMS)) {
+    for (const t of terms) {
+      if (s.includes(" " + t + " ") || s.includes(" " + t)) {
+        const sc = Math.min(0.98, 0.55 + t.length / 20);   // longer/more-specific term → higher confidence
+        if (sc > best.score) best = { code, score:sc };
+      }
+    }
+  }
+  return best;
+}
+// A short platform CODE suggested for a brand-new tactic (drops generic words, uses the brand). Used to
+// pre-fill the "🆕 New tactic" create-platform banner (e.g. "Tubi CTV" → "TUBI", "Paramount Plus CTV" → "PARA").
+function deriveTacticCode(label){
+  const stop = new Set(["ctv","ott","tv","the","audience","package","included","gross","media","display","video","audio","sports","live","in","game","and","for","with","plus","premium","general","select","channel"]);
+  const words = (label||"").toLowerCase().replace(/[^a-z0-9+\s]/g," ").split(/\s+/).filter(w=>w && !stop.has(w));
+  const brand = words[0] || (label||"").replace(/[^a-z0-9]/gi,"");
+  return brand.slice(0,5).toUpperCase() || "NEW";
+}
 // Reminder types, in dropdown display order. "Other" is the default (first item)
-// per Austin's preference — he uses creative swaps, budget checks, and other most.
+// per the user's preference — he uses creative swaps, budget checks, and other most.
 // Removed Report Due and Campaign Ending — they weren't being used.
 const REMINDER_TYPES = [
   { value:"other",        label:"📌 Other",           color:"#00d48a" },
@@ -609,7 +654,7 @@ const PLT_COLORS_DEFAULT = {
   CTV:"#a8c4e0", GCTV:"#94a3b8", PCTV:"#64748b", AECTV:"#c084fc", OTT:"#6b7280", OTTD:"#003a5c",
   NFLX:"#e50914", HULU:"#1ce783", DSNY:"#113ccf", AMZN:"#00a8e1", PCOK:"#ff4d4d",
   YT:"#6effd8", SP:"#fde047", EMAIL:"#f97316", TT:"#7a9bbf",
-  IG:"#e1306c", default:"#4d6e8a"
+  IG:"#e1306c", LI:"#0a66c2", default:"#4d6e8a"
 };
 const PLT_COLORS = (()=>{const c=loadCustomPlatforms();return{...PLT_COLORS_DEFAULT,...c.colors};})();
 // Global light-mode flag — set each render by the root component so child components
@@ -896,7 +941,7 @@ function mirrorSnapshotToFields(campaign) {
 // is worse than dropping them: the corrected totals are lower, so the next drop diffs against an
 // inflated prior reading and draws a negative/zero day on the chart.
 //
-// So the month gets dropped and the chart rebuilds from the next drop. Austin chose this over
+// So the month gets dropped and the chart rebuilds from the next drop. the user chose this over
 // scaling the readings by the kept/total ratio, which would have invented per-day delivery that
 // never happened: "probably 3, this should only happen early in the month or one of the first few
 // drops anyway." Closed months are untouched — only the current pacing month is affected.
@@ -1046,7 +1091,7 @@ function proratedMonthlyGoalFromTotal(totalGoal, startDate, endDate, monthDate) 
 }
 
 // A one-line FLIGHT label ("📆 182K impr · 7/20–8/16") for a date-flighted campaign — shown under the
-// campaign name (Campaigns tab) in place of a monthly goal, so the slot is never blank (Austin: "with
+// campaign name (Campaigns tab) in place of a monthly goal, so the slot is never blank (the user: "with
 // specific dates there's nothing under the name — could we have the flights there?"). Reads the custom
 // windows from `flightSegments` when present; else derives the flight from the total Goal string + the
 // start/end dates when the campaign has no monthly Note-1 goal (covers a flight-total campaign that never
@@ -1056,7 +1101,7 @@ function flightGoalLabel(c) {
   const md = iso => { const m=String(iso||"").match(/^\d{4}-(\d{2})-(\d{2})/); return m?`${parseInt(m[1])}/${parseInt(m[2])}`:""; };
   const fmtK = n => n>=1000000?(+(n/1000000).toFixed(2))+"M":n>=1000?(+(n/1000).toFixed(n>=10000?0:1))+"K":String(Math.round(n));
   const gNum = s => parseInt(String(s==null?"":s).replace(/[,\s]/g,""))||0;
-  const u = (c.platform==="YT" && (c.dealType==="CPV"||!c.dealType)) ? "views" : "impr";
+  const u = dealBasis(c)==="CPV" ? "views" : "impr";
   const segs = Array.isArray(c.flightSegments) ? c.flightSegments.filter(s=>s&&s.start&&s.end) : [];
   if (segs.length) {
     const total = segs.reduce((s,x)=>s+gNum(x.goal),0);
@@ -1115,7 +1160,7 @@ function earliestTrackedMonth() {
 // thresholds (behind <80% of expected, on-track to 105%, ahead above).
 function computeLifetimePacing(c, delivered, goalNum) {
   if (!goalNum || goalNum <= 0) return null;
-  const metricKind = pacingMetricFor(c.platform);
+  const metricKind = pacingMetricFor(c.platform, c.dealType);
   const unit = metricKind === "views" ? "views" : metricKind === "spend" ? "$" : "impr";
   const pct = goalNum > 0 ? delivered / goalNum : 0;
   const _pISO = s => (s && /^\d{4}-\d{2}-\d{2}/.test(s))
@@ -1158,11 +1203,19 @@ function computeLifetimePacing(c, delivered, goalNum) {
 // Returns { pct, color, label, delivered, goal } or null
 // Pacing metric selector — what counts as "delivered" varies by platform.
 // YT: video views · SEM: spend ($) · everything else: impressions
-function pacingMetricFor(platform) {
+function pacingMetricFor(platform, dealType) {
   if (platform === "YT")  return "views";
   if (platform === "SEM") return "spend";
+  // Any platform explicitly bought on CPV paces on VIEWS, not impressions (e.g. a LinkedIn VIDEO buy —
+  // goal is video views, rate is $/view). CPV used to be YouTube-only; now it's whatever dealType says.
+  if (dealType === "CPV") return "views";
   return "impressions";
 }
+// The billing basis for a campaign: an explicitly-set dealType wins; otherwise the per-platform default
+// (YouTube = CPV, everything else = CPM). One helper so "CPV isn't only YouTube" is true everywhere —
+// revenue, pacing, and display all read the SAME basis. Leaves every existing campaign unchanged (a YT
+// campaign with no dealType still resolves CPV; a CPM campaign still CPM).
+function dealBasis(c){ return (c && c.dealType) ? c.dealType : (c && c.platform === "YT" ? "CPV" : "CPM"); }
 
 // computeMonthlyPacing
 // Accepts EITHER the old two-arg form (impressions, note1) for back-compat,
@@ -1246,7 +1299,7 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
   if (looksLikeCampaign) {
     const c = arg1, disp = arg2 || {};
     note1 = arg3;
-    metricKind = pacingMetricFor(c.platform);
+    metricKind = pacingMetricFor(c.platform, c.dealType);
     if (metricKind === "views") {
       delivered = parseInt(disp.videoViews || c.videoViews) || 0;
       unit = "views";
@@ -1327,7 +1380,7 @@ function computeMonthlyPacing(arg1, arg2, arg3) {
 // Sum a campaign's delivery from every month-close backup STRICTLY BEFORE `curMonthKey`, in its pacing
 // metric. Reads the monthly-backup store directly so it's usable from module scope.
 function priorMonthsDeliveredFromBackups(c, curMonthKey) {
-  const mk = pacingMetricFor(c.platform);
+  const mk = pacingMetricFor(c.platform, c.dealType);
   let sum = 0;
   try {
     const b = JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY) || "{}");
@@ -1345,7 +1398,7 @@ function priorMonthsDeliveredFromBackups(c, curMonthKey) {
 // Cross-month FLIGHT pacing. A By-dates / total-goal buy whose flight STARTED in a prior calendar month
 // and still runs this month can't be paced on month-to-date alone — the daily platform drops reset MTD
 // on the 1st, so the current-month number EXCLUDES everything delivered before this month and the bar
-// reads artificially "behind" (Austin's Kennedy Mall 7/20–8/16 case). For those, pace the WHOLE flight:
+// reads artificially "behind" (the user's Kennedy Mall 7/20–8/16 case). For those, pace the WHOLE flight:
 // cumulative delivered (closed-month backups + live MTD) vs the flight's TOTAL goal, over the flight
 // window. Returns a pacing object in the SAME shape computeMonthlyPacing gives (so the row renders
 // unchanged), tagged `flightBasis:true`; returns null when it's NOT a cross-month flight (→ caller keeps
@@ -1355,7 +1408,7 @@ function crossMonthFlightPacing(c) {
   const n = new Date(); const curMonthKey = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;
   if (!(c.startDate.slice(0,7) < curMonthKey && c.endDate.slice(0,7) >= curMonthKey)) return null;
   if (!flightGoalLabel(c)) return null;   // only real flights (By-dates / total-goal), not recurring "/Mo"
-  const mk = pacingMetricFor(c.platform);
+  const mk = pacingMetricFor(c.platform, c.dealType);
   const d = resolveMetrics(c, "mtd") || {};
   const liveMtd = mk === "views" ? (parseInt(d.videoViews || c.videoViews) || 0)
     : mk === "spend" ? (parseFloat(d.spend || c.spend) || 0)
@@ -1375,7 +1428,7 @@ function crossMonthFlightPacing(c) {
 // ── Plain-language performance brief ────────────────────────────────────────
 // A 1–2 sentence, client-ready summary of a campaign's current performance, built from the SAME numbers
 // the Pacing tab shows (MTD delivery + flight/monthly pacing + benchmark-graded CTR/VCR). DETERMINISTIC —
-// no AI / API key needed, so it works for everyone instantly and offline. Target style (Austin):
+// no AI / API key needed, so it works for everyone instantly and offline. Target style (the user):
 // "<Name> is pacing well toward its monthly impression goal, generating 26.9K impressions with 115 link
 //  clicks and a strong 0.43% CTR, delivering solid engagement and continued visibility within the market."
 const _BRIEF_SOCIAL = new Set(["FB","FBV","IG","SP","TT"]);
@@ -1383,7 +1436,7 @@ function generateCampaignBrief(c) {
   if (!c) return "";
   const name = (c.campaignName || "This campaign").trim();
   const disp = resolveMetrics(c, "mtd") || {};
-  const mk   = pacingMetricFor(c.platform);
+  const mk   = pacingMetricFor(c.platform, c.dealType);
   const pacing = crossMonthFlightPacing(c) || computeMonthlyPacing(c, disp, c.note1);
 
   const fk    = n => { n = Math.round(n||0); return n>=1000000 ? (n/1000000).toFixed(1).replace(/\.0$/,"")+"M" : n>=1000 ? (n/1000).toFixed(1).replace(/\.0$/,"")+"K" : String(n); };
@@ -1641,7 +1694,7 @@ function yesterdayFromSeries(c, now) {
   const yStart = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate()-1); yStart.setHours(0,0,0,0);
   const yb = ds.daily.find(b => b.k === yStart.getTime());
   if (!yb) return null;
-  const kind = pacingMetricFor(c.platform);
+  const kind = pacingMetricFor(c.platform, c.dealType);
   const value = kind === "views" ? yb.vv : kind === "spend" ? yb.s : yb.i;
   return { value, est: !!yb.est, dateKey: yStart };
 }
@@ -2100,14 +2153,14 @@ function parseIOPdf(text, uris = []) {
     // fields prefixed the same ("Audience Extension TV Gross Impressions/Rate to Recrue/Gross Budget").
     { label: "Audience Extension TV", key: "audience_ext_tv", platform: "AECTV" },
     // tvScientific streaming — one "tvScientific Included?" flag, three sub-lines (CTV/OTT/Display).
-    // CTV/OTT are Austin's TVsci platforms (NOT Madhive). Zero-impression sub-lines are auto-skipped.
+    // CTV/OTT are the user's TVsci platforms (NOT Madhive). Zero-impression sub-lines are auto-skipped.
     { label: "tvScientific CTV",     key: "tvsci_ctv",  platform: "CTV",  flag: "tvScientific" },
     { label: "tvScientific OTT",     key: "tvsci_ott",  platform: "OTT",  flag: "tvScientific" },
     // tvScientific Display is a distinct OTT-display product (NOT programmatic DSP) → its own OTTD platform.
     { label: "tvScientific Display", key: "tvsci_disp", platform: "OTTD", flag: "tvScientific" },
     // Device-ID display rides the "Display Included?" flag. It's a TradeDesk (TD) buy that just costs more
-    // because of the device-ID integration — so it maps to TD, not DSP (DSP = mobile only, per Austin).
-    // Defaults to a $5 CPM when the IO doesn't carry a rate (Austin: "$5 CPM for the most part").
+    // because of the device-ID integration — so it maps to TD, not DSP (DSP = mobile only, per the user).
+    // Defaults to a $5 CPM when the IO doesn't carry a rate (the user: "$5 CPM for the most part").
     { label: "Device ID with Display", key: "device_id_display", platform: "TD", flag: "Display", defaultCpm: 5 },
     // Spinnaker YouTube is a TrueView CPV buy: goal is VIEWS, rate is a CPV ($/view), dealType CPV.
     { label: "YouTube",              key: "youtube_io", platform: "YT", dealType: "CPV" },
@@ -2123,14 +2176,14 @@ function parseIOPdf(text, uris = []) {
     { label: "YouTube Trueview",             key: "yt_trueview",       platform: "YT", dealType: "CPV" }, // TrueView = per-view (CPV)
     // CTV variants — every flavor maps to CTV platform; user can change if needed
     { label: "Channel Select CTV",           key: "ctv_channel",     platform: "CTV" },
-    { label: "General Audience CTV",         key: "ctv_general",     platform: "GCTV" }, // dedicated platform per Austin's tracker convention
-    { label: "Premium Audience CTV",         key: "ctv_premium",     platform: "PCTV" }, // dedicated platform per Austin's tracker convention
+    { label: "General Audience CTV",         key: "ctv_general",     platform: "GCTV" }, // dedicated platform per the user's tracker convention
+    { label: "Premium Audience CTV",         key: "ctv_premium",     platform: "PCTV" }, // dedicated platform per the user's tracker convention
     { label: "Netflix CTV",                  key: "ctv_netflix",     platform: "CTV" },
     { label: "Hulu CTV",                     key: "ctv_hulu",        platform: "CTV" },
     { label: "Amazon Prime CTV",             key: "ctv_amazon_prime",platform: "CTV" },
     { label: "Amazon RON CTV",               key: "ctv_amazon_ron",  platform: "CTV" },
     { label: "Disney CTV",                   key: "ctv_disney",      platform: "CTV" },
-    // Performance CTV: splits into CTV + OTT (half budget each) per Austin's biz rule
+    // Performance CTV: splits into CTV + OTT (half budget each) per the user's biz rule
     { label: "Performance CTV",              key: "ctv_perf",        splitPair: ["CTV", "OTT"] },
     { label: "Peacock CTV",                  key: "ctv_peacock",     platform: "CTV" },
     { label: "Specialty Peacock CTV",        key: "ctv_peacock_sp",  platform: "CTV" },
@@ -2162,6 +2215,75 @@ function parseIOPdf(text, uris = []) {
       // parent's shared Start/End dates without ever pulling the parent's impressions/CPM/budget.
       details: extractServiceBlock([sd.label, ...(sd.prefixAliases || [])], sd.flag && sd.flag !== sd.label ? [sd.flag] : []),
     }));
+
+  // ── LinkedIn ── unique field shape, parsed on its own (none of it matches the generic Gross
+  // Impressions / CPM Rate labels): a "Clicks or Views?" toggle, a "Gross Video Views" / "Gross Clicks"
+  // goal, a "Cost per Views" rate, and a plain "Total:" budget with no service prefix. buildDraftsFromIO
+  // turns this into a LinkedIn (LI) draft — CPV when Views, CPM default when Clicks.
+  if (isIncluded("LinkedIn")) {
+    const _n = s => { if(s==null) return 0; const v=parseFloat(String(s).replace(/[,$\s]/g,"")); return isNaN(v)?0:v; };
+    const liViews  = _n(getField("LinkedIn", "Gross Video Views"));
+    const liClicks = _n(getField("LinkedIn", "Gross Clicks"));
+    const liCpv    = _n(tryFields("LinkedIn", "Cost per Views", "Cost per View", "Cost Per Views"));
+    const liCpc    = _n(tryFields("LinkedIn", "Cost per Clicks", "Cost per Click", "Cost Per Clicks"));
+    // "Total:" for LinkedIn has NO service prefix — first standalone "Total: <amount>" line.
+    const liTotal  = (()=>{ for(const l of lines){ const m=l.match(/^Total\s*:?\s*\$?\s*([\d,]+(?:\.\d+)?)\s*$/i); if(m){ const v=parseFloat(m[1].replace(/,/g,"")); if(v>0) return v; } } return 0; })();
+    const basisRaw = (getField("LinkedIn", "Clicks or Views") || "").toLowerCase();
+    const isViews  = /view/.test(basisRaw) ? true : (/click/.test(basisRaw) ? false : (liViews >= liClicks));
+    services.push({
+      key: "linkedin", label: "LinkedIn", platform: "LI", details: {},
+      linkedin: {
+        isViews,
+        goal:  isViews ? liViews : liClicks,
+        rate:  isViews ? liCpv   : liCpc,
+        total: liTotal,
+        startDate: getField("LinkedIn", "Start Date"),
+        endDate:   getField("LinkedIn", "End Date"),
+        targetAudience:  getFreeText("LinkedIn", /Describe the Target Audience/i),
+        goalsObjectives: getFreeText("LinkedIn", /Campaign Goals\s*&?\s*Objectives/i),
+        // Geo: the IO's LinkedIn geo is a long zip list mixed with label boilerplate and page breaks, which
+        // pdfjs splits messily. Capture the clean "Same targeting as the other channels…" intent sentence
+        // (whole-text match, so line splits don't matter); the full zip list stays in the source IO.
+        notes:   (text.match(/Same targeting[^.]{0,160}\./i)||[])[0] || null,
+        website: getField("LinkedIn", "Client Website URL"),
+      },
+    });
+  }
+
+  // ── Unrecognized services → fuzzy-mapped ──────────────────────────────────────────────────────────
+  // Any "<X> Included? Yes" line the defs above didn't cover, that carries readable data, is matched to the
+  // closest platform (fuzzyPlatformGuess) and pushed for review — so a NEW streaming brand / tactic maps
+  // automatically (best guess, defaulting to CTV) instead of being silently dropped. When the guess is a
+  // generic base (CTV/OTT/Display/…), it also carries a "🆕 New tactic" offer to spin up a dedicated
+  // platform (reuses the existing create-platform banner). Custom-field shapes (no Gross Impressions /
+  // Budget the generic reader can find) are skipped — we can't parse those blind.
+  {
+    const knownLc = new Set();
+    serviceDefs.forEach(sd => { if(sd.label) knownLc.add(sd.label.toLowerCase()); if(sd.flag) knownLc.add(sd.flag.toLowerCase()); });
+    ["linkedin","social media","mobile to social","mobile to social fb/ig","mobile to social snapchat","device integration to social"].forEach(x=>knownLc.add(x));
+    const _num = s => { const n = parseFloat(String(s==null?"":s).replace(/[,$\s]/g,"")); return isNaN(n)?0:n; };
+    const GENERIC_BASES = new Set(["CTV","OTT","OTTD","TD","TDV","DSP"]);
+    const seen = new Set();
+    for (let i=0;i<lines.length;i++){
+      const m = lines[i].match(/^(?:Is\s+)?(.{2,60}?)\s+Included\s*\?/i);
+      if(!m) continue;
+      const label = m[1].trim();
+      const lc = label.toLowerCase();
+      if(knownLc.has(lc) || seen.has(lc)) continue;
+      if(!isIncluded(label)) continue;                                  // must be a "Yes"
+      const det = extractServiceBlock(label);
+      if(_num(det.impressions) <= 0 && _num(det.budget) <= 0) continue; // nothing the generic reader could pull
+      seen.add(lc);
+      const g = fuzzyPlatformGuess(label);
+      const base = g.code || "CTV";                                     // new IO tactics are almost always streaming
+      const offerNew = GENERIC_BASES.has(base);
+      services.push({
+        key: "fuzzy:"+lc, label, platform: base, details: det,
+        _newTactic: offerNew ? { tactic: label, code: deriveTacticCode(label), color:"#38bdf8", name: label } : null,
+        _fuzzyNote: `🆕 New IO service “${label}” auto-mapped to ${base}${g.score?` (~${Math.round(g.score*100)}% match)`:" (best guess)"} — review the platform.`,
+      });
+    }
+  }
 
   return { reference, partner, advertiser, submitted, station, services, clientWebsite, projectionUrl, rawText: text };
 }
@@ -2207,7 +2329,7 @@ function buildDraftsFromIO(io) {
   const advertiser = (io.advertiser || "Unnamed").trim();
   // Compose partner string. AMB-style IOs have BOTH "Client / Partner" (umbrella, e.g.
   // "Allen Media Broadcasting") AND a separate "Station and City" (e.g. "KWWL Waterloo").
-  // Match Austin's existing partner convention by appending the station: "AMB - KWWL Waterloo".
+  // Match the user's existing partner convention by appending the station: "AMB - KWWL Waterloo".
   // Radio FM-style IOs lack station, so partner is just `io.partner`.
   const ioPartner = io.partner
     ? (io.station ? `${io.partner} - ${io.station}` : io.partner)
@@ -2223,6 +2345,35 @@ function buildDraftsFromIO(io) {
 
   io.services.forEach(svc => {
     const d = svc.details;
+    // ── LinkedIn ── built directly from its own parsed shape (see parseIOPdf). Views → a CPV buy (goal =
+    // views, rate = $/view); Clicks → CPM default, flagged for a manual rate/deal-type check. No "/Mo"
+    // note1 → a total-goal FLIGHT paced across the dates (LinkedIn buys are a flight total, e.g. 10K views
+    // over 8/3–11/30). The deal type is editable afterward if this is one of the odd CPM ones.
+    if (svc.key === "linkedin" && svc.linkedin) {
+      const li = svc.linkedin;
+      const goalNum = Math.round(parseNum(li.goal));
+      const rateNum = parseNum(li.rate);
+      const budget  = parseNum(li.total) > 0 ? parseNum(li.total) : (goalNum && rateNum ? goalNum * rateNum : 0);
+      drafts.push({
+        mediaPartner: ioPartner,
+        campaignName: advertiser,             // the LI platform button shows the tactic — no suffix
+        platform: "LI",
+        startDate: parseDate(li.startDate), endDate: parseDate(li.endDate),
+        status: "off",
+        goal: goalNum > 0 ? String(goalNum) : "",
+        contractRate: rateNum > 0 ? String(rateNum) : "",
+        dealType: li.isViews ? "CPV" : "CPM",
+        contractValue: budget > 0 ? budget.toFixed(2) : "",
+        note1: "",                            // total-goal flight (no monthly recurrence)
+        note2: li.isViews ? "" : "⚠ LinkedIn CLICKS buy — confirm rate & deal type (defaulted to CPM).",
+        ioNumber: io.reference || "",
+        geoTarget: (li.notes || "").trim(),
+        targetAudience: (li.targetAudience || "").trim(),
+        clientWebsite: (li.website || "").trim(),
+        history: noteToHistory([li.goalsObjectives].filter(Boolean).join(" ")),
+      });
+      return;
+    }
     const startDate = parseDate(d.startDate);
     const endDate = parseDate(d.endDate);
     const months = monthsBetween(startDate, endDate);
@@ -2264,7 +2415,7 @@ function buildDraftsFromIO(io) {
         const monthlyImpr = Math.round(sImprSocial / months);
         drafts.push({
           mediaPartner: ioPartner,
-          campaignName: advertiser,   // platform button (FB) already shows the tactic — no "- FB Static" suffix (Austin)
+          campaignName: advertiser,   // platform button (FB) already shows the tactic — no "- FB Static" suffix (the user)
           platform: staticPlat,
           startDate, endDate,
           status: "off",
@@ -2301,7 +2452,7 @@ function buildDraftsFromIO(io) {
         });
       }
       // Mobile (DSP) half — the leftover impressions/budget from BOTH the Static and Video lines,
-      // merged into ONE "… - DSP" campaign (Austin books the mobile side as a single DSP line). The CPM
+      // merged into ONE "… - DSP" campaign (the user books the mobile side as a single DSP line). The CPM
       // is blended (budget ÷ impr × 1000) so revenue = goal × CPM still equals the two mobile halves'
       // dollars exactly (e.g. 25K@$6.75 + 25K@$10.75 → 50K @ $8.75 = $437.50).
       if (isM2S) {
@@ -2354,7 +2505,7 @@ function buildDraftsFromIO(io) {
     let cpmDerived = false;
     if (cpm <= 0 && totalImpr > 0 && totalBudget > 0) { cpm = totalBudget / totalImpr * 1000; cpmDerived = true; }
     // Service-level DEFAULT CPM — used only when the IO carried no usable rate AND none could be derived
-    // from budget ÷ impressions (e.g. Device ID Display → $5, Austin's "$5 CPM for the most part"). If the
+    // from budget ÷ impressions (e.g. Device ID Display → $5, the user's "$5 CPM for the most part"). If the
     // budget is also missing, derive it from the default rate × impressions so contract value still fills.
     if (cpm <= 0 && svc.defaultCpm > 0) {
       cpm = svc.defaultCpm;
@@ -2388,7 +2539,7 @@ function buildDraftsFromIO(io) {
       }
     }
 
-    // note2 is reserved for URGENT flags ONLY (Austin's call) — a big red warning chip. The IO's
+    // note2 is reserved for URGENT flags ONLY (the user's call) — a big red warning chip. The IO's
     // general free-text notes go to the campaign's CHANGE HISTORY (via noteToHistory), the IO number
     // to `ioNumber`, and impressions/budget/CPM/fee to their own fields. So note2 stays EMPTY unless
     // there's a real flag: a data-integration CPM review here, or the Snapchat-request / low-confidence
@@ -2416,14 +2567,14 @@ function buildDraftsFromIO(io) {
         history: noteToHistory(d.notes),
         contractValue: halfBudget.toFixed(2),
       };
-      drafts.push({ ...common, campaignName: advertiser, platform: platA });   // platform buttons differentiate the legs — no code in the name (Austin)
+      drafts.push({ ...common, campaignName: advertiser, platform: platA });   // platform buttons differentiate the legs — no code in the name (the user)
       drafts.push({ ...common, campaignName: advertiser, platform: platB });
       return;
     }
     if (svc.split) {
       // Mobile ID Integration / Mobile-to-Social: split half to DSP, half to the other platform (FB or SP).
       // EXCEPTION: when the IO's notes ask to ALSO include Snapchat on a FB-social split, split EVEN
-      // THIRDS across DSP + FB + Snap (Austin's call) instead of half/half.
+      // THIRDS across DSP + FB + Snap (the user's call) instead of half/half.
       const legs = (snapRequested && svc.split === "FB") ? ["DSP", "FB", "SP"] : ["DSP", svc.split];
       const n = legs.length;
       const legImpr = Math.round(totalImpr / n);
@@ -2451,23 +2602,27 @@ function buildDraftsFromIO(io) {
       // CTV streaming flavor (e.g. Channel Select / Netflix CTV) → its own dedicated platform if the
       // user has already created it; otherwise keep generic "CTV" and tag the draft so the IO review
       // prompts to create one. Naming uses the suggested code so two flavors in one IO don't collide.
-      let newTactic = null;
+      // A fuzzy-mapped unrecognized service (parseIOPdf) carries its own _newTactic offer; a known CTV
+      // flavor derives one from CTV_TACTIC_PLATFORMS. Either way, only offer to create a platform that
+      // doesn't exist yet.
+      let newTactic = svc._newTactic || null;
       const ctv = CTV_TACTIC_PLATFORMS[svc.label];
       if (ctv) {
         if (ALL_PLATFORMS.includes(ctv.code)) platform = ctv.code;          // already configured
         else newTactic = { tactic: svc.label, code: ctv.code, color: ctv.color, name: ctv.name };
       }
+      if (newTactic && ALL_PLATFORMS.includes((newTactic.code||"").toUpperCase())) newTactic = null; // already a platform
       const nameSuffix = ctv ? ctv.code : platform;
       // effectiveCpm/effectiveImpr already fold in any data-integration uplift.
       const monthlyImpr = Math.round(effectiveImpr / months);
-      // YouTube always bills per-VIEW (CPV), never CPM (Austin). Default the rate to $0.10/view when the
+      // YouTube always bills per-VIEW (CPV), never CPM (the user). Default the rate to $0.10/view when the
       // IO didn't give a sensible CPV — a parsed value > $1 is really a CPM that slipped through, so drop
       // it for the default. (goal is already views: extractServiceBlock reads "Gross Views" into impressions.)
       const isYT = platform === "YT";
       const ytRate = (effectiveCpm > 0 && effectiveCpm <= 1) ? effectiveCpm : 0.10;
       drafts.push({
         mediaPartner: ioPartner,
-        // Drop the platform code from the name — the platform button already shows it (Austin). KEEP a
+        // Drop the platform code from the name — the platform button already shows it (the user). KEEP a
         // suffix ONLY when it's a distinguishing flavor NOT reflected in the platform (e.g. a Netflix/Hulu
         // streaming line still sitting on the generic "CTV" platform), so those don't collide.
         campaignName: (nameSuffix && nameSuffix !== platform) ? `${advertiser} - ${nameSuffix}` : advertiser,
@@ -2484,7 +2639,7 @@ function buildDraftsFromIO(io) {
         // for any platform if the IO included it (won't display elsewhere).
         managementFee: managementFee > 0 ? managementFee.toFixed(2) : "",
         note1: monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "",
-        note2: baseNote2,
+        note2: [baseNote2, svc._fuzzyNote].filter(Boolean).join(" ").trim(),
         ioNumber: io.reference || "",
         geoTarget: (d.geoBreakout || "").trim(),
         targetAudience: (d.targetAudience || "").trim(),
@@ -2520,7 +2675,7 @@ function buildDraftsFromIO(io) {
 // Last-resort, format-agnostic draft builder. When the structured parser finds no service blocks or
 // can't build a draft (an IO format we don't recognize), scan the WHOLE document for the few things
 // every IO has — dollars, impressions, dates, a CPM, a platform keyword — and produce ONE best-effort
-// draft, clearly flagged for review. Goal: never hard-fail on a real IO; always give Austin something
+// draft, clearly flagged for review. Goal: never hard-fail on a real IO; always give the user something
 // to correct. Returns null only when there's truly no budget/impressions/dates anywhere.
 function buildFallbackDraft(io) {
   const text = io && io.rawText ? String(io.rawText) : "";
@@ -2602,7 +2757,7 @@ function buildFallbackDraft(io) {
   const advertiser = (io.advertiser || "").trim();
   return {
     mediaPartner: io.partner || "",
-    campaignName: advertiser || `Review IO #${io.reference || "?"}`,   // platform shown by the button — no code in the name (Austin)
+    campaignName: advertiser || `Review IO #${io.reference || "?"}`,   // platform shown by the button — no code in the name (the user)
     platform: platform || "DSP",
     startDate, endDate,
     status: "off",
@@ -2850,7 +3005,7 @@ function useBackdropClose(onClose) {
 function ReminderModal({ campaigns, archive=[], onClose, reminders, setReminders, focusCampaignId=null, onNavigate=null }) {
   const blank = { id:null, type:"other", campaignId:"", note:"", date:"", repeat:"none", dismissed:false };
   // A reminder links to a campaign by id. Resolve that id against ACTIVE + ARCHIVED campaigns, so a
-  // reminder keeps showing its campaign (name/platform/link) after the campaign is archived. (Austin:
+  // reminder keeps showing its campaign (name/platform/link) after the campaign is archived. (the user:
   // "when I archive a campaign the reminder link to that campaign breaks — make it stick.")
   const campPool = [...campaigns, ...archive];
   const findCamp = (id) => campPool.find(c=>c.id===id) || null;
@@ -2901,7 +3056,7 @@ function ReminderModal({ campaigns, archive=[], onClose, reminders, setReminders
     return (
       <div style={{background:isPast?(_lm?"#fee2e2":"#1a0808"):(_lm?"#f8fafc":"#0e1a2e"),border:`1px solid ${isPast?(_lm?"#fca5a5":"#ef444440"):(_lm?(rt.color+"50"):(rt.color+"30"))}`,borderRadius:8,padding:"10px 13px",marginBottom:7,display:"flex",gap:10,alignItems:"flex-start"}}>
         <div style={{flex:1,minWidth:0}}>
-          {/* Headline = the CAMPAIGN NAME (Austin's priority). Unlinked reminders fall back to the note. */}
+          {/* Headline = the CAMPAIGN NAME (the user's priority). Unlinked reminders fall back to the note. */}
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:3}}>
             {camp ? (
               <span onClick={()=>{ if(onNavigate) { onNavigate(camp.id); onClose(); } }}
@@ -3835,7 +3990,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     if (!(rate > 0) || !(totalImpr > 0)) return;
     const hasCV = !!(f.contractValue && String(f.contractValue).trim());
     if (!autoFillReady.current && hasCV) return;       // on open, keep the contract value the form loaded with
-    const isCPV = f.platform === "YT" && (f.dealType === "CPV" || !f.dealType);
+    const isCPV = dealBasis(f) === "CPV";
     const cv = isCPV ? totalImpr * rate : (totalImpr / 1000) * rate;
     const cvStr = String(Math.round(cv * 100) / 100);
     if (String(f.contractValue || "") !== cvStr) setF(prev => ({ ...prev, contractValue: cvStr }));
@@ -3914,7 +4069,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   // Write a set of date-flight segments straight to the form fields (note1 = per-month day-share string,
   // goal = "<total> (start - end)", flightSegments = raw windows, start/end = the span). Called the moment
   // you SWITCH to By-dates — not only when a segment is edited — so the flights save even if you don't
-  // re-type anything. (Austin: "it made me remove the monthly goal before it saved the flights.") Mirrors
+  // re-type anything. (the user: "it made me remove the monthly goal before it saved the flights.") Mirrors
   // the builder's inline applySegments; kept in sync with it.
   const _gNum = s => parseInt(String(s==null?"":s).replace(/[,\s]/g,""))||0;
   const _MONF = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -4164,8 +4319,13 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             // (Removed the "budget ≠ rate × goal" check — Contract Value AUTO-FILLS from goal × rate, so it
             //  only ever mismatched for the one render between a goal keystroke and the auto-fill catching
             //  up, which made the whole banner flash on every keystroke. The auto-fill keeps them in sync.)
-            const sibDupes = (draftQueueInfo.siblingNames || []).filter(s => (s || "").trim().toLowerCase() === nm).length;
-            if (nm && sibDupes > 1) w.push(`Another draft in this IO has the same name — rename one, or they'll collide in check-ins & revenue.`);
+            // Only flag a GENUINE duplicate — same name AND same platform. Running different TACTICS for one
+            // client (FB + TD + LI all "City of Chico") is normal and safe (each is its own platform; the
+            // platform badge in Quick Check-in keeps them apart), so same-name/different-platform no longer
+            // warns (the user: it was just noise for multi-tactic clients).
+            const sibKey = nm + "||" + (plat || "");
+            const sibDupes = (draftQueueInfo.siblingNames || []).filter(s => s === sibKey).length;
+            if (nm && sibDupes > 1) w.push(`Another draft in this IO has the same name AND platform (${plat}) — that's a true duplicate; rename one so they don't collide.`);
             if (nm && campaigns.some(c => (c.campaignName || "").trim().toLowerCase() === nm && c.platform === plat)) w.push(`An existing campaign already uses this exact name + platform — saving would create a duplicate.`);
             if (!w.length) return null;
             return (
@@ -4257,7 +4417,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                   const daysIncl = (a,b) => { const [ay,am,ad]=a.split("-").map(Number),[by,bm,bd]=b.split("-").map(Number); return Math.round((new Date(by,bm-1,bd)-new Date(ay,am-1,ad))/86400000)+1; };
                   // YouTube bills per-VIEW (CPV), so its goals are VIEWS, not impressions — label the builder
                   // to match (defaults to views the moment the platform is YT). Everything else = impressions.
-                  const isViews = f.platform==="YT" && (f.dealType==="CPV" || !f.dealType);
+                  const isViews = dealBasis(f)==="CPV";
                   const unit = isViews ? "views" : "impr";
                   const unitLong = isViews ? "views" : "impressions";
                   const boxWrap = {marginTop:8,background:_lm?"#f8fbff":"#081420",border:`1px solid ${_lm?"#dbeafe":"#0a2540"}`,borderRadius:8,padding:"9px 11px"};
@@ -4541,7 +4701,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                     <span style={{padding:"7px 10px",color:"#a855f7",fontWeight:700,fontSize:13,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
                     <input type="number" step="0.01" value={f.managementFee||""} onChange={e=>set("managementFee",e.target.value)} placeholder="e.g. 750" style={{flex:1,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
                   </div>
-                  {/* Live-derived media budget = Contract Total − fee, so Austin sees the split add up. */}
+                  {/* Live-derived media budget = Contract Total − fee, so the user sees the split add up. */}
                   {(cvNum>0 || feeNum>0) && (
                     <div style={{marginTop:6,fontSize:11,color:_lm?"#475569":"#9fb8d4",lineHeight:1.6}}>
                       {mediaNum>0
@@ -4560,33 +4720,33 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 <div style={{marginBottom:12}}>
                   <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📈 Monthly Revenue Rate</label>
                   <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                    {/* YT: CPM/CPV select. All others: fixed CPM badge */}
-                    {f.platform==="YT" ? (
-                      <select value={f.dealType||""} onChange={e=>{ setDealTypeTouched(true); set("dealType",e.target.value); }}
-                        style={{background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:f.dealType?(_lm?"#0f172a":"#d8eaf8"):(_lm?"#94a3b8":"#4d6e8a"),fontSize:12,fontWeight:600,cursor:"pointer",outline:"none",minWidth:80}}>
-                        <option value="">Type…</option>
-                        <option value="CPM">CPM</option>
-                        <option value="CPV">CPV</option>
-                      </select>
-                    ) : (
-                      <div style={{background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89660"}`,borderRadius:6,padding:"7px 12px",color:_lm?"#059669":"#00e19e",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>CPM</div>
-                    )}
+                    {/* CPM/CPV deal-type select — available on ANY platform now (the user: e.g. a LinkedIn
+                        VIDEO buy bills CPV, not CPM). The per-platform DEFAULT still applies (YouTube→CPV,
+                        everything else→CPM); this just lets you override it manually. Placeholder shows the
+                        default in effect so an untouched field reads right. */}
+                    <select value={f.dealType||""} onChange={e=>{ setDealTypeTouched(true); set("dealType",e.target.value); }}
+                      title="How this campaign bills: CPM ($/1K impressions) or CPV ($/view). Defaults by platform; override here for odd ones (e.g. LinkedIn video)."
+                      style={{background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:f.dealType?(_lm?"#0f172a":"#d8eaf8"):(_lm?"#94a3b8":"#4d6e8a"),fontSize:12,fontWeight:600,cursor:"pointer",outline:"none",minWidth:96}}>
+                      <option value="">{`Default (${dealBasis({...f, dealType:""})})`}</option>
+                      <option value="CPM">CPM</option>
+                      <option value="CPV">CPV</option>
+                    </select>
                     {/* Rate input */}
                     <div style={{display:"flex",alignItems:"center",flex:1,background:_lm?"#f8fafc":"#162236",border:`1px solid ${f.contractRate?(_lm?"#00c896":"#00c89660"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,overflow:"hidden"}}>
                       <span style={{padding:"7px 8px",color:"#34d399",fontWeight:700,fontSize:13,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
                       <input type="number" step="0.01" value={f.contractRate||""}
-                        onChange={e=>{ setRateTouched(true); set("contractRate",e.target.value); if(f.platform!=="YT") set("dealType","CPM"); }}
-                        placeholder={f.platform==="YT"&&f.dealType==="CPV"?"CPV rate (e.g. 0.08)":"CPM rate (e.g. 18.00)"}
+                        onChange={e=>{ setRateTouched(true); set("contractRate",e.target.value); }}
+                        placeholder={dealBasis(f)==="CPV"?"CPV rate (e.g. 0.08)":"CPM rate (e.g. 18.00)"}
                         style={{flex:1,background:"transparent",border:"none",padding:"7px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
-                      {(f.dealType==="CPM"||(f.platform!=="YT"&&f.platform!=="SEM"))&&<span style={{padding:"0 8px",color:_lm?"#94a3b8":"#3d5a72",fontSize:10,whiteSpace:"nowrap"}}>/1K impr</span>}
-                      {f.platform==="YT"&&f.dealType==="CPV"&&<span style={{padding:"0 8px",color:_lm?"#94a3b8":"#3d5a72",fontSize:10,whiteSpace:"nowrap"}}>/view</span>}
+                      {dealBasis(f)==="CPM"&&f.platform!=="SEM"&&<span style={{padding:"0 8px",color:_lm?"#94a3b8":"#3d5a72",fontSize:10,whiteSpace:"nowrap"}}>/1K impr</span>}
+                      {dealBasis(f)==="CPV"&&<span style={{padding:"0 8px",color:_lm?"#94a3b8":"#3d5a72",fontSize:10,whiteSpace:"nowrap"}}>/view</span>}
                     </div>
                   </div>
                   {/* Monthly revenue preview */}
                   {(()=>{
                     const rate=parseFloat(f.contractRate);
                     const goal=parseMonthlyGoal(f.note1);
-                    const effectiveDt = f.platform==="YT" ? (f.dealType||"") : "CPM";
+                    const effectiveDt = dealBasis(f);
                     if(!rate||!effectiveDt) return null;
                     let mo=null;
                     if(effectiveDt==="CPM"&&goal) mo=(goal/1000)*rate;
@@ -4982,7 +5142,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     mode: "groq",          // "groq" | "claude" | "ollama" | "superagent"
     groqApiKey: "",        // stored in localStorage only — never in code
     groqModel: "llama-3.3-70b-versatile",
-    anthropicApiKey: "",   // Austin's own Claude key — browser-local only, never in code/GitHub
+    anthropicApiKey: "",   // the user's own Claude key — browser-local only, never in code/GitHub
     anthropicModel: "claude-haiku-4-5", // cheapest Claude ($1/$5 per 1M) — plenty for the brief
     anthropicMaxOut: 1500,
     endpoint: "http://localhost:11434",
@@ -5050,7 +5210,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       }
 
     } else if (llmSettings.mode === "claude") {
-      // Anthropic Messages API, called direct from the browser for LOCAL TESTING with Austin's own
+      // Anthropic Messages API, called direct from the browser for LOCAL TESTING with the user's own
       // key. The key lives only in his browser (localStorage) — never in code or GitHub. Note: a
       // browser-direct call exposes the key to anyone with devtools on this machine, so this is fine
       // for his own laptop but a tiny proxy is required before the tracker is shared/deployed.
@@ -5484,8 +5644,10 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       const mem    = localStorage.getItem("zeus-memory")||"";
       const skills = JSON.parse(localStorage.getItem("zeus-skills")||"[]");
 
-      // Default soul if none saved
-      const defaultSoul = `Your name is Zeus. You are the personal AI super-agent for Austin Gagan at Recrue Media. You have FULL READ AND WRITE ACCESS to his campaign tracker.\n\nYou are Austin's right hand — not a passive analyst. Direct, sharp, confident. You take action when asked, surface problems before Austin notices, and treat his portfolio like it's your own. No padding, no pleasantries. Real names, real numbers, real recommendations.\n\nSign off as Zeus ⚡`;
+      // Default soul if none saved. Name comes from the per-user setting (Config → General) so this isn't
+      // tied to one person — each campaign manager's copy reads as their own.
+      const _nm = loadUserName() || "the campaign manager";
+      const defaultSoul = `Your name is Zeus. You are the personal AI super-agent for ${_nm} at Recrue Media. You have FULL READ AND WRITE ACCESS to the campaign tracker.\n\nYou are ${_nm}'s right hand — not a passive analyst. Direct, sharp, confident. You take action when asked, surface problems before ${_nm} notices, and treat the portfolio like it's your own. No padding, no pleasantries. Real names, real numbers, real recommendations.\n\nSign off as Zeus ⚡`;
 
       const activeSoul = soul || defaultSoul;
 
@@ -5516,7 +5678,8 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
 
       return activeSoul + memSection + skillsBlock + actionSystem;
     } catch(e) {
-      return "Your name is Zeus. You are the personal AI super-agent for Austin Gagan at Recrue Media. You have full read/write access to his campaign tracker. Be direct, use real names and numbers. Sign off as Zeus ⚡";
+      const _nm = loadUserName() || "the campaign manager";
+      return `Your name is Zeus. You are the personal AI super-agent for ${_nm} at Recrue Media. You have full read/write access to the campaign tracker. Be direct, use real names and numbers. Sign off as Zeus ⚡`;
     }
   })();
 
@@ -5580,7 +5743,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
         setChatLoading(false);
       }, 300);
     } else {
-      let g = `Hey Austin — Zeus here. ⚡\n\n`;
+      let g = `Hey${loadUserFirstName()?` ${loadUserFirstName()}`:" there"} — Zeus here. ⚡\n\n`;
       if (criticals > 0 || atRisk > 0 || endingSoon > 0) {
         g += `**Here's what needs your attention:**\n\n`;
         if (criticals > 0) g += `🚨 **${criticals} critical KPI alert${criticals>1?"s":""}** — needs action now.\n`;
@@ -5634,18 +5797,20 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
           status:dt.status, daysLeft:dt.daysLeft } : null;
       }).filter(Boolean);
 
-      const prompt = `Today is ${dayName}, ${dateStr}. Generate Austin's morning campaign briefing AND prioritize his day.
+      const _uf = loadUserFirstName();                         // personalize the brief to whoever's tracker this is
+      const _un = loadUserName() || "the campaign manager";
+      const prompt = `Today is ${dayName}, ${dateStr}. Generate a morning campaign briefing for ${_un} AND prioritize the day.
 
 Full tracker data:
 ${JSON.stringify({...ctx, dailyPacing:dailySnap})}
 
 Data notes:
 - "health" is the portfolio health score (0–100) with an A/B/C/D distribution. Each campaign row has "hlth" (its 0–100 score) and "hwhy" (why it lost points). LOWER score = more urgent. Use these to rank what matters.
-- "meetings" is Austin's Outlook calendar for the next 7 days (may be absent if not connected).
+- "meetings" is the manager's Outlook calendar for the next 7 days (may be absent if not connected).
 
 Write a clean morning briefing in this EXACT format — no extra sections, no fluff:
 
-GOOD MORNING, AUSTIN ☀️
+GOOD MORNING${_uf?`, ${_uf.toUpperCase()}`:""} ☀️
 ${dayName}, ${dateStr}
 
 💚 PORTFOLIO HEALTH
@@ -5801,7 +5966,7 @@ Rules: Use real campaign names and numbers from the data. Keep each line short a
     const localPatterns = computeLocalPatterns();
     try {
       const ctx = buildContext();
-      const prompt = `Analyze these campaigns for patterns, trends, and systemic issues that Austin should know about. Look beyond individual campaign performance — find connections across campaigns, partners, and platforms.
+      const prompt = `Analyze these campaigns for patterns, trends, and systemic issues the campaign manager should know about. Look beyond individual campaign performance — find connections across campaigns, partners, and platforms.
 
 Campaign data:
 ${JSON.stringify(ctx)}
@@ -7037,11 +7202,11 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
 // ── Zeus Memory / Soul / Skills Panel ────────────────────────────────────────
 // ── Zeus Memory / Soul / Skills Panel ────────────────────────────────────────
 const MEMORY_CATEGORIES = [
-  { key:"identity",  label:"👤 Identity",      desc:"Who Austin is, company, role"             },
+  { key:"identity",  label:"👤 Identity",      desc:"Who you are, company, role"               },
   { key:"clients",   label:"🤝 Clients",        desc:"Key partners, relationships, context"     },
   { key:"platforms", label:"📡 Platforms",      desc:"Platform mix, what's working"             },
   { key:"patterns",  label:"🔍 Patterns",       desc:"Recurring issues, campaign behaviors"     },
-  { key:"prefs",     label:"⚙️ Preferences",   desc:"How Austin likes things done"             },
+  { key:"prefs",     label:"⚙️ Preferences",   desc:"How you like things done"                 },
   { key:"flags",     label:"🚩 Watch Items",    desc:"Ongoing issues, things to keep an eye on" },
 ];
 function ZeusMemoryPanel({ campaigns, archive, reminders, callLLM, buildContext, setError }) {
@@ -7120,7 +7285,7 @@ function ZeusMemoryPanel({ campaigns, archive, reminders, callLLM, buildContext,
       const partners = [...new Set(campaigns.map(c=>c.mediaPartner).filter(Boolean))].slice(0,12);
       const platforms = [...new Set(campaigns.map(c=>c.platform).filter(Boolean))];
       const vaultCount = (()=>{ try{ return JSON.parse(localStorage.getItem(VAULT_KEY)||"[]").length; }catch{ return 0; }})();
-      const prompt = `Extract structured facts about Austin Gagan's ad agency. Return ONLY valid JSON, no markdown.\n\nData:\n- Partners: ${partners.join(", ")}\n- Platforms: ${platforms.join(", ")}\n- Active: ${ctx.active}, Archived: ${archive.length}, Reports: ${vaultCount}\n- Ending soon: ${(ctx.endingSoon||[]).map(c=>c.c).slice(0,4).join(", ")||"none"}\n\nReturn ONLY this JSON (max 2 facts per category, under 12 words each, skip empty categories):\n{"identity":[],"clients":[],"platforms":[],"patterns":[],"prefs":[],"flags":[]}`;
+      const prompt = `Extract structured facts about the campaign manager's ad agency. Return ONLY valid JSON, no markdown.\n\nData:\n- Partners: ${partners.join(", ")}\n- Platforms: ${platforms.join(", ")}\n- Active: ${ctx.active}, Archived: ${archive.length}, Reports: ${vaultCount}\n- Ending soon: ${(ctx.endingSoon||[]).map(c=>c.c).slice(0,4).join(", ")||"none"}\n\nReturn ONLY this JSON (max 2 facts per category, under 12 words each, skip empty categories):\n{"identity":[],"clients":[],"platforms":[],"patterns":[],"prefs":[],"flags":[]}`;
       const text = await callLLM([{role:"user",content:prompt}], 350);
       const clean = text.replace(/```json|```/g,"").trim();
       try {
@@ -7163,21 +7328,24 @@ function ZeusMemoryPanel({ campaigns, archive, reminders, callLLM, buildContext,
   // Expose for AIAdvisor to call after chat
   React.useEffect(()=>{ window.__zeusProposeMemory = proposeFromChat; return ()=>{ delete window.__zeusProposeMemory; }; }, [memObj]);
 
-  const DEFAULT_SOUL = `You are Zeus — Austin Gagan's personal AI super-agent at Recrue Media.
+  // Name from the per-user setting (Config → General) so Zeus isn't hardcoded to one person — each
+  // campaign manager's copy reads as their own right hand.
+  const _soulNm = loadUserName() || "the campaign manager";
+  const DEFAULT_SOUL = `You are Zeus — ${_soulNm}'s personal AI super-agent at Recrue Media.
 
-IDENTITY: You are Austin's right hand. Not a passive analyst — an active operator who takes initiative, surfaces problems before Austin notices, and acts when given direction. You think like a senior media buyer who's been running campaigns for 15 years.
+IDENTITY: You are ${_soulNm}'s right hand. Not a passive analyst — an active operator who takes initiative, surfaces problems before ${_soulNm} notices, and acts when given direction. You think like a senior media buyer who's been running campaigns for 15 years.
 
 PERSONALITY:
 - Direct and sharp. No padding, no filler, no "Great question!"
 - Confident but data-grounded — you push back when the numbers say otherwise
 - Proactive — you notice things, flag them, suggest next steps unprompted
-- Caring — you treat Austin's portfolio like it's your own money on the line
-- Concise — Austin is busy. Get to the point fast.
+- Caring — you treat ${_soulNm}'s portfolio like it's your own money on the line
+- Concise — ${_soulNm} is busy. Get to the point fast.
 
 DECISION STYLE:
-- When Austin asks for a change, you do it — don't ask for confirmation you don't need
+- When ${_soulNm} asks for a change, you do it — don't ask for confirmation you don't need
 - When something needs attention, you say exactly what it is and exactly what to do
-- When you don't have enough data, you say so clearly and tell Austin what you need
+- When you don't have enough data, you say so clearly and tell ${_soulNm} what you need
 - You prioritize revenue protection over everything (renewals, pacing, spend vs contract)
 
 HOW YOU COMMUNICATE:
@@ -7191,7 +7359,7 @@ WHAT YOU NEVER DO:
 - Never pad responses with pleasantries
 - Never say "I don't have access to" when the data is in context
 - Never hedge excessively on clear problems
-- Never suggest Austin "consider" something obvious — tell him to do it`;
+- Never suggest ${_soulNm} "consider" something obvious — tell ${_soulNm} to do it`;
 
   const [soul, setSoul] = React.useState(()=>{
     try{ return localStorage.getItem("zeus-soul")||DEFAULT_SOUL; }catch{ return DEFAULT_SOUL; }
@@ -7210,8 +7378,8 @@ WHAT YOU NEVER DO:
       name: "Campaign Operations",
       icon: "📋",
       enabled: true,
-      description: "Full CRUD on campaigns — add, edit, bulk update, archive, restore. Zeus can execute any campaign change Austin asks for.",
-      instructions: `When Austin asks to modify campaigns:
+      description: "Full CRUD on campaigns — add, edit, bulk update, archive, restore. Zeus can execute any campaign change you ask for.",
+      instructions: `When asked to modify campaigns:
 - Use exact campaign names from context data
 - Always include a historyNote explaining what changed and why
 - For bulk operations, use partner name when possible  
@@ -7344,11 +7512,11 @@ When enabled:
       icon: "👁",
       enabled: false,
       future: true,
-      description: "⚡ With superintelligence: Background monitoring that alerts without Austin opening the tracker.",
+      description: "⚡ With superintelligence: Background monitoring that alerts without you opening the tracker.",
       instructions: `FUTURE CAPABILITY — requires always-on compute:
 When enabled:
 - Poll campaign metrics every 6 hours
-- Auto-generate morning brief and push to Austin
+- Auto-generate morning brief and push to you
 - Alert immediately on: spend hitting 95% of contract, campaign going dark, CTR dropping >30% in 24h
 - Weekly trend digest every Monday 8am
 - End-of-month daily countdown starting day 25`,
@@ -7359,14 +7527,14 @@ When enabled:
       icon: "📧",
       enabled: false,
       future: true,
-      description: "⚡ With superintelligence: Draft and send partner/client emails on Austin's behalf after one-click approval.",
+      description: "⚡ With superintelligence: Draft and send partner/client emails on your behalf after one-click approval.",
       instructions: `FUTURE CAPABILITY — requires email integration:
 When enabled:
-- Draft emails using Austin's tone and Recrue Media's voice
+- Draft emails using your tone and Recrue Media's voice
 - One-click approve/send from Zeus interface
 - Auto-draft: EOM performance emails, renewal reminders, creative swap requests
 - Thread-aware — reads previous emails for context
-- CC Austin on all outbound
+- CC you on all outbound
 - Never send without explicit approval`,
     },
   ];
@@ -7705,7 +7873,7 @@ function CampaignArchive({ archive, onRestore, onBulkRestore, onClear }) {
       || (c.note1||"").toLowerCase().includes(q)
       || (c.endDate||"").includes(q);
     // When there's a search query, span the WHOLE archive — the month tabs only group the browse view,
-    // they shouldn't hide a campaign you're looking for (Austin: "it's hard to find campaigns sometimes").
+    // they shouldn't hide a campaign you're looking for (the user: "it's hard to find campaigns sometimes").
     // With no query, keep the month view (rows already show each campaign's End Date, so cross-month
     // search results stay clear).
     const inMonth = (c.endDate||"").slice(0,7) === effectiveMonth;
@@ -8060,7 +8228,7 @@ function ActivityLog({ log, campaigns, onClear, onUndo }) {
 
 // Generic toolbar dropdown: one labelled button that opens a list of checkbox rows. Exists to fold
 // the Pacing tab's row of independent toggle buttons (vs Last Month · Quiet Lines · Forecast ·
-// Anomalies · Last Month recap) into a single control — Austin's feedback was that the toolbar read
+// Anomalies · Last Month recap) into a single control — the user's feedback was that the toolbar read
 // as overwhelming. Each item keeps its own state and toggle; this only changes where they live.
 // Mirrors PlatformMultiSelect's outside-click-to-close behaviour so the two feel the same.
 function ToolbarMenu({ label, items, lightMode=false }) {
@@ -8270,6 +8438,7 @@ const PLT_KPI = {
   SEM:   { primary:"CTR", good:0.05,   ok:0.02,   label:"CTR",        tip:"Good >5% · OK >2%"       },
   YT:    { primary:"VCR", good:0.35,   ok:0.20,   label:"View Rate",  tip:"Good >35% · OK >20%"     },
   EMAIL: { primary:"CTR", good:0.03,   ok:0.01,   label:"Click Rate", tip:"Good >3% · OK >1%"       },
+  LI:    { primary:"CTR", good:0.004,  ok:0.002,  label:"CTR",        tip:"Good >0.40% · OK >0.20%" },
 };
 
 // ─── Pacing date bar ──────────────────────────────────────────────────────
@@ -8345,7 +8514,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // that lets them move that line's data to a different campaign without redoing QCI.
   const [reassignTarget, setReassignTarget] = useState(null);
   // Pacing table: the wide grid scrolls HORIZONTALLY (via .pacing-hscroll → overflow-x:auto) with a sticky
-  // first column; vertical scrolling is the NORMAL page scroll (Austin: no internal up/down scroll box).
+  // first column; vertical scrolling is the NORMAL page scroll (the user: no internal up/down scroll box).
   // shape: { line, fromCampaignId, snapField, snapKey }
   // clearTarget: when set, opens a confirmation modal for clearing a breakdown line.
   // Same shape as reassignTarget — { line, fromCampaignId, snapField, snapKey }
@@ -8354,7 +8523,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // to show the full list with per-row activate buttons.
   const [offBannerOpen, setOffBannerOpen] = useState(false);
   // showOffSection: whether the "Off Campaigns" section (paused/goal-hit
-  // campaigns) is expanded. Defaults OPEN — Austin wants to see them by default
+  // campaigns) is expanded. Defaults OPEN — the user wants to see them by default
   // since they're intentionally paused (hit goal, etc.) and the data is useful.
   const [showOffSection, setShowOffSection] = useState(true);
   // Collapsible "Not started yet" section (future-dated flights). Defaults OPEN so they're easy to
@@ -8479,7 +8648,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [lifeDir,        setLifeDir]        = useState(_persisted.lifeDir || LIFE_SORT_DEFAULT_DIR[_persisted.lifeSort||"risk"] || "asc");
   const [lifeAtRisk,     setLifeAtRisk]     = useState(!!_persisted.lifeAtRisk);
   // Lifetime flight start-date filter (persisted): only show contracts whose start date is on/after
-  // `lifeStartsAfter` (ISO "YYYY-MM-DD" or ""=off). Lets Austin focus on campaigns starting from a date.
+  // `lifeStartsAfter` (ISO "YYYY-MM-DD" or ""=off). Lets the user focus on campaigns starting from a date.
   const [lifeStartsAfter,setLifeStartsAfter]= useState(_persisted.lifeStartsAfter || "");
   function clickLifeSort(k){ if(lifeSort===k){ setLifeDir(d=>d==="asc"?"desc":"asc"); return; } setLifeSort(k); setLifeDir(LIFE_SORT_DEFAULT_DIR[k]||"asc"); }
   // Collapse state for the Lifetime status sections (Behind / On Track / Goal Hit).
@@ -8495,7 +8664,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // clamps the window scroll to the top. We capture the scroll position in this ref just before the
   // toggle and restore it in a useLayoutEffect — which runs AFTER React commits the new DOM but BEFORE
   // the browser paints, so the page never visibly jumps (the old double-rAF restore ran post-paint, so
-  // the jump flashed). Austin: "the whole page kind of glitches."
+  // the jump flashed). the user: "the whole page kind of glitches."
   const pendingScrollY = React.useRef(null);
   React.useLayoutEffect(()=>{
     if(pendingScrollY.current!=null){ window.scrollTo(0, pendingScrollY.current); pendingScrollY.current=null; }
@@ -8603,7 +8772,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     .sort((a,b)=>a.startDate.localeCompare(b.startDate));
   const allActive = campaigns.filter(c=>c.status!=="off" && !(c.startDate && c.startDate.slice(0,10) > todayStr));
   const partners  = ["all", ...new Set(allActive.map(c=>c.mediaPartner).filter(Boolean))].sort();
-  // Only platforms Austin actually has campaigns on (active + off) — don't list platforms with zero
+  // Only platforms the user actually has campaigns on (active + off) — don't list platforms with zero
   // campaigns on the tracker. Uses the full `campaigns` prop (not just allActive) so a platform used
   // only by an Off campaign still appears. (Reverted 2026-07-30 from the all-platforms union.)
   const platforms = sortPlatforms([...new Set(campaigns.map(c=>c.platform).filter(Boolean))]);
@@ -8631,7 +8800,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // Updated/Not-Updated counts include OFF campaigns too — off campaigns still
   // show in the Pacing tab (Off Campaigns section) so the user wants visibility
   // into their sync status alongside active ones.
-  // View-aware (Austin): This Month counts MONTHLY-goal campaigns, ✈ Flights counts flight campaigns, so
+  // View-aware (the user): This Month counts MONTHLY-goal campaigns, ✈ Flights counts flight campaigns, so
   // every toolbar number (freshness, Trouble, Overlays badges…) reflects what's in the current view.
   const inView = (c) => pacingView === "lifetime" ? !!flightGoalLabel(c) : !flightGoalLabel(c);
   const updatedTodayCount = campaigns.filter(c=>inView(c) && dataUpdatedWithin(c, updatedDays)).length;
@@ -8644,10 +8813,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const lastUpdateDisp = lastUpdateISO && /^\d{4}-\d{2}-\d{2}$/.test(lastUpdateISO)
     ? (()=>{ const [y,m,d]=lastUpdateISO.split("-"); return `${m}/${d}/${y}`; })()
     : (lastUpdateISO || "—");
-  // "Trouble" = at least one YELLOW or RED KPI (CTR / view rate / CPM, graded against Austin's own
+  // "Trouble" = at least one YELLOW or RED KPI (CTR / view rate / CPM, graded against the user's own
   // benchmarks) OR a severe under/over pacer. Grades the SAME values the row shows (resolved `disp`
   // over the stored fields), so the filter agrees with the coloured KPI cells. Severe pacing only
-  // counts when the data is FRESH (checked within 4 days) — stale pacing is misleading (Austin).
+  // counts when the data is FRESH (checked within 4 days) — stale pacing is misleading (the user).
   const rowIsTrouble = (row) => {
     const { c, disp, pacing } = row;
     const merged = { platform:c.platform,
@@ -8670,7 +8839,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   });
 
   const troubleCount = allRows.filter(r => inView(r.c) && rowIsTrouble(r)).length; // live "Trouble" badge — current view only
-  // SPLIT (Austin): the This Month view is for MONTHLY-goal campaigns. Multi-month / By-dates FLIGHTS
+  // SPLIT (the user): the This Month view is for MONTHLY-goal campaigns. Multi-month / By-dates FLIGHTS
   // (flightGoalLabel non-null = a total-goal flight with no recurring "/Mo") move to the ✈ Flights view —
   // on This Month their prorated monthly share falsely reads "behind" because it can't see last month's
   // delivery (the Kennedy Mall case). One predicate drives both tabs.
@@ -8695,7 +8864,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   // "Not started yet" list — future-dated flights. Only the STRUCTURAL filters apply (search / partner /
   // platform); the freshness + trouble filters don't, because a campaign that hasn't started has no data
-  // to have "updated" — that's exactly the noise Austin hit when filtering "not updated today."
+  // to have "updated" — that's exactly the noise the user hit when filtering "not updated today."
   const notStartedFiltered = notStartedRunning.filter(c=>{
     if(q && !c.campaignName.toLowerCase().includes(q) && !(c.mediaPartner||"").toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
@@ -8706,7 +8875,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // Sort
   // A "partial-month" flight doesn't span the FULL pacing month — it STARTED after the 1st OR ENDS
   // before the last day — so its pacing bar is prorated and not directly comparable to full-month
-  // flights. The Ends sort groups these to one end (Austin's ask). pacingMonthStart also feeds the
+  // flights. The Ends sort groups these to one end (the user's ask). pacingMonthStart also feeds the
   // row's "↪ started M/D" badge (computed inline in TableRow).
   const pacingMonthStart = (()=>{ const n=pacingNow(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-01`; })();
   const pacingMonthEnd = (()=>{ const n=pacingNow(); const d=new Date(n.getFullYear(), n.getMonth()+1, 0); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
@@ -8720,7 +8889,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(sortKey==="ends"){
       // GROUP partial-month flights (don't span the full pacing month — mid-month start OR end) to one
       // end, so all the campaigns WITHOUT a full monthly flight bar cluster together instead of mixing
-      // in with the regular monthly flights (Austin's ask). Direction-aware → toggle flips top/bottom.
+      // in with the regular monthly flights (the user's ask). Direction-aware → toggle flips top/bottom.
       const pa = partialFlight(a.c) ? 1 : 0, pb = partialFlight(b.c) ? 1 : 0;
       if(pa !== pb) return dir * (pa - pb);
       // then by flight end date (ISO sorts lexicographically). No end date sinks to the bottom.
@@ -8773,7 +8942,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // one, in its pacing metric. The live month isn't in backups yet, so there's no
   // double-count. Matched by stable campaign id.
   function priorMonthsDelivered(c) {
-    const mk = pacingMetricFor(c.platform);
+    const mk = pacingMetricFor(c.platform, c.dealType);
     let sum = 0;
     for (const mo in lifeBackups) {
       if (!/^\d{4}-\d{2}$/.test(mo) || mo >= curMonthKey) continue;
@@ -8789,7 +8958,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // The live month's MTD delivery in the campaign's pacing metric — always MTD,
   // regardless of the date-bar preset (lifetime totals shouldn't swing with it).
   function liveMonthDelivered(c) {
-    const mk = pacingMetricFor(c.platform);
+    const mk = pacingMetricFor(c.platform, c.dealType);
     const d = resolveMetrics(c, "mtd") || {};
     if (mk === "views")      return parseInt(d.videoViews || c.videoViews) || 0;
     if (mk === "spend")      return parseFloat(d.spend || c.spend) || 0;
@@ -8883,7 +9052,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       else if (ratio <= o.drop) out.push({ metric, label, type: "drop", ratio, latest: latestVal, avg, unit: o.unit });
     };
     // Primary delivery metric (impressions / views / spend, by platform)
-    const mk = pacingMetricFor(c.platform);
+    const mk = pacingMetricFor(c.platform, c.dealType);
     if (mk === "views")      check("Views",  "views",  latest.vv, prior.map(d=>d.vv), { spike:2.5, drop:0.4, floor:50,  unit:"count" });
     else if (mk === "spend") check("Spend",  "spend",  latest.s,  prior.map(d=>d.s),  { spike:2.5, drop:0.4, floor:50,  unit:"spend" });
     else                     check("Impr",   "impr",   latest.i,  prior.map(d=>d.i),  { spike:2.5, drop:0.4, floor:200, unit:"count" });
@@ -9042,7 +9211,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   //
   // Returns { delivered, neededPerDay, pctOfNeeded, color, status, baseDate, baseImpr, todayImpr } or null
   function computeYesterdayDelivery(c, monthlyGoal) {
-    const metricKind = pacingMetricFor(c.platform);
+    const metricKind = pacingMetricFor(c.platform, c.dealType);
     // Today's MTD value (uses snapshot if present, else c.impressions)
     const todayDisp = resolveMetrics(c, "mtd");
     const todayMtd = metricKind === "views"
@@ -9144,7 +9313,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const evenDailyPace = monthlyGoal > 0 ? Math.round(monthlyGoal / dim) : 0;
     // Grade yesterday against the NORMAL even daily pace (goal ÷ days in month), NOT the catch-up rate
     // (remaining ÷ days left). Catch-up is inflated for any behind campaign, so grading against it made a
-    // campaign delivering perfectly normally look red EVERY day (Austin: "almost all the numbers are
+    // campaign delivering perfectly normally look red EVERY day (the user: "almost all the numbers are
     // red… I don't know where to begin looking"). Whether a campaign is behind on the MONTH is already
     // shown by the pacing bar + Gap column; this column answers "did it deliver a healthy amount
     // yesterday?" — so a normal-but-behind day reads green, and only a near-dark day reads red.
@@ -9161,7 +9330,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       // Span the gap to the date the CURRENT data was actually PULLED (lastQciDate) — the date
       // `delivered` runs to — NOT lastChecked. "Mark All Checked" and manual metric edits advance
       // lastChecked WITHOUT new delivery, so using it over-counts the gap and halves the per-day number
-      // (the spurious "2d avg" Austin saw: data through 6/16 but row marked checked 6/17 → gap read 2).
+      // (the spurious "2d avg" the user saw: data through 6/16 but row marked checked 6/17 → gap read 2).
       // lastQciDate pairs with baseDate=priorBreakdownDate (both are QCI drop dates) for the true span.
       // Fall back to lastChecked (manual-only campaigns) then "now".
       const lateStr = (c.lastQciDate && /^\d{4}-\d{2}-\d{2}$/.test(c.lastQciDate)) ? c.lastQciDate
@@ -9175,7 +9344,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const pctOfNeeded = neededPerDay > 0 ? (deliveredPerDay / neededPerDay) * 100 : null;
     // Status color: green once the goal is hit; otherwise grade yesterday's per-day delivery vs the
     // NORMAL even pace — green ≥70% (a healthy day, even if the month is behind), amber 40–70% (a light
-    // day), red <40% (nearly went dark — the only thing actually worth a look). Loosened per Austin so
+    // day), red <40% (nearly went dark — the only thing actually worth a look). Loosened per the user so
     // the column stops being a wall of red for campaigns that are just moderately behind on the month.
     let color = "#4d6e8a", status = "—";
     if (goalHit)                  { color = "#00d48a"; status = "goal hit"; }
@@ -9225,7 +9394,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   function PacingCard({c,disp,pacing,monthlyGoal}){
     const [breakdownOpen, setBreakdownOpen] = useState(false);
     const now=new Date(),dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),dom=now.getDate();
-    const cardMetricKind = pacingMetricFor(c.platform);
+    const cardMetricKind = pacingMetricFor(c.platform, c.dealType);
     const cardDelivered = cardMetricKind==="views" ? (parseInt(disp.videoViews||c.videoViews)||0)
                         : cardMetricKind==="spend" ? (parseFloat(disp.spend||c.spend)||0)
                         : (parseInt(disp.impressions)||0);
@@ -9347,7 +9516,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         if (yest) {
           const multiDay = yest.gapDays > 1;
           // Speak the campaign's pacing unit — spend ($) for SEM, views for YT, else impressions.
-          const _mk = pacingMetricFor(c.platform);
+          const _mk = pacingMetricFor(c.platform, c.dealType);
           const _unit = _mk==="spend" ? "spend" : _mk==="views" ? "views" : "impr";
           const _fmtM = (n) => _mk==="spend"
             ? (n>=1000 ? "$"+(n/1000).toFixed(1)+"k" : "$"+Math.round(n).toLocaleString())
@@ -9369,7 +9538,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         </div>)}
         {/* Monthly revenue box — only shown when dealType + contractRate are set */}
         {moRev!=null&&<div style={{background:lightMode?"#f0fdf9":"#002018",border:`1px solid ${lightMode?"#00c896":"#00c89640"}`,borderRadius:5,padding:"5px 9px",minWidth:60,textAlign:"center"}}>
-          <div style={{fontSize:9,color:lightMode?"#059669":"#00c896",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{c.dealType==="CPV"?"CPV Rev":"CPM Rev"}</div>
+          <div style={{fontSize:9,color:lightMode?"#059669":"#00c896",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{dealBasis(c)==="CPV"?"CPV Rev":"CPM Rev"}</div>
           <div style={{fontSize:11,fontWeight:700,color:lightMode?"#059669":"#00e19e"}}>${moRev>=1000?(moRev/1000).toFixed(1)+"k":moRev.toLocaleString("en-US",{maximumFractionDigits:0})}</div>
         </div>}
         {monthlyGoal&&perfBoxes.length>0&&<div style={{width:1,background:lightMode?"#e2e8f0":"#1a2744",alignSelf:"stretch",margin:"0 3px"}}/>}
@@ -9572,7 +9741,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // CTR — normalize to display percent e.g. 0.25%
     const ctrRaw  = parseFloat(disp.ctr)||0;
     const ctrDisp = ctrRaw > 1 ? ctrRaw : ctrRaw * 100;
-    const ctrFmt  = ctrDisp.toFixed(2)+"%"; // always 2 decimals (e.g. 0.15%) per Austin
+    const ctrFmt  = ctrDisp.toFixed(2)+"%"; // always 2 decimals (e.g. 0.15%) per the user
     const ctrCol  = ctrDisplayColor(c.platform, ctrDisp);
 
     // VCR — display as 0-100; values > 100 are data errors (e.g. view count mistakenly stored)
@@ -9597,7 +9766,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const freqCol = freq <= 0 ? "#3d5a72" : freq <= 2 ? "#00d48a" : freq <= 3.5 ? "#fde047" : "#ef4444";
 
     // Primary delivery metric — platform-aware. YT=views, SEM=spend ($), others=impressions
-    const metricKind = pacingMetricFor(c.platform);
+    const metricKind = pacingMetricFor(c.platform, c.dealType);
     const viewsRaw = parseInt(disp.videoViews||c.videoViews)||0;
     const imprRaw = parseInt(disp.impressions)||0;
     const spendRaw = parseFloat(disp.spend||c.spend)||0;
@@ -9649,7 +9818,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     };
     const paceGapFmt = paceGap === null ? null : fmtGap(paceGap);
     // Colour by the RATIO of delivered ÷ expected-by-now (time-normalized), not the raw gap size, so a
-    // small deficit doesn't jump to red just because the goal is large. Loosened per Austin — lots of
+    // small deficit doesn't jump to red just because the goal is large. Loosened per the user — lots of
     // yellow for "behind a bit", red ONLY when truly in trouble, and orange when way OVER-delivering
     // (overserving, which eats profit — see the revenue cap). Bands: ≥115% pace → orange · ≥80% → green
     // (on pace / a touch ahead) · ≥55% → yellow (behind a bit) · <55% → red (in trouble).
@@ -9681,7 +9850,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const npdYest = computeYesterdayDelivery(c, monthlyGoal);
     const npdPct  = npdYest?.pctOfNeeded ?? null;
     // Same benchmark as the Yesterday column (per-day delivery vs the NORMAL even pace), loosened per
-    // Austin: neutral ≥70% (delivering a healthy day), amber 40–70% (a light day), red <40% (near-dark).
+    // the user: neutral ≥70% (delivering a healthy day), amber 40–70% (a light day), red <40% (near-dark).
     const npdCol =
         npd === null || npdPct === null ? "#3d5a72"  // no target / no delivery data yet → neutral
       : npdPct >= 70 ? "#3d5a72"                     // delivering ~normal → neutral, nothing to look at
@@ -9710,7 +9879,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return <React.Fragment>
     <div style={{display:"grid",gridTemplateColumns:GRID,gap:8,padding:"9px 16px",borderBottom:canExpand&&rowBreakdownOpen?"none":"1px solid "+lmBrdR,alignItems:"center",background:lmBg,borderLeft:"3px solid "+col}}>
 
-      {/* Campaign name + freshness/flight sub-line. Partner name removed per Austin (2026-07-17) —
+      {/* Campaign name + freshness/flight sub-line. Partner name removed per the user (2026-07-17) —
           it's still searchable and shown in the edit modal, just not cluttering every pacing row.
           STICKY: pinned to the left so the campaign name stays visible when you scroll the table right. */}
       <div style={{minWidth:0,position:"sticky",left:0,zIndex:2,background:lmBg,boxShadow:`6px 0 8px -6px rgba(0,0,0,${lightMode?0.16:0.55})`}}>
@@ -9728,7 +9897,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           {rowBreakdown&&<span style={{fontSize:9,color:lightMode?"#3b82f6":"#7ec8ff",background:lightMode?"#dbeafe":"#0a2540",borderRadius:3,padding:"0 4px",fontWeight:700,flexShrink:0}}>{rowBreakdown.length}</span>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6,overflow:"hidden"}}>
-          {/* Full flight dates "M/D/YY - M/D/YY" (Austin) — start neutral, END colour-coded by
+          {/* Full flight dates "M/D/YY - M/D/YY" (the user) — start neutral, END colour-coded by
               days-left urgency (drc) so an imminent end still reads yellow/red. The old "· ends"
               and mid-month "↪ started" badges are gone: the range now shows both dates outright. */}
           {(c.startDate||c.endDate) && (()=>{
@@ -9744,7 +9913,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             : <span style={{fontSize:9,color:lmTxtS,fontWeight:400,flexShrink:0}}>{(()=>{ const d=lastDataDate(c); return d&&/^\d{4}-\d{2}-\d{2}$/.test(d)?(([y,m,dd])=>`${+m}/${+dd}`)(d.split("-")):"—"; })()}</span>
           }
           {/* Note-2 flag — surfaces WHY a campaign (esp. an OFF one) isn't running: "no creatives",
-              "no FB access", etc. (Austin). Truncated with the full note on hover. */}
+              "no FB access", etc. (the user). Truncated with the full note on hover. */}
           {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{fontSize:9,fontWeight:700,color:lightMode?"#b91c1c":"#fca5a5",background:lightMode?"#fee2e2":"#200808",border:`1px solid ${lightMode?"#fecaca":"#ef444455"}`,borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200,flexShrink:1}}>⚠ {c.note2.trim()}</span>}
         </div>
       </div>
@@ -9752,7 +9921,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Platform */}
       <div><span style={{...vBadge(pCol),borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{c.platform}</span></div>
 
-      {/* Status column removed per Austin (2026-07-17) — the pacing.label pill just repeated the
+      {/* Status column removed per the user (2026-07-17) — the pacing.label pill just repeated the
           section header (BEHIND / ON TRACK / AHEAD) and the coloured left border. Its still-useful
           bits (✓ Goal Hit / ⚠ Over badges, and the "No impr / No goal" empty state) moved into the
           pacing-bar cell below, which already shows the % and sits right where the eye lands. */}
@@ -9974,7 +10143,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </div>
     </div>
     {/* Performance brief — plain-language 1–2 sentence summary (deterministic, no AI), first thing in the
-        expanded dropdown, on demand: the dropdown shows a "📝 Generate brief" button (Austin only sends
+        expanded dropdown, on demand: the dropdown shows a "📝 Generate brief" button (the user only sends
         these to clients, so it's not auto-shown on every campaign); clicking it reveals the sentence. */}
     {rowBreakdownOpen && (
       !briefOpen ? (
@@ -10101,7 +10270,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                 {/* metric bars — color = pace for the bucket */}
                 <div style={{position:"absolute",inset:0,display:"flex",alignItems:"flex-end",gap:0}}>
                   {chartData.map(w=>{
-                    // Sleeker bar (Austin): a soft vertical gradient (brighter top → muted base), rounded
+                    // Sleeker bar (the user): a soft vertical gradient (brighter top → muted base), rounded
                     // top corners, a faint color-matched glow, and a smooth grow transition — instead of a
                     // flat solid block. Colour still encodes pace via weekColor.
                     const bc = weekColor(w);
@@ -10508,7 +10677,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // pacing table does (values >1 are already a percentage, e.g. a directly-typed "1.5").
     const ctrPct = raw => raw > 1 ? raw : raw * 100;
     return lastBackup.campaigns.map(b => {
-      const metricKind = pacingMetricFor(b.platform);
+      const metricKind = pacingMetricFor(b.platform, b.dealType);
       const delivered = metricKind === "views" ? num(b.videoViews) : metricKind === "spend" ? num(b.spend) : num(b.impressions);
       const goal = parseMonthlyGoal(b.note1);
       return { b, metricKind, delivered, goal: goal || 0, pct: goal > 0 ? delivered / goal : null, ctr: ctrPct(num(b.ctr)), cpm: num(b.cpm), spend: num(b.spend), freq: num(b.frequency) };
@@ -10539,7 +10708,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       const lp = computeLifetimePacing(c, delivered, goalNum);
       return { c, prior, live, delivered, goalNum, lp, isOff };
     });
-    // ✈ FLIGHTS view (Austin): only multi-month / By-dates flights (flightGoalLabel non-null). Monthly-goal
+    // ✈ FLIGHTS view (the user): only multi-month / By-dates flights (flightGoalLabel non-null). Monthly-goal
     // campaigns stay on the This Month tab. These are the ones paced across the whole flight, cumulatively.
     const all   = [...build(filtered.filter(r=>!!flightGoalLabel(r.c)), false), ...build(offFiltered.filter(r=>!!flightGoalLabel(r.c)), true)];
     // Gate to June-2026-onward starts, plus the optional "Starts after" filter (ISO strings compare
@@ -10561,7 +10730,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const onTrackCount = withG.filter(r => lifeBucket(r)==="ontrack").length;
     const aheadCount   = withG.filter(r => lifeBucket(r)==="ahead").length;
     const offCount     = withG.filter(r => lifeBucket(r)==="off").length;
-    // Sort by the SHARED month sortKey/sortDir (Austin: same pacing options as This Month). Maps each key
+    // Sort by the SHARED month sortKey/sortDir (the user: same pacing options as This Month). Maps each key
     // to the flight row's value — pacing = flight pace %, impr = cumulative delivered, the rest are the
     // campaign's own metrics — so the ✈ Flights list sorts by the exact same options as the monthly table.
     const _dir = sortDir==="asc" ? 1 : -1;
@@ -10611,7 +10780,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             const expPct = lp.timeFrac != null ? Math.min(100, lp.timeFrac*100) : null;
             return (
                 <div key={c.id} style={{display:"grid",gridTemplateColumns:GL,gap:8,padding:"9px 14px",borderBottom:"1px solid "+lmBrdR,alignItems:"center",borderLeft:"3px solid "+lmC(col)}}>
-                  {/* Campaign name — partner removed to match the monthly pacing view (Austin: no partner
+                  {/* Campaign name — partner removed to match the monthly pacing view (the user: no partner
                       on the Pacing tab). Name opens the edit modal (to set the contract Goal). */}
                   <div style={{minWidth:0}}>
                     <div onClick={()=>onEdit(c)} title="Edit campaign (set the contract Goal)" style={{fontSize:14,fontWeight:700,color:lmTxt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer"}}>
@@ -10677,7 +10846,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             { key:"ahead",   label:"Ahead",    color:"#f97316", rows: rows.filter(r=>lifeBucket(r)==="ahead") },
             { key:"off",     label:"Off",      color:"#7a9bbf", rows: rows.filter(r=>lifeBucket(r)==="off") },
           ];
-          // Render flights through the SAME TableHeader + TableRow as This Month (Austin: identical columns
+          // Render flights through the SAME TableHeader + TableRow as This Month (the user: identical columns
           // + bar spacing) — just fed FLIGHT-basis data: cumulative delivered (prior+live) as the metric,
           // the flight total as the goal, and the flight pacing object adapted to computeMonthlyPacing's
           // shape (crossMonthFlightPacing already uses this exact adaptation). The metric columns (CTR/CPM/
@@ -10687,7 +10856,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             const fp = r.lp ? { ...r.lp, pctRaw:r.lp.pct, pct:Math.min(1,r.lp.pct),
               ratio: r.lp.expected>0 ? r.lp.delivered/r.lp.expected : null,
               expectedPct: r.lp.timeFrac!=null ? r.lp.timeFrac : 0, flightBasis:true } : null;
-            const mk = pacingMetricFor(c.platform);
+            const mk = pacingMetricFor(c.platform, c.dealType);
             const disp = { ...(resolveMetrics(c,"mtd")||{}) };
             if(mk==="views") disp.videoViews = String(r.delivered);        // cumulative flight delivery → primaryRaw
             else if(mk!=="spend") disp.impressions = String(r.delivered);
@@ -10735,7 +10904,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     {monthResetAvailable && <MonthNotClosedBanner status={monthCloseStatus()} onCloseMonth={onCloseMonth}/>}
 
     {/* View switch (This Month / ✈ Flights). Quick Check-in moved down into the filter toolbar next to
-        Overlays (Austin) — see below. */}
+        Overlays (the user) — see below. */}
     <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:14}}>
       <div style={{display:"inline-flex",borderRadius:8,overflow:"hidden",border:"1px solid "+lmBrd}}>
         {[["month","📅 This Month"],["lifetime","✈ Flights"]].map(([k,l],i)=>(
@@ -10756,7 +10925,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     {/* "Off" campaigns with recent data — click to expand into a list of
         candidates with per-row activate buttons (so the user can review each
         before activating — not all of them belong in Pacing). */}
-    {/* "off campaigns with data" banner hidden per Austin — keeps the Pacing view clean. (Set the
+    {/* "off campaigns with data" banner hidden per the user — keeps the Pacing view clean. (Set the
         guard back to offWithData.length > 0 to bring it back. Those campaigns can still be activated
         from the Campaigns tab.) */}
     {false && offWithData.length > 0 && (
@@ -10838,7 +11007,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Partner filter dropdown removed (2026-06-16, dash cleanup) — fPartner stays "all"; search + platform cover filtering. */}
       <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode}/>
       {/* Freshness filter — ONE dropdown, replacing the old ✓/✕ button pair + the row of day chips
-          (the "updated 2d 3d 7d 14d" cluster Austin found ugly). The value encodes both the mode and
+          (the "updated 2d 3d 7d 14d" cluster the user found ugly). The value encodes both the mode and
           the window: "all" | "up:<days>" | "not:<days>". Each label carries its live match count. */}
       <select
         value={todayFilter==="all" ? "all" : `${todayFilter==="today"?"up":"not"}:${updatedDays}`}
@@ -10860,7 +11029,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         </optgroup>
       </select>
       {/* Trouble filter — one click narrows the list to campaigns that need a look: a yellow OR red
-          KPI (CTR / view rate / CPM vs Austin's benchmarks) or a severe under/over pacer. */}
+          KPI (CTR / view rate / CPM vs the user's benchmarks) or a severe under/over pacer. */}
       <button onClick={()=>setTroubleOnly(v=>!v)}
         title="Show only campaigns with a yellow/red KPI (CTR, view rate, or CPM) or severe under/over-pacing (fresh data only)"
         style={{display:"flex",alignItems:"center",gap:6,padding:"6px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",fontSize:11,fontWeight:troubleOnly?700:500,flexShrink:0,
@@ -10878,7 +11047,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         <span style={{color:lightMode?"#2563eb":"#38bdf8",fontWeight:700}}>{lastUpdateDisp}</span>
       </div>
       {(<React.Fragment>
-      {/* Overlays + Sort now show on BOTH This Month AND ✈ Flights (Austin). The month Sort's keys
+      {/* Overlays + Sort now show on BOTH This Month AND ✈ Flights (the user). The month Sort's keys
           (Pacing/Impr/CTR/CPM/Spend/End date/Platform/Partner/Name) apply to the flight rows too. */}
       {/* Overlays — the five on-demand analysis views (vs Last Month, Last Month recap, Quiet Lines,
           Forecast, Anomalies) folded into ONE dropdown of checkboxes instead of five toolbar buttons.
@@ -10922,7 +11091,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           </div>
         )}
       </div>
-      {/* Quick Check-in — sits just RIGHT of Overlays (Austin) and enlarged so it reads as the primary
+      {/* Quick Check-in — sits just RIGHT of Overlays (the user) and enlarged so it reads as the primary
           action. Green-tinted always so it stands out from the grey filter controls. */}
       <button onClick={onToggleQuickCheckIn}
         style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,
@@ -10970,7 +11139,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       )}
     </div>
     )}
-    {/* Overlay panels (Last Month / Quiet Lines / MoM / Anomalies) render on BOTH views (Austin: Overlays
+    {/* Overlay panels (Last Month / Quiet Lines / MoM / Anomalies) render on BOTH views (the user: Overlays
         button + its panels available on ✈ Flights too). Forecast is a per-row column via TableRow. */}
 
     {/* ── Last-month recap panel ── read-only finished-month summary, toggled from the toolbar. */}
@@ -11218,7 +11387,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         })}
       </div>
     )}
-    {/* No Impressions ABOVE Off Campaigns (Austin): an active campaign delivering ZERO is often an ERROR —
+    {/* No Impressions ABOVE Off Campaigns (the user): an active campaign delivering ZERO is often an ERROR —
         it should be running but isn't, or a check-in isn't mapping to it — so it needs eyes BEFORE the
         intentionally-paused Off list. */}
     <Section label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>
@@ -11278,7 +11447,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     {/* ── Not started yet ──────────────────────────────────────────────────
         Active campaigns whose flight begins in the FUTURE. They're held out of the pacing buckets
         (nothing to pace against) and out of the freshness filter (they'd always read "not updated" —
-        the noise Austin hit), so they get their own collapsible list here with their start dates. */}
+        the noise the user hit), so they get their own collapsible list here with their start dates. */}
     {notStartedFiltered.length > 0 && (
       <div style={{marginTop:4}}>
         <div onClick={()=>setShowNotStarted(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:showNotStarted?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
@@ -11494,7 +11663,7 @@ function findBreakdownSnapMod(c) {
   return null;
 }
 // Breakdown-line names that carry the device-data surcharge. Matches the word "device(s)" so it
-// catches every label variant Austin uses — "Device Targeting", "Devices", "Device Lookback",
+// catches every label variant the user uses — "Device Targeting", "Devices", "Device Lookback",
 // "Device ID", with or without "(MTS)" — not just the exact phrase "Device Targeting".
 const DEVICE_LINE_RE = /\bdevices?\b/i;
 // The device line(s) matched in the latest breakdown snapshot — {name, impr} each. For display.
@@ -11526,7 +11695,7 @@ function deviceFeeCurrent(c) {
 //   1) name keyword (Mobile / Device / Device ID / Integration / MTS)
 //   2) import type recorded in Note 2 (Mobile-to-Social / Device-Integration / data-integration IO)
 //   3) STRUCTURAL — the same campaign (name + partner) also runs on a DSP record. This is the
-//      "includes mobile (DSP) and FB" split Austin described, and it's the only signal that catches
+//      "includes mobile (DSP) and FB" split the user described, and it's the only signal that catches
 //      campaigns named plainly like "Olympia Hills Golf" (no keyword, blank Note 2). Needs the full
 //      campaign list passed in; without it, only signals 1–2 apply.
 function isDeviceIdSocial(c, all) {
@@ -11704,7 +11873,7 @@ function calcMonthlyRevenue(c, monthIdx, monthDate) {
   const rate = parseFloat(c.contractRate);
   if (!rate || rate <= 0) return null;
   // Non-YT platforms always bill CPM; YT needs an explicit dealType
-  const effectiveDt = c.platform === "YT" ? (c.dealType || "CPV") : "CPM";  // YouTube bills per-view (CPV) by default
+  const effectiveDt = dealBasis(c);  // explicit dealType wins; else YouTube→CPV, others→CPM
   if (!effectiveDt) return null;
   let goal = parseMonthlyGoal(c.note1, monthIdx);
   // FLIGHT fallback: a date-flighted campaign may have NO per-month goal in Note 1 (the flight lives in
@@ -11722,7 +11891,7 @@ function calcMonthlyRevenue(c, monthIdx, monthDate) {
 }
 
 // ── Home "Profit this month" tile — a LIGHT current-month P&L for the overview ────────────────────────
-// Profit is the number that matters (revenue alone doesn't pay the bills — Austin). Mirrors the Revenue
+// Profit is the number that matters (revenue alone doesn't pay the bills — the user). Mirrors the Revenue
 // tab's methodology as closely as is sensible at module scope: revenue billed on ACTUAL delivery, CAPPED
 // at the monthly goal (CPM/CPV), or the SEM management fee; cost = actual reported media spend, with DSP
 // MODELED at the configured est. CPM (DSP rarely reports spend) and SEM media treated as pass-through
@@ -11752,7 +11921,7 @@ function estMonthlyProfit(campaigns){
     const rate=parseFloat(c.contractRate)||0;
     const goalRev=calcMonthlyRevenue(c)||0;                 // full-month goal×rate ceiling
     if(!(rate>0) || !(goalRev>0)) return;
-    const isCPV=plat==="YT";
+    const isCPV=dealBasis(c)==="CPV";
     const delivered=isCPV?viewsMtd:imprMtd;
     const billed=isCPV?delivered*rate:delivered/1000*rate;
     const revA=Math.min(billed, goalRev);                    // capped at the monthly goal (over-delivery isn't billable)
@@ -11779,14 +11948,14 @@ function semMonthlyBudget(c) {
   if (day) { const n = new Date(); return parseFloat(day[1]) * new Date(n.getFullYear(), n.getMonth()+1, 0).getDate(); }
   return 0;
 }
-// SEM management fee = the TOTAL fee for the WHOLE contract, not a per-month amount. Austin's model:
+// SEM management fee = the TOTAL fee for the WHOLE contract, not a per-month amount. the user's model:
 // a $3,000 contract = $2,250 client media (the "$X/Mo" budget in Note 1, pass-through) + a $750 fee to
 // Recrue. The fee is what Recrue earns across the entire flight, so it must be SPREAD across the
 // flight's months (see semFeeMap) — booking it in full every month multiplied SEM revenue by the number
 // of months in the flight (e.g. Pearl Hawaii's $5,013 annual fee was booking $5,013 EVERY month).
 function semTotalFee(c) { return parseFloat(c?.managementFee) || 0; }
 
-// SEM media budget for the WHOLE contract (Austin's confirmed model, 2026-07-17): a contract's
+// SEM media budget for the WHOLE contract (the user's confirmed model, 2026-07-17): a contract's
 // Contract Value is the TOTAL ($3,000), of which the management fee is Recrue's cut ($750), leaving
 // the client's media budget as the remainder ($2,250). That media total is the overspend threshold,
 // spread across the flight by day-share (see semOverageForMonth). Returns 0 for legacy campaigns that
@@ -13188,7 +13357,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                 </div>
               </div>
               <div style={{textAlign:"right",flexShrink:0}}>
-                {/* "Prepared by" is optional. When set, show the label + a × to REMOVE it (Austin) —
+                {/* "Prepared by" is optional. When set, show the label + a × to REMOVE it (the user) —
                     clearing it also drops the whole line from the exported report (the HTML template
                     already omits it when blank). When blank, the field reads as an optional add-slot. */}
                 {preparedBy ? (
@@ -13663,7 +13832,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   const [matchConf,    setMatchConf]    = React.useState({});     // fileRowIdx -> confidence (1.0=memory, 0.8=TTD, fuzzy score for others)
   const [memoryMap,    setMemoryMap]    = React.useState({});     // fileRowIdx -> campId that was RESTORED FROM SAVED MEMORY (a prior check-in). Drives the purple "remembered" check — shown ONLY while the current mapping still equals this. Never set by auto-match or manual picks.
   // Display order for the review list — computed ONCE at parse time so rows don't jump around while you
-  // pick. Priority (Austin's request): fuzzy auto-matches (need review) first, lowest-confidence at the
+  // pick. Priority (the user's request): fuzzy auto-matches (need review) first, lowest-confidence at the
   // very top; then "known" rows (remembered ✓ or exact 100%); then unmapped last. Within a tier, the
   // file's own order is preserved. Rendering keeps each row's ORIGINAL index for all state lookups.
   const [rowOrder,     setRowOrder]     = React.useState(null);   // [origIdx, …] or null (= file order)
@@ -13732,7 +13901,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
 
   // ── Ignore list ─────────────────────────────────────────────────────────────
   // CSV campaign names to ALWAYS skip on check-in — e.g. a campaign a colleague runs that shows up
-  // in the same company-wide file every day (Austin runs Pearl Hawaii display; his boss runs the
+  // in the same company-wide file every day (the user runs Pearl Hawaii display; his boss runs the
   // Netflix line, which kept auto-matching). Persisted, so ignored rows are auto-skipped on every
   // future drop. Un-ignore any time from the list up top to map it again.
   const QCI_IGNORE_KEY = "qci-ignored-names";
@@ -13864,7 +14033,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if ((cols.includes("swipes")||cols.includes("swipe up rate")) && (cols.includes("ad squad name")||cols.includes("ad account name"))) return "Snapchat";
     if (cols.includes("amount spent (usd)")||cols.includes("ctr (link click-through rate)")) return "Facebook/Meta";
     // TVsci report. Two shapes seen in the wild, both handled: a per-DAY export (has a Date column,
-    // "Adgroup Name") and the month-to-date export Austin actually receives (NO Date column, one row
+    // "Adgroup Name") and the month-to-date export the user actually receives (NO Date column, one row
     // per campaign+ad group, "Ad Group Name" with a space). "Completed View Rate" is the stable
     // signature. Must be tested BEFORE TradeDesk (shares "Advertiser Name"/"Data Source") and before
     // the Google check below, whose bare "campaign" substring test would otherwise swallow it.
@@ -13893,7 +14062,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   // The sheet's campaign name encodes the tactic — "Shining Star 2026 CTV", "BD Slam Holy Redeemer (OTT)",
   // "Britestar Milwaukee OTT 2026". Route each row to the client's CTV or OTT campaign accordingly.
   // TVsci exports cover THREE tracker platforms: CTV, OTT and OTTD. "Display" / "Display
-  // Retargeting" lines are the OTTD (display) product — Austin: "the display lines in the excel file
+  // Retargeting" lines are the OTTD (display) product — the user: "the display lines in the excel file
   // should be mapped to the platform OTTD in my tracker." Display is tested FIRST because those names
   // ("Greenwood Credit Union - Display") carry no CTV/OTT token of their own and would otherwise fall
   // through to null and stay unassigned.
@@ -14730,12 +14899,12 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     }
 
     // ── TVsci report: roll every row up to one row per campaign ───────────────────────────────────
-    // Two shapes, both handled. (a) The month-to-date export Austin receives: NO Date column, one row
+    // Two shapes, both handled. (a) The month-to-date export the user receives: NO Date column, one row
     // per campaign PER AD GROUP, values already MTD. (b) A per-day export: a Date column, one row per
     // campaign per day, TRUE DAILY values — those get scoped to the pacing month first, and summing
     // them IS this month's MTD. Either way this supersedes the lifetime spend sheet: no lifetime
     // deltas, no monthly-flight rebuild.
-    // Every advertiser is kept, not just "Recrue_*" — Austin: "I don't currently run any Ambio
+    // Every advertiser is kept, not just "Recrue_*" — the user: "I don't currently run any Ambio
     // accounts but you can keep them in here and be able to be mapped." They simply won't auto-match
     // anything he doesn't have; if he takes one on, he maps it once and it's remembered.
     if(source==="TVsci Daily"){
@@ -14819,7 +14988,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     }
 
     // ── Snapchat platform export (ad-level): roll up to one row per campaign + build the creative
-    //    breakdown, ALL IN ONE check-in (Austin's ask). The new export straight from Snapchat is one row
+    //    breakdown, ALL IN ONE check-in (the user's ask). The new export straight from Snapchat is one row
     //    per AD — columns Ad Account Name / Ad Squad Name / Campaign Name / Ad Name / Impressions /
     //    Swipes / Swipe Up Rate / Spend (Swipes = clicks). We sum impr/swipes/spend per campaign into the
     //    canonical Snap columns extractMetrics reads (Paid Impressions / Clicks / Amount Spent), and
@@ -14933,7 +15102,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // ── Google Ads (TapClicks company-wide export): same rep filter as FB ──
     // The Google export has an "Account Name" column with rep-suffix pattern
     // (e.g. "COM-Envista Credit Union_LR", "ALL-Pearl Hawaii FCU_AG"). Filter
-    // out other reps' rows so Austin only sees his own ~10 campaigns instead
+    // out other reps' rows so the user only sees his own ~10 campaigns instead
     // of 60+ company-wide.
     if(source==="Google" && rows.length > 0 && rows[0]["Account Name"] !== undefined){
       const sampleAccounts = rows.slice(0, 5).map(r => (r["Account Name"]||"").toString());
@@ -14972,7 +15141,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         setSavedMsg(`Filtered ${before.toLocaleString()} DSP rows → ${rows.length} rows for _${userInitials}`);
       }
       // Hide prior-month bleed-over: low-volume line items that trickle into the current export
-      // create dozens of junk rows to map. Drop anything under 100 impressions (per Austin). This
+      // create dozens of junk rows to map. Drop anything under 100 impressions (per the user). This
       // also keeps those stragglers out of the per-line breakdown after Apply.
       {
         const beforeImpr = rows.length;
@@ -15169,7 +15338,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // EXCEPT memory-matched rows (`memMap[k]`): a remembered mapping is an explicit prior decision the
     // user already made — if it collides, that was their choice (e.g. two file lines they deliberately
     // point at one campaign). Demoting those to 0.5 was the bug behind "my remembered campaigns show
-    // 50%/80% instead of auto-mapping" (Austin) — the purple ✓ (remembered) sat next to a 50% score.
+    // 50%/80% instead of auto-mapping" (the user) — the purple ✓ (remembered) sat next to a 50% score.
     const idCounts = {};
     Object.values(initMap).forEach(id => { if(id) idCounts[id] = (idCounts[id]||0) + 1; });
     Object.keys(initMap).forEach(k => {
@@ -15561,12 +15730,14 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
             multiple lines as more tactics are added. Each vendor button selects that whole family in one
             click (drop a Trade Desk file → hit "Trade Desk" → TD/TDV/TDA all on), so a teammate doesn't
             have to know which tactics belong together. Individual tactic pills stay for fine-tuning (e.g.
-            IG-only). Single-tactic vendors (DSP, Snapchat…) just show their one pill. Empty = all. */}
-        <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+            IG-only). Single-tactic vendors (DSP, Snapchat…) just show their one pill. Empty = all.
+            CENTERED (the user) — the vendor groups sit centered and each wrapped line stays centered as more
+            platforms are added. */}
+        <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center",justifyContent:"center"}}>
           {(()=>{
             const togglePlat = p => setQciPlatforms(prev=>{ const n=new Set(prev); n.has(p)?n.delete(p):n.add(p); return n; });
             const pillStyle = active => ({background:active?(_lm?"#eff6ff":"#1a3a5c"):(_lm?"#f1f5f9":"#0a1628"),border:`1px solid ${active?(_lm?"#93c5fd":"#00d9ff"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:4,padding:"2px 8px",color:active?(_lm?"#3B8FFF":"#00d9ff"):(_lm?"#64748b":"#4d6e8a"),fontSize:11,fontWeight:active?700:400,cursor:"pointer",whiteSpace:"nowrap"});
-            // Group the platforms Austin actually has (qciPlatformList) by vendor (PLATFORM_VENDOR), in the
+            // Group the platforms the user actually has (qciPlatformList) by vendor (PLATFORM_VENDOR), in the
             // usual picker order (vendorRank).
             const groups=[]; const seen={};
             qciPlatformList.forEach(p=>{ const v=vendorOf(p); if(!seen[v]){ seen[v]={vendor:v,plats:[]}; groups.push(seen[v]); } seen[v].plats.push(p); });
@@ -15617,7 +15788,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
           )}
           {savedMsg&&!fileError&&(()=>{
             // Pending mappings not yet applied → "Done" means "I've reviewed, apply everything now"
-            // (bypasses the low-confidence review gate — Austin: "I already reviewed it if I click done").
+            // (bypasses the low-confidence review gate — the user: "I already reviewed it if I click done").
             // Once applied (fileRows cleared), the same button just closes the panel.
             const pending = !!fileRows && mappedCount > 0;
             return (
@@ -16005,7 +16176,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
               );
             })()}
             {/* Column header — makes it unmistakable which side is the PLATFORM/file name and which is the
-                TRACKER campaign it maps to (Austin: names aren't always 100%, so label which is which). */}
+                TRACKER campaign it maps to (the user: names aren't always 100%, so label which is which). */}
             <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.05em"}}>
               <span style={{flex:1,minWidth:0,color:_lm?"#0369a1":"#7dd3fc"}}>📄 Name in file</span>
               <span style={{color:_lm?"#94a3b8":"#3d5a72"}}>→</span>
@@ -16114,7 +16285,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                         // campaigns archived more than 31 days ago).
                         const dropdownBase = (showingAll || qciSearch) ? fullPool : assignPool;
                         // The FILE's platforms — a DSP file should only ever offer DSP campaigns, a TD file
-                        // only TD-family, etc. This gate applies EVEN in "show all" (Austin: "if I'm linking
+                        // only TD-family, etc. This gate applies EVEN in "show all" (the user: "if I'm linking
                         // Olympia Hills DSP I don't need all FB campaigns to show up"). "show all" then just
                         // widens the ARCHIVE + drops the smart-keyword narrowing, staying on-platform.
                         const _srcGate = (typeof SOURCE_PLATFORMS!=="undefined") ? SOURCE_PLATFORMS[fileSource] : null;
@@ -16536,7 +16707,7 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, dspCpm, curImpr
   const lbl = {display:"block",fontSize:9,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:".05em",fontWeight:700,marginBottom:3,whiteSpace:"nowrap"};
   const nImpr=parseInt(impr)||0, nViews=parseInt(views)||0, nSpend=String(spend).trim()===""?null:(parseFloat(spend)||0);
   const rawRev = isCPV ? nViews*rate : nImpr/1000*rate;
-  // Revenue can't exceed the monthly goal (goalRev) — over-delivery isn't billable (Austin). The
+  // Revenue can't exceed the monthly goal (goalRev) — over-delivery isn't billable (the user). The
   // preview shows the CAPPED figure so this editor foots to the P&L it writes.
   const rev  = goalRev>0 ? Math.min(rawRev, goalRev) : rawRev;
   const overCap = goalRev>0 && rawRev > goalRev + 0.5;
@@ -16578,7 +16749,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const [cellMode, setCellMode]             = useState(_revPersisted.cellMode || "dollar"); // "dollar" | "margin"
   // Fresh-start cutoff: clean spend tracking begins June 2026, so everything before it is hidden
   // everywhere in Revenue (graph, month strip, per-month grid, totals). Now DYNAMIC (see
-  // getDataStartMonth): resolves to the earliest month with real data (Austin → June), or the
+  // getDataStartMonth): resolves to the earliest month with real data (the user → June), or the
   // current month for a fresh copy, or an explicit Config override — so a new user starts clean.
   const dataStartMonth = getDataStartMonth();
   // DSP estimated cost CPM — user-editable in Config (per tracker); falls back to the DSP_EST_CPM
@@ -16632,7 +16803,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   function commitMonthMetrics(c, month, vals) {
     const { impr, views, spend } = vals;
     const rate = parseFloat(c.contractRate) || 0;
-    const dt = c.platform === "YT" ? (c.dealType || "CPV") : "CPM";
+    const dt = dealBasis(c);
     // SEM revenue for a month = that month's SHARE of the contract-total management fee (semFeeMap),
     // never the whole fee — otherwise every month books the full contract fee.
     // Non-SEM revenue is CAPPED at the monthly goal (goalRev): delivering over goal isn't billable,
@@ -16811,7 +16982,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     // stays PENDING (null) so its fee isn't booked as profit prematurely. Only the CURRENT month is
     // gated this way: past/closed months keep their recorded outcome so history & locked months never move.
     if (mo === thisMonth && spendOf(mo) == null) return null;
-    // Two budget models. NEW (Austin, total contract): media total = Contract Value − fee, spread by
+    // Two budget models. NEW (the user, total contract): media total = Contract Value − fee, spread by
     // day-share across the whole flight (mirrors semFeeMap's fee spread). LEGACY: a monthly "$X/Mo" in
     // Note 1, prorated only for partial first/last months. Prefer the total model when a contract total
     // is entered; otherwise fall back to the monthly budget so existing SEM campaigns don't move.
@@ -16845,7 +17016,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     if (!moReported) return 0;                                // `mo` has no media spend yet → no overage
     // FLOORED AT 0 — the management fee is the CEILING on profit. Going over budget DOCKS the fee for the
     // month the cumulative overage grows; getting back under simply STOPS the docking (profit returns to
-    // the full fee share = 100% margin) rather than crediting profit ABOVE the fee. Austin: "it doesn't
+    // the full fee share = 100% margin) rather than crediting profit ABOVE the fee. the user: "it doesn't
     // make sense to count it as profit when I overspend." Trade-off: a past month's dock is not refunded
     // — a recovery only offsets FUTURE over-budget months (the cumulative walk above still nets them out).
     return Math.max(0, Math.max(0, cumS - cumB) - prevCumOver);
@@ -16913,7 +17084,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         // keeps its real recorded outcome (a genuine spent-nothing month stays a real loss in history).
         const rate = parseFloat(c.contractRate) || 0;
         if (rate > 0) {
-          const isCPV = c.platform === "YT" && c.dealType === "CPV";
+          const isCPV = dealBasis(c) === "CPV";
           const delivered = isCPV ? actualViewsForMonth(c, mo) : actualImprForMonth(c, mo);
           if (!(delivered != null && delivered > 0)) return null;
         }
@@ -17023,7 +17194,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       }
     } else if (mo <= thisMonth && rev > 0) {
       const rate = parseFloat(c.contractRate);
-      const effectiveDt = c.platform === "YT" ? (c.dealType || "CPV") : "CPM";  // YouTube bills per-view (CPV) by default
+      const effectiveDt = dealBasis(c);  // explicit dealType wins; else YouTube→CPV, others→CPM
       if (rate > 0 && effectiveDt === "CPM") {
         const actualImpr = actualImprForMonth(c, mo);
         if (actualImpr != null && actualImpr > 0) rev = Math.min((actualImpr / 1000) * rate, goalRev);
@@ -17157,7 +17328,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // Catch campaigns (running in the focused month) that would lock into the P&L as $0 revenue or a
   // pure loss because they're missing something: a SEM management fee, a contract rate, or delivered
   // impressions/views for spend that's already logged. Surfaced above the KPIs / Lock so the report
-  // Austin sends his boss is airtight — these are the exact gaps we've been fixing by hand.
+  // the user sends his boss is airtight — these are the exact gaps we've been fixing by hand.
   const dataGaps = rows.reduce((acc, r) => {
     const c = r.c, fc = r.focusCell;
     const endedBefore = c.endDate && c.endDate.slice(0,7) < activeMonth;
@@ -17168,7 +17339,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     const spend = fc.spend;                                    // null = no spend data yet
     const rev   = fc.rev || 0;
     const isSEM = c.platform==="SEM", isDSP = c.platform==="DSP";
-    const unit  = (c.platform==="YT" && (c.dealType||"")==="CPV") ? "views" : "impressions";
+    const unit  = dealBasis(c)==="CPV" ? "views" : "impressions";
     let issue = null;
     if (isSEM) {
       if (fee <= 0) issue = (spend!=null && spend>0)
@@ -17436,7 +17607,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             return (
             <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:5,maxHeight:360,overflowY:"auto"}}>
               {missingRates.map(c=>{
-                const isCPV = c.platform==="YT";
+                const isCPV = dealBasis(c)==="CPV";
                 const goal = parseMonthlyGoal(c.note1);
                 const sug = isCPV ? null : suggestRate(c.platform, learnedRates); // CPM auto-suggest per tactic
                 return (
@@ -17876,7 +18047,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       </div>
 
       {/* ── Where the money's made — profit by vendor → tactic → CAMPAIGNS ──────────────
-          Moved here (above the campaign breakdown) per Austin. Each vendor drills into its tactics
+          Moved here (above the campaign breakdown) per the user. Each vendor drills into its tactics
           (Meta → FB/FBV), and each tactic now drills again into the actual campaigns for that tactic.
           Uses the SAME realized-only revenue/profit as the KPI tiles, so it sums back to the totals. */}
       {(()=>{
@@ -18171,12 +18342,12 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                         <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
                           Revenue · {focusLabelShort}
                           {r.monthlyRev!=null&&<span style={{color:_lm?"#00c896":"#00e19e",fontWeight:400,textTransform:"none",marginLeft:6,letterSpacing:0}}>
-                            {(r.c.platform==="YT"?(r.c.dealType||"CPV"):"CPM")==="CPV"?`$${parseFloat(r.c.contractRate).toFixed(3)} CPV`:`$${parseFloat(r.c.contractRate).toFixed(2)} CPM`}</span>}
+                            {dealBasis(r.c)==="CPV"?`$${parseFloat(r.c.contractRate).toFixed(3)} CPV`:`$${parseFloat(r.c.contractRate).toFixed(2)} CPM`}</span>}
                         </div>
                         <div style={{fontSize:26,fontWeight:700,color:_lm?"#0ea5e9":"#7a9bbf",lineHeight:1}}>{$fc(r.focusCell.rev)}</div>
                         {r.monthlyRev!=null&&(()=>{
                           const goal=parseMonthlyGoal(r.c.note1);
-                          const effectiveDt=r.c.platform==="YT"?(r.c.dealType||"CPV"):"CPM";
+                          const effectiveDt=dealBasis(r.c);
                           const rateNum=parseFloat(r.c.contractRate)||0;
                           if(rateNum>0){
                             // Bill on what was ACTUALLY delivered this month — views for CPV (YouTube),
@@ -18280,7 +18451,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       const rev = r.focusCell.rev||0;
                       const spend = r.focusCell.spend;
                       const profit = r.focusCell.profit;
-                      const effectiveDt = r.c.platform==="YT"?(r.c.dealType||"CPV"):"CPM";
+                      const effectiveDt = dealBasis(r.c);
                       const isCPV = effectiveDt==="CPV";
                       const rateNum = parseFloat(r.c.contractRate)||0;
                       const delivered = isCPV ? actualViewsForMonth(r.c, activeMonth) : actualImprForMonth(r.c, activeMonth);
@@ -18373,7 +18544,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                     {/* Inline "edit this month's numbers" — correct delivery/spend right here (works on a
                         locked month too), so a missed/late campaign doesn't need the unlock/edit/relock dance. */}
                     {r.c.platform!=="SEM" && parseFloat(r.c.contractRate)>0 && activeMonth<=thisMonth && (()=>{
-                      const isCPV = r.c.platform==="YT" && (r.c.dealType||"")==="CPV";
+                      const isCPV = dealBasis(r.c)==="CPV";
                       const lk = monthLocks[activeMonth]?.campaigns?.find(x=>String(x.id)===String(r.c.id));
                       const curImpr  = lk ? (parseInt(lk.impressions)||0) : (actualImprForMonth(r.c, activeMonth)||0);
                       const curViews = lk ? (parseInt(lk.videoViews)||0)  : (actualViewsForMonth(r.c, activeMonth)||0);
@@ -18714,7 +18885,7 @@ const CONFIG_KEY = "campaign-tracker-platform-config";
 //   2. otherwise the EARLIEST month that actually holds data — a closed-month backup, a month lock,
 //      or a check-in in any campaign's metricSeries;
 //   3. a brand-new EMPTY tracker falls back to the CURRENT month and grows from there.
-// Austin's tracker still resolves to June (his earliest real data) with nothing moved; a fresh copy
+// the user's tracker still resolves to June (his earliest real data) with nothing moved; a fresh copy
 // starts whenever the new user begins adding data.
 function getDataStartMonth() {
   let cfg = {};
@@ -18866,11 +19037,34 @@ function PrefixPartnerSettings({ partnerPrefixes, setPartnerPrefixes, lightMode 
   );
 }
 
+// "Your name" — the campaign manager whose tracker this is. Self-contained (saves straight to
+// USER_NAME_KEY) so it needs no App-level wiring; personalizes the Home greeting + the Zeus AI identity,
+// and is the per-user identity for the multi-CM rollout. Rep INITIALS (for filtering company-wide files)
+// stay in Quick Check-in.
+function UserNameCard({ lightMode=false }) {
+  const [name, setName]   = React.useState(()=>loadUserName());
+  const [saved, setSaved] = React.useState(false);
+  const save = (v) => { setName(v); try{ localStorage.setItem(USER_NAME_KEY, v.trim()); }catch{} setSaved(true); setTimeout(()=>setSaved(false), 1200); };
+  return (
+    <div style={{background:lightMode?"#ffffff":"#0c1625",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
+        <span style={{fontSize:13,fontWeight:800,color:lightMode?"#0f172a":"#edf4ff"}}>👤 Your name</span>
+        <input value={name} onChange={e=>save(e.target.value)} placeholder="e.g. Jordan Lee"
+          style={{background:lightMode?"#f8fafc":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:7,padding:"6px 11px",color:lightMode?"#0f172a":"#d8eaf8",fontSize:12,fontWeight:600,outline:"none",minWidth:220}}/>
+        {saved && <span style={{fontSize:11,color:lightMode?"#059669":"#00e5a0",fontWeight:700}}>✓ Saved</span>}
+      </div>
+      <div style={{fontSize:11,color:lightMode?"#64748b":"#7a9bbf",lineHeight:1.5}}>
+        Whose tracker this is — personalizes the Home greeting and the Zeus AI assistant. Each campaign manager sets their own; nothing is tied to one person. (Your rep initials for filtering company-wide files are set in Quick Check-in.)
+      </div>
+    </div>
+  );
+}
+
 function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, ttdSyncStatus=null, ttdSyncInfo=null, dspSyncStatus=null, dspSyncInfo=null, googleSyncStatus=null, googleSyncInfo=null, snapSyncStatus=null, snapSyncInfo=null, configView="all" }) {
   const [cfg, setCfg] = useState(()=>{
     try { const s=localStorage.getItem(CONFIG_KEY); return s?JSON.parse(s):{}; } catch { return {}; }
   });
-  // The Config tab splits into General + Connections sub-tabs (Austin, 2026-07-17). This component
+  // The Config tab splits into General + Connections sub-tabs (the user, 2026-07-17). This component
   // renders BOTH sets of sections; `configView` filters which show: "connections" = the 5 platform
   // connectors, "general" = custom platforms / setup guide / sync health (+ the Data Start setting).
   const CONFIG_SECTIONS = { connections: ["meta","ttd","dsp","google","snap","setup","health"], general: ["platforms"] };
@@ -20354,7 +20548,7 @@ function loadMorningBrief(){ try { return JSON.parse(localStorage.getItem(MORNIN
 // One number rolled up from the same signals the Home "needs attention" queue and the Pacing tab
 // already use: pacing vs goal, data freshness, whether a rate is set. Kept as a pure module-level
 // function so the Home hero, the morning brief, and the AI-brief context all score identically.
-// Every deduction is explainable (that's why it returns `reasons`) — Austin can always see WHY a
+// Every deduction is explainable (that's why it returns `reasons`) — the user can always see WHY a
 // campaign is a B and not an A. Hoisted, so App.buildContext (defined earlier) can call it too.
 function scoreCampaignHealth({ pacingLabel, pacingRatio, pacingPctRaw, daysSinceData, hasData, daysLeft, hasRate, isSEM }){
   let s = 100; const reasons = [];
@@ -20396,11 +20590,17 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
   // agenda read correctly regardless of how this particular computer's clock is set.
   const todayISO = tzTodayISO();
   const hour = tzHour();
-  const greeting = hour<12 ? "Good morning" : hour<18 ? "Good afternoon" : "Good evening";
+  // Personalized with the campaign manager's first name (Config → General) when set — so each person's
+  // copy greets them by name; falls back to the plain greeting when unset.
+  const greeting = (hour<12 ? "Good morning" : hour<18 ? "Good afternoon" : "Good evening") + (loadUserFirstName() ? `, ${loadUserFirstName()}` : "");
   const dateLabel = new Date(todayISO+"T12:00:00Z").toLocaleDateString("en-US",{ weekday:"long", month:"long", day:"numeric", timeZone:"UTC" });
   // Live clock in the tracker zone (ticks every 30s). Zone shown so it's obvious which time you're on.
   const [, _clockTick] = useState(0);
   useEffect(()=>{ const id=setInterval(()=>_clockTick(t=>t+1), 30000); return ()=>clearInterval(id); }, []);
+  // Lightweight first-run setup nudge — surfaces only the essentials a new campaign manager needs (name,
+  // rep initials, auto-backup) and only until they're set. Dismissible. Kept minimal on purpose — the user
+  // trains people, so it's a quick checklist, not a walkthrough.
+  const [setupDismissed, setSetupDismissed] = useState(()=>{ try{ return localStorage.getItem("home-setup-dismissed")==="1"; }catch{ return false; } });
   const [attnOpen, setAttnOpen] = useState(false);       // "Needs attention" collapsed by default (less crowding)
   const [launchOpen, setLaunchOpen] = useState(()=>{ try{ return localStorage.getItem("home-show-launch")!=="0"; }catch{ return true; } }); // Launch & flag watch — open by default (don't let launches slip)
   const [showAllPrios, setShowAllPrios] = useState(false); // Today's priorities is now the single operational list — expand to see all (replaces the removed "flagged" card)
@@ -20435,7 +20635,7 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
   const scored = []; // { c, score, band, reasons }
   // Quality drill-down behind the health score (click to open): poor KPIs + severe pacing.
   const kpiIssues = []; // { c, kind:"PACE"|"CTR"|"VCR"|"CPM", label, value, bench, sev(2-3) }
-  const benchmarks = loadBenchmarks(); // Austin's own thresholds from the Zeus tab (shared everywhere)
+  const benchmarks = loadBenchmarks(); // the user's own thresholds from the Zeus tab (shared everywhere)
   // Collect ALL reasons first, then keep the worst per campaign.
   const raw = [];
   running.forEach(c=>{
@@ -20445,7 +20645,7 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
     const p = crossMonthFlightPacing(c) || computeMonthlyPacing(c, {}, c.note1);
     // Freshness gate: a campaign not checked in within ~4 days has STALE numbers — its "behind/ahead"
     // reading is just old data, not a real pace problem. So we DON'T surface pacing flags for it; the
-    // only thing worth saying is "this one needs a check-in." (Austin: don't clutter Home with pacing
+    // only thing worth saying is "this one needs a check-in." (the user: don't clutter Home with pacing
     // updates on campaigns that haven't reported in a few days — just nudge the few that need a drop.)
     const fresh = updatedWithin(c, 4);
     if(!p) health.nodata++;
@@ -20475,7 +20675,7 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
     scored.push({ c, score:hs.score, band:healthBand(hs.score), reasons:hs.reasons });
 
     // ── Quality drill-down: poor KPI + high CPM + SEVERE pacing ──────────────────────────────────
-    // Graded against Austin's OWN benchmarks (the Zeus tab's Benchmarks editor → shared gradeCampaignKpis).
+    // Graded against the user's OWN benchmarks (the Zeus tab's Benchmarks editor → shared gradeCampaignKpis).
     // sev 2 = yellow (below warn / above cpmWarn), sev 3 = red (below bad / above cpmBad).
     const g = gradeCampaignKpis(c, benchmarks);
     if(g.ctr) kpiIssues.push({ c, kind:"CTR", label:"Low CTR", value:g.ctr.pct.toFixed(2)+"%", bench:`warn <${g.bm.warn}% · red <${g.bm.bad}%`, sev:g.ctr.sev });
@@ -20515,7 +20715,7 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
   // ── Launch & flag watch — catch campaigns that could slip through the cracks. Unlike the pacing queue
   // above (RUNNING campaigns only), this scans EVERY campaign so it also catches OFF ones parked behind a
   // Note-2 flag ("Off — FB access", "waiting on creatives") and campaigns marked live but delivering
-  // nothing (may never have gone live). Austin: "I don't want anything to not go live or slip."
+  // nothing (may never have gone live). the user: "I don't want anything to not go live or slip."
   const launchWatch = [];
   campaigns.forEach(c=>{
     const status  = c.status || "active";
@@ -20616,7 +20816,7 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
     // Resolve against active + archived so a reminder still shows its campaign name after it's archived.
     const camp = r.campaignId ? (campaigns.find(c=>c.id===r.campaignId) || archive.find(c=>c.id===r.campaignId)) : null;
     const noteTxt = r.note || (rt?rt.label:"Reminder");
-    // Campaign name is the headline (Austin: "I need to see the campaign name more than anything");
+    // Campaign name is the headline (the user: "I need to see the campaign name more than anything");
     // the reminder type + note drop to the sub-line. Unlinked reminders fall back to the note.
     reminderItems.push({ kind:"reminder", dateISO: overdue?todayISO:r.date.slice(0,10), overdue,
       title: camp ? camp.campaignName.trim() : noteTxt,
@@ -20683,17 +20883,46 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
           <div style={{fontSize:22, fontWeight:800, color:_lm?"#0f172a":"#edf4ff", lineHeight:1.1}}>{greeting} 👋</div>
           <div style={{fontSize:12.5, color:_lm?"#64748b":"#4d6e8a", marginTop:3}}>{dateLabel}</div>
         </div>
-        <div style={{display:"flex", flexDirection:"column", alignItems:"flex-end", gap:8}}>
-          <div style={{textAlign:"right", lineHeight:1}}>
-            <span style={{fontSize:21, fontWeight:800, color:_lm?"#0f172a":"#edf4ff", fontVariantNumeric:"tabular-nums"}}>{clockTime}</span>
-            {tzShort && <span style={{fontSize:11, fontWeight:700, color:_lm?"#94a3b8":"#4d6e8a", marginLeft:6}}>{tzShort}</span>}
-          </div>
-          <div style={{display:"inline-flex", borderRadius:8, overflow:"hidden", border:`1px solid ${_lm?"#e2e8f0":"#26364f"}`}}>
-            <span style={{background:_lm?"#eef2ff":"#0a2036", color:_lm?"#1d4ed8":"#00d9ff", padding:"6px 14px", fontSize:12, fontWeight:700}}>My Day</span>
-            <span title="Leadership roll-up across the team — coming with the org rollout" style={{padding:"6px 14px", fontSize:12, fontWeight:600, color:_lm?"#94a3b8":"#3d5a72", cursor:"default"}}>Team <span style={{fontSize:9, opacity:.8}}>soon</span></span>
-          </div>
+        {/* Live clock. The My Day / Team toggle was removed (the user) — Team roll-up isn't needed yet, and a
+            lone "My Day" pill is meaningless on its own. */}
+        <div style={{textAlign:"right", lineHeight:1}}>
+          <span style={{fontSize:21, fontWeight:800, color:_lm?"#0f172a":"#edf4ff", fontVariantNumeric:"tabular-nums"}}>{clockTime}</span>
+          {tzShort && <span style={{fontSize:11, fontWeight:700, color:_lm?"#94a3b8":"#4d6e8a", marginLeft:6}}>{tzShort}</span>}
         </div>
       </div>
+
+      {/* ── Quick setup (first-run) — only shows the essentials that aren't set yet ── */}
+      {!setupDismissed && (()=>{
+        const hasName = !!loadUserName();
+        const hasInitials = !!(()=>{ try{ return (localStorage.getItem(USER_INITIALS_KEY)||"").trim(); }catch{ return ""; } })();
+        const bcfg = (()=>{ try{ return JSON.parse(localStorage.getItem(BACKUP_CFG_KEY)||"{}"); }catch{ return {}; } })();
+        const hasBackup = !!(bcfg.enabled && (bcfg.folderName || bcfg.method==="download"));
+        const steps = [];
+        if(!hasName)     steps.push({ label:"Add your name",        desc:"personalizes your tracker + Zeus",                     btn:"Set name",     act:()=>onNavigate("config") });
+        if(!hasInitials) steps.push({ label:"Set your rep initials", desc:"filters company-wide files to just your campaigns",     btn:"Set initials", act:()=>onStartCheckIn() });
+        if(!hasBackup)   steps.push({ label:"Turn on auto-backup",   desc:"save a copy to a folder or Google Drive so you never lose data", btn:"Set up", act:()=>onNavigate("config") });
+        if(!steps.length) return null;
+        return (
+          <div style={{background:_lm?"#eff6ff":"#0a1f33", border:`1px solid ${_lm?"#bfdbfe":"#1e466e"}`, borderRadius:12, padding:"12px 16px", marginBottom:16}}>
+            <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
+              <span style={{fontSize:12, fontWeight:800, color:_lm?"#1d4ed8":"#7dd3fc", textTransform:"uppercase", letterSpacing:"0.05em"}}>⚡ Quick setup</span>
+              <span style={{fontSize:11, color:_lm?"#64748b":"#4d6e8a"}}>{steps.length} thing{steps.length>1?"s":""} to finish</span>
+              <button onClick={()=>{ setSetupDismissed(true); try{ localStorage.setItem("home-setup-dismissed","1"); }catch{} }}
+                title="Dismiss (you can still do these anytime in Config / Quick Check-in)"
+                style={{marginLeft:"auto", background:"none", border:"none", color:_lm?"#94a3b8":"#4d6e8a", fontSize:16, lineHeight:1, cursor:"pointer", padding:"0 2px"}}>×</button>
+            </div>
+            <div style={{display:"flex", flexDirection:"column", gap:6}}>
+              {steps.map((s,i)=>(
+                <div key={i} style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap"}}>
+                  <span style={{fontSize:12.5, fontWeight:700, color:_lm?"#0f172a":"#d8eaf8"}}>{s.label}</span>
+                  <span style={{fontSize:11, color:_lm?"#64748b":"#7a9bbf", flex:1, minWidth:120}}>{s.desc}</span>
+                  <button onClick={s.act} style={{flexShrink:0, background:_lm?"#2563eb":"#0a2a44", border:`1px solid ${_lm?"#2563eb":"#00d9ff55"}`, borderRadius:7, padding:"5px 13px", color:_lm?"#ffffff":"#7dd3fc", fontSize:11.5, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap"}}>{s.btn} →</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Inbox / drafts nudge */}
       {(draftCount>0 || checkinCount>0) && (
@@ -20771,7 +21000,7 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
         {!briefFresh && <div style={{fontSize:10, color:_lm?"#94a3b8":"#3d5a72", marginTop:8}}>Auto-generated from today's numbers — your morning-brief agent will replace this once it's connected.</div>}
       </div>
 
-      {/* Month at a glance — PROFIT only (Austin: revenue means nothing if we're not booking profit).
+      {/* Month at a glance — PROFIT only (the user: revenue means nothing if we're not booking profit).
           Estimated from actual delivery capped at goal, minus media cost (DSP modeled, SEM = fee).
           Click → Revenue tab for the exact P&L. Hidden until there's some delivery/spend data to show. */}
       {(()=>{
@@ -20901,7 +21130,7 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
 
       {/* Two-column body */}
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))", gap:14, alignItems:"stretch"}}>
-        {/* Flagged-campaigns card removed (2026-08-14, Austin) — Today's Priorities above is now the ONE
+        {/* Flagged-campaigns card removed (2026-08-14, the user) — Today's Priorities above is now the ONE
             operational list (it already contained every flagged campaign + reminders, with Show-all), and
             the Campaign Health score is the separate KPI-quality lens. These two cards (Meetings via
             order:-1 → left column · Quick actions → right) are now direct children of the two-col grid. */}
@@ -20921,7 +21150,7 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
           </div>
 
           {/* Your schedule — MEETINGS only (Outlook). Reminders live in the calendar popout.
-              order:-1 floats it ABOVE Quick actions in the right rail (Austin's request). */}
+              order:-1 floats it ABOVE Quick actions in the right rail (the user's request). */}
           <div style={{...card, padding:"14px 16px", order:-1}}>
             <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:10, flexWrap:"wrap"}}>
               <span style={{...labelStyle, flex:1}}>📅 Meetings</span>
@@ -21121,7 +21350,7 @@ export default function App() {
   const [fPlatforms, setFPlatforms] = useState(new Set(_campPersisted.fPlatforms || []));
   const [fMonthly, setFMonthly]   = useState(_campPersisted.fMonthly || false);
   // Goal-type filter: "all" | "monthly" (recurring per-month goal) | "flights" (specific date-range
-  // flight). Computed from the goal structure, NOT the manual ★ monthlyFlight star — lets Austin
+  // flight). Computed from the goal structure, NOT the manual ★ monthlyFlight star — lets the user
   // isolate the recurring-monthly campaigns at month-end and hide the odd-window flights (or vice-versa).
   const [fGoalType, setFGoalType] = useState(_campPersisted.fGoalType || "all");
   const [sortKey, setSortKey]     = useState(_campPersisted.sortKey || "endDate");
@@ -21687,7 +21916,7 @@ export default function App() {
   const [partnerPrefixes, setPartnerPrefixes] = useState(() => {
     try {
       const stored = JSON.parse(localStorage.getItem("campaign-tracker-partner-prefixes") || "null");
-      // First-time setup: seed with the explicit mapping Austin just gave me
+      // First-time setup: seed with the explicit mapping the user just gave me
       if (!stored || Object.keys(stored).length === 0) return { "CMW": "Carter Media Works" };
       return stored;
     } catch { return { "CMW": "Carter Media Works" }; }
@@ -22058,7 +22287,7 @@ export default function App() {
     }
   },[]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Only the platforms Austin actually has campaigns on (active + off) — no point listing platforms
+  // Only the platforms the user actually has campaigns on (active + off) — no point listing platforms
   // with zero campaigns in the pacing filter. (Reverted 2026-07-30 from the all-platforms union.)
   const platforms = useMemo(()=>sortPlatforms([...new Set(campaigns.map(c=>c.platform).filter(Boolean))]),[campaigns]);
   const filtered  = useMemo(()=>{
@@ -22414,7 +22643,7 @@ export default function App() {
   // keys). Shared by the manual JSON export AND the auto-backup safety net so they're identical.
   // Every small settings/memory key that lives OUTSIDE the campaigns array — partner codes, custom
   // platforms, Quick-Check-in name memory, KPI benchmarks, etc. These were NOT in the backup, so a
-  // power-loss wipe of these keys was unrecoverable (Austin, 2026-07-29 — lost partner codes + custom
+  // power-loss wipe of these keys was unrecoverable (the user, 2026-07-29 — lost partner codes + custom
   // platforms + all QCI mappings even after importing a backup). Stored as RAW strings so the import
   // can write them straight back, format-agnostic.
   const BACKUP_SETTINGS_KEYS = [
@@ -22466,6 +22695,27 @@ export default function App() {
   const readBackupCfg = () => { try { return JSON.parse(localStorage.getItem(BACKUP_CFG_KEY)||"{}"); } catch { return {}; } };
   const [backupCfg, setBackupCfg] = useState(readBackupCfg);
   const saveBackupCfg = (patch) => { setBackupCfg(prev => { const next={...prev,...patch}; try{ localStorage.setItem(BACKUP_CFG_KEY, JSON.stringify(next)); }catch(e){} return next; }); };
+  // Live folder-write permission. Chrome CLEARS File-System-Access grants when the browser restarts, so the
+  // silent daily backup then can't write (a background run has no user gesture to re-request with) and folder
+  // backups quietly stop. We surface the lapsed state in Config so it's OBVIOUS and one click re-arms it.
+  const [backupPerm, setBackupPerm] = useState(null); // "granted" | "prompt" | "denied" | "none" | "na" | null(unknown)
+  const refreshBackupPerm = React.useCallback(async () => {
+    if(!FSA_SUPPORTED){ setBackupPerm("na"); return; }
+    try { const h = await idbGetDirHandle(); if(!h){ setBackupPerm("none"); return; } const p = await h.queryPermission({mode:"readwrite"}); setBackupPerm(p); }
+    catch(e){ setBackupPerm("denied"); }
+  }, []);
+  useEffect(()=>{ refreshBackupPerm(); }, [backupCfg.folderName, refreshBackupPerm]);
+  // Re-arm a lapsed folder grant (or pick a fresh folder if the handle is gone) — must run from a click so
+  // requestPermission is allowed — then immediately writes a backup.
+  const reconnectBackup = async () => {
+    try {
+      const h = await idbGetDirHandle();
+      if (h) { let p="denied"; try { p = await h.requestPermission({mode:"readwrite"}); } catch(e){}
+        if (p === "granted") { await runBackup("manual"); await refreshBackupPerm(); return; } }
+      const nh = await window.showDirectoryPicker({mode:"readwrite"});
+      await idbSetDirHandle(nh); saveBackupCfg({ enabled:true, folderName:nh.name }); await runBackup("folder-setup"); await refreshBackupPerm();
+    } catch(e){ /* user cancelled */ }
+  };
   // reason: "manual" | "folder-setup" | "month-close" | "load"
   const runBackup = async (reason) => {
     const gesture = reason==="manual" || reason==="folder-setup" || reason==="month-close";
@@ -22529,7 +22779,7 @@ export default function App() {
   // ── Load-time AUTO-RECOVERY ────────────────────────────────────────────────────────────────────
   // If the app opened with NO campaigns but the IndexedDB safety copy still has some, localStorage was
   // almost certainly wiped (power loss / corruption / cleared cache) — offer a one-click restore instead
-  // of the silent "everything's gone" that cost Austin a day on 2026-07-29.
+  // of the silent "everything's gone" that cost the user a day on 2026-07-29.
   const [recoverySnap, setRecoverySnap] = useState(null);
   useEffect(() => {
     (async () => {
@@ -22670,7 +22920,7 @@ export default function App() {
         if (!await confirm({title:`Import ${summary}?`,message:"This will replace ALL current data including your archive. Make sure you've exported first.",confirmLabel:"Import",danger:true})) return;
 
         // Stash the CURRENT (pre-import) state to a dedicated durable slot first, so importing the WRONG or
-        // OLDER file is UNDOABLE (exactly what bit Austin on 7/29 — a 7/27 file over newer data). After the
+        // OLDER file is UNDOABLE (exactly what bit the user on 7/29 — a 7/27 file over newer data). After the
         // reload, an "↩ Undo import" banner offers to put it right back.
         try { idbSavePreimport(JSON.stringify(buildBackupPayload())); } catch(e){}
 
@@ -22775,7 +23025,7 @@ export default function App() {
         .glow-btn{animation:glowPulse 1.8s ease-in-out infinite;}
         .glow-btn:hover{animation:none;box-shadow:0 0 16px rgba(0,200,150,.95);}
         /* Daily/weekly pace bars — a gentle white sheen sweeps across EVERY bar (colour-agnostic), so
-           red/yellow/orange shimmer the same as green (Austin). Hover lifts + brightens. */
+           red/yellow/orange shimmer the same as green (the user). Hover lifts + brightens. */
         .pace-bar{position:relative;overflow:hidden;filter:saturate(1.05);cursor:default;}
         .pace-bar::after{content:"";position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(115deg,transparent 36%,rgba(255,255,255,.30) 50%,transparent 64%);transform:translateX(-120%);animation:barShimmer 3.2s ease-in-out infinite;pointer-events:none;}
         .pace-bar:hover{filter:saturate(1.25) brightness(1.12);}
@@ -23036,7 +23286,7 @@ export default function App() {
           />
         ) : activeTab==="config" ? (
           <>
-            {/* Config sub-tabs (Austin, 2026-07-17): General (storage / backup / settings / custom
+            {/* Config sub-tabs (the user, 2026-07-17): General (storage / backup / settings / custom
                 platforms) vs Connections (the 5 platform connectors). Splits one long page in two. */}
             <div style={{display:"flex",gap:4,marginBottom:16,borderBottom:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`}}>
               {[["general","⚙️ General"],["connections","🔌 Connections"]].map(([k,l])=>(
@@ -23047,6 +23297,9 @@ export default function App() {
               ))}
             </div>
             {configSubTab==="general" && (<>
+            {/* Your name — first thing a new campaign manager sets; personalizes greeting + Zeus, and is
+                the per-user identity for the multi-CM rollout. */}
+            <UserNameCard lightMode={lightMode}/>
             {/* Time zone — governs meeting times + the homepage agenda's clock/"today"; default Eastern. */}
             <div style={{background:lightMode?"#ffffff":"#0c1625",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
               <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
@@ -23227,20 +23480,32 @@ export default function App() {
                     </button>
                     <span style={{fontSize:11,color:lightMode?"#64748b":"#7a9bbf"}}>Last backup: <b style={{color:lightMode?"#0f172a":"#d8eaf8"}}>{lastTxt}</b></span>
                   </div>
+                  {/* Lapsed-permission banner — the #1 reason "auto-backup stopped working": Chrome resets the
+                      folder grant on restart, and a silent daily run can't re-request it. Make it obvious + 1-click. */}
+                  {FSA_SUPPORTED && cfg.enabled && cfg.folderName && (backupPerm==="prompt"||backupPerm==="denied") && (
+                    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",background:lightMode?"#fffbeb":"#1a1200",border:`1px solid ${lightMode?"#fcd34d":"#f59e0b66"}`,borderRadius:8,padding:"9px 12px",marginBottom:10}}>
+                      <span style={{fontSize:11.5,color:lightMode?"#b45309":"#fcd34d",lineHeight:1.5,flex:1,minWidth:180}}>
+                        ⚠ <b>Folder access expired.</b> Chrome clears folder permission when it restarts, so automatic backups to <b>{cfg.folderName}</b> have paused. Reconnect once to resume — your in-app safety copy is still saving.
+                      </span>
+                      <button onClick={reconnectBackup} style={{background:lightMode?"#f59e0b":"#3a2600",border:"1px solid #f59e0b",borderRadius:7,padding:"6px 13px",color:lightMode?"#ffffff":"#fcd34d",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>🔗 Reconnect & back up</button>
+                    </div>
+                  )}
                   <div style={{fontSize:11,color:lightMode?"#64748b":"#7a9bbf",lineHeight:1.5,marginBottom:10}}>
-                    Saves a full JSON snapshot automatically — once a day when you open the app, plus one at every month-close, with old files rotated out. {FSA_SUPPORTED?"Pick a folder once (your Desktop, a backups folder, or a Google Drive for Desktop folder so it syncs to the cloud) and it writes there silently. After a browser restart you may need to click “Back up now” once to re-enable folder writing.":"Your browser can't write straight to a folder, so backups download to your Downloads folder."}
+                    Saves a full JSON snapshot automatically — once a day when you open the app, plus one at every month-close, with old files rotated out. {FSA_SUPPORTED?"To back up to Google Drive: install Google Drive for Desktop, then choose a folder inside “My Drive” — backups written there sync to the cloud automatically. (Any local folder works too.) Note: Chrome forgets folder access when it restarts, so you may need to click Reconnect once per browser restart.":"Your browser can't write straight to a folder, so backups download to your Downloads folder."}
                   </div>
                   <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                     {FSA_SUPPORTED && btn(cfg.folderName?"Change folder…":"Choose folder…", async()=>{
-                      try { const h=await window.showDirectoryPicker({mode:"readwrite"}); await idbSetDirHandle(h); saveBackupCfg({enabled:true, folderName:h.name}); await runBackup("folder-setup"); }
+                      try { const h=await window.showDirectoryPicker({mode:"readwrite"}); await idbSetDirHandle(h); saveBackupCfg({enabled:true, folderName:h.name}); await runBackup("folder-setup"); await refreshBackupPerm(); }
                       catch(e){ /* user cancelled the picker — no-op */ }
                     }, true)}
-                    {btn("Back up now", ()=>runBackup("manual"))}
-                    {FSA_SUPPORTED && cfg.folderName && btn("Use Downloads instead", async()=>{ await idbClearDirHandle(); saveBackupCfg({folderName:null}); })}
+                    {btn("Back up now", async()=>{ await runBackup("manual"); await refreshBackupPerm(); })}
+                    {FSA_SUPPORTED && cfg.folderName && btn("Use Downloads instead", async()=>{ await idbClearDirHandle(); saveBackupCfg({folderName:null}); await refreshBackupPerm(); })}
                   </div>
                   {FSA_SUPPORTED && (
                     <div style={{fontSize:11,marginTop:8,color:lightMode?"#475569":"#7a9bbf"}}>
                       Backup folder: <b style={{color:lightMode?"#0f172a":"#d8eaf8"}}>{cfg.folderName||"none — using Downloads fallback"}</b>
+                      {cfg.folderName && backupPerm==="granted" && <span style={{color:lightMode?"#059669":"#00e5a0",fontWeight:700}}> · ✓ connected</span>}
+                      {cfg.folderName && (backupPerm==="prompt"||backupPerm==="denied") && <span style={{color:"#f59e0b",fontWeight:700}}> · ⚠ needs reconnect</span>}
                     </div>
                   )}
                 </div>
@@ -23467,7 +23732,7 @@ export default function App() {
           onSetRate={(id, rate, dealType)=>{
             setCampaigns(cs=>cs.map(c=>c.id===id?{...c, contractRate:String(rate), dealType: dealType || c.dealType || (c.platform==="YT"?"CPV":"CPM")}:c));
             const camp = campaigns.find(c=>c.id===id);
-            if (camp) addLog({ type:"edited", campaignName:camp.campaignName, partner:camp.mediaPartner, platform:camp.platform, detail:`Set ${camp.platform==="YT"?"CPV":"CPM"} rate → $${rate}`, campaignId:id, prevSnapshot:null });
+            if (camp) addLog({ type:"edited", campaignName:camp.campaignName, partner:camp.mediaPartner, platform:camp.platform, detail:`Set ${dealBasis({...camp, dealType: dealType || camp.dealType})} rate → $${rate}`, campaignId:id, prevSnapshot:null });
           }}
           onSetDeviceSurcharge={(id, patch)=>{
             setCampaigns(cs=>cs.map(c=>c.id===id?{...c, ...patch}:c));
@@ -23658,7 +23923,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Stats — collapsed by default (Austin rarely uses these); small toggle reveals the compact strip. */}
+        {/* Stats — collapsed by default (the user rarely uses these); small toggle reveals the compact strip. */}
         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
           <button onClick={()=>setShowStats(v=>{ const nv=!v; try{localStorage.setItem("campaigns-show-stats", nv?"1":"0");}catch{} return nv; })}
             title={showStats?"Hide the campaign stat counts":"Show campaign stat counts"}
@@ -24102,7 +24367,7 @@ export default function App() {
                                 </div>
                                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                                   {/* Served % / Expected % — the expected% is kept the SAME status color as the served%
-                                      (per Austin) so it stays subtle/low-visibility; the tooltip still spells it out. */}
+                                      (per the user) so it stays subtle/low-visibility; the tooltip still spells it out. */}
                                   <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.03em"}}>
                                     <span style={{color:lmCol(pacing.color)}}>{(pacing.pct*100).toFixed(0)}%</span>
                                     <span title={`You should be at about ${(pacing.expectedPct*100).toFixed(0)}% of goal by today to stay on pace`} style={{color:lmCol(pacing.color)}}> / {(pacing.expectedPct*100).toFixed(0)}%</span>
@@ -24110,7 +24375,7 @@ export default function App() {
                                   </span>
                                   <span title={pacing.flightBasis?"Paced against the whole flight (all months of delivery vs the total goal) — not just this month, since the flight started before this month.":undefined} style={{fontSize:9,color:pacing.flightBasis?lmCol("#38bdf8"):(lightMode?"#94a3b8":"#2a4060"),fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>{pacing.flightBasis?"FLIGHT":getPeriodLabel(dateRange.preset)}</span>
                                 </div>
-                                {/* Served vs Expected impression counts — PINK (#ff4df0) per Austin for readable contrast
+                                {/* Served vs Expected impression counts — PINK (#ff4df0) per the user for readable contrast
                                     against the bar/percent row above. */}
                                 {pacing.expected>0&&(()=>{
                                   const pink="#ff4df0";
@@ -24142,7 +24407,7 @@ export default function App() {
                         </TD>
                         <TD style={{maxWidth:170}}>
                           <span style={{color:lightMode?"#475569":"#7a9bbf",fontSize:13,display:"block",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}} title={c.goal}>{c.goal}</span>
-                          {/* "% mo pace" now only shows when the Pacing Bar toggle is on (Austin: keep the
+                          {/* "% mo pace" now only shows when the Pacing Bar toggle is on (the user: keep the
                               Goal column just the goal by default). The full pacing bar under the campaign
                               name already appears with the same toggle, so the two stay in sync. */}
                           {showPacingBar && (()=>{ const p=crossMonthFlightPacing(c) || computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return p ? <span title={`${(p.pct*100).toFixed(0)}% of ${p.flightBasis?"flight":getPeriodLabel(dateRange.preset)} goal · ${p.label}`} style={{fontSize:10,fontWeight:700,color:lmCol(p.color),display:"block",marginTop:2}}>{Math.round(p.pct*100)}% {p.flightBasis?"flight":"mo"} pace</span> : null; })()}
@@ -24416,9 +24681,10 @@ export default function App() {
               canNext: safeIdx < pdfDrafts.length - 1,
               remaining: pdfDrafts.length,
               lowConfidence: pdfMeta?.lowConfidence,
-              // Sibling draft names in this queue — the validation banner uses them to catch two drafts
-              // that would land with the SAME name (e.g. two "… - DSP" lines from one IO).
-              siblingNames: pdfDrafts.map(d => d.campaignName),
+              // Sibling drafts in this queue as "name||platform" keys — the validation banner uses them to
+              // catch a GENUINE duplicate (same name AND same platform); same-name/different-platform tactics
+              // for one client are normal and no longer warned.
+              siblingNames: pdfDrafts.map(d => `${(d.campaignName||"").trim().toLowerCase()}||${d.platform||""}`),
             }}
             // Auto-save every edit back into the queue so prev/next/close don't lose work.
             onValuesChange={(values) => {
