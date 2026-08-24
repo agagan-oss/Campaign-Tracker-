@@ -8831,6 +8831,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       impressions: (disp && disp.impressions) || c.impressions };
     if(gradeCampaignKpis(merged, kpiBenchmarks).worst >= 2) return true;
     if(dataUpdatedWithin(c, 4) && !!severePacing(pacing)) return true;
+    // Hit goal with days to spare — an active campaign already at 100%+ of its monthly goal while there are
+    // still 4+ days left (month-end, or the flight end if sooner) is over-serving unbillable delivery. Flag
+    // it so it can be paused early (Austin: "flag these if they reach goal with more than 3-4 days left so I
+    // can shut down"). No freshness gate needed — delivery only grows, so a goal hit stays hit.
+    if(c.status === "active" && pacing && pacing.pctRaw != null && pacing.pctRaw >= 1.0){
+      const _now = new Date(getToday()+"T00:00:00");
+      const _monthEndDays = Math.round((new Date(_now.getFullYear(), _now.getMonth()+1, 0) - _now)/86400000);
+      const _dr = daysRemaining(c);
+      const _daysLeft = (_dr !== null && _dr >= 0 && _dr < _monthEndDays) ? _dr : _monthEndDays;
+      if(_daysLeft >= 4) return true;
+    }
     // Ad fatigue — frequency over 5× (users are seeing the same ad too many times).
     if((parseFloat((disp&&disp.frequency)||c.frequency)||0) > 5) return true;
     // Has this campaign delivered at all? Shared by the "no rate" and "went dark" checks below.
@@ -9861,7 +9872,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // Need/Day — how many impr/views/$ must deliver per remaining day to hit goal
     const npdRem = Math.max(0, (monthlyGoal||0) - primaryRaw);
     const npdDaysMonth = dim - dom;
-    const npdDaysLeft = (dr !== null && dr >= 0 && dr < npdDaysMonth) ? dr : npdDaysMonth;
+    // Actual days remaining — the rest of the month, or the flight end if it lands sooner.
+    const npdDaysActual = (dr !== null && dr >= 0 && dr < npdDaysMonth) ? dr : npdDaysMonth;
+    // Aim to finish ~1 day EARLY (Austin: rather hit goal a day early and pause for a day or two than risk
+    // missing it) — so Need/Day is spread over one fewer day. Floored at 1 so it never divides by zero at
+    // the very end of the month/flight.
+    const npdDaysLeft = Math.max(1, npdDaysActual - 1);
     const npd = npdDaysLeft > 0 && monthlyGoal > 0 ? Math.round(npdRem / npdDaysLeft) : null;
     const npdFmt = npd === null ? null
       : metricKind === "spend" ? "$"+(npd>=1000?(npd/1000).toFixed(1)+"k":npd.toFixed(0))
@@ -10034,7 +10050,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </div>
 
       {/* Need/Day — impr/views/$ required per remaining day to hit goal */}
-      <div title={npd !== null ? `${npdFmt} ${metricKind==="spend"?"spend":metricKind==="views"?"views":"impr"}/day needed · ${npdDaysLeft}d left` : ""}>
+      <div title={npd !== null ? `${npdFmt} ${metricKind==="spend"?"spend":metricKind==="views"?"views":"impr"}/day to finish ~1 day early · ${npdDaysActual}d left` : ""}>
         {npdFmt
           ? <span style={{fontSize:11,fontWeight:700,color:lmC(npdCol)}}>{npdFmt}</span>
           : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
