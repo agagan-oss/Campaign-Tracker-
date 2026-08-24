@@ -354,7 +354,12 @@ function gradeCampaignKpis(c, benchmarks){
 function severePacing(pacing){
   if(!pacing) return null;
   if(pacing.label==="Behind" && pacing.ratio!=null && pacing.ratio<0.6) return { dir:"under", pct:Math.round(pacing.ratio*100) };
+  // Over-pacing, two ways — both waste budget (over-served impressions aren't billable, so it eats margin):
+  //  1. ALREADY over-delivered past the goal (>125% of goal).
+  //  2. Pacing WAY ahead of schedule (>1.5× the expected pace) — on track to blow the goal and overserve.
+  //     Gated to ≥25% into the flight so early lumpy delivery doesn't false-flag.
   if(pacing.pctRaw!=null && pacing.pctRaw>1.25) return { dir:"over", pct:Math.round(pacing.pctRaw*100) };
+  if(pacing.ratio!=null && pacing.ratio>1.5 && (pacing.expectedPct==null || pacing.expectedPct>=0.25)) return { dir:"over", pct:Math.round(pacing.ratio*100) };
   return null;
 }
 function loadCustomPlatforms() { try{const s=localStorage.getItem(CUSTOM_PLATFORMS_KEY);return s?JSON.parse(s):{platforms:[],colors:{}}}catch{return{platforms:[],colors:{}}}}
@@ -8825,7 +8830,30 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       completionRate: (disp && disp.completionRate) || c.completionRate,
       impressions: (disp && disp.impressions) || c.impressions };
     if(gradeCampaignKpis(merged, kpiBenchmarks).worst >= 2) return true;
-    return dataUpdatedWithin(c, 4) && !!severePacing(pacing);
+    if(dataUpdatedWithin(c, 4) && !!severePacing(pacing)) return true;
+    // Ad fatigue — frequency over 5× (users are seeing the same ad too many times).
+    if((parseFloat((disp&&disp.frequency)||c.frequency)||0) > 5) return true;
+    // Has this campaign delivered at all? Shared by the "no rate" and "went dark" checks below.
+    const ran = (parseInt((disp&&disp.impressions)||c.impressions)||0) > 0
+             || (parseFloat((disp&&disp.spend)||c.spend)||0) > 0
+             || (parseInt((disp&&disp.videoViews)||c.videoViews)||0) > 0;
+    // No rate set — an active, DELIVERING non-SEM campaign with no CPM/CPV rate can't book revenue (SEM
+    // bills a management fee instead, so it's exempt). Money going untracked = the highest-priority gap.
+    if(c.status==="active" && ran && c.platform!=="SEM" && (parseFloat(c.contractRate)||0)<=0) return true;
+    // Went dark yesterday — an ACTIVE, in-flight campaign that HAS been delivering but served 0 yesterday
+    // (the delivery series has a bucket for yesterday and it's zero). Not for not-yet-started / ended /
+    // never-delivered campaigns (those are Launch-watch, not "went dark"). `yesterdayFromSeries` returns a
+    // 0-value bucket only when recent readings actually show a flat day, so a stale campaign won't false-flag.
+    if(c.status === "active" && ran){
+      const _t = getToday();
+      const started = !c.startDate || c.startDate.slice(0,10) <= _t;
+      const ended   = c.endDate && c.endDate.slice(0,10) < _t;
+      if(started && !ended){
+        const ys = yesterdayFromSeries(c, pacingNow());
+        if(ys && ys.value === 0) return true;
+      }
+    }
+    return false;
   };
   const filtered = allRows.filter((row)=>{
     const { c } = row;
@@ -10549,7 +10577,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     </div>;
   }
 
-  function Section({label,color,items,defaultOpen=true,connected=false}){
+  function Section({label,color,items,defaultOpen=true,connected=false,note=""}){
     if(!items.length) return null;
     // Open/closed state lives in the parent (sectionOpen, keyed by label) so it survives the re-renders
     // that remount this component on any campaign change. The shim preserves the setOpen(v=>!v) calls.
@@ -10567,6 +10595,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 16px",cursor:"pointer",userSelect:"none",borderBottom:"1px solid "+lmBrdR,background:lmBgInp}}>
           <span style={{fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",color:lmC(color)}}>{label}</span>
           <span style={{fontSize:11,color:lmTxtD,fontWeight:700}}>({items.length})</span>
+          {note && <span style={{fontSize:10,color:lmTxtS,fontStyle:"italic"}}>· {note}</span>}
           <span style={{marginLeft:"auto",color:lmTxtD,fontSize:10,display:"inline-block",transform:open?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
         </div>
         {open&&items.map(r=><TableRow key={r.c.id} {...r}/>)}
@@ -11019,7 +11048,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           setUpdatedDays(parseInt(d)||1);
         }}
         title="Filter by how recently each campaign got fresh data (a check-in / CSV sync / metric edit — not just Mark All Checked)"
-        style={{background:lmBgInp,border:"1px solid "+(todayFilter!=="all"?"#00c896":lmBrd),borderRadius:7,padding:"6px 10px",color:todayFilter!=="all"?lmC("#00d9ff"):lmTxtS,fontSize:11,fontWeight:todayFilter!=="all"?700:400,cursor:"pointer",outline:"none",flexShrink:0}}>
+        style={{background:lmBgInp,border:"1px solid "+(todayFilter!=="all"?"#00c896":lmBrd),borderRadius:7,padding:"6px 12px",color:todayFilter!=="all"?lmC("#00d9ff"):lmTxtS,fontSize:11.5,fontWeight:todayFilter!=="all"?700:400,cursor:"pointer",outline:"none",flexShrink:0}}>
         <option value="all">Freshness: all campaigns</option>
         <optgroup label="Updated within">
           {FRESHNESS_DAY_OPTIONS.map(d=><option key={"up"+d} value={`up:${d}`}>✓ Updated {d===1?"today":`≤ ${d} days`} ({freshCount(d)})</option>)}
@@ -11032,7 +11061,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           KPI (CTR / view rate / CPM vs the user's benchmarks) or a severe under/over pacer. */}
       <button onClick={()=>setTroubleOnly(v=>!v)}
         title="Show only campaigns with a yellow/red KPI (CTR, view rate, or CPM) or severe under/over-pacing (fresh data only)"
-        style={{display:"flex",alignItems:"center",gap:6,padding:"6px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",fontSize:11,fontWeight:troubleOnly?700:500,flexShrink:0,
+        style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",fontSize:11.5,fontWeight:troubleOnly?700:500,flexShrink:0,
           background:troubleOnly?(lightMode?"#fef2f2":"#2a0b0b"):lmBgInp,
           border:`1px solid ${troubleOnly?"#ef4444":lmBrd}`,
           color:troubleOnly?"#ef4444":lmTxtS}}>
@@ -11042,7 +11071,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Last update — read-only chip showing the most recent check-in date,
           with the date itself in electric blue. */}
       <div title="Most recent check-in date across all campaigns"
-        style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:7,border:"1px solid "+lmBrd,background:lmBgInp,fontSize:11,whiteSpace:"nowrap",flexShrink:0}}>
+        style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:7,border:"1px solid "+lmBrd,background:lmBgInp,fontSize:11.5,whiteSpace:"nowrap",flexShrink:0}}>
         <span style={{color:lmTxtS}}>Last update</span>
         <span style={{color:lightMode?"#2563eb":"#38bdf8",fontWeight:700}}>{lastUpdateDisp}</span>
       </div>
@@ -11058,7 +11087,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <div ref={viewMenuRef} style={{position:"relative",flexShrink:0}}>
         {(()=>{ const activeCount=[showMoM,showLastMonth,showQuietLines,showForecast,showAnomalies].filter(Boolean).length; return (
         <button onClick={()=>setViewMenuOpen(o=>!o)} title="Extra analysis overlays: last-month compare, quiet lines, forecast, anomalies"
-          style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",fontSize:11,fontWeight:activeCount?700:400,
+          style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",fontSize:11.5,fontWeight:activeCount?700:400,
             background:activeCount?(lightMode?"#eef2ff":"#0f1230"):lmBgInp,
             border:`1px solid ${activeCount?(lightMode?"#6366f1":"#818cf860"):lmBrd}`,
             color:activeCount?(lightMode?"#4338ca":"#a5b4fc"):lmTxtS}}>
@@ -11096,9 +11125,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <button onClick={onToggleQuickCheckIn}
         style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,
           background:lightMode?(quickCheckIn?"#dcfce7":"#f0fdf9"):(quickCheckIn?"#003a2e":"#002e24"),
-          border:`1px solid ${quickCheckIn?"#00e5a0":"#00c896"}`,borderRadius:8,padding:"8px 18px",
+          border:`1px solid ${quickCheckIn?"#00e5a0":"#00c896"}`,borderRadius:7,padding:"6px 12px",
           color:lightMode?"#059669":"#00e5a0",
-          fontSize:13.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}
+          fontSize:11.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}
         title="Quick Check-in — drop a CSV/XLSX to update pacing without leaving this tab">
         {quickCheckIn?"✓ Quick Check-in":"⚡ Quick Check-in"}
       </button>
@@ -11109,14 +11138,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         <span style={{fontSize:10,color:lmTxtD,textTransform:"uppercase",letterSpacing:"0.06em"}}>Sort:</span>
         <select value={sortKey} onChange={e=>clickSort(e.target.value)}
           title="Choose how to sort the campaign list"
-          style={{background:lmBgInp,border:"1px solid "+lmBrd,borderRadius:6,padding:"5px 8px",color:lmTxt,fontSize:11,fontWeight:600,cursor:"pointer",outline:"none"}}>
+          style={{background:lmBgInp,border:"1px solid "+lmBrd,borderRadius:7,padding:"6px 12px",color:lmTxt,fontSize:11.5,fontWeight:600,cursor:"pointer",outline:"none"}}>
           {[["pacing","Pacing"],["impr","Impr / Views"],["ctr","CTR / VCR"],["cpm","CPM"],["spend","Spend"],["ends","End date"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
             <option key={k} value={k}>{l}</option>
           ))}
         </select>
         <button onClick={()=>setSortDir(d=>d==="asc"?"desc":"asc")}
           title={sortDir==="asc"?"Ascending — click for descending":"Descending — click for ascending"}
-          style={{background:lmBgInp,border:"1px solid "+lmBrd,borderRadius:6,padding:"5px 9px",color:lmC("#00e5a0"),fontSize:12,fontWeight:800,cursor:"pointer",lineHeight:1}}>
+          style={{background:lmBgInp,border:"1px solid "+lmBrd,borderRadius:7,padding:"6px 11px",color:lmC("#00e5a0"),fontSize:12,fontWeight:800,cursor:"pointer",lineHeight:1}}>
           {sortDir==="asc"?"↑":"↓"}
         </button>
       </div>
@@ -11387,33 +11416,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         })}
       </div>
     )}
-    {/* No Impressions ABOVE Off Campaigns (the user): an active campaign delivering ZERO is often an ERROR —
-        it should be running but isn't, or a check-in isn't mapping to it — so it needs eyes BEFORE the
-        intentionally-paused Off list. */}
-    <Section label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>
-    {/* ── Off Campaigns section ────────────────────────────────────────────
-        Collapsible bucket for status="off" campaigns. Surfaces pacing data
-        for campaigns the user intentionally paused (e.g. hit goal, ended early)
-        so they can still glance at the numbers without those campaigns mixing
-        into the active Behind/On Track/Ahead sections. Defaults OPEN. */}
-    {offFiltered.length > 0 && (
-      <div style={{marginTop:4}}>
-        <div onClick={()=>setShowOffSection(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:showOffSection?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
-          <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",
-            ...(lightMode
-              ? {color:"#64748b",background:"#64748b14",border:"1px solid #64748b33",padding:"2px 8px",borderRadius:4}
-              : {color:"#7a9bbf"})
-          }}>Off Campaigns ({offFiltered.length})</span>
-          <span style={{fontSize:10,color:lmTxtS,fontStyle:"italic"}}>
-            · paused/ended — still visible for reference, won't show in alerts
-          </span>
-          <span style={{color:lmTxtD,fontSize:10,display:"inline-block",transform:showOffSection?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}}>▶</span>
-        </div>
-        {showOffSection&&viewMode==="table"&&<TableHeader/>}
-        {showOffSection&&offFiltered.map(r=>viewMode==="table"
-          ?<TableRow key={r.c.id} {...r}/>
-          :<PacingCard key={r.c.id} {...r}/>
-        )}
+    {/* No Impressions + Off Campaigns — rendered in the SAME connected bordered table as the active
+        Behind/On Track/Ahead buckets (the user: connect their columns the same way), so one shared header +
+        flush section dividers line up seamlessly instead of each being a loose list with its own header.
+        No Impressions is FIRST — an active campaign delivering ZERO is often an ERROR (should be running but
+        isn't, or a check-in isn't mapping), so it needs eyes BEFORE the intentionally-paused Off list. */}
+    {(noPace.length || offFiltered.length) > 0 && (
+      <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"visible",background:lmBg,marginTop:8,marginBottom:8}}>
+        <TableHeader/>
+        {noPace.length>0 && <Section connected label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>}
+        {offFiltered.length>0 && <Section connected label="Off Campaigns" color="#7a9bbf" items={offFiltered} defaultOpen={true}
+          note="paused/ended — still visible for reference, won't show in alerts"/>}
       </div>
     )}
     {/* "Needs Monthly Goal" stays at the bottom (a config bucket, not an error). */}
@@ -24557,7 +24570,14 @@ export default function App() {
         // If the reminder's campaign was archived, it's not in the Campaigns tab — send them to the
         // Archive tab instead (its search now spans every month) so the link still lands somewhere useful.
         if(archive.some(a=>a.id===campId)){ setActiveTab("archive"); return; }
-        setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; }); setSearch(""); setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },200);
+        // Clear EVERY Campaigns-tab filter first — otherwise an active platform/status/goal-type/etc. filter
+        // can exclude the campaign we're jumping to, so its row never renders and the scroll lands nowhere
+        // (the user: "I had platform filters on, so it just bumped me to the tab and didn't pull it up").
+        setSearch(""); setFStatuses(new Set()); setFPlatforms(new Set()); setFMonthly(false); setFGoalType("all");
+        setFGoalHit(false); setFCloseToGoal(false); setFExcludeGoalHit(false);
+        setFRecentDays(0); setFStaleDays(0); setFNote2(false); setFHasData("all"); setFNoRetargeting(false);
+        setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; });
+        setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },300);
       }}/>}
       {renewTarget && <RenewModal campaign={renewTarget} allCampaigns={campaigns} onRenew={handleRenew} onExtend={handleExtend} onClose={()=>setRenewTarget(null)}/>}
       {/* ── Auto-recovery prompt — tracker opened empty but a durable IndexedDB safety copy exists ── */}
