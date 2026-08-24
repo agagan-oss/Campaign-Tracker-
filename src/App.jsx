@@ -8831,16 +8831,19 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       impressions: (disp && disp.impressions) || c.impressions };
     if(gradeCampaignKpis(merged, kpiBenchmarks).worst >= 2) return true;
     if(dataUpdatedWithin(c, 4) && !!severePacing(pacing)) return true;
-    // Hit goal with days to spare — an active campaign already at 100%+ of its monthly goal while there are
-    // still 4+ days left (month-end, or the flight end if sooner) is over-serving unbillable delivery. Flag
-    // it so it can be paused early (Austin: "flag these if they reach goal with more than 3-4 days left so I
-    // can shut down"). No freshness gate needed — delivery only grows, so a goal hit stays hit.
-    if(c.status === "active" && pacing && pacing.pctRaw != null && pacing.pctRaw >= 1.0){
+    // Hit goal with days to spare — a campaign already at 100%+ of its monthly goal while still in flight
+    // with 4+ days left (month-end, or the flight end if sooner) is over-serving unbillable delivery. Applies
+    // whether ACTIVE or already PAUSED (Austin: keep it flagged even after I pause it — pausing IS the fix,
+    // but it shouldn't silently drop off the trouble list / count). Excludes flights that have already ended.
+    // No freshness gate — delivery only grows, so a goal hit stays hit.
+    if((c.status === "active" || c.status === "off") && pacing && pacing.pctRaw != null && pacing.pctRaw >= 1.0){
       const _now = new Date(getToday()+"T00:00:00");
       const _monthEndDays = Math.round((new Date(_now.getFullYear(), _now.getMonth()+1, 0) - _now)/86400000);
-      const _dr = daysRemaining(c);
-      const _daysLeft = (_dr !== null && _dr >= 0 && _dr < _monthEndDays) ? _dr : _monthEndDays;
-      if(_daysLeft >= 4) return true;
+      const _dr = daysRemaining(c);   // null = no end date · <0 = flight already ended
+      if(_dr === null || _dr >= 0){
+        const _daysLeft = (_dr !== null && _dr < _monthEndDays) ? _dr : _monthEndDays;
+        if(_daysLeft >= 4) return true;
+      }
     }
     // Ad fatigue — frequency over 5× (users are seeing the same ad too many times).
     if((parseFloat((disp&&disp.frequency)||c.frequency)||0) > 5) return true;
@@ -8877,7 +8880,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     return true;
   });
 
-  const troubleCount = allRows.filter(r => inView(r.c) && rowIsTrouble(r)).length; // live "Trouble" badge — current view only
+  // "Trouble" badge — active trouble campaigns in the current view PLUS any paused/off ones that are still
+  // trouble (Austin: a goal-hit campaign I paused shouldn't drop off the count). Matches what the Trouble
+  // filter actually shows (the Off Campaigns section already surfaces off trouble rows under the filter).
+  const troubleCount = allRows.filter(r => inView(r.c) && rowIsTrouble(r)).length
+                     + offRows.filter(r => rowIsTrouble(r)).length;
   // SPLIT (the user): the This Month view is for MONTHLY-goal campaigns. Multi-month / By-dates FLIGHTS
   // (flightGoalLabel non-null = a total-goal flight with no recurring "/Mo") move to the ✈ Flights view —
   // on This Month their prorated monthly share falsely reads "behind" because it can't see last month's
