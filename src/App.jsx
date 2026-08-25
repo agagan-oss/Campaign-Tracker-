@@ -129,6 +129,24 @@ const MAX_LOG_ENTRIES = 250; // was 500 — halved to save localStorage (the use
 // lets the Revenue tab surface projected revenue/profit for DSP (esp. the "if you hit goal" forecast)
 // before any real impressions/spend exist. Easy to change here; could move to Config for per-user later.
 const DSP_EST_CPM = 2.75;
+// Madhive CTV (General/Premium/Audience-Ext) reports impressions but NOT spend — same situation as
+// DSP — so its media cost is MODELED from an estimated cost CPM instead of a reported spend figure.
+// Unlike DSP's single flat rate, Madhive's three products cost differently, so each carries its own
+// estimate. Defaults mirror the per-platform benchmark cost so a fresh copy prices Madhive sensibly
+// with zero setup; each is editable per tracker in Config → General (madhiveEstCpm).
+const MADHIVE_EST_CPM_DEFAULT = { GCTV: 16, PCTV: 22, AECTV: 16 };
+// Platforms whose media cost is MODELED (impressions × est. CPM) rather than read from a spend report.
+const MODELED_COST_PLATFORMS = ["DSP", "GCTV", "PCTV", "AECTV"];
+// Read the per-platform estimated cost CPMs (DSP + Madhive) from Config, falling back to defaults.
+// Returns a map keyed by platform; call from render so Config edits take effect immediately.
+function loadModeledCpms() {
+  let cfg = {}; try { cfg = JSON.parse(localStorage.getItem(CONFIG_KEY) || "{}"); } catch {}
+  const dsp = parseFloat(cfg.dspEstCpm) > 0 ? parseFloat(cfg.dspEstCpm) : DSP_EST_CPM;
+  const out = { DSP: dsp, ...MADHIVE_EST_CPM_DEFAULT };
+  const mh = cfg.madhiveEstCpm || {};
+  for (const k of Object.keys(MADHIVE_EST_CPM_DEFAULT)) { const v = parseFloat(mh[k]); if (v > 0) out[k] = v; }
+  return out;
+}
 // Show the platform sync status badges (Meta / TTD / DSP / Google / Snap) in the top header.
 // Off for now since no platforms are connected — flip to true once you start syncing a platform.
 const SHOW_SYNC_BADGES = false;
@@ -1204,6 +1222,35 @@ function computeLifetimePacing(c, delivered, goalNum) {
   return { pct, color, label, delivered, goal: goalNum, expected, timeFrac, ended, daysLeft, projected, unit, metricKind, hasDates: !!(start && end) };
 }
 
+// Grade a FLIGHT campaign's pace on its WHOLE-flight (lifetime) basis, shaped into the same fields the
+// trouble test reads (pctRaw / ratio / expectedPct / label + ended / daysLeft). This is what makes the
+// Trouble filter correct on the ✈ Flights tab: a multi-month flight must be judged against its TOTAL goal
+// across the WHOLE flight — not this month's prorated slice, which front-loaded delivery can push over
+// 100% (falsely reading "hit goal, pause it") or a slow month can push under (false "behind"). Monthly
+// campaigns keep using computeMonthlyPacing; only real flights (flightGoalLabel non-null) use this.
+// `disp` is the row's current metrics; live-month delivery falls back to the campaign's live fields.
+function flightPacingForTrouble(c, disp) {
+  const goalNum = parseGoalNumber(c && c.goal);
+  if (!(goalNum > 0)) return null;
+  const mk = pacingMetricFor(c.platform, c.dealType);
+  const curMonthKey = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`; })();
+  const prior = priorMonthsDeliveredFromBackups(c, curMonthKey);
+  const d = disp || {};
+  const live = mk === "views" ? (parseInt(d.videoViews || c.videoViews) || 0)
+             : mk === "spend" ? (parseFloat(d.spend || c.spend) || 0)
+             : (parseInt(d.impressions || c.impressions) || 0);
+  const delivered = prior + live;
+  if (!(delivered > 0)) return null;               // no delivery → not a pacing problem (that's "No data")
+  const lp = computeLifetimePacing(c, delivered, goalNum);
+  if (!lp) return null;
+  const expectedPct = lp.timeFrac != null ? lp.timeFrac : null;
+  const ratio = (expectedPct != null && expectedPct > 0) ? lp.pct / expectedPct : null;
+  // Fold the lifetime label into the Behind / On Track / Ahead shape severePacing keys on.
+  const label = /Behind|Missed|short/i.test(lp.label || "") ? "Behind"
+              : ((lp.pct >= 1) || /Ahead|Goal hit|at goal/i.test(lp.label || "")) ? "Ahead" : "On Track";
+  return { pctRaw: lp.pct, ratio, expectedPct, label, ended: !!lp.ended, daysLeft: lp.daysLeft };
+}
+
 // Compute monthly pacing: impressions delivered this month vs monthly goal vs days elapsed this month
 // Returns { pct, color, label, delivered, goal } or null
 // Pacing metric selector — what counts as "delivered" varies by platform.
@@ -1714,6 +1761,36 @@ function isStoppedServing(c) {
   if (c.startDate && c.startDate > today) return false; // hasn't started yet
   const impr = parseFloat(c.impressions||"") || 0;
   return impr === 0;
+}
+
+// ── Status ↔ reality "cracks" (shared by the Trouble test, the row badges, and the cracks summary bar) ──
+// A PAUSED campaign that served YESTERDAY — budget leaking on an Off line (stale status, or it wasn't really
+// paused at the platform). yesterdayFromSeries only returns a positive bucket when recent readings actually
+// show delivery, so a genuinely-stopped Off campaign (flat series) won't match.
+function isPausedButDelivering(c) {
+  if (!c || c.status !== "off") return false;
+  const ys = yesterdayFromSeries(c, pacingNow());
+  return !!(ys && ys.value > 0);
+}
+// An ACTIVE, in-flight, booked campaign that's served NOTHING 2+ days past its start — a launch failure
+// (creative rejected, tag not firing, budget not set) or a check-in that isn't mapping. The 2-day grace
+// skips a just-launched campaign and normal reporting lag; requiring a booked rate (SEM or contractRate>0)
+// keeps placeholder/no-rate rows out (they get the no-rate flag instead). `disp` = the row's current metrics.
+function isActiveNotDelivering(c, disp) {
+  if (!c || c.status !== "active") return false;
+  const d = disp || {};
+  const ran = (parseInt(d.impressions || c.impressions) || 0) > 0
+           || (parseFloat(d.spend || c.spend) || 0) > 0
+           || (parseInt(d.videoViews || c.videoViews) || 0) > 0;
+  if (ran) return false;
+  const _t = getToday();
+  const inFlight = (!c.startDate || c.startDate.slice(0,10) <= _t) && !(c.endDate && c.endDate.slice(0,10) < _t);
+  if (!inFlight) return false;
+  const cut = new Date(_t + "T00:00:00"); cut.setDate(cut.getDate() - 2);
+  const cutISO = `${cut.getFullYear()}-${String(cut.getMonth()+1).padStart(2,"0")}-${String(cut.getDate()).padStart(2,"0")}`;
+  const started2d = c.startDate && c.startDate.slice(0,10) <= cutISO;   // started ≥2 days ago
+  if (!started2d) return false;
+  return c.platform === "SEM" || (parseFloat(c.contractRate) || 0) > 0;  // a real booked line
 }
 
 // ─── IO PDF parsing ───────────────────────────────────────────────────────
@@ -8694,6 +8771,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [clearPendingId, setClearPendingId] = useState(null); // campaign id awaiting clear confirm
   const [todayFilter,    setTodayFilter]    = useState(_persisted.todayFilter || "all"); // "all" | "today" | "not-today"
   const [troubleOnly,    setTroubleOnly]    = useState(!!_persisted.troubleOnly); // show only KPI-yellow/red + severe pacers
+  // Cracks-bar focus — isolate the list to ONE crack type ("paused" = paused-but-spending · "notdelivering").
+  // Independent of Trouble (a narrower slice); clicking a crack chip toggles it, Clear filters resets it.
+  const [crackFocus,     setCrackFocus]     = useState(null);
+  // Cracks bar dismissal — stores the crack SIGNATURE that was dismissed, so the bar stays hidden until the
+  // numbers change (a new crack shows up), then re-appears. Persisted per tracker.
+  const [cracksDismissed, setCracksDismissed] = useState(() => { try { return localStorage.getItem("pacing-cracks-dismissed") || ""; } catch { return ""; } });
   // How many days back still counts as "updated" for the ✓/✕ pair. 1 = today only (the original
   // behaviour). Drops arrive in batches and a line checked yesterday isn't stale, so "today or
   // nothing" flagged too much — this widens the window without changing what the buttons mean.
@@ -8830,19 +8913,30 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       completionRate: (disp && disp.completionRate) || c.completionRate,
       impressions: (disp && disp.impressions) || c.impressions };
     if(gradeCampaignKpis(merged, kpiBenchmarks).worst >= 2) return true;
-    if(dataUpdatedWithin(c, 4) && !!severePacing(pacing)) return true;
-    // Hit goal with days to spare — a campaign already at 100%+ of its monthly goal while still in flight
-    // with 4+ days left (month-end, or the flight end if sooner) is over-serving unbillable delivery. Applies
-    // whether ACTIVE or already PAUSED (Austin: keep it flagged even after I pause it — pausing IS the fix,
-    // but it shouldn't silently drop off the trouble list / count). Excludes flights that have already ended.
+    // Pacing-based signals grade the campaign on its NATURAL basis: real FLIGHTS on their whole-flight
+    // (lifetime) pace, monthly campaigns on this month's pace — so the trouble reason matches what each
+    // shows in its own view (a front-loaded flight isn't mis-flagged "over", a slow flight month isn't
+    // mis-flagged "behind"). flightPacingForTrouble returns null for a flight with no delivery / bad dates,
+    // falling back to monthly pacing so nothing is worse off than before.
+    const isFlt = !!flightGoalLabel(c);
+    const tp = isFlt ? (flightPacingForTrouble(c, disp) || pacing) : pacing;
+    if(dataUpdatedWithin(c, 4) && !!severePacing(tp)) return true;
+    // Hit goal with days to spare — at 100%+ of goal while still in flight with 4+ days left is over-serving
+    // unbillable delivery. Flights use their FLIGHT days-left; monthly uses days left this month (or the
+    // flight end if sooner). Applies whether ACTIVE or already PAUSED (Austin: keep it flagged after I pause
+    // it — pausing IS the fix, but it shouldn't silently drop off the list/count). Excludes ended flights.
     // No freshness gate — delivery only grows, so a goal hit stays hit.
-    if((c.status === "active" || c.status === "off") && pacing && pacing.pctRaw != null && pacing.pctRaw >= 1.0){
-      const _now = new Date(getToday()+"T00:00:00");
-      const _monthEndDays = Math.round((new Date(_now.getFullYear(), _now.getMonth()+1, 0) - _now)/86400000);
-      const _dr = daysRemaining(c);   // null = no end date · <0 = flight already ended
-      if(_dr === null || _dr >= 0){
-        const _daysLeft = (_dr !== null && _dr < _monthEndDays) ? _dr : _monthEndDays;
-        if(_daysLeft >= 4) return true;
+    if((c.status === "active" || c.status === "off") && tp && tp.pctRaw != null && tp.pctRaw >= 1.0){
+      if(isFlt && tp.daysLeft != null){
+        if(!tp.ended && tp.daysLeft >= 4) return true;   // flight: hit total goal with 4+ flight-days left
+      } else {
+        const _now = new Date(getToday()+"T00:00:00");
+        const _monthEndDays = Math.round((new Date(_now.getFullYear(), _now.getMonth()+1, 0) - _now)/86400000);
+        const _dr = daysRemaining(c);   // null = no end date · <0 = flight already ended
+        if(_dr === null || _dr >= 0){
+          const _daysLeft = (_dr !== null && _dr < _monthEndDays) ? _dr : _monthEndDays;
+          if(_daysLeft >= 4) return true;
+        }
       }
     }
     // Ad fatigue — frequency over 5× (users are seeing the same ad too many times).
@@ -8867,44 +8961,85 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         if(ys && ys.value === 0) return true;
       }
     }
+    // Active but NOT DELIVERING — a live, booked, in-flight campaign that's served nothing 2+ days after its
+    // start is a launch failure (or a check-in that isn't mapping). The vice-versa of the paused-but-spending
+    // leak below. (Shared helper so the badge + cracks bar count the exact same set.)
+    if(isActiveNotDelivering(c, disp)) return true;
+    // Paused but STILL DELIVERING — a campaign marked Off that served YESTERDAY is burning budget it
+    // shouldn't (stale status / not really paused). Off campaigns hide in their own section, so this money
+    // leak is exactly what slips through.
+    if(isPausedButDelivering(c)) return true;
     return false;
   };
-  const filtered = allRows.filter((row)=>{
-    const { c } = row;
+  // The STRUCTURAL filters (search / partner / platform / freshness) shared by the active list, the Off
+  // section, AND the Trouble badge — everything except the Trouble toggle itself. Keeping them in one
+  // predicate is what guarantees the Trouble count can't disagree with what the Trouble filter shows.
+  const structPass = (c) => {
     if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
     if(todayFilter==="today"     && !dataUpdatedWithin(c, updatedDays)) return false; // fresh within the window
     if(todayFilter==="not-today" &&  dataUpdatedWithin(c, updatedDays)) return false; // stale beyond the window
-    if(troubleOnly && !rowIsTrouble(row)) return false; // only KPI-flagged / severe-pacing campaigns
+    return true;
+  };
+  // Crack-focus matcher — when a cracks-bar chip is active, isolate the list to just that crack type.
+  // "paused" only matches OFF rows, "notdelivering" only ACTIVE rows; it drives the same unified render as
+  // Trouble so off rows can surface. When no focus is set, everything passes (Trouble handles the rest).
+  const focusActive = !!crackFocus;
+  const matchesFocus = (row) => {
+    if(crackFocus === "paused")        return isPausedButDelivering(row.c);
+    if(crackFocus === "notdelivering") return isActiveNotDelivering(row.c, row.disp);
+    return true;
+  };
+  const filtered = allRows.filter((row)=>{
+    if(!structPass(row.c)) return false;
+    if(focusActive) return matchesFocus(row);            // crack-focus wins — show only that crack
+    // Trouble is now VIEW-SCOPED (the user): This Month flags monthly campaigns, ✈ Flights flags flights —
+    // each tab shows only its own troubles (graded on the matching basis), so the Flights list isn't padded
+    // with monthly campaigns and vice-versa. inView = pacingView==="lifetime" ? flights : monthly.
+    if(troubleOnly) return inView(row.c) && rowIsTrouble(row);
     return true;
   });
 
-  // "Trouble" badge — active trouble campaigns in the current view PLUS any paused/off ones that are still
-  // trouble (Austin: a goal-hit campaign I paused shouldn't drop off the count). Matches what the Trouble
-  // filter actually shows (the Off Campaigns section already surfaces off trouble rows under the filter).
-  const troubleCount = allRows.filter(r => inView(r.c) && rowIsTrouble(r)).length
-                     + offRows.filter(r => rowIsTrouble(r)).length;
+  // "Trouble" badge — VIEW-SCOPED (the user, 2026-08-25): This Month counts monthly-campaign troubles,
+  // ✈ Flights counts flight troubles — each tab shows/counts only its own, so the badge matches the filtered
+  // list AND the two tabs stay distinct (the Flights list isn't padded with monthly campaigns). `filtered`
+  // and `offFiltered` apply the SAME `inView && rowIsTrouble` gate, so badge == shown. Paused/off trouble
+  // still counts (a goal-hit paused campaign shouldn't drop off) — scoped to the current view.
+  const troubleCount = allRows.filter(r => structPass(r.c) && inView(r.c) && rowIsTrouble(r)).length
+                     + offRows.filter(r => structPass(r.c) && inView(r.c) && rowIsTrouble(r)).length;
+  // ── "Cracks" summary (top-of-tab bar) ── the specific status↔reality gaps that otherwise blend into the
+  // generic Trouble count. Scoped by the same structural filters so the numbers match what filtering shows.
+  const _crackToday = getToday();
+  const crackNotEnded = (c) => !(c.endDate && c.endDate.slice(0,10) < _crackToday);
+  const crackPausedSpending = offRows.filter(r => structPass(r.c) && isPausedButDelivering(r.c)).length;
+  const crackNotDelivering  = allRows.filter(r => structPass(r.c) && isActiveNotDelivering(r.c, r.disp)).length;
+  // Stale = an ACTIVE, in-flight campaign not refreshed in 3+ days (a check-in gap on something that should be
+  // running). Off/ended lines are stale by nature, so they're excluded.
+  const crackStale = allRows.filter(r => structPass(r.c) && crackNotEnded(r.c) && !dataUpdatedWithin(r.c, 3)).length;
   // SPLIT (the user): the This Month view is for MONTHLY-goal campaigns. Multi-month / By-dates FLIGHTS
   // (flightGoalLabel non-null = a total-goal flight with no recurring "/Mo") move to the ✈ Flights view —
   // on This Month their prorated monthly share falsely reads "behind" because it can't see last month's
   // delivery (the Kennedy Mall case). One predicate drives both tabs.
   const isFlightRow = r => !!flightGoalLabel(r.c);
+  // When the Trouble filter is on it's a GLOBAL triage list — flights are pulled in alongside monthly
+  // campaigns (with their prorated monthly pace) so every flagged campaign is visible in one place, instead
+  // of flight troubles being stranded on the ✈ Flights tab. Off Trouble mode the split stands (flights →
+  // ✈ Flights tab), so normal browsing is unchanged.
+  const showFlightsHere = troubleOnly || focusActive;
   const flightRowCount = filtered.filter(isFlightRow).length;   // active flights now living on the ✈ Flights tab
-  const withGoal  = filtered.filter(r=>r.monthlyGoal && !isFlightRow(r));
-  const noGoalRows= filtered.filter(r=>!r.monthlyGoal && !isFlightRow(r));
+  const withGoal  = filtered.filter(r=>r.monthlyGoal && (showFlightsHere || !isFlightRow(r)));
+  const noGoalRows= filtered.filter(r=>!r.monthlyGoal && (showFlightsHere || !isFlightRow(r)));
 
   // Apply the same search/partner/platform filter to off-campaign rows so the
   // section respects whatever filters the user has set on the page.
+  // Same structural filter as the active list (search / partner / platform / freshness), plus the Trouble
+  // toggle — so the Off section respects whatever filters the page has set, and its trouble rows are the
+  // exact ones the badge counts.
   const offFiltered = offRows.filter((row)=>{
-    const { c } = row;
-    if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
-    if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
-    if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
-    // Updated/Not-updated filter applies to Off campaigns too (same as the active sections).
-    if(todayFilter==="today"     && !dataUpdatedWithin(c, updatedDays)) return false;
-    if(todayFilter==="not-today" &&  dataUpdatedWithin(c, updatedDays)) return false;
-    if(troubleOnly && !rowIsTrouble(row)) return false;
+    if(!structPass(row.c)) return false;
+    if(focusActive) return matchesFocus(row);            // crack-focus (e.g. paused-but-spending lives here)
+    if(troubleOnly) return inView(row.c) && rowIsTrouble(row);   // view-scoped off troubles (monthly vs flight)
     return true;
   });
 
@@ -8973,7 +9108,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
   const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
   const noPace  = withGoal.filter(r=>!r.pacing);
-  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || todayFilter!=="all" || troubleOnly;
+  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || todayFilter!=="all" || troubleOnly || focusActive;
 
   // ── Lifetime / contract pacing data ────────────────────────────────────────
   // Cumulative delivery across the WHOLE flight = every CLOSED month's final numbers
@@ -9966,6 +10101,19 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           {/* Note-2 flag — surfaces WHY a campaign (esp. an OFF one) isn't running: "no creatives",
               "no FB access", etc. (the user). Truncated with the full note on hover. */}
           {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{fontSize:9,fontWeight:700,color:lightMode?"#b91c1c":"#fca5a5",background:lightMode?"#fee2e2":"#200808",border:`1px solid ${lightMode?"#fecaca":"#ef444455"}`,borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200,flexShrink:1}}>⚠ {c.note2.trim()}</span>}
+          {/* Paused-but-still-delivering — a money-leak flag on an OFF campaign that served YESTERDAY. Distinct
+              from the generic Trouble state so the team sees the SPECIFIC reason. Only computed for off rows. */}
+          {c.status==="off" && (()=>{
+            const ys = yesterdayFromSeries(c, pacingNow());
+            if(!(ys && ys.value>0)) return null;
+            const k = pacingMetricFor(c.platform, c.dealType);
+            const v = k==="spend" ? "$"+Math.round(ys.value).toLocaleString() : Math.round(ys.value).toLocaleString()+(k==="views"?" views":" impr");
+            return <span title={`Marked Off but still delivering — served ${v} yesterday. Pause it at the platform, or flip the status back to Active if it should be running.`}
+              style={{fontSize:9,fontWeight:800,color:"#fff",background:"#dc2626",border:"1px solid #ef4444",borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap",flexShrink:0}}>⏸ Paused · still delivering</span>;
+          })()}
+          {/* Active-but-not-delivering — a live booked line that's served nothing 2+ days in (launch failure). */}
+          {isActiveNotDelivering(c, disp) && <span title="Active but serving nothing 2+ days after its start — check the launch: creative approved? tag/pixel firing? budget set? Or the check-in isn't mapping to this campaign."
+            style={{fontSize:9,fontWeight:800,color:"#fff",background:"#b45309",border:"1px solid #f59e0b",borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap",flexShrink:0}}>🚀 Not delivering</span>}
         </div>
       </div>
 
@@ -10600,11 +10748,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     </div>;
   }
 
-  function Section({label,color,items,defaultOpen=true,connected=false,note=""}){
+  function Section({label,color,items,defaultOpen=true,connected=false,note="",forceOpen=false}){
     if(!items.length) return null;
     // Open/closed state lives in the parent (sectionOpen, keyed by label) so it survives the re-renders
     // that remount this component on any campaign change. The shim preserves the setOpen(v=>!v) calls.
-    const open = sectionOpen[label] !== undefined ? sectionOpen[label] : defaultOpen;
+    // forceOpen (Trouble / crack-focus mode) sets the DEFAULT to open so a flagged row doesn't hide in a
+    // normally-collapsed section — but an explicit user toggle still wins, so clicking a header always
+    // opens/closes it.
+    const open = sectionOpen[label] !== undefined ? sectionOpen[label] : (forceOpen || defaultOpen);
     const setOpen = (updater) => setSectionOpen(prev => {
       const cur = prev[label] !== undefined ? prev[label] : defaultOpen;
       const next = typeof updater === "function" ? updater(cur) : updater;
@@ -11175,14 +11326,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     </React.Fragment>)}
     </div>
     {anyFilter&&<div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
-      <span style={{fontSize:11,color:lmTxtS}}>Showing {filtered.length} of {allActive.length}</span>
-      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayFilter("all");setTroubleOnly(false);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
+      {/* Include the Off section's shown rows in the count when Trouble/crack-focus is on — otherwise a
+          paused-but-spending focus reads "0" while its campaign sits visible in the Off section. */}
+      <span style={{fontSize:11,color:lmTxtS}}>Showing {filtered.length + ((troubleOnly||focusActive) ? offFiltered.length : 0)} of {allActive.length + ((troubleOnly||focusActive) ? offRows.length : 0)}</span>
+      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayFilter("all");setTroubleOnly(false);setCrackFocus(null);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
     </div>}
 
     {/* Row count — This Month only (the ✈ Flights view has its own summary strip). */}
     {pacingView !== "lifetime" && (
     <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"center",fontSize:10,color:lmTxtD,flexWrap:"wrap"}}>
-      <span style={{fontWeight:700,color:lmTxtS}}>{filtered.length - flightRowCount} campaigns</span>
+      <span style={{fontWeight:700,color:lmTxtS}}>{filtered.length - (showFlightsHere ? 0 : flightRowCount)} campaigns</span>
       {noActivityRows.length>0&&<span style={{color:lmC("#fde047"),fontWeight:700}}>⏸ {noActivityRows.length} flat</span>}
       {notStartedRunning.length>0&&(
         <span
@@ -11376,9 +11529,52 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </div>
     )}
 
+    {/* ── "Cracks" summary bar ── one-glance triage for the specific status↔reality gaps that otherwise blend
+        into the generic Trouble count. Each chip TOGGLES a focus that isolates the list to just that crack
+        (click again to clear). Dismissable via ×; the dismissal is keyed to the current counts, so it stays
+        hidden until the numbers change (a new crack appears), then re-shows. Both tabs. */}
+    {(()=>{
+      const total = crackPausedSpending + crackNotDelivering + crackStale;
+      const crackSig = `${crackPausedSpending}|${crackNotDelivering}|${crackStale}`;
+      if(total === 0 || cracksDismissed === crackSig) return null;
+      const staleActive = todayFilter==="not-today" && updatedDays===3;
+      const chip = (active, activeColor, bg, brd, txt, onClick, key, title, children) => (
+        <button key={key} onClick={onClick} title={title}
+          style={{fontSize:11,fontWeight:700,borderRadius:6,padding:"3px 9px",cursor:"pointer",whiteSpace:"nowrap",
+            color:txt,background:bg,border:`1px solid ${brd}`,
+            boxShadow: active ? `0 0 0 2px ${activeColor}` : "none", opacity: active ? 1 : 0.92}}>
+          {active ? "✓ " : ""}{children}
+        </button>
+      );
+      return (
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:12,padding:"8px 12px",borderRadius:9,
+        background:lightMode?"#fff7ed":"#1a1206",border:`1px solid ${lightMode?"#fed7aa":"#7c2d12"}`}}>
+        <span style={{fontSize:11,fontWeight:800,color:lightMode?"#c2410c":"#fdba74",textTransform:"uppercase",letterSpacing:"0.06em",whiteSpace:"nowrap"}}>⚠ Needs attention</span>
+        {crackPausedSpending>0 && chip(crackFocus==="paused","#ef4444","#dc2626","#ef4444","#fff",
+          ()=>{ setTroubleOnly(false); setCrackFocus(crackFocus==="paused"?null:"paused"); },
+          "cr-paused","Paused campaigns that still delivered yesterday — budget leaking on an Off line. Click to show ONLY these (click again to clear).",
+          <>⏸ {crackPausedSpending} paused but spending</>)}
+        {crackNotDelivering>0 && chip(crackFocus==="notdelivering","#f59e0b","#b45309","#f59e0b","#fff",
+          ()=>{ setTroubleOnly(false); setCrackFocus(crackFocus==="notdelivering"?null:"notdelivering"); },
+          "cr-notdel","Live campaigns serving nothing 2+ days after launch — creative/tag/budget check. Click to show ONLY these (click again to clear).",
+          <>🚀 {crackNotDelivering} not delivering</>)}
+        {crackStale>0 && chip(staleActive,"#94a3b8",lightMode?"#f1f5f9":"#0e1a2e",lightMode?"#cbd5e1":"#334155",lightMode?"#334155":"#cbd5e1",
+          ()=>{ if(staleActive){ setTodayFilter("all"); } else { setCrackFocus(null); setUpdatedDays(3); setTodayFilter("not-today"); } },
+          "cr-stale","Active campaigns not refreshed in 3+ days — a check-in gap on something that should be running. Click to filter to them (click again to clear).",
+          <>⏰ {crackStale} stale 3d+</>)}
+        <button onClick={()=>{ setCracksDismissed(crackSig); try{ localStorage.setItem("pacing-cracks-dismissed", crackSig); }catch{} }}
+          title="Dismiss — comes back if the numbers change"
+          style={{marginLeft:"auto",background:"none",border:"none",color:lightMode?"#c2410c":"#fdba74",fontSize:15,lineHeight:1,cursor:"pointer",fontWeight:700,padding:"0 4px",flexShrink:0}}>×</button>
+      </div>
+      );
+    })()}
+
     {/* ✈ Flights view renders here; This Month keeps its full sectioned table below. The shared overlay
-        panels + toolbar above stay put, so toggling views doesn't move the page. */}
-    {pacingView === "lifetime" ? renderLifetime() : (<React.Fragment>
+        panels + toolbar above stay put, so toggling views doesn't move the page. EXCEPTION: when the Trouble
+        filter is on it's a global triage list, so we always use the unified sectioned table (flights pulled
+        in via showFlightsHere) even on the ✈ Flights tab — otherwise flight-only rendering would hide the
+        paused/monthly troubles the badge counts. */}
+    {pacingView === "lifetime" && !troubleOnly && !focusActive ? renderLifetime() : (<React.Fragment>
     {/* Horizontal scroll wrapper — on a laptop the wide table (~1720px) gets cut off on the right; this
         lets you scroll right to the hidden columns. The header + every table section scroll together in
         sync so columns stay aligned. Only applied in table view — card view stays fully responsive. */}
@@ -11389,12 +11585,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
          containing block and would break the sticky first column (it would scroll away, not pin). */
       <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"visible",background:lmBg,marginBottom:8}}>
         <TableHeader/>
-        <Section connected label="Behind"   color="#fde047" items={behind}/>
-        <Section connected label="On Track" color="#00d48a" items={onTrack}/>
-        <Section connected label="Ahead"    color="#f97316" items={ahead}/>
+        <Section connected label="Behind"   color="#fde047" items={behind}  forceOpen={troubleOnly||focusActive}/>
+        <Section connected label="On Track" color="#00d48a" items={onTrack} forceOpen={troubleOnly||focusActive}/>
+        <Section connected label="Ahead"    color="#f97316" items={ahead}   forceOpen={troubleOnly||focusActive}/>
       </div>
     )}
-    {noActivityRows.length>0&&(
+    {noActivityRows.length>0&&!troubleOnly&&(   /* hidden in Trouble mode — these rows already show in their pacing bucket; the separate stalled list would double them up */
       <div style={{marginBottom:viewMode==="table"?4:14}}>
         <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:lightMode?"#fffbeb":"#1a1208",border:"1px solid #fde04740",borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
           <span style={{fontSize:11,fontWeight:800,color:lmC("#fde047"),textTransform:"uppercase",letterSpacing:"0.07em"}}>⏸ Possibly Stalled ({noActivityRows.length})</span>
@@ -11447,15 +11643,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     {(noPace.length || offFiltered.length) > 0 && (
       <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"visible",background:lmBg,marginTop:8,marginBottom:8}}>
         <TableHeader/>
-        {noPace.length>0 && <Section connected label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false}/>}
-        {offFiltered.length>0 && <Section connected label="Off Campaigns" color="#7a9bbf" items={offFiltered} defaultOpen={true}
-          note="paused/ended — still visible for reference, won't show in alerts"/>}
+        {noPace.length>0 && <Section connected label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false} forceOpen={troubleOnly||focusActive}/>}
+        {offFiltered.length>0 && <Section connected label="Off Campaigns" color="#7a9bbf" items={offFiltered} defaultOpen={true} forceOpen={troubleOnly||focusActive}
+          note="paused/ended — still visible for reference; a paused campaign that hit goal early still counts as Trouble"/>}
       </div>
     )}
     {/* "Needs Monthly Goal" stays at the bottom (a config bucket, not an error). */}
     {noGoalRows.length>0&&(()=>{
       const syncedToday = noGoalRows.filter(r => dataUpdatedToday(r.c));
-      const open = showNoGoal || syncedToday.length > 0;
+      // Force-open in Trouble mode — every row here is a flagged campaign then, so it must be visible, not
+      // hidden behind a collapsed header (a no-monthly-goal campaign can still be Trouble via KPI/freq/etc.).
+      const open = showNoGoal || syncedToday.length > 0 || troubleOnly || focusActive;
       const hasSyncedToday = syncedToday.length > 0;
       return (
         <div style={{marginTop:4}}>
@@ -11484,7 +11682,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         Active campaigns whose flight begins in the FUTURE. They're held out of the pacing buckets
         (nothing to pace against) and out of the freshness filter (they'd always read "not updated" —
         the noise the user hit), so they get their own collapsible list here with their start dates. */}
-    {notStartedFiltered.length > 0 && (
+    {notStartedFiltered.length > 0 && !troubleOnly && (   /* not-started campaigns have no delivery, so they're never Trouble — hide the section in Trouble mode */
       <div style={{marginTop:4}}>
         <div onClick={()=>setShowNotStarted(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:showNotStarted?6:0,cursor:"pointer",userSelect:"none",padding:"3px 0"}}>
           <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",color:lmC("#7ec8ff")}}>🔜 Not Started Yet ({notStartedFiltered.length})</span>
@@ -11930,11 +12128,11 @@ function calcMonthlyRevenue(c, monthIdx, monthDate) {
 // Profit is the number that matters (revenue alone doesn't pay the bills — the user). Mirrors the Revenue
 // tab's methodology as closely as is sensible at module scope: revenue billed on ACTUAL delivery, CAPPED
 // at the monthly goal (CPM/CPV), or the SEM management fee; cost = actual reported media spend, with DSP
-// MODELED at the configured est. CPM (DSP rarely reports spend) and SEM media treated as pass-through
+// and Madhive MODELED at the configured est. CPM (they rarely/never report spend) and SEM media pass-through
 // (fee ≈ profit). It is NOT the authoritative P&L — it skips month-locks + SEM cumulative-overage nuance —
 // so the tile links to the Revenue tab for the exact figure.
 function estMonthlyProfit(campaigns){
-  let dspCpm; try { const v=parseFloat(JSON.parse(localStorage.getItem(CONFIG_KEY)||"{}").dspEstCpm); dspCpm=v>0?v:DSP_EST_CPM; } catch { dspCpm=DSP_EST_CPM; }
+  const modCpms = loadModeledCpms();   // DSP + Madhive: cost modeled from impressions × est. CPM
   const now=pacingNow(); const y=now.getFullYear(), m=now.getMonth();
   const mk=`${y}-${String(m+1).padStart(2,"0")}`;
   const dim=new Date(y,m+1,0).getDate(), dom=now.getDate();
@@ -11961,7 +12159,7 @@ function estMonthlyProfit(campaigns){
     const delivered=isCPV?viewsMtd:imprMtd;
     const billed=isCPV?delivered*rate:delivered/1000*rate;
     const revA=Math.min(billed, goalRev);                    // capped at the monthly goal (over-delivery isn't billable)
-    const spA=plat==="DSP"?imprMtd/1000*dspCpm:spendMtd;     // DSP modeled · others = actual reported spend
+    const spA=modCpms[plat]!=null?imprMtd/1000*modCpms[plat]:spendMtd;  // DSP/Madhive modeled · others = actual reported spend
     profitNow+=(revA-spA); revNow+=revA; campCount++;
     if(revA>0||spA>0) anyData=true;
   });
@@ -16734,7 +16932,10 @@ function ReportVault({ onAnalyzeWithZeus }) {
 // Inline "correct this month's numbers" editor shown inside a Revenue-tab campaign dropdown. Lets you
 // fix a campaign's delivered impressions/views and media spend for the focused month right there — even
 // a LOCKED month — and see the revenue/profit update live. onSave writes it through (see onSetMonthMetrics).
-function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, dspCpm, curImpr, curViews, curSpend, locked, goalRev=0, onSave }) {
+function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, curImpr, curViews, curSpend, locked, goalRev=0, onSave }) {
+  // modeledCpm != null → this platform's cost is auto-modeled from impressions (DSP + Madhive), so
+  // there's no editable media-spend field; null → a normal platform that reports real spend.
+  const isModeledCost = modeledCpm != null;
   const [impr, setImpr]   = React.useState(curImpr>0?String(curImpr):"");
   const [views, setViews] = React.useState(curViews>0?String(curViews):"");
   const [spend, setSpend] = React.useState(curSpend!=null?String(curSpend):"");
@@ -16747,7 +16948,7 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, dspCpm, curImpr
   // preview shows the CAPPED figure so this editor foots to the P&L it writes.
   const rev  = goalRev>0 ? Math.min(rawRev, goalRev) : rawRev;
   const overCap = goalRev>0 && rawRev > goalRev + 0.5;
-  const cost = platform==="DSP" ? nImpr/1000*dspCpm : nSpend;
+  const cost = isModeledCost ? nImpr/1000*modeledCpm : nSpend;
   const profit = cost==null ? null : rev-cost;
   const $r = n => "$"+Math.round(n).toLocaleString();
   return (
@@ -16756,11 +16957,11 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, dspCpm, curImpr
       <div style={{display:"flex",gap:12,alignItems:"flex-end",flexWrap:"wrap"}}>
         <div><label style={lbl}>{isCPV?"Views delivered":"Impressions delivered"}</label>
           <input type="number" value={isCPV?views:impr} onChange={e=>{ isCPV?setViews(e.target.value):setImpr(e.target.value); setDirty(true); }} style={iS} placeholder="0"/></div>
-        {platform!=="DSP"
+        {!isModeledCost
           ? <div><label style={lbl}>Media spend $</label>
               <input type="number" value={spend} onChange={e=>{ setSpend(e.target.value); setDirty(true); }} style={iS} placeholder="—"/></div>
-          : <div style={{fontSize:10,color:_lm?"#d97706":"#caa46a",paddingBottom:8,maxWidth:150}}>DSP cost is auto-modeled at ${dspCpm.toFixed(2)} CPM from impressions.</div>}
-        <button onClick={()=>{ onSave({ impr:nImpr, views:nViews, spend: platform==="DSP"?null:nSpend }); setDirty(false); }} disabled={!dirty}
+          : <div style={{fontSize:10,color:_lm?"#d97706":"#caa46a",paddingBottom:8,maxWidth:150}}>{platform==="DSP"?"DSP":"Madhive"} cost is auto-modeled at ${modeledCpm.toFixed(2)} CPM from impressions.</div>}
+        <button onClick={()=>{ onSave({ impr:nImpr, views:nViews, spend: isModeledCost?null:nSpend }); setDirty(false); }} disabled={!dirty}
           style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"8px 18px",color:dirty?"#06222b":"#3b5070",fontSize:13,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>{dirty?"Save":"Saved ✓"}</button>
         <span style={{fontSize:12,color:_lm?"#475569":"#9fb8d4",paddingBottom:8}}>= <b style={{color:_lm?"#059669":"#00e5a0"}}>{$r(rev)}</b> revenue{cost!=null&&<> − <b style={{color:"#f59e0b"}}>{$r(cost)}</b> = <b style={{color:profit>=0?(_lm?"#059669":"#00d48a"):"#ef4444"}}>{(profit>=0?"+":"−")+"$"+Math.round(Math.abs(profit)).toLocaleString()}</b> profit</>}</span>
       </div>
@@ -16794,6 +16995,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     try { const v = parseFloat(JSON.parse(localStorage.getItem(CONFIG_KEY) || "{}").dspEstCpm); return v > 0 ? v : DSP_EST_CPM; }
     catch { return DSP_EST_CPM; }
   })();
+  // Estimated cost CPMs for every modeled-cost platform (DSP + Madhive GCTV/PCTV/AECTV). Madhive, like
+  // DSP, reports impressions but no spend, so its cost is modeled from these. modeledCpmFor(platform)
+  // returns the CPM to model that platform's cost from, or null for platforms that report real spend.
+  const modeledCpms = loadModeledCpms();
+  const modeledCpmFor = (p) => (modeledCpms[p] != null ? modeledCpms[p] : null);
   const [monthLocks, setMonthLocks]         = useState(() => { try { return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); } catch { return {}; } });
   // Closing snapshots saved at each new-month reset — the source of truth for a CLOSED month's
   // actual spend/impressions, since the reset clears the live values. Lets past-month revenue
@@ -16849,7 +17055,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     let rev = c.platform === "SEM" ? (semFeeMap(c)[month] || 0)
       : dt === "CPV" ? (views || 0) * rate : (impr || 0) / 1000 * rate;
     if (c.platform !== "SEM" && goalRev > 0) rev = Math.min(rev, goalRev);
-    const sp = c.platform === "DSP" ? (impr || 0) / 1000 * dspCpm : spend;
+    const _modCpm = modeledCpmFor(c.platform);
+    const sp = _modCpm != null ? (impr || 0) / 1000 * _modCpm : spend;
     if (monthLocks[month]) {
       const lock = monthLocks[month];
       const camps = [...(lock.campaigns || [])];
@@ -17077,15 +17284,17 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       const lc = monthLocks[mo].campaigns?.find(r => String(r.id) === String(c.id));
       return lc ? lc.spend : null;
     }
-    // DSP: cost is MODELED at a flat assumed CPM (DSP rarely reports real spend), applied to the
+    // Modeled-cost platforms (DSP + Madhive GCTV/PCTV/AECTV): cost is MODELED at an assumed CPM —
+    // these platforms report impressions but rarely/never report real spend — applied to the
     // impressions actually delivered that month. No impressions yet → pending (the goal forecast
-    // still projects it). Future months → pending. Keeps DSP profit estimate consistent everywhere.
-    if (c.platform === "DSP") {
+    // still projects it). Future months → pending. Keeps the profit estimate consistent everywhere.
+    const _modCpm = modeledCpmFor(c.platform);
+    if (_modCpm != null) {
       if (mo > thisMonth) return null;
       if (mo === thisMonth && c.endDate && c.endDate.slice(0, 7) < mo) return null; // ended before this month
       const impr = actualImprForMonth(c, mo);
       if (impr == null || impr <= 0) return null;
-      return (impr / 1000) * dspCpm;
+      return (impr / 1000) * _modCpm;
     }
     // Closed month: use the actual spend from the backup or check-in history (reset-proof).
     if (mo < thisMonth) {
@@ -17319,10 +17528,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const rows = filtered.map(c=>{
     const spread = revenueMapForCampaign(c);
     // SEM profit is the management fee (realized, no media-spend dependency) — so a SEM campaign with
-    // a fee is "tracked", not pending. DSP cost is MODELED from delivered impressions, so a DSP campaign
-    // is "tracked" once it has impressions (even with no real spend). Everything else needs real spend.
+    // a fee is "tracked", not pending. Modeled-cost platforms (DSP + Madhive) cost is MODELED from
+    // delivered impressions, so they're "tracked" once they have impressions (even with no real
+    // spend). Everything else needs real spend.
     const trackable = c.platform === "SEM" ? Object.keys(spread).length > 0
-      : c.platform === "DSP" ? (getActualMtdImpressions(c) != null)
+      : modeledCpmFor(c.platform) != null ? (getActualMtdImpressions(c) != null)
       : hasSpendData(c);
     const monthCells = {};
     let windowRev=0, windowSpend=0, windowDeviceFee=0, windowHasSpend=false;
@@ -17374,14 +17584,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     const fee  = parseFloat(c.managementFee)||0;
     const spend = fc.spend;                                    // null = no spend data yet
     const rev   = fc.rev || 0;
-    const isSEM = c.platform==="SEM", isDSP = c.platform==="DSP";
+    const isSEM = c.platform==="SEM", isModeledCost = modeledCpmFor(c.platform) != null;
     const unit  = dealBasis(c)==="CPV" ? "views" : "impressions";
     let issue = null;
     if (isSEM) {
       if (fee <= 0) issue = (spend!=null && spend>0)
         ? "SEM spend/overage logged but no management fee — books as a loss"
         : "SEM campaign with no management fee — no revenue booked";
-    } else if (!isDSP && rate <= 0 && spend != null) {
+    } else if (!isModeledCost && rate <= 0 && spend != null) {
       issue = "Spend logged but no contract rate — revenue can't be calculated";
     } else if (!isSEM && rate > 0 && spend != null && spend > 0 && rev <= 0) {
       issue = `Spend logged but 0 delivered ${unit} — $0 revenue`;
@@ -17494,12 +17704,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       } else {
         // No delivery yet → cur.rev is already the full-month goal projection; use as-is (don't scale).
         projRev += cur.rev;
-        if (r.c.platform === "DSP") {
-          // DSP cost is MODELED, not measured. Since we're counting this campaign's goal revenue,
-          // count its goal-based modeled cost too (same basis as monthGoalForecast) — otherwise this
-          // tile would book DSP goal revenue with $0 cost and overstate profit vs "if you hit goal".
+        const _modCpm = modeledCpmFor(r.c.platform);
+        if (_modCpm != null) {
+          // Modeled-cost platform (DSP/Madhive): cost is MODELED, not measured. Since we're counting
+          // this campaign's goal revenue, count its goal-based modeled cost too (same basis as
+          // monthGoalForecast) — otherwise this tile would book goal revenue with $0 cost and overstate
+          // profit vs "if you hit goal".
           const rate = parseFloat(r.c.contractRate) || 0;
-          if (rate > 0) { projSpend += cur.rev * (dspCpm / rate); anySpend = true; }
+          if (rate > 0) { projSpend += cur.rev * (_modCpm / rate); anySpend = true; }
         } else if (cur.spend != null) { projSpend += cur.spend; projDeviceFee += (cur.deviceFee || 0); anySpend = true; }
       }
       any = true;
@@ -17522,12 +17734,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       const gRev = revenueMapForCampaign(r.c)[thisMonth] || 0; // full-goal monthly revenue (pre actual-delivery adjustment)
       if (!(gRev > 0)) return;
       goalRev += gRev; any = true;
-      // DSP: model the cost from the GOAL impressions at the assumed CPM, regardless of delivery so
-      // far — so "if you hit goal" shows a real profit for DSP even with zero impressions logged yet.
-      // gRev = goalImpr/1000 × rate, so gRev × (dspCpm/rate) = goalImpr/1000 × dspCpm.
-      if (r.c.platform === "DSP") {
+      // Modeled-cost platform (DSP/Madhive): model the cost from the GOAL impressions at the assumed
+      // CPM, regardless of delivery so far — so "if you hit goal" shows a real profit even with zero
+      // impressions logged yet. gRev = goalImpr/1000 × rate, so gRev × (cpm/rate) = goalImpr/1000 × cpm.
+      const _modCpm = modeledCpmFor(r.c.platform);
+      if (_modCpm != null) {
         const rate = parseFloat(r.c.contractRate) || 0;
-        if (rate > 0) { goalSpend += gRev * (dspCpm / rate); anySpend = true; }
+        if (rate > 0) { goalSpend += gRev * (_modCpm / rate); anySpend = true; }
         return;
       }
       if (cur && cur.spend != null && cur.rev > 0) {
@@ -18412,7 +18625,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       </div>
                       <div>
                         <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
-                          Spend{r.c.platform==="DSP"&&<span style={{color:"#f59e0b",fontWeight:700,textTransform:"none",letterSpacing:0,marginLeft:5}}>· est. ${dspCpm.toFixed(2)} CPM</span>}
+                          Spend{modeledCpmFor(r.c.platform)!=null&&<span style={{color:"#f59e0b",fontWeight:700,textTransform:"none",letterSpacing:0,marginLeft:5}}>· est. ${modeledCpmFor(r.c.platform).toFixed(2)} CPM</span>}
                         </div>
                         <div style={{fontSize:26,fontWeight:700,color:"#f59e0b",lineHeight:1}}>
                           {r.focusCell.spend==null?<span style={{color:"#f59e0b",fontSize:18}}>⏳ pending</span>:$fc(r.focusCell.spend)}
@@ -18547,7 +18760,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                   against the billed contract CPM, so the margin per thousand is spelled out. */}
                               {!isCPV && hasUnit && costPer!=null && (
                                 <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
-                                  Billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(2)} CPM</span> − your cost <span style={{color:"#f59e0b",fontWeight:700}}>${(costPer*1000).toFixed(2)} CPM</span>{r.c.platform==="DSP"&&<span style={{color:"#f59e0b",fontStyle:"italic"}}> (estimated)</span>} = margin <span style={{color:profitColor(rateNum-costPer*1000),fontWeight:700}}>${(rateNum-costPer*1000).toFixed(2)} CPM</span>
+                                  Billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(2)} CPM</span> − your cost <span style={{color:"#f59e0b",fontWeight:700}}>${(costPer*1000).toFixed(2)} CPM</span>{modeledCpmFor(r.c.platform)!=null&&<span style={{color:"#f59e0b",fontStyle:"italic"}}> (estimated)</span>} = margin <span style={{color:profitColor(rateNum-costPer*1000),fontWeight:700}}>${(rateNum-costPer*1000).toFixed(2)} CPM</span>
                                 </div>
                               )}
                               {/* Device surcharge transparency — spell out the matched device-line impressions
@@ -18585,7 +18798,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       const curImpr  = lk ? (parseInt(lk.impressions)||0) : (actualImprForMonth(r.c, activeMonth)||0);
                       const curViews = lk ? (parseInt(lk.videoViews)||0)  : (actualViewsForMonth(r.c, activeMonth)||0);
                       return <MonthMetricsEditor monthLabel={focusLabelShort} platform={r.c.platform} isCPV={isCPV}
-                        rate={parseFloat(r.c.contractRate)||0} dspCpm={dspCpm} curImpr={curImpr} curViews={curViews}
+                        rate={parseFloat(r.c.contractRate)||0} modeledCpm={modeledCpmFor(r.c.platform)} curImpr={curImpr} curViews={curViews}
                         curSpend={r.focusCell.spend} locked={!!monthLocks[activeMonth]}
                         goalRev={revenueMapForCampaign(r.c)[activeMonth]||0}
                         onSave={(vals)=>commitMonthMetrics(r.c, activeMonth, vals)}/>;
@@ -19492,6 +19705,34 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
                   style={{background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"6px 11px",color:_lm?"#475569":"#7a9bbf",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>↺ Auto</button>
               : <span style={{fontSize:10,fontWeight:700,color:_lm?"#059669":"#00a884",whiteSpace:"nowrap"}}>Auto ✓</span>}
           </div>
+        </div>
+      </div>
+      )}
+
+      {/* Madhive estimated cost CPM — Madhive CTV (General/Premium/Audience-Ext) reports impressions
+          but no spend, so — like DSP — the Revenue tab models each one's cost from an estimated CPM.
+          A GENERAL revenue setting (not a connector), so it shows in the General sub-tab. Written to
+          CONFIG_KEY.madhiveEstCpm.{GCTV|PCTV|AECTV}; read by loadModeledCpms(). */}
+      {configView !== "connections" && (
+      <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"14px 18px",marginBottom:16,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+        <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:4,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          📺 Madhive Estimated Cost
+          <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",fontWeight:400}}>Madhive reports impressions, not spend — so the Revenue tab models cost from these CPMs</span>
+        </div>
+        <div style={{fontSize:10.5,color:_lm?"#94a3b8":"#3d5a72",lineHeight:1.55,marginBottom:12,maxWidth:560}}>Each Madhive product costs differently, so set the media CPM you pay for each. Spend = delivered impressions ÷ 1,000 × this CPM, applied to every campaign on that platform (and its profit &amp; forecasts).</div>
+        <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+          {[["GCTV","General CTV","16"],["PCTV","Premium CTV","22"],["AECTV","Audience Ext.","16"]].map(([code,label,ph])=>(
+            <div key={code} style={{minWidth:150}}>
+              <label style={labelS}>{code} <span style={{color:_lm?"#94a3b8":"#3d5a72",textTransform:"none",fontWeight:400}}>· {label}</span></label>
+              <div style={{display:"flex",alignItems:"center",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,overflow:"hidden"}}>
+                <span style={{padding:"7px 10px",color:"#f59e0b",fontWeight:700,fontSize:13,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
+                <input type="number" step="0.01" min="0" value={getVal("madhiveEstCpm."+code,"")} onChange={e=>setVal("madhiveEstCpm."+code, e.target.value)}
+                  placeholder={ph} style={{flex:1,minWidth:0,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
+                <span style={{padding:"0 10px",color:_lm?"#94a3b8":"#3d5a72",fontSize:10,whiteSpace:"nowrap"}}>/1K</span>
+              </div>
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Default ${ph}</div>
+            </div>
+          ))}
         </div>
       </div>
       )}
