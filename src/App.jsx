@@ -380,6 +380,12 @@ function severePacing(pacing){
   if(pacing.ratio!=null && pacing.ratio>1.5 && (pacing.expectedPct==null || pacing.expectedPct>=0.25)) return { dir:"over", pct:Math.round(pacing.ratio*100) };
   return null;
 }
+// Trouble REASON taxonomy — drives the "filter by issue" chips under the Pacing Trouble button. Each
+// troubled campaign carries one or more of these keys (see troubleReasonsFor in PacingDashboard). Order =
+// display order; label = chip text; color = chip accent (matches the KPI conventions used elsewhere).
+const TROUBLE_REASON_ORDER  = ["pace","ctr","cpm","vcr","goalhit","freq","rate","dark"];
+const TROUBLE_REASON_LABEL  = { pace:"Pacing", ctr:"CTR", cpm:"CPM", vcr:"Completion", goalhit:"Hit goal early", freq:"Frequency", rate:"No rate", dark:"Went dark" };
+const TROUBLE_REASON_COLOR  = { pace:"#ef4444", ctr:"#f59e0b", cpm:"#f97316", vcr:"#a855f7", goalhit:"#00d48a", freq:"#eab308", rate:"#ef4444", dark:"#ef4444" };
 function loadCustomPlatforms() { try{const s=localStorage.getItem(CUSTOM_PLATFORMS_KEY);return s?JSON.parse(s):{platforms:[],colors:{}}}catch{return{platforms:[],colors:{}}}}
 function saveCustomPlatforms(d){try{localStorage.setItem(CUSTOM_PLATFORMS_KEY,JSON.stringify(d))}catch(e){}}
 // ALL_PLATFORMS stays as a live array that includes custom additions
@@ -8743,6 +8749,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [clearPendingId, setClearPendingId] = useState(null); // campaign id awaiting clear confirm
   const [todayFilter,    setTodayFilter]    = useState(_persisted.todayFilter || "all"); // "all" | "today" | "not-today"
   const [troubleOnly,    setTroubleOnly]    = useState(!!_persisted.troubleOnly); // show only KPI-yellow/red + severe pacers
+  // "Filter by issue" — when Trouble is on, narrow to ONE reason (ctr/cpm/pace/vcr/…). null = all troubles.
+  const [reasonFocus,    setReasonFocus]    = useState(null);
   // How many days back still counts as "updated" for the ✓/✕ pair. 1 = today only (the original
   // behaviour). Drops arrive in batches and a line checked yesterday isn't stale, so "today or
   // nothing" flagged too much — this widens the window without changing what the buttons mean.
@@ -8871,64 +8879,60 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // benchmarks) OR a severe under/over pacer. Grades the SAME values the row shows (resolved `disp`
   // over the stored fields), so the filter agrees with the coloured KPI cells. Severe pacing only
   // counts when the data is FRESH (checked within 4 days) — stale pacing is misleading (the user).
-  const rowIsTrouble = (row) => {
+  // Which trouble REASONS a row has (empty = not trouble). Same signals as before, but now itemized so the
+  // "filter by issue" chips can slice the trouble list by CTR / CPM / Pacing / etc. rowIsTrouble = any reason.
+  const troubleReasonsFor = (row) => {
     const { c, disp, pacing } = row;
+    const out = [];
     const merged = { platform:c.platform,
       ctr: (disp && disp.ctr) || c.ctr,
       cpm: (disp && disp.cpm) || c.cpm,
       completionRate: (disp && disp.completionRate) || c.completionRate,
       impressions: (disp && disp.impressions) || c.impressions };
-    if(gradeCampaignKpis(merged, kpiBenchmarks).worst >= 2) return true;
-    // Pacing-based signals grade the campaign on its NATURAL basis: real FLIGHTS on their whole-flight
-    // (lifetime) pace, monthly campaigns on this month's pace — so the trouble reason matches what each
-    // shows in its own view (a front-loaded flight isn't mis-flagged "over", a slow flight month isn't
-    // mis-flagged "behind"). flightPacingForTrouble returns null for a flight with no delivery / bad dates,
-    // falling back to monthly pacing so nothing is worse off than before.
+    const g = gradeCampaignKpis(merged, kpiBenchmarks);   // g.ctr/g.vcr/g.cpm set only at sev≥2
+    if(g.ctr) out.push("ctr");
+    if(g.cpm) out.push("cpm");
+    if(g.vcr) out.push("vcr");
+    // Pacing-based signals grade on the campaign's NATURAL basis: real FLIGHTS on whole-flight pace, monthly
+    // campaigns on this month's pace (a front-loaded flight isn't mis-flagged "over", etc.).
     const isFlt = !!flightGoalLabel(c);
     const tp = isFlt ? (flightPacingForTrouble(c, disp) || pacing) : pacing;
-    if(dataUpdatedWithin(c, 4) && !!severePacing(tp)) return true;
-    // Hit goal with days to spare — at 100%+ of goal while still in flight with 4+ days left is over-serving
-    // unbillable delivery. Flights use their FLIGHT days-left; monthly uses days left this month (or the
-    // flight end if sooner). Applies whether ACTIVE or already PAUSED (Austin: keep it flagged after I pause
-    // it — pausing IS the fix, but it shouldn't silently drop off the list/count). Excludes ended flights.
-    // No freshness gate — delivery only grows, so a goal hit stays hit.
+    if(dataUpdatedWithin(c, 4) && !!severePacing(tp)) out.push("pace");
+    // Hit goal with days to spare — 100%+ of goal while still in flight with 4+ days left (over-serving
+    // unbillable delivery). Active OR paused. Excludes ended flights. No freshness gate (a goal hit stays hit).
     if((c.status === "active" || c.status === "off") && tp && tp.pctRaw != null && tp.pctRaw >= 1.0){
-      if(isFlt && tp.daysLeft != null){
-        if(!tp.ended && tp.daysLeft >= 4) return true;   // flight: hit total goal with 4+ flight-days left
-      } else {
+      let hit = false;
+      if(isFlt && tp.daysLeft != null){ if(!tp.ended && tp.daysLeft >= 4) hit = true; }
+      else {
         const _now = new Date(getToday()+"T00:00:00");
         const _monthEndDays = Math.round((new Date(_now.getFullYear(), _now.getMonth()+1, 0) - _now)/86400000);
         const _dr = daysRemaining(c);   // null = no end date · <0 = flight already ended
-        if(_dr === null || _dr >= 0){
-          const _daysLeft = (_dr !== null && _dr < _monthEndDays) ? _dr : _monthEndDays;
-          if(_daysLeft >= 4) return true;
-        }
+        if(_dr === null || _dr >= 0){ const _daysLeft = (_dr !== null && _dr < _monthEndDays) ? _dr : _monthEndDays; if(_daysLeft >= 4) hit = true; }
       }
+      if(hit) out.push("goalhit");
     }
-    // Ad fatigue — frequency over 5× (users are seeing the same ad too many times).
-    if((parseFloat((disp&&disp.frequency)||c.frequency)||0) > 5) return true;
-    // Has this campaign delivered at all? Shared by the "no rate" and "went dark" checks below.
+    // Ad fatigue — frequency over 5×.
+    if((parseFloat((disp&&disp.frequency)||c.frequency)||0) > 5) out.push("freq");
+    // Delivered at all? Shared by the "no rate" + "went dark" checks.
     const ran = (parseInt((disp&&disp.impressions)||c.impressions)||0) > 0
              || (parseFloat((disp&&disp.spend)||c.spend)||0) > 0
              || (parseInt((disp&&disp.videoViews)||c.videoViews)||0) > 0;
-    // No rate set — an active, DELIVERING non-SEM campaign with no CPM/CPV rate can't book revenue (SEM
-    // bills a management fee instead, so it's exempt). Money going untracked = the highest-priority gap.
-    if(c.status==="active" && ran && c.platform!=="SEM" && (parseFloat(c.contractRate)||0)<=0) return true;
-    // Went dark yesterday — an ACTIVE, in-flight campaign that HAS been delivering but served 0 yesterday
-    // (the delivery series has a bucket for yesterday and it's zero). Not for not-yet-started / ended /
-    // never-delivered campaigns (those are Launch-watch, not "went dark"). `yesterdayFromSeries` returns a
-    // 0-value bucket only when recent readings actually show a flat day, so a stale campaign won't false-flag.
+    // No rate set — active, DELIVERING, non-SEM campaign with no CPM/CPV rate can't book revenue.
+    if(c.status==="active" && ran && c.platform!=="SEM" && (parseFloat(c.contractRate)||0)<=0) out.push("rate");
+    // Went dark yesterday — active, in-flight, HAS delivered but served 0 yesterday.
     if(c.status === "active" && ran){
       const _t = getToday();
       const started = !c.startDate || c.startDate.slice(0,10) <= _t;
       const ended   = c.endDate && c.endDate.slice(0,10) < _t;
-      if(started && !ended){
-        const ys = yesterdayFromSeries(c, pacingNow());
-        if(ys && ys.value === 0) return true;
-      }
+      if(started && !ended){ const ys = yesterdayFromSeries(c, pacingNow()); if(ys && ys.value === 0) out.push("dark"); }
     }
-    return false;
+    return out;
   };
+  // Compute reasons once per row (moderately expensive — grade + flight pace + series) and cache by id, so the
+  // filters, badge, and reason-count chips all read the SAME classification without recomputing.
+  const _reasonCache = new Map();
+  const reasonsOf = (row) => { let r = _reasonCache.get(row.c.id); if(!r){ r = troubleReasonsFor(row); _reasonCache.set(row.c.id, r); } return r; };
+  const rowIsTrouble = (row) => reasonsOf(row).length > 0;
   // The STRUCTURAL filters (search / partner / platform / freshness) shared by the active list, the Off
   // section, AND the Trouble badge — everything except the Trouble toggle itself. Keeping them in one
   // predicate is what guarantees the Trouble count can't disagree with what the Trouble filter shows.
@@ -8940,12 +8944,23 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(todayFilter==="not-today" &&  dataUpdatedWithin(c, updatedDays)) return false; // stale beyond the window
     return true;
   };
+  // Per-reason trouble counts (current view + structural filters) — drives the "filter by issue" chips that
+  // show under the Trouble button. A focus only takes effect while it still matches something.
+  const reasonCounts = {};
+  if(troubleOnly){
+    [...allRows, ...offRows].forEach(r=>{ if(structPass(r.c) && inView(r.c)){ reasonsOf(r).forEach(k=>{ reasonCounts[k]=(reasonCounts[k]||0)+1; }); } });
+  }
+  const effReasonFocus = (troubleOnly && reasonFocus && reasonCounts[reasonFocus]>0) ? reasonFocus : null;
   const filtered = allRows.filter((row)=>{
     if(!structPass(row.c)) return false;
     // Trouble is VIEW-SCOPED (the user): This Month flags monthly campaigns, ✈ Flights flags flights —
     // each tab shows only its own troubles (graded on the matching basis), so the Flights list isn't padded
     // with monthly campaigns and vice-versa. inView = pacingView==="lifetime" ? flights : monthly.
-    if(troubleOnly) return inView(row.c) && rowIsTrouble(row);
+    if(troubleOnly){
+      if(!(inView(row.c) && rowIsTrouble(row))) return false;
+      if(effReasonFocus && !reasonsOf(row).includes(effReasonFocus)) return false;  // narrowed to one issue
+      return true;
+    }
     return true;
   });
 
@@ -8975,7 +8990,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // exact ones the badge counts.
   const offFiltered = offRows.filter((row)=>{
     if(!structPass(row.c)) return false;
-    if(troubleOnly) return inView(row.c) && rowIsTrouble(row);   // view-scoped off troubles (monthly vs flight)
+    if(troubleOnly){
+      if(!(inView(row.c) && rowIsTrouble(row))) return false;   // view-scoped off troubles (monthly vs flight)
+      if(effReasonFocus && !reasonsOf(row).includes(effReasonFocus)) return false;
+      return true;
+    }
     return true;
   });
 
@@ -11156,7 +11175,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </select>
       {/* Trouble filter — one click narrows the list to campaigns that need a look: a yellow OR red
           KPI (CTR / view rate / CPM vs the user's benchmarks) or a severe under/over pacer. */}
-      <button onClick={()=>setTroubleOnly(v=>!v)}
+      <button onClick={()=>setTroubleOnly(v=>{ if(v) setReasonFocus(null); return !v; })}
         title="Show only campaigns with a yellow/red KPI (CTR, view rate, or CPM) or severe under/over-pacing (fresh data only)"
         style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",fontSize:11.5,fontWeight:troubleOnly?700:500,flexShrink:0,
           background:troubleOnly?(lightMode?"#fef2f2":"#2a0b0b"):lmBgInp,
@@ -11252,7 +11271,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Include the Off section's shown rows in the count when Trouble/crack-focus is on — otherwise a
           paused-but-spending focus reads "0" while its campaign sits visible in the Off section. */}
       <span style={{fontSize:11,color:lmTxtS}}>Showing {filtered.length + (troubleOnly ? offFiltered.length : 0)} of {allActive.length + (troubleOnly ? offRows.length : 0)}</span>
-      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayFilter("all");setTroubleOnly(false);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
+      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayFilter("all");setTroubleOnly(false);setReasonFocus(null);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
     </div>}
 
     {/* Row count — This Month only (the ✈ Flights view has its own summary strip). */}
@@ -11448,6 +11467,36 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                   </div>
               ))}
             </div>;
+        })()}
+      </div>
+    )}
+
+    {/* "Filter by issue" chips — appear only under an active Trouble filter, one per KPI/reason that has
+        troubled campaigns (with a count). Click to narrow to just that issue (CTR/CPM/Pacing/…); click again
+        or "All" to clear. */}
+    {troubleOnly && TROUBLE_REASON_ORDER.some(k=>reasonCounts[k]>0) && (
+      <div style={{display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:10}}>
+        <span style={{fontSize:10, fontWeight:700, color:lmTxtS, textTransform:"uppercase", letterSpacing:"0.05em", whiteSpace:"nowrap"}}>Filter by issue:</span>
+        {(()=>{
+          const chip = (key, label, count, color) => {
+            const active = effReasonFocus===key || (key===null && !effReasonFocus);
+            return (
+              <button key={key||"all"} onClick={()=> setReasonFocus(key===null ? null : (reasonFocus===key?null:key)) }
+                style={{fontSize:11, fontWeight:700, borderRadius:6, padding:"3px 9px", cursor:"pointer", whiteSpace:"nowrap",
+                  background: active ? (color+ (lightMode?"22":"33")) : lmBgInp,
+                  border:`1px solid ${active ? color : lmBrd}`,
+                  color: active ? (lightMode?color:"#fff") : lmTxtS}}>
+                {label}
+                <span style={{marginLeft:5, fontSize:10, fontWeight:800, borderRadius:8, padding:"0 6px",
+                  color: active ? "#fff" : color,
+                  background: active ? color : (color + (lightMode?"22":"33"))}}>{count}</span>
+              </button>
+            );
+          };
+          return [
+            chip(null, "All", troubleCount, lightMode?"#0891b2":"#38bdf8"),
+            ...TROUBLE_REASON_ORDER.filter(k=>reasonCounts[k]>0).map(k=> chip(k, TROUBLE_REASON_LABEL[k], reasonCounts[k], TROUBLE_REASON_COLOR[k]))
+          ];
         })()}
       </div>
     )}
@@ -20765,6 +20814,7 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
   const [launchOpen, setLaunchOpen] = useState(()=>{ try{ return localStorage.getItem("home-show-launch")!=="0"; }catch{ return true; } }); // Launch & flag watch — open by default (don't let launches slip)
   const [showAllPrios, setShowAllPrios] = useState(false); // Today's priorities is now the single operational list — expand to see all (replaces the removed "flagged" card)
   const [showAllLaunch, setShowAllLaunch] = useState(false); // Launch & flag watch — expand past the first 8
+  const [parkedOpen, setParkedOpen] = useState(false); // Parked (Note-2-flagged off) campaigns — collapsed by default
   const [priosOpen, setPriosOpen] = useState(()=>{ try{ return localStorage.getItem("home-show-priorities")!=="0"; }catch{ return true; } }); // Today's priorities — open by default, collapsible + persisted
   const [calendarOpen, setCalendarOpen] = useState(false); // full calendar popout (meetings + reminders)
   const [healthOpen, setHealthOpen] = useState(false);   // click the health score → KPI + severe-pacing drill-down
@@ -20808,23 +20858,28 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
     // only thing worth saying is "this one needs a check-in." (the user: don't clutter Home with pacing
     // updates on campaigns that haven't reported in a few days — just nudge the few that need a drop.)
     const fresh = updatedWithin(c, 4);
+    // Pacing status still drives the HEALTH BAR counts (and the score below), but is no longer pushed as
+    // its own Home "priority" row — the user leans on the health bar + the Pacing tab's Trouble filter for
+    // behind/over-pacing, so Home isn't duplicating them (2026-08-25).
     if(!p) health.nodata++;
     else if(p.label==="Behind"){
-      if(p.ratio!=null && p.ratio<0.7){ health.risk++; if(fresh) raw.push({c, reason:`Behind pace — at ${Math.round((p.ratio||0)*100)}% of where it should be`, sev:3, tab:"pacing"}); }
+      if(p.ratio!=null && p.ratio<0.7){ health.risk++; }
       else health.behind++;
     }
-    else if(p.label==="Ahead" || p.pctRaw>1.05){ health.ahead++; if(fresh && p.pctRaw>1.15) raw.push({c, reason:`Over-delivering at ${Math.round(p.pctRaw*100)}% of goal — eating margin`, sev:2, tab:"pacing"}); }
+    else if(p.label==="Ahead" || p.pctRaw>1.05){ health.ahead++; }
     else health.ontrack++;
 
-    const dLeft = daysFromToday(c.endDate);
-    if(dLeft!=null && dLeft>=0 && dLeft<=5) raw.push({c, reason: dLeft===0?"Ends today":`Ends in ${dLeft} day${dLeft>1?"s":""}`, sev:1, tab:"pacing"});
+    const dLeft = daysFromToday(c.endDate);   // still feeds the health score below; the "ends soon" nudge was
+    // removed from the Home priorities queue (the user: "I don't need campaigns ending soon" — the End date
+    // is on the Campaigns/Pacing tabs already).
 
     if((parseFloat(c.contractRate)||0)<=0 && c.platform!=="SEM") raw.push({c, reason:"No rate set — revenue can't be booked", sev:2, tab:"revenue"});
 
+    // _ld / _since / _hasData still feed the health score below; the per-campaign "needs a check-in" nudge
+    // was removed from the Home priorities queue (the user: lean on the health bar + the Pacing freshness
+    // filter for staleness — it was the single biggest source of Home clutter).
     const _ld = lastDataDate(c); const _hasData = !!(c.lastMetricUpdate||c.lastQciDate) || (parseFloat(c.impressions)||0)>0;
     const _since = _ld ? Math.abs(daysFromToday(_ld)) : null;
-    // The general "needs a check-in" update — the ONLY Home flag for a stale campaign (>4 days).
-    if(!fresh){ raw.push({c, reason: _ld?`No check-in in ${_since} days — numbers may be stale`:"No delivery data yet", sev: (_ld&&_since>=6)?2:1, tab:"pacing", check:true}); }
 
     // Roll the same signals into one 0–100 score.
     const hs = scoreCampaignHealth({
@@ -20892,8 +20947,9 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
     const isNew = createdDays!=null && createdDays<=7;                              // added within the last week
     if(note2){
       // A manual flag IS the headline. An OFF campaign wearing a flag is the classic "parked pending FB
-      // access / creatives" that must not be forgotten → top severity so it can't be missed.
-      launchWatch.push({ c, msg: note2, sub: status==="off"?"⏸ Off · flagged":"⚠ Flagged", sev: status==="off"?3:2, confirmable:false, isNew });
+      // access / creatives" — steady-state and KNOWN, so it goes to a quiet collapsed "Parked" list (parked:true)
+      // rather than the urgent fires, per the user (Home was ~50 flagged). Active+flagged stays in the main list.
+      launchWatch.push({ c, msg: note2, sub: status==="off"?"⏸ Off · flagged":"⚠ Flagged", sev: status==="off"?2:2, confirmable:false, isNew, parked: status==="off" });
       return;                                   // one row per campaign — the note wins over other checks
     }
     if(ended) return;
@@ -20925,7 +20981,12 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
     }
   });
   launchWatch.sort((a,b)=>b.sev-a.sev);
-  const launchUrgent = launchWatch.filter(w=>w.sev>=3).length;
+  // Split: PARKED = OFF campaigns sitting behind a Note-2 flag (waiting on creatives/access) — known and
+  // steady-state, shown in a quiet collapsed sub-list. ACTIVE = the real fires (marked-live-but-dark, new,
+  // launching-soon, active+flagged) that need a look now.
+  const launchParked = launchWatch.filter(w=>w.parked);
+  const launchActive = launchWatch.filter(w=>!w.parked);
+  const launchUrgent = launchActive.filter(w=>w.sev>=2).length;  // "to unblock" count = the real fires only
   const topAttention = attention.slice(0, 8);
   const staleCount = running.filter(c=>!updatedWithin(c,3)).length;
 
@@ -21240,7 +21301,34 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
 
       {/* Launch & flag watch — full-width so blockers stay front-and-center. Only shown when there's
           something to catch (a Note-2 flag, or an active-but-not-delivering / launching-soon campaign). */}
-      {launchWatch.length>0 && (
+      {launchWatch.length>0 && (()=>{
+        // Shared row renderer for both the active-fires list and the collapsed Parked list.
+        const launchRow = (w,i)=>{
+          const pc = PLT_COLORS[w.c.platform]||PLT_COLORS.default;
+          const sevColor = w.sev>=3?"#ef4444":w.sev===2?"#f59e0b":(_lm?"#64748b":"#7a9bbf");
+          return (
+            <div key={w.c.id} onClick={()=>onEdit(w.c)} title="Open this campaign"
+              style={{display:"flex", alignItems:"center", gap:10, padding:"9px 8px", borderTop:i>0?`1px solid ${_lm?"#f1f5f9":"#111e33"}`:"none", cursor:"pointer"}}>
+              <span style={{width:6, height:6, borderRadius:6, background:sevColor, flexShrink:0}}/>
+              <span style={{background:pc+"22", color:pc, borderRadius:3, padding:"1px 6px", fontSize:9.5, fontWeight:800, flexShrink:0}}>{w.c.platform}</span>
+              <div style={{minWidth:0, flex:1}}>
+                <div style={{fontSize:12.5, fontWeight:700, color:_lm?"#0f172a":"#edf4ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:6}}>
+                  {w.isNew && <span style={{fontSize:8.5, fontWeight:800, color:_lm?"#0369a1":"#7dd3fc", background:_lm?"#e0f2fe":"#07293b", border:`1px solid ${_lm?"#7dd3fc":"#0e7490"}`, borderRadius:3, padding:"0 4px", flexShrink:0, letterSpacing:"0.03em"}}>🆕 NEW</span>}
+                  <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{(w.c.campaignName||"").trim()}</span>
+                </div>
+                <div style={{fontSize:11, color:sevColor, marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{w.msg}</div>
+              </div>
+              <span style={{fontSize:9.5, fontWeight:700, color:_lm?"#94a3b8":"#4d6e8a", flexShrink:0, whiteSpace:"nowrap"}}>{w.sub}</span>
+              {w.confirmable && onConfirmLive && (
+                <button onClick={(e)=>{ e.stopPropagation(); onConfirmLive(w.c.id); }}
+                  title="Confirm this campaign is live/set up — clears it from the watch even before data lands"
+                  style={{background:_lm?"#f0fdf9":"#00200f", border:`1px solid ${_lm?"#00c896":"#00c89660"}`, borderRadius:6, color:_lm?"#059669":"#00d48a", fontSize:10, fontWeight:800, padding:"3px 8px", cursor:"pointer", flexShrink:0, whiteSpace:"nowrap"}}>✓ Live</button>
+              )}
+              <span style={{fontSize:11, color:_lm?"#94a3b8":"#4d6e8a", flexShrink:0}}>→</span>
+            </div>
+          );
+        };
+        return (
         <div style={{...card, padding:"14px 18px", marginBottom:14, border:`1px solid ${launchUrgent>0?(_lm?"#fecaca":"#7f1d1d"):(_lm?"#e2e8f0":"#1a2744")}`}}>
           <button onClick={()=>setLaunchOpen(v=>{ const nv=!v; try{localStorage.setItem("home-show-launch", nv?"1":"0");}catch{} return nv; })}
             title={launchOpen?"Hide launch & flag watch":"Show launch & flag watch"}
@@ -21249,44 +21337,36 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
             <span style={{...labelStyle, margin:0}}>🚦 Launch &amp; flag watch</span>
             {launchUrgent>0 && <span style={{fontSize:10, fontWeight:800, color:"#fff", background:"#ef4444", borderRadius:9, padding:"1px 7px"}}>{launchUrgent} to unblock</span>}
             <span style={{flex:1}}/>
-            <span style={{fontSize:12, fontWeight:800, color:_lm?"#0f172a":"#edf4ff"}}>{launchWatch.length}</span>
+            <span style={{fontSize:12, fontWeight:800, color:_lm?"#0f172a":"#edf4ff"}}>{launchActive.length}</span>
           </button>
           {launchOpen && (<>
-            <div style={{fontSize:11, color:_lm?"#94a3b8":"#4d6e8a", marginBottom:6}}>Campaigns with a Note 2 flag, or marked live but not delivering — so nothing slips through the cracks.</div>
-            {(showAllLaunch ? launchWatch : launchWatch.slice(0,8)).map((w,i)=>{
-              const pc = PLT_COLORS[w.c.platform]||PLT_COLORS.default;
-              const sevColor = w.sev>=3?"#ef4444":w.sev===2?"#f59e0b":(_lm?"#64748b":"#7a9bbf");
-              return (
-                <div key={w.c.id} onClick={()=>onEdit(w.c)} title="Open this campaign"
-                  style={{display:"flex", alignItems:"center", gap:10, padding:"9px 8px", borderTop:i>0?`1px solid ${_lm?"#f1f5f9":"#111e33"}`:"none", cursor:"pointer"}}>
-                  <span style={{width:6, height:6, borderRadius:6, background:sevColor, flexShrink:0}}/>
-                  <span style={{background:pc+"22", color:pc, borderRadius:3, padding:"1px 6px", fontSize:9.5, fontWeight:800, flexShrink:0}}>{w.c.platform}</span>
-                  <div style={{minWidth:0, flex:1}}>
-                    <div style={{fontSize:12.5, fontWeight:700, color:_lm?"#0f172a":"#edf4ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:6}}>
-                      {w.isNew && <span style={{fontSize:8.5, fontWeight:800, color:_lm?"#0369a1":"#7dd3fc", background:_lm?"#e0f2fe":"#07293b", border:`1px solid ${_lm?"#7dd3fc":"#0e7490"}`, borderRadius:3, padding:"0 4px", flexShrink:0, letterSpacing:"0.03em"}}>🆕 NEW</span>}
-                      <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{(w.c.campaignName||"").trim()}</span>
-                    </div>
-                    <div style={{fontSize:11, color:sevColor, marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{w.msg}</div>
-                  </div>
-                  <span style={{fontSize:9.5, fontWeight:700, color:_lm?"#94a3b8":"#4d6e8a", flexShrink:0, whiteSpace:"nowrap"}}>{w.sub}</span>
-                  {w.confirmable && onConfirmLive && (
-                    <button onClick={(e)=>{ e.stopPropagation(); onConfirmLive(w.c.id); }}
-                      title="Confirm this campaign is live/set up — clears it from the watch even before data lands"
-                      style={{background:_lm?"#f0fdf9":"#00200f", border:`1px solid ${_lm?"#00c896":"#00c89660"}`, borderRadius:6, color:_lm?"#059669":"#00d48a", fontSize:10, fontWeight:800, padding:"3px 8px", cursor:"pointer", flexShrink:0, whiteSpace:"nowrap"}}>✓ Live</button>
-                  )}
-                  <span style={{fontSize:11, color:_lm?"#94a3b8":"#4d6e8a", flexShrink:0}}>→</span>
-                </div>
-              );
-            })}
-            {launchWatch.length>8 && (
+            <div style={{fontSize:11, color:_lm?"#94a3b8":"#4d6e8a", marginBottom:6}}>Marked live but not delivering, brand-new, or launching soon — so nothing slips through the cracks.</div>
+            {launchActive.length===0 && <div style={{fontSize:12, color:_lm?"#64748b":"#4d6e8a", padding:"4px 8px"}}>Nothing needs launching right now. ✓</div>}
+            {(showAllLaunch ? launchActive : launchActive.slice(0,8)).map(launchRow)}
+            {launchActive.length>8 && (
               <button onClick={()=>setShowAllLaunch(v=>!v)}
                 style={{background:"none", border:"none", padding:"8px 2px 0", cursor:"pointer", fontSize:10.5, fontWeight:700, color:_lm?"#0891b2":"#38bdf8", textAlign:"left"}}>
-                {showAllLaunch ? "▴ Show fewer" : `▾ Show all ${launchWatch.length}`}
+                {showAllLaunch ? "▴ Show fewer" : `▾ Show all ${launchActive.length}`}
               </button>
+            )}
+            {/* Parked — Note-2-flagged OFF campaigns (waiting on creatives / access). Known + steady-state, so
+                they're tucked in a quiet collapsed sub-list instead of screaming as urgent fires. */}
+            {launchParked.length>0 && (
+              <div style={{marginTop: launchActive.length?10:2, borderTop:`1px solid ${_lm?"#eef2f7":"#111e33"}`, paddingTop:6}}>
+                <button onClick={()=>setParkedOpen(v=>!v)}
+                  style={{display:"flex", alignItems:"center", gap:8, width:"100%", background:"none", border:"none", cursor:"pointer", padding:"2px 0", textAlign:"left"}}>
+                  <span style={{fontSize:9, color:_lm?"#94a3b8":"#4d6e8a", display:"inline-block", transform:parkedOpen?"rotate(90deg)":"none", transition:"transform .15s"}}>▸</span>
+                  <span style={{fontSize:10.5, fontWeight:700, color:_lm?"#64748b":"#7a9bbf", textTransform:"uppercase", letterSpacing:"0.05em"}}>⏸ Parked — waiting on creatives / access</span>
+                  <span style={{flex:1}}/>
+                  <span style={{fontSize:11, fontWeight:800, color:_lm?"#94a3b8":"#4d6e8a"}}>{launchParked.length}</span>
+                </button>
+                {parkedOpen && launchParked.map(launchRow)}
+              </div>
             )}
           </>)}
         </div>
-      )}
+        );
+      })()}
 
       {/* Two-column body */}
       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))", gap:14, alignItems:"stretch"}}>
