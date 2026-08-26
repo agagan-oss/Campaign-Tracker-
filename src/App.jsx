@@ -1763,36 +1763,6 @@ function isStoppedServing(c) {
   return impr === 0;
 }
 
-// ── Status ↔ reality "cracks" (shared by the Trouble test, the row badges, and the cracks summary bar) ──
-// A PAUSED campaign that served YESTERDAY — budget leaking on an Off line (stale status, or it wasn't really
-// paused at the platform). yesterdayFromSeries only returns a positive bucket when recent readings actually
-// show delivery, so a genuinely-stopped Off campaign (flat series) won't match.
-function isPausedButDelivering(c) {
-  if (!c || c.status !== "off") return false;
-  const ys = yesterdayFromSeries(c, pacingNow());
-  return !!(ys && ys.value > 0);
-}
-// An ACTIVE, in-flight, booked campaign that's served NOTHING 2+ days past its start — a launch failure
-// (creative rejected, tag not firing, budget not set) or a check-in that isn't mapping. The 2-day grace
-// skips a just-launched campaign and normal reporting lag; requiring a booked rate (SEM or contractRate>0)
-// keeps placeholder/no-rate rows out (they get the no-rate flag instead). `disp` = the row's current metrics.
-function isActiveNotDelivering(c, disp) {
-  if (!c || c.status !== "active") return false;
-  const d = disp || {};
-  const ran = (parseInt(d.impressions || c.impressions) || 0) > 0
-           || (parseFloat(d.spend || c.spend) || 0) > 0
-           || (parseInt(d.videoViews || c.videoViews) || 0) > 0;
-  if (ran) return false;
-  const _t = getToday();
-  const inFlight = (!c.startDate || c.startDate.slice(0,10) <= _t) && !(c.endDate && c.endDate.slice(0,10) < _t);
-  if (!inFlight) return false;
-  const cut = new Date(_t + "T00:00:00"); cut.setDate(cut.getDate() - 2);
-  const cutISO = `${cut.getFullYear()}-${String(cut.getMonth()+1).padStart(2,"0")}-${String(cut.getDate()).padStart(2,"0")}`;
-  const started2d = c.startDate && c.startDate.slice(0,10) <= cutISO;   // started ≥2 days ago
-  if (!started2d) return false;
-  return c.platform === "SEM" || (parseFloat(c.contractRate) || 0) > 0;  // a real booked line
-}
-
 // ─── IO PDF parsing ───────────────────────────────────────────────────────
 // Universal IO PDFs (e.g. Radio FM Media, similar Formsite exports) contain a list
 // of advertising service blocks. Each "X Included? Yes" block has start/end dates,
@@ -4581,10 +4551,11 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 })()}
               </div>
               {/* ── Extend helper ── When a campaign is extended but the MONTHLY goal is unchanged, recompute
-                  the total Goal (monthly × flight months), the Goal string's date range, and the Contract
-                  Value from the new flight length. Flight dates come from the Start/End date fields, falling
-                  back to the "(m/d/yy - m/d/yy)" range baked into the Goal string. One click, non-destructive
-                  (disabled when nothing would change), with a live preview of the result. */}
+                  the total Goal (monthly × flight months) and the Contract Value from the new flight length.
+                  The Goal box gets ONLY the total number — dates live in the Start/End date fields (the user).
+                  Flight dates are read from the Start/End fields, falling back to a "(m/d/yy - m/d/yy)" range in
+                  the Goal string if present. One click, non-destructive (disabled when nothing would change),
+                  with a live preview of the result. */}
               {(()=>{
                 const monthly = parseMonthlyGoal(f.note1);
                 const gm = (f.goal||"").match(/\(([\d/]+)\s*[-–]\s*([\d/]+)\)/);
@@ -4596,9 +4567,10 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 if(!monthly || !months) return null; // need a monthly goal + both flight dates
                 const totalImpr = Math.round(monthly*months);
                 const fmtK = n => n>=1000000 ? (+(n/1000000).toFixed(2))+"M" : n>=1000 ? (+(n/1000).toFixed(n>=10000?0:1))+"K" : String(n);
-                const dISP = iso => { const m=iso.match(/^(\d{4})-(\d{2})-(\d{2})/); return m?`${parseInt(m[2])}/${parseInt(m[3])}/${m[1].slice(2)}`:""; };
                 const parseGoalNum = s => { const m=(s||"").match(/([\d.]+)\s*([MK])?/i); if(!m) return 0; const n=parseFloat(m[1])||0; const u=(m[2]||"").toUpperCase(); return u==="M"?n*1e6:u==="K"?n*1e3:n; };
-                const newGoal = `${fmtK(totalImpr)} (${dISP(startISO)} - ${dISP(endISO)})`;
+                // Goal is just the total number — the flight dates live in the Start/End date fields (the user),
+                // so we don't bake a "(m/d/yy - m/d/yy)" range into the Goal box anymore.
+                const newGoal = fmtK(totalImpr);
                 const rate = parseFloat(f.contractRate)||0;
                 const curCV = parseFloat(f.contractValue)||0;
                 const oldTotal = parseGoalNum(f.goal);
@@ -8771,12 +8743,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [clearPendingId, setClearPendingId] = useState(null); // campaign id awaiting clear confirm
   const [todayFilter,    setTodayFilter]    = useState(_persisted.todayFilter || "all"); // "all" | "today" | "not-today"
   const [troubleOnly,    setTroubleOnly]    = useState(!!_persisted.troubleOnly); // show only KPI-yellow/red + severe pacers
-  // Cracks-bar focus — isolate the list to ONE crack type ("paused" = paused-but-spending · "notdelivering").
-  // Independent of Trouble (a narrower slice); clicking a crack chip toggles it, Clear filters resets it.
-  const [crackFocus,     setCrackFocus]     = useState(null);
-  // Cracks bar dismissal — stores the crack SIGNATURE that was dismissed, so the bar stays hidden until the
-  // numbers change (a new crack shows up), then re-appears. Persisted per tracker.
-  const [cracksDismissed, setCracksDismissed] = useState(() => { try { return localStorage.getItem("pacing-cracks-dismissed") || ""; } catch { return ""; } });
   // How many days back still counts as "updated" for the ✓/✕ pair. 1 = today only (the original
   // behaviour). Drops arrive in batches and a line checked yesterday isn't stale, so "today or
   // nothing" flagged too much — this widens the window without changing what the buttons mean.
@@ -8961,14 +8927,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         if(ys && ys.value === 0) return true;
       }
     }
-    // Active but NOT DELIVERING — a live, booked, in-flight campaign that's served nothing 2+ days after its
-    // start is a launch failure (or a check-in that isn't mapping). The vice-versa of the paused-but-spending
-    // leak below. (Shared helper so the badge + cracks bar count the exact same set.)
-    if(isActiveNotDelivering(c, disp)) return true;
-    // Paused but STILL DELIVERING — a campaign marked Off that served YESTERDAY is burning budget it
-    // shouldn't (stale status / not really paused). Off campaigns hide in their own section, so this money
-    // leak is exactly what slips through.
-    if(isPausedButDelivering(c)) return true;
     return false;
   };
   // The STRUCTURAL filters (search / partner / platform / freshness) shared by the active list, the Off
@@ -8982,19 +8940,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(todayFilter==="not-today" &&  dataUpdatedWithin(c, updatedDays)) return false; // stale beyond the window
     return true;
   };
-  // Crack-focus matcher — when a cracks-bar chip is active, isolate the list to just that crack type.
-  // "paused" only matches OFF rows, "notdelivering" only ACTIVE rows; it drives the same unified render as
-  // Trouble so off rows can surface. When no focus is set, everything passes (Trouble handles the rest).
-  const focusActive = !!crackFocus;
-  const matchesFocus = (row) => {
-    if(crackFocus === "paused")        return isPausedButDelivering(row.c);
-    if(crackFocus === "notdelivering") return isActiveNotDelivering(row.c, row.disp);
-    return true;
-  };
   const filtered = allRows.filter((row)=>{
     if(!structPass(row.c)) return false;
-    if(focusActive) return matchesFocus(row);            // crack-focus wins — show only that crack
-    // Trouble is now VIEW-SCOPED (the user): This Month flags monthly campaigns, ✈ Flights flags flights —
+    // Trouble is VIEW-SCOPED (the user): This Month flags monthly campaigns, ✈ Flights flags flights —
     // each tab shows only its own troubles (graded on the matching basis), so the Flights list isn't padded
     // with monthly campaigns and vice-versa. inView = pacingView==="lifetime" ? flights : monthly.
     if(troubleOnly) return inView(row.c) && rowIsTrouble(row);
@@ -9008,25 +8956,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // still counts (a goal-hit paused campaign shouldn't drop off) — scoped to the current view.
   const troubleCount = allRows.filter(r => structPass(r.c) && inView(r.c) && rowIsTrouble(r)).length
                      + offRows.filter(r => structPass(r.c) && inView(r.c) && rowIsTrouble(r)).length;
-  // ── "Cracks" summary (top-of-tab bar) ── the specific status↔reality gaps that otherwise blend into the
-  // generic Trouble count. Scoped by the same structural filters so the numbers match what filtering shows.
-  const _crackToday = getToday();
-  const crackNotEnded = (c) => !(c.endDate && c.endDate.slice(0,10) < _crackToday);
-  const crackPausedSpending = offRows.filter(r => structPass(r.c) && isPausedButDelivering(r.c)).length;
-  const crackNotDelivering  = allRows.filter(r => structPass(r.c) && isActiveNotDelivering(r.c, r.disp)).length;
-  // Stale = an ACTIVE, in-flight campaign not refreshed in 3+ days (a check-in gap on something that should be
-  // running). Off/ended lines are stale by nature, so they're excluded.
-  const crackStale = allRows.filter(r => structPass(r.c) && crackNotEnded(r.c) && !dataUpdatedWithin(r.c, 3)).length;
   // SPLIT (the user): the This Month view is for MONTHLY-goal campaigns. Multi-month / By-dates FLIGHTS
   // (flightGoalLabel non-null = a total-goal flight with no recurring "/Mo") move to the ✈ Flights view —
   // on This Month their prorated monthly share falsely reads "behind" because it can't see last month's
   // delivery (the Kennedy Mall case). One predicate drives both tabs.
   const isFlightRow = r => !!flightGoalLabel(r.c);
-  // When the Trouble filter is on it's a GLOBAL triage list — flights are pulled in alongside monthly
-  // campaigns (with their prorated monthly pace) so every flagged campaign is visible in one place, instead
-  // of flight troubles being stranded on the ✈ Flights tab. Off Trouble mode the split stands (flights →
-  // ✈ Flights tab), so normal browsing is unchanged.
-  const showFlightsHere = troubleOnly || focusActive;
+  // Under the (view-scoped) Trouble filter, `filtered` only holds the current tab's troubles, so on the
+  // ✈ Flights tab we pull those flight rows into the unified sectioned list (they'd otherwise be excluded).
+  const showFlightsHere = troubleOnly;
   const flightRowCount = filtered.filter(isFlightRow).length;   // active flights now living on the ✈ Flights tab
   const withGoal  = filtered.filter(r=>r.monthlyGoal && (showFlightsHere || !isFlightRow(r)));
   const noGoalRows= filtered.filter(r=>!r.monthlyGoal && (showFlightsHere || !isFlightRow(r)));
@@ -9038,7 +8975,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // exact ones the badge counts.
   const offFiltered = offRows.filter((row)=>{
     if(!structPass(row.c)) return false;
-    if(focusActive) return matchesFocus(row);            // crack-focus (e.g. paused-but-spending lives here)
     if(troubleOnly) return inView(row.c) && rowIsTrouble(row);   // view-scoped off troubles (monthly vs flight)
     return true;
   });
@@ -9108,7 +9044,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
   const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
   const noPace  = withGoal.filter(r=>!r.pacing);
-  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || todayFilter!=="all" || troubleOnly || focusActive;
+  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || todayFilter!=="all" || troubleOnly;
 
   // ── Lifetime / contract pacing data ────────────────────────────────────────
   // Cumulative delivery across the WHOLE flight = every CLOSED month's final numbers
@@ -10101,19 +10037,6 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           {/* Note-2 flag — surfaces WHY a campaign (esp. an OFF one) isn't running: "no creatives",
               "no FB access", etc. (the user). Truncated with the full note on hover. */}
           {c.note2&&c.note2.trim()&&<span title={c.note2.trim()} style={{fontSize:9,fontWeight:700,color:lightMode?"#b91c1c":"#fca5a5",background:lightMode?"#fee2e2":"#200808",border:`1px solid ${lightMode?"#fecaca":"#ef444455"}`,borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:200,flexShrink:1}}>⚠ {c.note2.trim()}</span>}
-          {/* Paused-but-still-delivering — a money-leak flag on an OFF campaign that served YESTERDAY. Distinct
-              from the generic Trouble state so the team sees the SPECIFIC reason. Only computed for off rows. */}
-          {c.status==="off" && (()=>{
-            const ys = yesterdayFromSeries(c, pacingNow());
-            if(!(ys && ys.value>0)) return null;
-            const k = pacingMetricFor(c.platform, c.dealType);
-            const v = k==="spend" ? "$"+Math.round(ys.value).toLocaleString() : Math.round(ys.value).toLocaleString()+(k==="views"?" views":" impr");
-            return <span title={`Marked Off but still delivering — served ${v} yesterday. Pause it at the platform, or flip the status back to Active if it should be running.`}
-              style={{fontSize:9,fontWeight:800,color:"#fff",background:"#dc2626",border:"1px solid #ef4444",borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap",flexShrink:0}}>⏸ Paused · still delivering</span>;
-          })()}
-          {/* Active-but-not-delivering — a live booked line that's served nothing 2+ days in (launch failure). */}
-          {isActiveNotDelivering(c, disp) && <span title="Active but serving nothing 2+ days after its start — check the launch: creative approved? tag/pixel firing? budget set? Or the check-in isn't mapping to this campaign."
-            style={{fontSize:9,fontWeight:800,color:"#fff",background:"#b45309",border:"1px solid #f59e0b",borderRadius:3,padding:"0px 5px",whiteSpace:"nowrap",flexShrink:0}}>🚀 Not delivering</span>}
         </div>
       </div>
 
@@ -11328,8 +11251,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     {anyFilter&&<div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
       {/* Include the Off section's shown rows in the count when Trouble/crack-focus is on — otherwise a
           paused-but-spending focus reads "0" while its campaign sits visible in the Off section. */}
-      <span style={{fontSize:11,color:lmTxtS}}>Showing {filtered.length + ((troubleOnly||focusActive) ? offFiltered.length : 0)} of {allActive.length + ((troubleOnly||focusActive) ? offRows.length : 0)}</span>
-      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayFilter("all");setTroubleOnly(false);setCrackFocus(null);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
+      <span style={{fontSize:11,color:lmTxtS}}>Showing {filtered.length + (troubleOnly ? offFiltered.length : 0)} of {allActive.length + (troubleOnly ? offRows.length : 0)}</span>
+      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayFilter("all");setTroubleOnly(false);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
     </div>}
 
     {/* Row count — This Month only (the ✈ Flights view has its own summary strip). */}
@@ -11529,52 +11452,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </div>
     )}
 
-    {/* ── "Cracks" summary bar ── one-glance triage for the specific status↔reality gaps that otherwise blend
-        into the generic Trouble count. Each chip TOGGLES a focus that isolates the list to just that crack
-        (click again to clear). Dismissable via ×; the dismissal is keyed to the current counts, so it stays
-        hidden until the numbers change (a new crack appears), then re-shows. Both tabs. */}
-    {(()=>{
-      const total = crackPausedSpending + crackNotDelivering + crackStale;
-      const crackSig = `${crackPausedSpending}|${crackNotDelivering}|${crackStale}`;
-      if(total === 0 || cracksDismissed === crackSig) return null;
-      const staleActive = todayFilter==="not-today" && updatedDays===3;
-      const chip = (active, activeColor, bg, brd, txt, onClick, key, title, children) => (
-        <button key={key} onClick={onClick} title={title}
-          style={{fontSize:11,fontWeight:700,borderRadius:6,padding:"3px 9px",cursor:"pointer",whiteSpace:"nowrap",
-            color:txt,background:bg,border:`1px solid ${brd}`,
-            boxShadow: active ? `0 0 0 2px ${activeColor}` : "none", opacity: active ? 1 : 0.92}}>
-          {active ? "✓ " : ""}{children}
-        </button>
-      );
-      return (
-      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:12,padding:"8px 12px",borderRadius:9,
-        background:lightMode?"#fff7ed":"#1a1206",border:`1px solid ${lightMode?"#fed7aa":"#7c2d12"}`}}>
-        <span style={{fontSize:11,fontWeight:800,color:lightMode?"#c2410c":"#fdba74",textTransform:"uppercase",letterSpacing:"0.06em",whiteSpace:"nowrap"}}>⚠ Needs attention</span>
-        {crackPausedSpending>0 && chip(crackFocus==="paused","#ef4444","#dc2626","#ef4444","#fff",
-          ()=>{ setTroubleOnly(false); setCrackFocus(crackFocus==="paused"?null:"paused"); },
-          "cr-paused","Paused campaigns that still delivered yesterday — budget leaking on an Off line. Click to show ONLY these (click again to clear).",
-          <>⏸ {crackPausedSpending} paused but spending</>)}
-        {crackNotDelivering>0 && chip(crackFocus==="notdelivering","#f59e0b","#b45309","#f59e0b","#fff",
-          ()=>{ setTroubleOnly(false); setCrackFocus(crackFocus==="notdelivering"?null:"notdelivering"); },
-          "cr-notdel","Live campaigns serving nothing 2+ days after launch — creative/tag/budget check. Click to show ONLY these (click again to clear).",
-          <>🚀 {crackNotDelivering} not delivering</>)}
-        {crackStale>0 && chip(staleActive,"#94a3b8",lightMode?"#f1f5f9":"#0e1a2e",lightMode?"#cbd5e1":"#334155",lightMode?"#334155":"#cbd5e1",
-          ()=>{ if(staleActive){ setTodayFilter("all"); } else { setCrackFocus(null); setUpdatedDays(3); setTodayFilter("not-today"); } },
-          "cr-stale","Active campaigns not refreshed in 3+ days — a check-in gap on something that should be running. Click to filter to them (click again to clear).",
-          <>⏰ {crackStale} stale 3d+</>)}
-        <button onClick={()=>{ setCracksDismissed(crackSig); try{ localStorage.setItem("pacing-cracks-dismissed", crackSig); }catch{} }}
-          title="Dismiss — comes back if the numbers change"
-          style={{marginLeft:"auto",background:"none",border:"none",color:lightMode?"#c2410c":"#fdba74",fontSize:15,lineHeight:1,cursor:"pointer",fontWeight:700,padding:"0 4px",flexShrink:0}}>×</button>
-      </div>
-      );
-    })()}
-
     {/* ✈ Flights view renders here; This Month keeps its full sectioned table below. The shared overlay
         panels + toolbar above stay put, so toggling views doesn't move the page. EXCEPTION: when the Trouble
-        filter is on it's a global triage list, so we always use the unified sectioned table (flights pulled
-        in via showFlightsHere) even on the ✈ Flights tab — otherwise flight-only rendering would hide the
-        paused/monthly troubles the badge counts. */}
-    {pacingView === "lifetime" && !troubleOnly && !focusActive ? renderLifetime() : (<React.Fragment>
+        filter is on it's a view-scoped triage list, so we always use the unified sectioned table (flights
+        pulled in via showFlightsHere on the ✈ Flights tab) — otherwise flight-only rendering would hide the
+        flight troubles the badge counts. */}
+    {pacingView === "lifetime" && !troubleOnly ? renderLifetime() : (<React.Fragment>
     {/* Horizontal scroll wrapper — on a laptop the wide table (~1720px) gets cut off on the right; this
         lets you scroll right to the hidden columns. The header + every table section scroll together in
         sync so columns stay aligned. Only applied in table view — card view stays fully responsive. */}
@@ -11585,9 +11468,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
          containing block and would break the sticky first column (it would scroll away, not pin). */
       <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"visible",background:lmBg,marginBottom:8}}>
         <TableHeader/>
-        <Section connected label="Behind"   color="#fde047" items={behind}  forceOpen={troubleOnly||focusActive}/>
-        <Section connected label="On Track" color="#00d48a" items={onTrack} forceOpen={troubleOnly||focusActive}/>
-        <Section connected label="Ahead"    color="#f97316" items={ahead}   forceOpen={troubleOnly||focusActive}/>
+        <Section connected label="Behind"   color="#fde047" items={behind}  forceOpen={troubleOnly}/>
+        <Section connected label="On Track" color="#00d48a" items={onTrack} forceOpen={troubleOnly}/>
+        <Section connected label="Ahead"    color="#f97316" items={ahead}   forceOpen={troubleOnly}/>
       </div>
     )}
     {noActivityRows.length>0&&!troubleOnly&&(   /* hidden in Trouble mode — these rows already show in their pacing bucket; the separate stalled list would double them up */
@@ -11643,8 +11526,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     {(noPace.length || offFiltered.length) > 0 && (
       <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"visible",background:lmBg,marginTop:8,marginBottom:8}}>
         <TableHeader/>
-        {noPace.length>0 && <Section connected label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false} forceOpen={troubleOnly||focusActive}/>}
-        {offFiltered.length>0 && <Section connected label="Off Campaigns" color="#7a9bbf" items={offFiltered} defaultOpen={true} forceOpen={troubleOnly||focusActive}
+        {noPace.length>0 && <Section connected label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false} forceOpen={troubleOnly}/>}
+        {offFiltered.length>0 && <Section connected label="Off Campaigns" color="#7a9bbf" items={offFiltered} defaultOpen={true} forceOpen={troubleOnly}
           note="paused/ended — still visible for reference; a paused campaign that hit goal early still counts as Trouble"/>}
       </div>
     )}
@@ -11653,7 +11536,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       const syncedToday = noGoalRows.filter(r => dataUpdatedToday(r.c));
       // Force-open in Trouble mode — every row here is a flagged campaign then, so it must be visible, not
       // hidden behind a collapsed header (a no-monthly-goal campaign can still be Trouble via KPI/freq/etc.).
-      const open = showNoGoal || syncedToday.length > 0 || troubleOnly || focusActive;
+      const open = showNoGoal || syncedToday.length > 0 || troubleOnly;
       const hasSyncedToday = syncedToday.length > 0;
       return (
         <div style={{marginTop:4}}>
