@@ -4140,7 +4140,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     const byMonth={};let total=0;
     valid.forEach(s=>{const gg=_gNum(s.goal);total+=gg;const sp=segMonthSplit(s.start,s.end,gg);Object.keys(sp).forEach(k=>{byMonth[k]=(byMonth[k]||0)+sp[k];});});
     let note1="";
-    if(valid.length){const starts=valid.map(s=>s.start).sort(),ends=valid.map(s=>s.end).sort();const order=flightMonthIdxs(starts[0],ends[ends.length-1]);note1=order.filter(i=>byMonth[i]>0).map(i=>`${_fmtKs(Math.round(byMonth[i]))} ${_MONF[i]}`).join(" ");set("goal",`${_fmtKs(Math.round(total))} (${_dISPs(starts[0])} - ${_dISPs(ends[ends.length-1])})`);}
+    if(valid.length){const starts=valid.map(s=>s.start).sort(),ends=valid.map(s=>s.end).sort();const order=flightMonthIdxs(starts[0],ends[ends.length-1]);note1=order.filter(i=>byMonth[i]>0).map(i=>`${_fmtKs(Math.round(byMonth[i]))} ${_MONF[i]}`).join(" ");set("goal",`${_fmtKs(Math.round(total))}`);}  /* goal box = number only; dates live in the Start/End fields (the user) */
     set("note1",note1);
     set("flightSegments",valid.map(s=>({start:s.start,end:s.end,goal:String(_gNum(s.goal))})));
   }
@@ -4148,8 +4148,48 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     const parts=[];let total=0;
     (months||[]).forEach(idx=>{const n=_gNum(goalsObj[idx]);if(n>0){parts.push(`${_fmtKs(n)} ${_MONF[idx]}`);total+=n;}});
     set("note1",parts.join(" "));
-    if(f.startDate&&f.endDate&&total>0)set("goal",`${_fmtKs(total)} (${_dISPs(f.startDate)} - ${_dISPs(f.endDate)})`);
+    if(total>0)set("goal",`${_fmtKs(total)}`);  /* goal box = number only; dates live in the Start/End fields */
     set("flightSegments",[]);
+  }
+  // Parse a multi-phase Note-1 ("1000K Sep 1000K Oct 1000K Nov") into { monthIdx: number }.
+  function parseMonthPhases(note1){
+    const out={}; const ML=["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+    const re=/([\d.,]+)\s*([KM])?\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/gi; let m;
+    while((m=re.exec(note1||""))){ let n=parseFloat(m[1].replace(/,/g,""))||0; const u=(m[2]||"").toUpperCase(); n=u==="M"?n*1e6:u==="K"?n*1e3:n; const mi=ML.indexOf(m[3].toLowerCase()); if(mi>=0&&n>0) out[mi]=n; }
+    return out;
+  }
+  // When the total Goal is hand-edited on a SCHEDULED flight (By-month note1 or By-dates flightSegments),
+  // rescale the per-month / per-window pieces PROPORTIONALLY so the pacing — which is driven by note1 /
+  // flightSegments, not the total goal box — follows the new total. (the user: removed an extra 0 from the
+  // total, but the flight's monthly breakdown didn't update.) Runs on blur; no-op for a flat flight (its
+  // total goal already drives pacing) or when the schedule total already matches.
+  function rescaleScheduleToGoal(){
+    const newTotal = parseGoalNumber(f.goal);
+    if(!(newTotal>0)) return;
+    // By-dates segments
+    const segs = Array.isArray(f.flightSegments) ? f.flightSegments.filter(s=>s&&s.start&&s.end&&_gNum(s.goal)>0) : [];
+    if(segs.length){
+      const oldTotal = segs.reduce((s,x)=>s+_gNum(x.goal),0);
+      if(oldTotal>0 && Math.round(oldTotal)!==Math.round(newTotal)){
+        const scale = newTotal/oldTotal;
+        const scaled = segs.map(s=>({start:s.start,end:s.end,goal:String(Math.max(0,Math.round(_gNum(s.goal)*scale)))}));
+        applySegmentsToForm(scaled);
+        setSegments(scaled.map(s=>({start:s.start,end:s.end,goal:s.goal})));
+      }
+      return;
+    }
+    // By-month multi-phase note1
+    const phases = parseMonthPhases(f.note1); const keys = Object.keys(phases);
+    if(keys.length){
+      const oldTotal = keys.reduce((s,k)=>s+phases[k],0);
+      if(oldTotal>0 && Math.round(oldTotal)!==Math.round(newTotal)){
+        const scale = newTotal/oldTotal;
+        const scaledObj={}; keys.forEach(k=>{ scaledObj[k]=String(Math.max(0,Math.round(phases[k]*scale))); });
+        const months = flightMonthIdxs(f.startDate, f.endDate);
+        applyScheduleToForm(scaledObj, months.length?months:keys.map(Number));
+        setScheduleGoals(prev=>({...prev, ...scaledObj}));
+      }
+    }
   }
   // On mount, seed whichever builder the campaign opened in.
   const scheduleSeeded = useRef(false);
@@ -4429,7 +4469,12 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               </div>
               {row("campaignName","Campaign Name")}
               {row("platform","Platform")}
-              {row("goal","Goal")}
+              {/* Total Goal — hand-editing it on a SCHEDULED flight rescales the per-month/per-window pieces
+                  proportionally on blur (rescaleScheduleToGoal), so pacing follows. Flat flights: drives pacing directly. */}
+              <div style={{marginBottom:12}}>
+                <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Goal</label>
+                <input type="text" value={f.goal||""} onChange={e=>set("goal",e.target.value)} onBlur={rescaleScheduleToGoal} style={iS}/>
+              </div>
               {row("startDate","Start Date","date")}
               {row("endDate","End Date","date")}
               {row("status","Status")}
@@ -4487,7 +4532,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                       const parts=[]; let total=0;
                       months.forEach(idx => { const n=parseInt((goalsObj[idx]||"").toString().replace(/[,\s]/g,""))||0; if(n>0){ parts.push(`${fmtKs(n)} ${MONF[idx]}`); total+=n; } });
                       set("note1", parts.join(" "));
-                      if(f.startDate && f.endDate && total>0) set("goal", `${fmtKs(total)} (${dISPs(f.startDate)} - ${dISPs(f.endDate)})`);
+                      if(total>0) set("goal", `${fmtKs(total)}`);  /* goal box = number only; dates live in the Start/End fields (the user) */
                     };
                     if(!months.length) return <div style={{marginTop:6,fontSize:10,color:_lm?"#dc2626":"#f87171"}}>Set the Start &amp; End dates above first — then each month in the flight appears here to fill in.</div>;
                     const total = months.reduce((s,idx)=>s+(parseInt((scheduleGoals[idx]||"").toString().replace(/[,\s]/g,""))||0),0);
@@ -4520,7 +4565,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                     const byMonth={}; let total=0;
                     valid.forEach(s=>{ const gg=parseInt((s.goal||"").toString().replace(/[,\s]/g,""))||0; total+=gg; const sp=segMonthSplit(s.start,s.end,gg); Object.keys(sp).forEach(k=>{ byMonth[k]=(byMonth[k]||0)+sp[k]; }); });
                     let note1="";
-                    if(valid.length){ const starts=valid.map(s=>s.start).sort(), ends=valid.map(s=>s.end).sort(); const order=flightMonthIdxs(starts[0],ends[ends.length-1]); note1=order.filter(i=>byMonth[i]>0).map(i=>`${fmtKs(Math.round(byMonth[i]))} ${MONF[i]}`).join(" "); set("goal", `${fmtKs(Math.round(total))} (${dISPs(starts[0])} - ${dISPs(ends[ends.length-1])})`); }
+                    if(valid.length){ const starts=valid.map(s=>s.start).sort(), ends=valid.map(s=>s.end).sort(); const order=flightMonthIdxs(starts[0],ends[ends.length-1]); note1=order.filter(i=>byMonth[i]>0).map(i=>`${fmtKs(Math.round(byMonth[i]))} ${MONF[i]}`).join(" "); set("goal", `${fmtKs(Math.round(total))}`); }  /* goal box = number only; dates live in the Start/End fields (the user) */
                     set("note1", note1);
                     set("flightSegments", valid.map(s=>({start:s.start,end:s.end,goal:String(parseInt((s.goal||"").toString().replace(/[,\s]/g,""))||0)})));
                   };
@@ -4718,7 +4763,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                             startDate: switchDate,
                             endDate: f.endDate,
                             note1: newNote1,
-                            goal: `${fmtK2(newTotalGoal)} (${dISP2(switchDate)} - ${dISP2(f.endDate)})`,
+                            goal: `${fmtK2(newTotalGoal)}`,   /* goal box = number only; dates live in the Start/End fields (the user) */
                             contractValue: newTotalCV>0 ? newTotalCV.toFixed(2) : "",
                             status: "active",
                             lastChecked: getToday(),
@@ -8827,10 +8872,12 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // Include all "running" statuses — not just "active".
   // "pacing-ahead", "pacing-behind", "close-to-goal", and "" (unknown/new) are all
   // campaigns that need pacing visibility. Only "off" is intentionally excluded.
-  // Campaigns that haven't STARTED yet (start date in the future) are also held out of the pacing list —
+  // Campaigns that haven't STARTED yet (start date in the future) are held out of the pacing list —
   // there's no delivery to pace against, so they'd just read as "No data / behind" and add noise. They're
-  // surfaced via a "🔜 N starting soon" chip in the toolbar instead (not hidden, just out of the flow).
-  const notStartedRunning = campaigns.filter(c => c.status!=="off" && c.startDate && c.startDate.slice(0,10) > todayStr)
+  // surfaced in the "Not Started Yet" section + a "🔜 N starting soon" chip instead. A FUTURE-dated campaign
+  // belongs here even if it's marked OFF (the user): it hasn't started, so "Not Started" is the right home,
+  // not the Off Campaigns list — the start date is what matters, not the on/off toggle.
+  const notStartedRunning = campaigns.filter(c => c.status!=="archived" && c.startDate && c.startDate.slice(0,10) > todayStr)
     .sort((a,b)=>a.startDate.localeCompare(b.startDate));
   const allActive = campaigns.filter(c=>c.status!=="off" && !(c.startDate && c.startDate.slice(0,10) > todayStr));
   const partners  = ["all", ...new Set(allActive.map(c=>c.mediaPartner).filter(Boolean))].sort();
@@ -8850,7 +8897,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // Rows for OFF campaigns — shown in a separate collapsible section so the
   // user can still see pacing/data for paused campaigns (e.g. ones that already
   // hit goal) without them mixing into the active Behind/On Track/Ahead buckets.
-  const offRows = campaigns.filter(c => c.status === "off").map(c => {
+  // Off campaigns — but NOT future-dated ones (those live in Not Started Yet above, regardless of on/off).
+  const offRows = campaigns.filter(c => c.status === "off" && !(c.startDate && c.startDate.slice(0,10) > todayStr)).map(c => {
     const disp = resolveMetrics(c, dateRange.preset);
     const pacing = computeMonthlyPacing(c, disp, c.note1);
     const monthlyGoal = effectiveMonthlyGoal(c);
@@ -11633,7 +11681,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
                     background:lightMode?"#f8fafc":"#0b1626",border:`1px solid ${lightMode?"#e2e8f0":"#16233a"}`}}>
                   <span style={{background:pc+"22",color:pc,borderRadius:3,padding:"1px 7px",fontSize:10,fontWeight:800,flexShrink:0}}>{c.platform}</span>
                   <div style={{minWidth:0,flex:1}}>
-                    <div style={{fontSize:12.5,fontWeight:700,color:lightMode?"#0f172a":"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{(c.campaignName||"").trim()}</div>
+                    <div style={{fontSize:12.5,fontWeight:700,color:lightMode?"#0f172a":"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{(c.campaignName||"").trim()}</span>
+                      {c.status==="off" && <span title="Marked off, but scheduled to start in the future — turn it on before its start date." style={{fontSize:8.5,fontWeight:800,color:lmTxtD,border:`1px solid ${lmBrd}`,borderRadius:3,padding:"0 4px",flexShrink:0,textTransform:"uppercase",letterSpacing:"0.03em"}}>⏸ off</span>}
+                    </div>
                     <div style={{fontSize:10.5,color:lmTxtS}}>{c.mediaPartner||"—"}</div>
                   </div>
                   <span style={{fontSize:11,fontWeight:700,color:lmC("#7ec8ff"),flexShrink:0,whiteSpace:"nowrap"}}>🔜 Starts {parseInt(m)}/{parseInt(d)}/{y.slice(2)}{inDays<=45?` · in ${inDays}d`:""}</span>
@@ -12091,7 +12142,11 @@ function estMonthlyProfit(campaigns){
     const delivered=isCPV?viewsMtd:imprMtd;
     const billed=isCPV?delivered*rate:delivered/1000*rate;
     const revA=Math.min(billed, goalRev);                    // capped at the monthly goal (over-delivery isn't billable)
-    const spA=modCpms[plat]!=null?imprMtd/1000*modCpms[plat]:spendMtd;  // DSP/Madhive modeled · others = actual reported spend
+    // DSP always modeled; Madhive prefers real spend, then reported CPM, then the estimate; others = reported spend.
+    const spA = modCpms[plat]!=null
+      ? (plat!=="DSP" && spendMtd>0 ? spendMtd
+         : imprMtd/1000*((plat!=="DSP" && (parseFloat(c.cpm)||0)>0) ? (parseFloat(c.cpm)||0) : modCpms[plat]))
+      : spendMtd;
     profitNow+=(revA-spA); revNow+=revA; campCount++;
     if(revA>0||spA>0) anyData=true;
   });
@@ -16865,9 +16920,11 @@ function ReportVault({ onAnalyzeWithZeus }) {
 // fix a campaign's delivered impressions/views and media spend for the focused month right there — even
 // a LOCKED month — and see the revenue/profit update live. onSave writes it through (see onSetMonthMetrics).
 function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, curImpr, curViews, curSpend, locked, goalRev=0, onSave }) {
-  // modeledCpm != null → this platform's cost is auto-modeled from impressions (DSP + Madhive), so
-  // there's no editable media-spend field; null → a normal platform that reports real spend.
-  const isModeledCost = modeledCpm != null;
+  // DSP never reports real spend → its cost is ALWAYS auto-modeled (no spend field). Madhive DOES get real
+  // spend/CPM from check-ins, so it shows a spend field and only ESTIMATES (× modeledCpm) as a fallback when
+  // spend is left blank. Everything else is a normal real-spend platform.
+  const alwaysModeled = platform === "DSP";
+  const canEstimate   = modeledCpm != null;                 // DSP + Madhive have an estimate to fall back to
   const [impr, setImpr]   = React.useState(curImpr>0?String(curImpr):"");
   const [views, setViews] = React.useState(curViews>0?String(curViews):"");
   const [spend, setSpend] = React.useState(curSpend!=null?String(curSpend):"");
@@ -16880,7 +16937,10 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, cur
   // preview shows the CAPPED figure so this editor foots to the P&L it writes.
   const rev  = goalRev>0 ? Math.min(rawRev, goalRev) : rawRev;
   const overCap = goalRev>0 && rawRev > goalRev + 0.5;
-  const cost = isModeledCost ? nImpr/1000*modeledCpm : nSpend;
+  // DSP: always modeled. Madhive: real spend when entered, else estimate. Normal: the entered spend.
+  const cost = alwaysModeled ? nImpr/1000*modeledCpm
+             : (nSpend != null ? nSpend : (canEstimate ? nImpr/1000*modeledCpm : null));
+  const usingEstimate = !alwaysModeled && canEstimate && nSpend == null;   // Madhive falling back to the estimate
   const profit = cost==null ? null : rev-cost;
   const $r = n => "$"+Math.round(n).toLocaleString();
   return (
@@ -16889,11 +16949,13 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, cur
       <div style={{display:"flex",gap:12,alignItems:"flex-end",flexWrap:"wrap"}}>
         <div><label style={lbl}>{isCPV?"Views delivered":"Impressions delivered"}</label>
           <input type="number" value={isCPV?views:impr} onChange={e=>{ isCPV?setViews(e.target.value):setImpr(e.target.value); setDirty(true); }} style={iS} placeholder="0"/></div>
-        {!isModeledCost
-          ? <div><label style={lbl}>Media spend $</label>
-              <input type="number" value={spend} onChange={e=>{ setSpend(e.target.value); setDirty(true); }} style={iS} placeholder="—"/></div>
-          : <div style={{fontSize:10,color:_lm?"#d97706":"#caa46a",paddingBottom:8,maxWidth:150}}>{platform==="DSP"?"DSP":"Madhive"} cost is auto-modeled at ${modeledCpm.toFixed(2)} CPM from impressions.</div>}
-        <button onClick={()=>{ onSave({ impr:nImpr, views:nViews, spend: isModeledCost?null:nSpend }); setDirty(false); }} disabled={!dirty}
+        {alwaysModeled
+          ? <div style={{fontSize:10,color:_lm?"#d97706":"#caa46a",paddingBottom:8,maxWidth:150}}>DSP cost is auto-modeled at ${modeledCpm.toFixed(2)} CPM from impressions.</div>
+          : <div><label style={lbl}>Media spend $</label>
+              <input type="number" value={spend} onChange={e=>{ setSpend(e.target.value); setDirty(true); }} style={iS} placeholder={canEstimate?`est. ${(nImpr/1000*modeledCpm).toFixed(0)}`:"—"}/>
+              {canEstimate && <div style={{fontSize:9,color:usingEstimate?(_lm?"#d97706":"#caa46a"):(_lm?"#64748b":"#5a7ba0"),marginTop:3,maxWidth:130,lineHeight:1.35}}>{usingEstimate?`Blank → estimated at $${modeledCpm.toFixed(2)} CPM. Enter your real Madhive spend to override.`:"Using your entered spend."}</div>}
+            </div>}
+        <button onClick={()=>{ onSave({ impr:nImpr, views:nViews, spend: alwaysModeled?null:nSpend }); setDirty(false); }} disabled={!dirty}
           style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"8px 18px",color:dirty?"#06222b":"#3b5070",fontSize:13,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>{dirty?"Save":"Saved ✓"}</button>
         <span style={{fontSize:12,color:_lm?"#475569":"#9fb8d4",paddingBottom:8}}>= <b style={{color:_lm?"#059669":"#00e5a0"}}>{$r(rev)}</b> revenue{cost!=null&&<> − <b style={{color:"#f59e0b"}}>{$r(cost)}</b> = <b style={{color:profit>=0?(_lm?"#059669":"#00d48a"):"#ef4444"}}>{(profit>=0?"+":"−")+"$"+Math.round(Math.abs(profit)).toLocaleString()}</b> profit</>}</span>
       </div>
@@ -16932,6 +16994,15 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // returns the CPM to model that platform's cost from, or null for platforms that report real spend.
   const modeledCpms = loadModeledCpms();
   const modeledCpmFor = (p) => (modeledCpms[p] != null ? modeledCpms[p] : null);
+  // Is a modeled-cost campaign currently ESTIMATING its cost (vs using a real spend/CPM)? DSP always
+  // estimates (never reports spend); Madhive estimates only UNTIL a real spend or reported cost-CPM exists,
+  // then it uses that. Drives the "· est. $X CPM" / "(estimated)" labels so they don't lie once real data lands.
+  const costIsEstimated = (c) => {
+    if (modeledCpmFor(c.platform) == null) return false;
+    if (c.platform === "DSP") return true;
+    const synced = getActualMtdSpend(c) || 0;
+    return !(synced > 0 || (parseFloat(c.spend)||0) > 0 || (parseFloat(c.cpm)||0) > 0);
+  };
   const [monthLocks, setMonthLocks]         = useState(() => { try { return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); } catch { return {}; } });
   // Closing snapshots saved at each new-month reset — the source of truth for a CLOSED month's
   // actual spend/impressions, since the reset clears the live values. Lets past-month revenue
@@ -16988,7 +17059,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       : dt === "CPV" ? (views || 0) * rate : (impr || 0) / 1000 * rate;
     if (c.platform !== "SEM" && goalRev > 0) rev = Math.min(rev, goalRev);
     const _modCpm = modeledCpmFor(c.platform);
-    const sp = _modCpm != null ? (impr || 0) / 1000 * _modCpm : spend;
+    // DSP: always modeled. Madhive: the entered/real spend wins; estimate only as a fallback. Normal: spend.
+    const sp = _modCpm != null
+      ? ((c.platform !== "DSP" && spend != null && spend > 0) ? spend : (impr || 0) / 1000 * _modCpm)
+      : spend;
     if (monthLocks[month]) {
       const lock = monthLocks[month];
       const camps = [...(lock.campaigns || [])];
@@ -17216,14 +17290,25 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       const lc = monthLocks[mo].campaigns?.find(r => String(r.id) === String(c.id));
       return lc ? lc.spend : null;
     }
-    // Modeled-cost platforms (DSP + Madhive GCTV/PCTV/AECTV): cost is MODELED at an assumed CPM —
-    // these platforms report impressions but rarely/never report real spend — applied to the
-    // impressions actually delivered that month. No impressions yet → pending (the goal forecast
-    // still projects it). Future months → pending. Keeps the profit estimate consistent everywhere.
+    // Modeled-cost platforms (DSP + Madhive GCTV/PCTV/AECTV). DSP never reports spend → always modeled
+    // (impressions × assumed CPM). Madhive DOES get real spend/CPM from check-ins, so it prefers the REAL
+    // number and only estimates as a fallback. No impressions yet → pending; future months → pending.
     const _modCpm = modeledCpmFor(c.platform);
     if (_modCpm != null) {
       if (mo > thisMonth) return null;
       if (mo === thisMonth && c.endDate && c.endDate.slice(0, 7) < mo) return null; // ended before this month
+      if (c.platform !== "DSP") {
+        // Madhive: 1) real entered/reported spend (synced MTD or manually entered), 2) this month's reported
+        // cost CPM × impr, 3) estimate. Mirrors the normal-platform actual/manual resolution below.
+        const realSpend = (mo < thisMonth)
+          ? ((closedMonthMetrics(c, mo) || {}).spend || 0)
+          : (() => { const a = getActualMtdSpend(c); const m = getManualSpend(c); return (a != null && a > 0) ? a : (m > 0 ? m : 0); })();
+        if (realSpend > 0) return realSpend;
+        const impr = actualImprForMonth(c, mo);
+        if (impr == null || impr <= 0) return null;
+        const realCpm = (mo === thisMonth) ? (parseFloat(c.cpm) || 0) : 0;
+        return (impr / 1000) * (realCpm > 0 ? realCpm : _modCpm);
+      }
       const impr = actualImprForMonth(c, mo);
       if (impr == null || impr <= 0) return null;
       return (impr / 1000) * _modCpm;
@@ -18557,7 +18642,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       </div>
                       <div>
                         <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
-                          Spend{modeledCpmFor(r.c.platform)!=null&&<span style={{color:"#f59e0b",fontWeight:700,textTransform:"none",letterSpacing:0,marginLeft:5}}>· est. ${modeledCpmFor(r.c.platform).toFixed(2)} CPM</span>}
+                          Spend{costIsEstimated(r.c)&&<span style={{color:"#f59e0b",fontWeight:700,textTransform:"none",letterSpacing:0,marginLeft:5}}>· est. ${modeledCpmFor(r.c.platform).toFixed(2)} CPM</span>}
                         </div>
                         <div style={{fontSize:26,fontWeight:700,color:"#f59e0b",lineHeight:1}}>
                           {r.focusCell.spend==null?<span style={{color:"#f59e0b",fontSize:18}}>⏳ pending</span>:$fc(r.focusCell.spend)}
@@ -18692,7 +18777,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                                   against the billed contract CPM, so the margin per thousand is spelled out. */}
                               {!isCPV && hasUnit && costPer!=null && (
                                 <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
-                                  Billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(2)} CPM</span> − your cost <span style={{color:"#f59e0b",fontWeight:700}}>${(costPer*1000).toFixed(2)} CPM</span>{modeledCpmFor(r.c.platform)!=null&&<span style={{color:"#f59e0b",fontStyle:"italic"}}> (estimated)</span>} = margin <span style={{color:profitColor(rateNum-costPer*1000),fontWeight:700}}>${(rateNum-costPer*1000).toFixed(2)} CPM</span>
+                                  Billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(2)} CPM</span> − your cost <span style={{color:"#f59e0b",fontWeight:700}}>${(costPer*1000).toFixed(2)} CPM</span>{costIsEstimated(r.c)&&<span style={{color:"#f59e0b",fontStyle:"italic"}}> (estimated)</span>} = margin <span style={{color:profitColor(rateNum-costPer*1000),fontWeight:700}}>${(rateNum-costPer*1000).toFixed(2)} CPM</span>
                                 </div>
                               )}
                               {/* Device surcharge transparency — spell out the matched device-line impressions
