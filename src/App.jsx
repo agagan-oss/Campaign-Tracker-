@@ -8386,7 +8386,7 @@ function ToolbarMenu({ label, items, lightMode=false }) {
   );
 }
 
-function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms, lightMode=false }) {
+function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms, lightMode=false, noun="Platforms", hideClear=false, labelOf=(p)=>p }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -8395,19 +8395,19 @@ function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms, lightMode=f
     return () => document.removeEventListener("mousedown", handle);
   }, []);
   const toggle = p => setFPlatforms(prev => { const n = new Set(prev); n.has(p) ? n.delete(p) : n.add(p); return n; });
-  const label = fPlatforms.size === 0 ? "All Platforms" : fPlatforms.size === 1 ? [...fPlatforms][0] : `${fPlatforms.size} Platforms`;
+  const label = fPlatforms.size === 0 ? `All ${noun}` : fPlatforms.size === 1 ? labelOf([...fPlatforms][0]) : `${fPlatforms.size} ${noun}`;
   const active = fPlatforms.size > 0;
   return (
     <div ref={ref} style={{position:"relative",userSelect:"none",display:"flex",alignItems:"center"}}>
-      <button onClick={()=>setOpen(v=>!v)} style={{background:active?(lightMode?"#dcfce7":"#0e2818"):(lightMode?"#f8fafc":"#0e1a2e"),border:`1px solid ${active?"#00c896":(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:7,padding:"7px 13px",color:active?"#00e5a0":(lightMode?"#64748b":"#7a9bbf"),fontSize:13,fontWeight:active?600:400,cursor:"pointer",display:"flex",alignItems:"center",gap:7,minWidth:145,justifyContent:"space-between"}}>
-        <span>{label}</span>
-        <span style={{fontSize:9,opacity:0.5}}>{open?"▲":"▼"}</span>
+      <button onClick={()=>setOpen(v=>!v)} title={label} style={{background:active?(lightMode?"#dcfce7":"#0e2818"):(lightMode?"#f8fafc":"#0e1a2e"),border:`1px solid ${active?"#00c896":(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:7,padding:"7px 13px",color:active?"#00e5a0":(lightMode?"#64748b":"#7a9bbf"),fontSize:13,fontWeight:active?600:400,cursor:"pointer",display:"flex",alignItems:"center",gap:7,width:158,justifyContent:"space-between"}}>
+        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
+        <span style={{fontSize:9,opacity:0.5,flexShrink:0}}>{open?"▲":"▼"}</span>
       </button>
-      {active && <span onClick={()=>{ setFPlatforms(new Set()); setOpen(false); }} style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
+      {active && !hideClear && <span onClick={()=>{ setFPlatforms(new Set()); setOpen(false); }} style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
       {open && (
-        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:8,zIndex:100,minWidth:160,boxShadow:lightMode?"0 8px 32px rgba(0,0,0,.12)":"0 8px 32px rgba(0,0,0,.6)",overflow:"hidden"}}>
+        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:8,zIndex:100,width:224,maxHeight:340,overflowY:"auto",boxShadow:lightMode?"0 8px 32px rgba(0,0,0,.12)":"0 8px 32px rgba(0,0,0,.6)"}}>
           <div style={{padding:"7px 10px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#162236"}`}}>
-            <span style={{fontSize:10,color:lightMode?"#94a3b8":"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Filter Platforms</span>
+            <span style={{fontSize:10,color:lightMode?"#94a3b8":"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Filter {noun}</span>
           </div>
           {platforms.map(p => {
             const on = fPlatforms.has(p);
@@ -8419,7 +8419,7 @@ function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms, lightMode=f
                 <div style={{width:13,height:13,borderRadius:3,border:`2px solid ${on?col:(lightMode?"#cbd5e1":"#334155")}`,background:on?col:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .1s"}}>
                   {on && <span style={{color:"#000",fontSize:9,fontWeight:900,lineHeight:1}}>✓</span>}
                 </div>
-                <span style={{fontSize:12,color:on?col:(lightMode?"#475569":"#a8c4e0"),fontWeight:on?700:400}}>{p}</span>
+                <span title={p} style={{fontSize:12,color:on?col:(lightMode?"#475569":"#a8c4e0"),fontWeight:on?700:400,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{labelOf(p)}</span>
               </div>
             );
           })}
@@ -8445,9 +8445,9 @@ function StatusMultiSelect({ fStatuses, setFStatuses, lightMode=false }) {
   const active = fStatuses.size > 0;
   return (
     <div ref={ref} style={{position:"relative",userSelect:"none",display:"flex",alignItems:"center"}}>
-      <button onClick={()=>setOpen(v=>!v)} style={{background:active?(lightMode?"#dcfce7":"#0e2818"):(lightMode?"#f8fafc":"#0e1a2e"),border:`1px solid ${active?"#00c896":(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:7,padding:"7px 13px",color:active?"#00e5a0":(lightMode?"#64748b":"#7a9bbf"),fontSize:13,fontWeight:active?600:400,cursor:"pointer",display:"flex",alignItems:"center",gap:7,minWidth:145,justifyContent:"space-between"}}>
-        <span>{label}</span>
-        <span style={{fontSize:9,opacity:0.5}}>{open?"▲":"▼"}</span>
+      <button onClick={()=>setOpen(v=>!v)} title={label} style={{background:active?(lightMode?"#dcfce7":"#0e2818"):(lightMode?"#f8fafc":"#0e1a2e"),border:`1px solid ${active?"#00c896":(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:7,padding:"7px 13px",color:active?"#00e5a0":(lightMode?"#64748b":"#7a9bbf"),fontSize:13,fontWeight:active?600:400,cursor:"pointer",display:"flex",alignItems:"center",gap:7,width:158,justifyContent:"space-between"}}>
+        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
+        <span style={{fontSize:9,opacity:0.5,flexShrink:0}}>{open?"▲":"▼"}</span>
       </button>
       {active && <span onClick={()=>{ setFStatuses(new Set()); setOpen(false); }} style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
       {open && (
@@ -12736,6 +12736,368 @@ function ReportDataPanel({ selectedCamps, iS, accent, onApplyData, embedded=fals
 }
 
 
+// Branded per-category colors for the Org Overview category chips (consistent with the app's chip palette).
+const CATEGORY_COLORS = {
+  "Services":"#0ea5e9", "Home Improvement":"#f59e0b", "Law":"#8b5cf6", "Retail & Shopping":"#ec4899",
+  "Auto & Transportation":"#ef4444", "Health Care":"#10b981", "Banking & Finance":"#22c55e",
+  "Non-Profit & Organization":"#14b8a6", "Arts & Entertainment":"#a855f7", "Beauty":"#f472b6",
+  "Food":"#f97316", "Sports & Outdoor":"#3b82f6", "Real Estate":"#eab308", "Education":"#06b6d4",
+  "Technology":"#6366f1", "Misc & Other":"#94a3b8",
+};
+// Palette for CUSTOM categories (ones not in CATEGORY_COLORS) — picked deterministically from the name so a
+// given category always gets the same color.
+const CAT_PALETTE = ["#0ea5e9","#f59e0b","#8b5cf6","#ec4899","#ef4444","#10b981","#22c55e","#14b8a6","#a855f7","#f472b6","#f97316","#3b82f6","#eab308","#06b6d4","#6366f1","#84cc16","#e11d48","#0891b2"];
+const catColor = (cat) => {
+  if(!cat) return _lm?"#64748b":"#7a9bbf";
+  if(CATEGORY_COLORS[cat]) return CATEGORY_COLORS[cat];
+  let h=0; for(let i=0;i<cat.length;i++) h=(h*31+cat.charCodeAt(i))>>>0;
+  return CAT_PALETTE[h%CAT_PALETTE.length];
+};
+
+// CM picker for the Org Overview — assign a Campaign Manager, and manage the shared list INLINE via + / −
+// right in the dropdown (no separate button). Uses a fixed-position popover so it isn't clipped by the
+// matrix's scroll container.
+function CmPicker({ value, options, onSelect, onAdd, onRemove }) {
+  const [open, setOpen] = React.useState(false);
+  const [pos, setPos]   = React.useState(null);
+  const [draft, setDraft] = React.useState("");
+  const btnRef = React.useRef(null), menuRef = React.useRef(null);
+  const openMenu = () => { const r = btnRef.current.getBoundingClientRect(); setPos({ top:r.bottom+4, left:r.left, w:Math.max(180, r.width) }); setOpen(true); };
+  React.useEffect(()=>{
+    if(!open) return;
+    const close = (e)=>{ if(btnRef.current && btnRef.current.contains(e.target)) return; if(menuRef.current && menuRef.current.contains(e.target)) return; setOpen(false); };
+    const onScroll = (e)=>{ if(menuRef.current && e.target && menuRef.current.contains(e.target)) return; setOpen(false); };
+    document.addEventListener("mousedown", close);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return ()=>{ document.removeEventListener("mousedown", close); window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", onScroll); };
+  },[open]);
+  const cyan=_lm?"#0369a1":"#7dd3fc", chipBg=_lm?"#e0f2fe":"#07293b", chipBd=_lm?"#bae6fd":"#0e7490", txt=_lm?"#0f172a":"#edf4ff", txtD=_lm?"#94a3b8":"#4d6e8a", menuBg=_lm?"#ffffff":"#0e1a2e", bd=_lm?"#e2e8f0":"#334155";
+  return (
+    <>
+      <button ref={btnRef} onClick={()=> open?setOpen(false):openMenu()}
+        style={{minWidth:120,textAlign:"left",fontSize:11,fontWeight:700,color:value?cyan:txtD,background:value?chipBg:"transparent",border:`1px solid ${value?chipBd:bd}`,borderRadius:5,padding:"3px 8px",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6,justifyContent:"space-between"}}>
+        <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{value||"— Unassigned —"}</span><span style={{fontSize:8,opacity:0.7}}>▾</span>
+      </button>
+      {open && pos && (
+        <div ref={menuRef} style={{position:"fixed",top:pos.top,left:pos.left,minWidth:pos.w,maxHeight:300,overflowY:"auto",background:menuBg,border:`1px solid ${bd}`,borderRadius:8,boxShadow:"0 12px 34px rgba(0,0,0,0.4)",zIndex:9999,padding:4}}>
+          <div onClick={()=>{ onSelect(""); setOpen(false); }} style={{padding:"5px 9px",fontSize:11.5,color:txtD,cursor:"pointer",borderRadius:5}}>— Unassigned —</div>
+          {options.map(cm=>(
+            <div key={cm} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 6px 4px 9px",borderRadius:5}}
+              onMouseEnter={e=>e.currentTarget.style.background=_lm?"#f1f5f9":"#0a2540"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+              <span onClick={()=>{ onSelect(cm); setOpen(false); }} style={{flex:1,fontSize:12,fontWeight:value===cm?800:600,color:value===cm?cyan:txt,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{value===cm?"✓ ":""}{cm}</span>
+              <button onClick={()=>onRemove(cm)} title={`Remove ${cm}`} style={{background:"none",border:`1px solid ${bd}`,color:"#ef4444",fontSize:13,lineHeight:1,cursor:"pointer",padding:"0 6px",borderRadius:4,fontWeight:800}}>−</button>
+            </div>
+          ))}
+          <div style={{display:"flex",gap:5,alignItems:"center",padding:"6px 4px 3px",borderTop:`1px solid ${bd}`,marginTop:3}}>
+            <input value={draft} onChange={e=>setDraft(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter"&&draft.trim()){ onAdd(draft.trim()); onSelect(draft.trim()); setDraft(""); setOpen(false); } }}
+              placeholder="New CM name…" style={{flex:1,minWidth:0,background:_lm?"#f8fafc":"#0b1626",border:`1px solid ${bd}`,borderRadius:5,padding:"4px 7px",color:txt,fontSize:11.5,outline:"none"}}/>
+            <button onClick={()=>{ if(draft.trim()){ onAdd(draft.trim()); onSelect(draft.trim()); setDraft(""); setOpen(false); } }} title="Add CM"
+              style={{background:"#00c896",border:"none",borderRadius:5,color:"#06222b",fontSize:14,fontWeight:800,padding:"3px 10px",cursor:"pointer"}}>+</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// Category picker for the Org Overview — a colored chip button + a DARK popover menu that matches the
+// tracker (native <select> option lists render on a white system background, so light text was invisible).
+function CatPicker({ value, options, colorOf, onSelect, onAdd, onRemove }) {
+  const [open, setOpen] = React.useState(false);
+  const [pos, setPos]   = React.useState(null);
+  const [draft, setDraft] = React.useState("");
+  const btnRef = React.useRef(null), menuRef = React.useRef(null);
+  const openMenu = () => { const r = btnRef.current.getBoundingClientRect(); setPos({ top:r.bottom+4, left:r.left, w:Math.max(150, r.width) }); setOpen(true); };
+  React.useEffect(()=>{
+    if(!open) return;
+    const close = (e)=>{ if(btnRef.current && btnRef.current.contains(e.target)) return; if(menuRef.current && menuRef.current.contains(e.target)) return; setOpen(false); };
+    const onScroll = (e)=>{ if(menuRef.current && e.target && menuRef.current.contains(e.target)) return; setOpen(false); };
+    document.addEventListener("mousedown", close);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return ()=>{ document.removeEventListener("mousedown", close); window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", onScroll); };
+  },[open]);
+  const cc = value ? colorOf(value) : null;
+  const txt=_lm?"#0f172a":"#edf4ff", txtD=_lm?"#94a3b8":"#4d6e8a", menuBg=_lm?"#ffffff":"#0e1a2e", bd=_lm?"#e2e8f0":"#334155", cardBd=_lm?"#e2e8f0":"#16233a";
+  return (
+    <>
+      <button ref={btnRef} onClick={()=> open?setOpen(false):openMenu()}
+        style={{width:"100%",minWidth:130,textAlign:"left",fontSize:11,fontWeight:value?700:400,color:value?cc:txtD,background:value?cc+"22":"transparent",border:`1px solid ${value?cc+"88":cardBd}`,borderRadius:5,padding:"3px 8px",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6,justifyContent:"space-between"}}>
+        <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{value||"—"}</span><span style={{fontSize:8,opacity:0.7}}>▾</span>
+      </button>
+      {open && pos && (
+        <div ref={menuRef} style={{position:"fixed",top:pos.top,left:pos.left,minWidth:pos.w,maxHeight:320,overflowY:"auto",background:menuBg,border:`1px solid ${bd}`,borderRadius:8,boxShadow:"0 12px 34px rgba(0,0,0,0.4)",zIndex:9999,padding:4}}>
+          <div onClick={()=>{ onSelect(""); setOpen(false); }} style={{padding:"5px 9px",fontSize:11.5,color:txtD,cursor:"pointer",borderRadius:5}}>—</div>
+          {options.map(o=>{ const oc=colorOf(o); return (
+            <div key={o} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 6px 4px 9px",borderRadius:5}}
+              onMouseEnter={e=>e.currentTarget.style.background=_lm?"#f1f5f9":"#0a2540"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+              <span style={{width:9,height:9,borderRadius:9,background:oc,flexShrink:0}}/>
+              <span onClick={()=>{ onSelect(o); setOpen(false); }} style={{flex:1,fontSize:12,fontWeight:value===o?800:600,color:value===o?oc:txt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer"}}>{o}</span>
+              {onRemove && <button onClick={()=>onRemove(o)} title={`Remove ${o}`} style={{background:"none",border:`1px solid ${bd}`,color:"#ef4444",fontSize:13,lineHeight:1,cursor:"pointer",padding:"0 6px",borderRadius:4,fontWeight:800}}>−</button>}
+            </div>); })}
+          {onAdd && (
+            <div style={{display:"flex",gap:5,alignItems:"center",padding:"6px 4px 3px",borderTop:`1px solid ${bd}`,marginTop:3}}>
+              <input value={draft} onChange={e=>setDraft(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter"&&draft.trim()){ onAdd(draft.trim()); onSelect(draft.trim()); setDraft(""); setOpen(false); } }}
+                placeholder="New category…" style={{flex:1,minWidth:0,background:_lm?"#f8fafc":"#0b1626",border:`1px solid ${bd}`,borderRadius:5,padding:"4px 7px",color:txt,fontSize:11.5,outline:"none"}}/>
+              <button onClick={()=>{ if(draft.trim()){ onAdd(draft.trim()); onSelect(draft.trim()); setDraft(""); setOpen(false); } }} title="Add category"
+                style={{background:"#00c896",border:"none",borderRadius:5,color:"#06222b",fontSize:14,fontWeight:800,padding:"3px 10px",cursor:"pointer"}}>+</button>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Org Overview matrix ── the reporting director's "everything at a glance" view: one row per campaign,
+// grouped by media partner (station), with a checkbox grid showing which platforms each runs on, plus CM,
+// category, flight dates, and total impressions. Mirrors the spreadsheet the director already uses.
+// Data note: a single CM's tracker only holds THAT CM's campaigns; the org-wide roll-up (all CMs) arrives
+// with the parent snapshot-sync — this view renders whatever campaign list it's handed, so it lights up
+// org-wide the moment that's wired.
+function OrgMatrixView({ campaigns=[] }) {
+  const cmName = loadUserName() || "—";
+  const [q, setQ] = React.useState("");
+  const [inclArchived, setInclArchived] = React.useState(false);
+  const [metric, setMetric] = React.useState("impr"); // "impr" | "budget"
+  // Per-campaign REPORTING metadata the director owns here — note (their own, separate from the campaign's
+  // note2), category, and assigned CM. Kept in this view's own store, keyed by partner||campaign, so it's
+  // independent of the CM's operational data and travels as the org roll-up grows.
+  const [ovMeta, setOvMeta] = React.useState(()=>{ try{ return JSON.parse(localStorage.getItem("reports-overview-meta")||"{}"); }catch{ return {}; } });
+  const noteKey = (partner, name) => `${partner}||${name}`;
+  const metaOf = (key) => ovMeta[key] || {};
+  const setMeta = (key, field, val) => setOvMeta(prev=>{ const next={...prev,[key]:{...(prev[key]||{}),[field]:val}}; try{ localStorage.setItem("reports-overview-meta", JSON.stringify(next)); }catch{} return next; });
+  // Category options (from the director's spreadsheet).
+  const CATEGORY_DEFAULTS = ["Services","Home Improvement","Law","Retail & Shopping","Auto & Transportation","Health Care","Banking & Finance","Non-Profit & Organization","Arts & Entertainment","Beauty","Food","Sports & Outdoor","Real Estate","Education","Technology","Misc & Other"];
+  // Managed category list (add/remove like the CMs), seeded from the defaults.
+  const [catList, setCatList] = React.useState(()=>{ try{ const s=JSON.parse(localStorage.getItem("reports-cat-list")||"null"); if(Array.isArray(s)&&s.length) return s; }catch{} return CATEGORY_DEFAULTS; });
+  const saveCatList = (list)=>{ setCatList(list); try{ localStorage.setItem("reports-cat-list", JSON.stringify(list)); }catch{} };
+  const addCat = (name)=>{ const n=(name||"").trim(); if(n && !catList.includes(n)) saveCatList([...catList,n]); };
+  const removeCat = (name)=>{ saveCatList(catList.filter(x=>x!==name)); };
+  // Managed Campaign-Manager name list (add/remove), seeded with this tracker's user.
+  const [cmList, setCmList] = React.useState(()=>{ try{ const s=JSON.parse(localStorage.getItem("reports-cm-list")||"null"); if(Array.isArray(s)&&s.length) return s; }catch{} const u=loadUserName(); return u?[u]:[]; });
+  const saveCmList = (list)=>{ setCmList(list); try{ localStorage.setItem("reports-cm-list", JSON.stringify(list)); }catch{} };
+  const addCm = (name)=>{ const n=(name||"").trim(); if(n && !cmList.includes(n)) saveCmList([...cmList,n]); };
+  const removeCm = (name)=>{ saveCmList(cmList.filter(x=>x!==name)); };
+  const rows = React.useMemo(()=> (campaigns||[]).filter(c=>c && (inclArchived || c.status!=="archived")), [campaigns, inclArchived]);
+  const ql = q.trim().toLowerCase();
+  const passQ = (c)=> !ql || (c.campaignName||"").toLowerCase().includes(ql) || (c.mediaPartner||"").toLowerCase().includes(ql) || (c.platform||"").toLowerCase().includes(ql) || (c.category||"").toLowerCase().includes(ql);
+  // Effective status of one campaign line: off (paused) · pending (starts in the future) · ended (flight over) · active.
+  const _today = getToday();
+  const effStatus = (c) => {
+    if((c.status||"active")==="off") return "off";
+    const s=(c.startDate||"").slice(0,10), e=(c.endDate||"").slice(0,10);
+    if(s && s>_today) return "pending";
+    if(e && e<_today) return "ended";
+    return "active";
+  };
+  // Aggregate a client's lines to ONE status (priority: any active > any pending > any off > ended).
+  const aggStatus = (st) => st.has("active")?"active":st.has("pending")?"pending":st.has("off")?"off":st.has("ended")?"ended":"active";
+  // Platform columns = every platform present in the data, vendor-ordered.
+  const platforms = sortPlatforms([...new Set(rows.map(c=>c.platform).filter(Boolean))]);
+  // Group: partner (station) → client-campaign (by name) → { platforms, dates, impr, budget, categories, statuses }
+  const byPartner = React.useMemo(()=>{
+    const out = {};
+    rows.filter(passQ).forEach(c=>{
+      const partner = (c.mediaPartner||"").trim() || "— No partner —";
+      const client  = (c.campaignName||"").trim() || "—";
+      (out[partner] = out[partner] || {});
+      const g = out[partner][client] = out[partner][client] || { platforms:new Set(), start:null, end:null, impr:0, budget:0, category:"", statuses:new Set() };
+      if(c.platform) g.platforms.add(c.platform);
+      const s=(c.startDate||"").slice(0,10), e=(c.endDate||"").slice(0,10);
+      if(s && (!g.start || s<g.start)) g.start=s;
+      if(e && (!g.end || e>g.end)) g.end=e;
+      g.impr += parseGoalNumber(c.goal)||0;
+      g.budget += parseFloat(c.budget || c.contractValue)||0;
+      if(!g.category && (c.category||"").trim()) g.category=(c.category||"").trim();
+      g.statuses.add(effStatus(c));
+    });
+    return out;
+  }, [rows, ql]);
+  const partnersSorted = Object.keys(byPartner).sort();
+  const totalClients = partnersSorted.reduce((s,p)=>s+Object.keys(byPartner[p]).length,0);
+  const fmtK = n => n>=1000000?(+(n/1000000).toFixed(2))+"M":n>=1000?(+(n/1000).toFixed(n>=10000?0:1))+"K":String(Math.round(n||0));
+  const fmtMd = iso => { const m=(iso||"").match(/^(\d{4})-(\d{2})-(\d{2})/); return m?`${parseInt(m[2])}/${parseInt(m[3])}/${m[1].slice(2)}`:"—"; };
+  // colors
+  const bg = _lm?"#ffffff":"#0b1626", cardBd=_lm?"#e2e8f0":"#16233a", txt=_lm?"#0f172a":"#edf4ff", txtS=_lm?"#64748b":"#7a9bbf", txtD=_lm?"#94a3b8":"#4d6e8a", stripe=_lm?"#f8fafc":"#0e1a2e", headBg=_lm?"#f1f5f9":"#0e1a2e", stick=_lm?"#ffffff":"#0b1626";
+  // Status color/label per aggregate status — drives the row's left border + a small chip.
+  const STAT = { active:{c:"#00d48a",l:"Active"}, pending:{c:"#f59e0b",l:"Pending"}, off:{c:"#ef4444",l:"Off"}, ended:{c:_lm?"#94a3b8":"#4d6e8a",l:"Ended"} };
+  const cellPad = "6px 8px";
+  const th = {padding:cellPad, fontSize:9.5, fontWeight:800, color:txtS, textTransform:"uppercase", letterSpacing:"0.04em", whiteSpace:"nowrap", borderBottom:`1px solid ${cardBd}`, background:headBg, position:"sticky", top:0, zIndex:2};
+  const td = {padding:cellPad, fontSize:12, color:txt, whiteSpace:"nowrap", borderBottom:`1px solid ${_lm?"#f1f5f9":"#111e33"}`};
+  // Printable PDF of the matrix — opens a clean landscape print window (same approach as the P&L export).
+  const exportPDF = () => {
+    const esc = s => String(s==null?"":s).replace(/[&<>"]/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+    const today = new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
+    const platCols = platforms.map(p=>`<th class="plt">${esc(p)}</th>`).join("");
+    let bodyRows = "";
+    partnersSorted.forEach(partner=>{
+      const clients = byPartner[partner]; const names = Object.keys(clients).sort();
+      const pImpr = names.reduce((s,n)=>s+clients[n].impr,0), pBudget = names.reduce((s,n)=>s+clients[n].budget,0);
+      bodyRows += `<tr class="grp"><td colspan="${platforms.length+7}"><b>${esc(partner)}</b> — ${names.length} campaign${names.length!==1?"s":""} · ${metric==="budget"?"$"+fmtK(pBudget):fmtK(pImpr)+" impr"}</td></tr>`;
+      names.forEach(name=>{
+        const g=clients[name];
+        const st = aggStatus(g.statuses); const sc = STAT[st];
+        const m = metaOf(noteKey(partner, name));
+        const noteStr = m.note || "";
+        const catStr = m.category || g.category || "";
+        const cmStr = m.cm || (cmList.includes(cmName)?cmName:"");
+        const cells = platforms.map(p=>`<td class="chk">${g.platforms.has(p)?"&#10003;":""}</td>`).join("");
+        const catC = CATEGORY_COLORS[catStr] || "#64748b";
+        bodyRows += `<tr><td class="nm" style="border-left:3px solid ${sc.c}"><span class="stat" style="color:${sc.c}">${esc(sc.l)}</span>${esc(name)}</td><td>${catStr?`<span style="color:${catC};font-weight:700">${esc(catStr)}</span>`:""}</td><td>${esc(cmStr)}</td>${cells}<td class="r">${fmtMd(g.start)}</td><td class="r">${fmtMd(g.end)}</td><td class="r">${metric==="budget"?"$"+fmtK(g.budget):fmtK(g.impr)}</td><td class="note">${esc(noteStr)}</td></tr>`;
+      });
+    });
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Org Overview — ${esc(today)}</title>
+<style>@page{size:landscape;margin:.4in;} body{font-family:-apple-system,Arial,sans-serif;color:#0f172a;margin:0;padding:18px;}
+h1{font-size:18px;margin:0 0 2px;} .sub{color:#64748b;font-size:11px;margin-bottom:12px;}
+table{border-collapse:collapse;width:100%;font-size:10px;} th,td{border:1px solid #e2e8f0;padding:4px 6px;white-space:nowrap;}
+th{background:#f1f5f9;text-transform:uppercase;font-size:8.5px;letter-spacing:.03em;} th.plt{text-align:center;}
+td.chk{text-align:center;font-weight:800;color:#0a7d3a;} td.r{text-align:right;} td.nm{font-weight:700;}
+td.note{white-space:normal;max-width:220px;font-size:8.5px;color:#b45309;} .stat{font-size:7.5px;font-weight:800;text-transform:uppercase;margin-right:5px;letter-spacing:.03em;}
+tr.grp td{background:#eef2ff;font-size:10.5px;color:#3730a3;} .foot{margin-top:12px;color:#94a3b8;font-size:9px;display:flex;justify-content:space-between;}</style></head><body>
+<h1>Org Campaign Overview</h1>
+<div class="sub">${totalClients} campaigns · ${partnersSorted.length} partners · ${platforms.length} platforms · Generated ${esc(today)}</div>
+<table><thead><tr><th style="text-align:left">Campaign</th><th style="text-align:left">Category</th><th style="text-align:left">Campaign Mgr</th>${platCols}<th>Start</th><th>End</th><th>${metric==="budget"?"Budget":"Impr"}</th><th style="text-align:left">Notes</th></tr></thead><tbody>${bodyRows}</tbody></table>
+<div class="foot"><span>Org Overview</span><span>&#10003; = runs on that platform</span></div>
+<script>window.onload=()=>setTimeout(()=>window.print(),350)</script></body></html>`;
+    const w = window.open("","_blank","width=1100,height=800");
+    if(!w){ alert("Pop-up blocked — please allow pop-ups for this site to export the PDF."); return; }
+    w.document.write(html); w.document.close();
+  };
+  return (
+    <div>
+      {/* Controls */}
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:12}}>
+        <div style={{fontSize:18,fontWeight:800,color:txt}}>📊 Org Overview</div>
+        <span style={{fontSize:12,color:txtS}}>{totalClients} campaign{totalClients!==1?"s":""} · {partnersSorted.length} partner{partnersSorted.length!==1?"s":""} · {platforms.length} platforms</span>
+        <span style={{flex:1}}/>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search client / partner / platform…"
+          style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${cardBd}`,borderRadius:7,padding:"7px 11px",color:txt,fontSize:12.5,width:240,outline:"none"}}/>
+        <div style={{display:"flex",border:`1px solid ${cardBd}`,borderRadius:7,overflow:"hidden"}}>
+          {[["impr","Impressions"],["budget","Budget"]].map(([k,l])=>(
+            <button key={k} onClick={()=>setMetric(k)} style={{padding:"7px 11px",fontSize:11.5,fontWeight:700,border:"none",cursor:"pointer",background:metric===k?(_lm?"#dbeafe":"#0a2540"):"transparent",color:metric===k?(_lm?"#1d4ed8":"#00d9ff"):txtS}}>{l}</button>
+          ))}
+        </div>
+        <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11.5,color:txtS,cursor:"pointer"}}>
+          <input type="checkbox" checked={inclArchived} onChange={e=>setInclArchived(e.target.checked)}/> Include archived
+        </label>
+        <button onClick={exportPDF} disabled={totalClients===0} title="Open a print-ready PDF of this overview"
+          style={{padding:"7px 14px",fontSize:12,fontWeight:700,borderRadius:7,cursor:totalClients===0?"default":"pointer",whiteSpace:"nowrap",
+            background:totalClients===0?(_lm?"#f1f5f9":"#0e1a2e"):"#00c896",border:`1px solid ${totalClients===0?cardBd:"#00c896"}`,color:totalClients===0?txtD:"#06222b"}}>
+          🖨 Export PDF
+        </button>
+      </div>
+      {/* Data-scope note */}
+      <div style={{fontSize:11,color:txtD,marginBottom:10,padding:"7px 11px",background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${cardBd}`,borderRadius:8}}>
+        Showing <b style={{color:txtS}}>this tracker's</b> campaigns. Once the parent roll-up is connected, this same view lists <b style={{color:txtS}}>every CM's</b> campaigns across the organization.
+      </div>
+      {/* Matrix */}
+      <div style={{border:`1px solid ${cardBd}`,borderRadius:10,overflow:"auto",maxHeight:"72vh",background:bg}}>
+        <table style={{borderCollapse:"separate",borderSpacing:0,width:"100%",minWidth:820}}>
+          <thead>
+            <tr>
+              <th style={{...th,textAlign:"left",position:"sticky",left:0,zIndex:3,minWidth:220}}>Campaign</th>
+              <th style={{...th,textAlign:"left"}}>Category</th>
+              <th style={{...th,textAlign:"left"}}>Campaign Mgr</th>
+              {platforms.map(p=>(
+                <th key={p} title={p} style={{...th,textAlign:"center",padding:"6px 4px"}}>
+                  <span style={{color:PLT_COLORS[p]||PLT_COLORS.default,fontWeight:800}}>{p}</span>
+                </th>
+              ))}
+              <th style={{...th,textAlign:"right"}}>Start</th>
+              <th style={{...th,textAlign:"right"}}>End</th>
+              <th style={{...th,textAlign:"right"}}>{metric==="impr"?"Impr":"Budget"}</th>
+              <th style={{...th,textAlign:"left",minWidth:160}}>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {partnersSorted.length===0 && (
+              <tr><td colSpan={platforms.length+7} style={{...td,textAlign:"center",color:txtS,padding:"26px"}}>No campaigns match.</td></tr>
+            )}
+            {partnersSorted.map(partner=>{
+              const clients = byPartner[partner];
+              const names = Object.keys(clients).sort();
+              const pImpr = names.reduce((s,n)=>s+clients[n].impr,0);
+              const pBudget = names.reduce((s,n)=>s+clients[n].budget,0);
+              return (
+                <React.Fragment key={partner}>
+                  <tr>
+                    <td colSpan={platforms.length+7} style={{padding:"7px 10px",background:_lm?"#eef2ff":"#0a1a30",borderBottom:`1px solid ${cardBd}`,borderTop:`1px solid ${cardBd}`,position:"sticky",left:0}}>
+                      <span style={{fontSize:11.5,fontWeight:800,color:_lm?"#3730a3":"#93c5fd",textTransform:"uppercase",letterSpacing:"0.05em"}}>{partner}</span>
+                      <span style={{fontSize:10.5,color:txtD,marginLeft:8}}>{names.length} campaign{names.length!==1?"s":""} · <span style={{color:metric==="impr"?(_lm?"#059669":"#00e5a0"):txtS,fontWeight:700}}>{metric==="budget"?"$"+fmtK(pBudget):fmtK(pImpr)+" impr"}</span></span>
+                    </td>
+                  </tr>
+                  {names.map((name,i)=>{
+                    const g = clients[name];
+                    const st = aggStatus(g.statuses); const sc = STAT[st];
+                    const nk = noteKey(partner, name);
+                    return (
+                      <tr key={name} style={{background:i%2?stripe:"transparent"}}>
+                        <td style={{...td,fontWeight:700,position:"sticky",left:0,zIndex:1,background:i%2?stripe:stick,boxShadow:`1px 0 0 ${cardBd}`,borderLeft:`3px solid ${sc.c}`,minWidth:220,overflow:"hidden",textOverflow:"ellipsis",maxWidth:320}}>
+                          <span title={sc.l} style={{fontSize:8.5,fontWeight:800,color:sc.c,background:sc.c+"22",border:`1px solid ${sc.c}66`,borderRadius:3,padding:"0 5px",marginRight:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>{sc.l}</span>
+                          {name}
+                        </td>
+                        <td style={{...td,padding:"3px 6px",overflow:"visible"}}>
+                          <CatPicker value={metaOf(nk).category ?? (g.category||"")} options={catList} colorOf={catColor} onSelect={(v)=>setMeta(nk,"category",v)} onAdd={addCat} onRemove={removeCat}/>
+                        </td>
+                        <td style={{...td,padding:"3px 6px",overflow:"visible"}}>
+                          <CmPicker value={metaOf(nk).cm ?? (cmList.includes(cmName)?cmName:"")} options={cmList}
+                            onSelect={(v)=>setMeta(nk,"cm",v)} onAdd={addCm} onRemove={removeCm}/>
+                        </td>
+                        {platforms.map(p=>(
+                          <td key={p} style={{...td,textAlign:"center",padding:"6px 4px"}}>
+                            {g.platforms.has(p)
+                              ? <span title={p} style={{display:"inline-block",width:15,height:15,lineHeight:"15px",borderRadius:3,fontSize:10,fontWeight:900,color:"#fff",background:PLT_COLORS[p]||PLT_COLORS.default}}>✓</span>
+                              : <span style={{color:_lm?"#e2e8f0":"#1a2744"}}>·</span>}
+                          </td>
+                        ))}
+                        <td style={{...td,textAlign:"right",color:txtS,fontVariantNumeric:"tabular-nums"}}>{fmtMd(g.start)}</td>
+                        <td style={{...td,textAlign:"right",color:txtS,fontVariantNumeric:"tabular-nums"}}>{fmtMd(g.end)}</td>
+                        <td style={{...td,textAlign:"right",fontWeight:800,fontVariantNumeric:"tabular-nums",color:metric==="impr"?(_lm?"#059669":"#00e5a0"):txt}}>{metric==="budget"?"$"+fmtK(g.budget):fmtK(g.impr)}</td>
+                        <td style={{...td,minWidth:180}}>
+                          <input key={nk} defaultValue={metaOf(nk).note||""} placeholder="Add note…"
+                            title="Reporting notes — press Enter to save"
+                            onKeyDown={e=>{ if(e.key==="Enter"){ setMeta(nk,"note",e.target.value); e.target.blur(); } }}
+                            onBlur={e=>setMeta(nk,"note",e.target.value)}
+                            style={{width:"100%",minWidth:150,background:"transparent",border:`1px solid ${metaOf(nk).note?(_lm?"#0891b2":"#0e7490"):"transparent"}`,borderRadius:5,padding:"3px 6px",color:metaOf(nk).note?(_lm?"#0891b2":"#22d3ee"):txt,fontSize:11.5,fontFamily:"inherit",outline:"none"}}/>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{fontSize:10.5,color:txtD,marginTop:8}}>✓ = the campaign runs on that platform. Grouped by media partner. Dates span the campaign's platform lines. Next: a section to turn this into a shareable report.</div>
+    </div>
+  );
+}
+
+// Reports tab shell — toggles between the director's Org Overview matrix and the per-client Report Builder.
+function ReportsTabWrapper({ campaigns=[], archive=[] }) {
+  const [view, setView] = React.useState(()=>{ try{ return localStorage.getItem("reports-view") || "overview"; }catch{ return "overview"; } });
+  const setV = (v)=>{ setView(v); try{ localStorage.setItem("reports-view", v); }catch{} };
+  const _l = _lm;
+  const tabBtn = (k,label)=> (
+    <button key={k} onClick={()=>setV(k)} style={{padding:"7px 16px",fontSize:12.5,fontWeight:view===k?800:600,border:"none",cursor:"pointer",borderRadius:8,
+      background:view===k?(_l?"#dbeafe":"#0a2540"):(_l?"#f1f5f9":"#0e1a2e"),color:view===k?(_l?"#1d4ed8":"#00d9ff"):(_l?"#64748b":"#7a9bbf")}}>{label}</button>
+  );
+  return (
+    <div>
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        {tabBtn("overview","📊 Org Overview")}
+        {tabBtn("builder","📄 Client Report")}
+      </div>
+      {view==="overview" ? <OrgMatrixView campaigns={campaigns}/> : <ReportingDashboard campaigns={campaigns} archive={archive}/>}
+    </div>
+  );
+}
+
 function ReportingDashboard({ campaigns=[], archive=[] }) {
   const all = useMemo(()=>[...campaigns,...archive],[campaigns,archive]);
   const partners = useMemo(()=>[...new Set(all.map(c=>c.mediaPartner).filter(Boolean))].sort(),[all]);
@@ -16971,7 +17333,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // confusing if it "remembered" last month after the month rolls over.
   const REVENUE_FILTER_KEY = "revenue-filter-state";
   const _revPersisted = (()=>{ try{ return JSON.parse(localStorage.getItem(REVENUE_FILTER_KEY) || "{}"); } catch { return {}; } })();
-  const [filterPartner, setFilterPartner]   = useState(_revPersisted.filterPartner || "all");
+  // Partner short-codes — the SAME editable display codes shown in the Campaigns tab (SPIN, ALL-KITV…),
+  // stored under PARTNER_ABBR_KEY and loaded via loadPartnerAbbr(). (NOT the "-prefixes" IO aliases.)
+  const partnerPrefixMap = loadPartnerAbbr();
+  const [filterPartners, setFilterPartners]   = useState(()=> new Set(Array.isArray(_revPersisted.filterPartners)?_revPersisted.filterPartners:[])); // multi-select client/partner filter (empty = all)
+  const [filterPlatforms, setFilterPlatforms] = useState(()=> new Set(Array.isArray(_revPersisted.filterPlatforms)?_revPersisted.filterPlatforms:[])); // multi-select platform filter (empty = all)
   const [revSearch, setRevSearch]           = useState(""); // free-text filter for the per-month breakdown table
   const [expandedRow, setExpandedRow]       = useState(null);
   const [auditOpen, setAuditOpen]           = useState(true); // pre-close data-gap audit panel (open by default)
@@ -17020,10 +17386,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   useEffect(() => {
     try {
       localStorage.setItem(REVENUE_FILTER_KEY, JSON.stringify({
-        filterPartner, sortKey, cellMode, showEnded,
+        filterPartners:[...filterPartners], filterPlatforms:[...filterPlatforms], sortKey, cellMode, showEnded,
       }));
     } catch {}
-  }, [filterPartner, sortKey, cellMode, showEnded]);
+  }, [filterPartners, filterPlatforms, sortKey, cellMode, showEnded]);
   const now = new Date();
   // Use local-time formatting — toISOString() converts to UTC and can roll back a month for US timezones
   const moStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
@@ -17427,7 +17793,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     return true;
   });
   const partners = ["all", ...new Set(withContract.map(c=>c.mediaPartner))].sort();
-  const filtered  = filterPartner==="all" ? withContract : withContract.filter(c=>c.mediaPartner===filterPartner);
+  const revPlatforms = ["all", ...sortPlatforms([...new Set(withContract.map(c=>c.platform).filter(Boolean))])];
+  const filtered  = withContract.filter(c =>
+    (filterPartners.size===0  || filterPartners.has(c.mediaPartner)) &&
+    (filterPlatforms.size===0 || filterPlatforms.has(c.platform)));
 
   // 12-month window — use moStr() not toISOString() to avoid UTC timezone rollback
   let months = [];
@@ -17672,6 +18041,16 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     }
     return true;
   });
+  // Totals for exactly what's VISIBLE (respects client/platform/search). Uses the WINDOW figures
+  // (windowRev/Spend/Profit) — the SAME basis as the headline KPI tiles at the top — so the two never
+  // disagree; only the search narrows this one further. Profit/margin count REALIZED rows (windowProfit != null).
+  const visTotals = dateVisibleRows.reduce((a,r)=>{
+    a.rev += r.windowRev || 0;
+    if (r.windowProfit != null) { a.spendRev += r.windowRev || 0; a.spend += r.windowSpend || 0; a.profit += r.windowProfit; }
+    return a;
+  }, { rev:0, spendRev:0, spend:0, profit:0 });
+  const visMargin = visTotals.spendRev > 0 ? (visTotals.profit / visTotals.spendRev) * 100 : null;
+  const anyRevFilter = filterPartners.size>0 || filterPlatforms.size>0 || !!revQuery;
 
   // Window totals — respect the data-start cutoff by summing across the VISIBLE months
   // (instead of lifetime contract value), so the headline numbers match the graph and never
@@ -17844,10 +18223,6 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             style={{background:showEnded?(_lm?"#eff6ff":"#0a1a2e"):(_lm?"#f8fafc":"#060d18"),border:`1px solid ${showEnded?(_lm?"#3b82f6":"#3b82f660"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:7,padding:"6px 12px",color:showEnded?(_lm?"#3b82f6":"#7ab4f5"):(_lm?"#94a3b8":"#3d5a72"),fontSize:11,fontWeight:showEnded?700:400,cursor:"pointer",whiteSpace:"nowrap"}}>
             {showEnded?"✓ Showing ended":"Show ended"}
           </button>
-          <select value={filterPartner} onChange={e=>setFilterPartner(e.target.value)}
-            style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"6px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,cursor:"pointer"}}>
-            {partners.map(p=><option key={p} value={p}>{p==="all"?"All Partners":p}</option>)}
-          </select>
         </div>
       </div>
 
@@ -18476,8 +18851,30 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           {revSearch && <button onClick={()=>setRevSearch("")} title="Clear search"
             style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",cursor:"pointer",fontSize:16,lineHeight:1,padding:"0 4px"}}>×</button>}
         </div>
+        {/* Client (partner) + Platform multi-select filters, right by the search — scope the whole tab. */}
+        <PlatformMultiSelect platforms={partners.filter(p=>p!=="all")} fPlatforms={filterPartners} setFPlatforms={setFilterPartners} lightMode={_lm} noun="Clients" hideClear labelOf={p=>partnerAbbrOf(p, partnerPrefixMap)}/>
+        <PlatformMultiSelect platforms={revPlatforms.filter(p=>p!=="all")} fPlatforms={filterPlatforms} setFPlatforms={setFilterPlatforms} lightMode={_lm} hideClear/>
+        {(filterPartners.size>0||filterPlatforms.size>0) && <button onClick={()=>{setFilterPartners(new Set());setFilterPlatforms(new Set());}} title="Clear filters"
+          style={{background:"none",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:7,padding:"6px 10px",color:_lm?"#64748b":"#7a9bbf",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Clear</button>}
         {revQuery && <span style={{fontSize:11,color:_lm?"#64748b":"#7a9bbf",whiteSpace:"nowrap"}}>{dateVisibleRows.length} match{dateVisibleRows.length!==1?"es":""}</span>}
       </div>
+      {/* Live totals for the currently-visible set — updates as you filter by client/platform/search. */}
+      {dateVisibleRows.length>0 && (
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+          {[
+            {label:"Revenue", val:"$"+Math.round(visTotals.rev).toLocaleString(), color:_lm?"#059669":"#00e5a0"},
+            {label:"Spend",   val:"$"+Math.round(visTotals.spend).toLocaleString(), color:"#f59e0b"},
+            {label:"Profit",  val:(visTotals.profit>=0?"+":"−")+"$"+Math.round(Math.abs(visTotals.profit)).toLocaleString(), color:visTotals.profit>=0?(_lm?"#059669":"#00d48a"):"#ef4444"},
+            {label:"Margin",  val:visMargin!=null?Math.round(visMargin)+"%":"—", color:visMargin!=null?marginColor(visMargin):(_lm?"#94a3b8":"#4d6e8a")},
+          ].map(t=>(
+            <div key={t.label} style={{flex:"0 1 150px",minWidth:118,background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:9,padding:"8px 14px"}}>
+              <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{t.label}</div>
+              <div style={{fontSize:18,fontWeight:800,color:t.color,marginTop:2,fontVariantNumeric:"tabular-nums"}}>{t.val}</div>
+            </div>
+          ))}
+          <span style={{fontSize:10.5,color:_lm?"#94a3b8":"#4d6e8a"}}>{dateVisibleRows.length} campaign{dateVisibleRows.length!==1?"s":""}{anyRevFilter?" · filtered":""}</span>
+        </div>
+      )}
       {dateVisibleRows.length===0?(
         <div style={{textAlign:"center",padding:"40px 0",color:_lm?"#64748b":"#3d5a72"}}>
           <div style={{fontSize:28,marginBottom:8}}>💰</div>
@@ -24018,7 +24415,7 @@ export default function App() {
               addLog({type:"checked", campaignName: campaigns.find(c=>c.id===id)?.campaignName||"", partner:"", platform:"", detail:"Metrics cleared from pacing tab"});
             }}/>
         ) : activeTab==="reports" ? (
-          <ReportingDashboard campaigns={campaigns} archive={archive}/>
+          <ReportsTabWrapper campaigns={campaigns} archive={archive}/>
         ) : activeTab==="vault" ? (
           <ReportVault onAnalyzeWithZeus={(report, compare)=>{
             // Switch to Zeus tab with a pre-filled analysis prompt
