@@ -8830,6 +8830,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [search,         setSearch]         = useState(_persisted.search || "");
   const [fPartner,       setFPartner]       = useState(_persisted.fPartner || "all");
   const [fPlatforms,     setFPlatforms]     = useState(new Set(_persisted.fPlatforms || []));
+  const [fStatuses,      setFStatuses]      = useState(new Set(_persisted.fStatuses || [])); // multi-select status filter (Active / Pacing Behind / Off …), empty = all
   // Pacing sort config. METRIC_SORTS = keys that read a numeric metric from the resolved `disp`.
   // SORT_DEFAULT_DIR = each key's starting direction. EVERY key is direction-toggleable (click the
   // active key again to reverse); ctr defaults low-first (worst), $/impr default high-first, text A–Z.
@@ -8862,11 +8863,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   useEffect(() => {
     try {
       localStorage.setItem(PACING_FILTER_KEY, JSON.stringify({
-        search, fPartner, fPlatforms: [...fPlatforms], sortKey, sortDir, todayFilter, updatedDays, pacingView,
+        search, fPartner, fPlatforms: [...fPlatforms], fStatuses: [...fStatuses], sortKey, sortDir, todayFilter, updatedDays, pacingView,
         troubleOnly, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter,
       }));
     } catch {}
-  }, [search, fPartner, fPlatforms, sortKey, sortDir, todayFilter, updatedDays, pacingView, troubleOnly, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter]);
+  }, [search, fPartner, fPlatforms, fStatuses, sortKey, sortDir, todayFilter, updatedDays, pacingView, troubleOnly, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter]);
   function clickSort(k) {
     if (sortKey === k) { setSortDir(d => d === "asc" ? "desc" : "asc"); return; }  // toggle direction
     setSortKey(k);
@@ -9035,6 +9036,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
+    if(fStatuses.size>0 && !fStatuses.has(c.status||"")) return false; // status filter — same set as the Campaigns tab
     if(todayFilter==="today"     && !dataUpdatedWithin(c, updatedDays)) return false; // fresh within the window
     if(todayFilter==="not-today" &&  dataUpdatedWithin(c, updatedDays)) return false; // stale beyond the window
     return true;
@@ -9100,6 +9102,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(q && !c.campaignName.toLowerCase().includes(q) && !(c.mediaPartner||"").toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
+    if(fStatuses.size>0 && !fStatuses.has(c.status||"")) return false;
     return true;
   });
 
@@ -9158,7 +9161,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
   const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
   const noPace  = withGoal.filter(r=>!r.pacing);
-  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || todayFilter!=="all" || troubleOnly;
+  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || fStatuses.size>0 || todayFilter!=="all" || troubleOnly;
 
   // ── Lifetime / contract pacing data ────────────────────────────────────────
   // Cumulative delivery across the WHOLE flight = every CLOSED month's final numbers
@@ -11246,6 +11249,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       />
       {/* Partner filter dropdown removed (2026-06-16, dash cleanup) — fPartner stays "all"; search + platform cover filtering. */}
       <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode} grouped/>
+      {/* Status filter — the SAME multi-select as the Campaigns tab (Active / Pacing Behind / Pacing Ahead /
+          Off / Close to Goal / Pending), filtering on c.status. Empty = all. */}
+      <StatusMultiSelect fStatuses={fStatuses} setFStatuses={setFStatuses} lightMode={lightMode}/>
       {/* Freshness filter — ONE dropdown, replacing the old ✓/✕ button pair + the row of day chips
           (the "updated 2d 3d 7d 14d" cluster the user found ugly). The value encodes both the mode and
           the window: "all" | "up:<days>" | "not:<days>". Each label carries its live match count. */}
@@ -11366,7 +11372,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Include the Off section's shown rows in the count when Trouble/crack-focus is on — otherwise a
           paused-but-spending focus reads "0" while its campaign sits visible in the Off section. */}
       <span style={{fontSize:11,color:lmTxtS}}>Showing {filtered.length + (troubleOnly ? offFiltered.length : 0)} of {allActive.length + (troubleOnly ? offRows.length : 0)}</span>
-      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setTodayFilter("all");setTroubleOnly(false);setReasonFocus(null);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
+      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setFStatuses(new Set());setTodayFilter("all");setTroubleOnly(false);setReasonFocus(null);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
     </div>}
 
     {/* Row count — This Month only (the ✈ Flights view has its own summary strip). */}
@@ -12899,6 +12905,55 @@ function CatPicker({ value, options, colorOf, onSelect, onAdd, onRemove }) {
   );
 }
 
+// Preferences note — a small 📌 pin button that opens a fixed-position textarea for DURABLE client/partner
+// preferences (reporting cadence, format, key contacts, do's & don'ts). Separate from the per-row reporting
+// Notes: prefs are keyed by the entity's own name so they persist as campaigns rotate. Amber/filled when set.
+function PrefsPopover({ value, onSave, label, accent="#f59e0b" }) {
+  const [open, setOpen] = React.useState(false);
+  const [pos, setPos]   = React.useState(null);
+  const [draft, setDraft] = React.useState(value||"");
+  const btnRef = React.useRef(null), menuRef = React.useRef(null), taRef = React.useRef(null);
+  const draftRef = React.useRef(draft); draftRef.current = draft;
+  const has = !!(value||"").trim();
+  const openMenu = () => { const r = btnRef.current.getBoundingClientRect(); const left = Math.max(8, Math.min(r.left, window.innerWidth-320)); setPos({ top:r.bottom+4, left }); setDraft(value||""); setOpen(true); };
+  const saveIfChanged = () => { if((draftRef.current||"") !== (value||"")) onSave(draftRef.current); };
+  React.useEffect(()=>{
+    if(!open) return;
+    const close = (e)=>{ if(btnRef.current && btnRef.current.contains(e.target)) return; if(menuRef.current && menuRef.current.contains(e.target)) return; saveIfChanged(); setOpen(false); };
+    const onScroll = (e)=>{ if(menuRef.current && e.target && menuRef.current.contains(e.target)) return; saveIfChanged(); setOpen(false); };
+    document.addEventListener("mousedown", close);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return ()=>{ document.removeEventListener("mousedown", close); window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", onScroll); };
+  },[open, value]);
+  // Focus without scrolling (a scroll would trip the outside-scroll close handler).
+  React.useEffect(()=>{ if(open && taRef.current){ try{ taRef.current.focus({preventScroll:true}); }catch{ taRef.current.focus(); } } },[open]);
+  const txt=_lm?"#0f172a":"#edf4ff", txtD=_lm?"#94a3b8":"#4d6e8a", menuBg=_lm?"#ffffff":"#0e1a2e", bd=_lm?"#e2e8f0":"#334155";
+  return (
+    <>
+      <button ref={btnRef} onClick={()=>{ if(open){ saveIfChanged(); setOpen(false); } else openMenu(); }}
+        title={has ? `Client preferences:\n${value}` : "Add client preferences"}
+        style={{background:has?accent+"22":"transparent",border:`1px solid ${has?accent+"66":"transparent"}`,borderRadius:4,padding:"0 5px",cursor:"pointer",color:has?accent:txtD,fontSize:12,lineHeight:1.6,display:"inline-flex",alignItems:"center"}}
+        onMouseEnter={e=>{ if(!has) e.currentTarget.style.color=_lm?"#475569":"#a8c4e0"; }}
+        onMouseLeave={e=>{ if(!has) e.currentTarget.style.color=txtD; }}>
+        ✎
+      </button>
+      {open && pos && ReactDOM.createPortal(
+        <div ref={menuRef} style={{position:"fixed",top:pos.top,left:pos.left,width:300,background:menuBg,border:`1px solid ${bd}`,borderRadius:9,boxShadow:"0 12px 34px rgba(0,0,0,0.45)",zIndex:100000,padding:10}}>
+          <div style={{fontSize:10.5,fontWeight:800,color:accent,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:6,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📌 {label}</div>
+          <textarea ref={taRef} value={draft} onChange={e=>setDraft(e.target.value)}
+            onKeyDown={e=>{ if(e.key==="Enter"&&(e.metaKey||e.ctrlKey)){ onSave(draft); setOpen(false); } else if(e.key==="Escape"){ setDraft(value||""); setOpen(false); } }}
+            placeholder="Reporting cadence, format, key contacts, do's & don'ts…"
+            style={{width:"100%",minHeight:92,resize:"vertical",background:_lm?"#f8fafc":"#0b1626",border:`1px solid ${bd}`,borderRadius:6,padding:"7px 9px",color:txt,fontSize:12,fontFamily:"inherit",lineHeight:1.45,outline:"none",boxSizing:"border-box"}}/>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:7}}>
+            <span style={{fontSize:9.5,color:txtD}}>⌘/Ctrl+Enter to save · Esc to cancel</span>
+            <button onClick={()=>{ onSave(draft); setOpen(false); }} style={{background:accent,border:"none",borderRadius:5,color:"#111",fontSize:11.5,fontWeight:800,padding:"4px 14px",cursor:"pointer",boxShadow:`0 0 10px ${accent}88, 0 0 3px ${accent}`}}>Save</button>
+          </div>
+        </div>, document.body)}
+    </>
+  );
+}
+
 // ── Org Overview matrix ── the reporting director's "everything at a glance" view: one row per campaign,
 // grouped by media partner (station), with a checkbox grid showing which platforms each runs on, plus CM,
 // category, flight dates, and total impressions. Mirrors the spreadsheet the director already uses.
@@ -12917,6 +12972,10 @@ function OrgMatrixView({ campaigns=[] }) {
   const noteKey = (partner, name) => `${partner}||${name}`;
   const metaOf = (key) => ovMeta[key] || {};
   const setMeta = (key, field, val) => setOvMeta(prev=>{ const next={...prev,[key]:{...(prev[key]||{}),[field]:val}}; try{ localStorage.setItem("reports-overview-meta", JSON.stringify(next)); }catch{} return next; });
+  // Durable PARTNER/client PREFERENCES (separate from the per-campaign reporting Notes) — one note per media
+  // partner/station, edited from a small pencil next to the partner name. Own store, travels with the roll-up.
+  const [partnerPrefs, setPartnerPrefs] = React.useState(()=>{ try{ return JSON.parse(localStorage.getItem("reports-partner-prefs")||"{}"); }catch{ return {}; } });
+  const setPartnerPref = (partner, val)=> setPartnerPrefs(prev=>{ const next={...prev,[partner]:val}; try{ localStorage.setItem("reports-partner-prefs", JSON.stringify(next)); }catch{} return next; });
   // Category options (from the director's spreadsheet).
   const CATEGORY_DEFAULTS = ["Services","Home Improvement","Law","Retail & Shopping","Auto & Transportation","Health Care","Banking & Finance","Non-Profit & Organization","Arts & Entertainment","Beauty","Food","Sports & Outdoor","Real Estate","Education","Technology","Misc & Other"];
   // Managed category list (add/remove like the CMs), seeded from the defaults.
@@ -13014,6 +13073,37 @@ tr.grp td{background:#eef2ff;font-size:10.5px;color:#3730a3;} .foot{margin-top:1
     if(!w){ alert("Pop-up blocked — please allow pop-ups for this site to export the PDF."); return; }
     w.document.write(html); w.document.close();
   };
+  // Spreadsheet export of the same grid — one row per campaign, a Y in each platform column it runs on,
+  // plus the partner's client preferences. BOM so Excel reads the ✓/accents correctly.
+  const exportCSV = () => {
+    try {
+      const esc = v => `"${String(v==null?"":v).replace(/"/g,'""')}"`;
+      const metricLabel = metric==="budget"?"Budget":"Impressions";
+      const headers = ["Media Partner","Campaign","Status","Category","Campaign Mgr", ...platforms, "Start","End", metricLabel, "Notes","Client Preferences"];
+      const lines = [headers.map(esc).join(",")];
+      partnersSorted.forEach(partner=>{
+        const clients = byPartner[partner]; const names = Object.keys(clients).sort();
+        const pref = (partnerPrefs[partner]||"").replace(/\r?\n/g," | ");
+        names.forEach(name=>{
+          const g = clients[name];
+          const m = metaOf(noteKey(partner, name));
+          const cat = m.category || g.category || "";
+          const cm  = m.cm || (cmList.includes(cmName)?cmName:"");
+          const note = (m.note||"").replace(/\r?\n/g," | ");
+          const stat = STAT[aggStatus(g.statuses)].l;
+          const platCells = platforms.map(p=> g.platforms.has(p)?"Y":"");
+          const metricVal = metric==="budget" ? Math.round(g.budget) : Math.round(g.impr);
+          const row = [partner, name, stat, cat, cm, ...platCells, fmtMd(g.start), fmtMd(g.end), metricVal, note, pref];
+          lines.push(row.map(esc).join(","));
+        });
+      });
+      const csv = lines.join("\r\n");
+      const b = new Blob([String.fromCharCode(0xFEFF) + csv], {type:"text/csv;charset=utf-8"});
+      const url = URL.createObjectURL(b); const a = document.createElement("a");
+      a.href = url; a.download = `org-overview-${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch(e){ alert("CSV export failed: "+e.message); }
+  };
   return (
     <div>
       {/* Controls */}
@@ -13031,6 +13121,11 @@ tr.grp td{background:#eef2ff;font-size:10.5px;color:#3730a3;} .foot{margin-top:1
         <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11.5,color:txtS,cursor:"pointer"}}>
           <input type="checkbox" checked={inclArchived} onChange={e=>setInclArchived(e.target.checked)}/> Include archived
         </label>
+        <button onClick={exportCSV} disabled={totalClients===0} title="Download this overview as a CSV spreadsheet"
+          style={{padding:"7px 14px",fontSize:12,fontWeight:700,borderRadius:7,cursor:totalClients===0?"default":"pointer",whiteSpace:"nowrap",
+            background:"transparent",border:`1px solid ${totalClients===0?cardBd:"#00c896"}`,color:totalClients===0?txtD:(_lm?"#0f766e":"#00e5a0")}}>
+          ↓ Export CSV
+        </button>
         <button onClick={exportPDF} disabled={totalClients===0} title="Open a print-ready PDF of this overview"
           style={{padding:"7px 14px",fontSize:12,fontWeight:700,borderRadius:7,cursor:totalClients===0?"default":"pointer",whiteSpace:"nowrap",
             background:totalClients===0?(_lm?"#f1f5f9":"#0e1a2e"):"#00c896",border:`1px solid ${totalClients===0?cardBd:"#00c896"}`,color:totalClients===0?txtD:"#06222b"}}>
@@ -13072,9 +13167,12 @@ tr.grp td{background:#eef2ff;font-size:10.5px;color:#3730a3;} .foot{margin-top:1
               return (
                 <React.Fragment key={partner}>
                   <tr>
-                    <td colSpan={platforms.length+7} style={{padding:"7px 10px",background:_lm?"#eef2ff":"#0a1a30",borderBottom:`1px solid ${cardBd}`,borderTop:`1px solid ${cardBd}`,position:"sticky",left:0}}>
-                      <span style={{fontSize:11.5,fontWeight:800,color:_lm?"#3730a3":"#93c5fd",textTransform:"uppercase",letterSpacing:"0.05em"}}>{partner}</span>
-                      <span style={{fontSize:10.5,color:txtD,marginLeft:8}}>{names.length} campaign{names.length!==1?"s":""} · <span style={{color:metric==="impr"?(_lm?"#059669":"#00e5a0"):txtS,fontWeight:700}}>{metric==="budget"?"$"+fmtK(pBudget):fmtK(pImpr)+" impr"}</span></span>
+                    <td colSpan={platforms.length+7} style={{padding:"6px 10px",background:_lm?"#eef2ff":"#0a1a30",borderBottom:`1px solid ${cardBd}`,borderTop:`1px solid ${cardBd}`,position:"sticky",left:0}}>
+                      <span style={{display:"inline-flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                        <span style={{fontSize:11.5,fontWeight:800,color:_lm?"#3730a3":"#93c5fd",textTransform:"uppercase",letterSpacing:"0.05em"}}>{partner}</span>
+                        <span style={{fontSize:10.5,color:txtD}}>{names.length} campaign{names.length!==1?"s":""}</span>
+                        <PrefsPopover value={partnerPrefs[partner]||""} onSave={v=>setPartnerPref(partner,v)} label={`${partner} — client preferences`}/>
+                      </span>
                     </td>
                   </tr>
                   {names.map((name,i)=>{
@@ -13120,7 +13218,6 @@ tr.grp td{background:#eef2ff;font-size:10.5px;color:#3730a3;} .foot{margin-top:1
           </tbody>
         </table>
       </div>
-      <div style={{fontSize:10.5,color:txtD,marginTop:8}}>✓ = the campaign runs on that platform. Grouped by media partner. Dates span the campaign's platform lines. Next: a section to turn this into a shareable report.</div>
     </div>
   );
 }
