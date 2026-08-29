@@ -402,13 +402,25 @@ const PLATFORM_GROUP_ORDER = ["SEM","YT","FB","FBV","IG","TD","TDV","TDA","NFLX"
 // N+ days) are exact complements of the same window — they just used different option sets
 // ([1,2,3,7] vs [2,3,5,7,14]), which is why the two tabs disagreed about what "recent" meant.
 const FRESHNESS_DAY_OPTIONS = [1, 2, 3, 7, 14];
+// Rank a platform for display order. A platform in the canonical list keeps its exact spot. A platform
+// NOT listed (a custom/new one, e.g. a new Madhive product) slots in right AFTER its vendor group's known
+// siblings — so it lands next to GCTV/PCTV/AECTV instead of falling to the very end — as long as it's been
+// assigned that vendor group in Config → Platform Groups. Platforms with no known group go last, A→Z.
+function platformGroupRank(p){
+  const i = PLATFORM_GROUP_ORDER.indexOf(p);
+  if (i !== -1) return [i, 0];
+  const v = vendorOf(p);
+  let last = -1;
+  for (let k=0;k<PLATFORM_GROUP_ORDER.length;k++){ if (vendorOf(PLATFORM_GROUP_ORDER[k])===v) last=k; }
+  if (last !== -1) return [last, 1];        // ride along just after the vendor's listed tactics
+  return [PLATFORM_GROUP_ORDER.length, 1];  // no known group → end of the list
+}
 function sortPlatforms(list) {
   return [...list].sort((a,b)=>{
-    const ia=PLATFORM_GROUP_ORDER.indexOf(a), ib=PLATFORM_GROUP_ORDER.indexOf(b);
-    if(ia===-1&&ib===-1) return String(a).localeCompare(String(b));
-    if(ia===-1) return 1;
-    if(ib===-1) return -1;
-    return ia-ib;
+    const ra=platformGroupRank(a), rb=platformGroupRank(b);
+    if (ra[0]!==rb[0]) return ra[0]-rb[0];
+    if (ra[1]!==rb[1]) return ra[1]-rb[1];
+    return String(a).localeCompare(String(b));
   });
 }
 
@@ -4275,7 +4287,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     <div style={{marginBottom:12}}>
       <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>{label}</label>
       {key==="status" ? <select value={f.status||""} onChange={e=>set("status",e.target.value)} style={iS}>{Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
-      :key==="platform" ? <select value={f.platform} onChange={e=>set("platform",e.target.value)} style={iS}>{ALL_PLATFORMS.map(p=><option key={p}>{p}</option>)}</select>
+      :key==="platform" ? <select value={f.platform} onChange={e=>set("platform",e.target.value)} style={iS}>{sortPlatforms([...ALL_PLATFORMS]).map(p=><option key={p}>{p}</option>)}</select>
       :type==="date" ? <DatePicker value={f[key]||""} onChange={v=>set(key,v)}/>
       :<input type={type} value={f[key]||""} onChange={e=>set(key,e.target.value)} style={iS}/>}
     </div>
@@ -4710,7 +4722,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                         <label style={lblStyle}>New tactic</label>
                         <select value={switchPlat} onChange={e=>{ const p=e.target.value; setSwitchPlat(p); const sug=suggestRate(p,learnRatesByPlatform(campaigns)); setSwitchRate(sug&&sug.rate?String(sug.rate):""); }} style={{...inStyle,cursor:"pointer"}}>
                           <option value="">Pick…</option>
-                          {ALL_PLATFORMS.filter(p=>p!==oldPlat && p!=="SEM").map(p=><option key={p} value={p}>{p}</option>)}
+                          {sortPlatforms([...ALL_PLATFORMS]).filter(p=>p!==oldPlat && p!=="SEM").map(p=><option key={p} value={p}>{p}</option>)}
                         </select>
                       </div>
                       <div>
@@ -8386,7 +8398,7 @@ function ToolbarMenu({ label, items, lightMode=false }) {
   );
 }
 
-function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms, lightMode=false, noun="Platforms", hideClear=false, labelOf=(p)=>p }) {
+function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms, lightMode=false, noun="Platforms", hideClear=false, labelOf=(p)=>p, grouped=false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -8409,20 +8421,55 @@ function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms, lightMode=f
           <div style={{padding:"7px 10px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#162236"}`}}>
             <span style={{fontSize:10,color:lightMode?"#94a3b8":"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Filter {noun}</span>
           </div>
-          {platforms.map(p => {
-            const on = fPlatforms.has(p);
-            const col = PLT_COLORS[p] || PLT_COLORS.default;
-            return (
-              <div key={p} onClick={()=>toggle(p)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",cursor:"pointer",background:on?(lightMode?col+"25":col+"12"):"transparent",transition:"background .1s"}}
-                onMouseEnter={e=>{ if(!on) e.currentTarget.style.background=lightMode?"#f1f5f9":"#162236"; }}
-                onMouseLeave={e=>{ if(!on) e.currentTarget.style.background="transparent"; }}>
-                <div style={{width:13,height:13,borderRadius:3,border:`2px solid ${on?col:(lightMode?"#cbd5e1":"#334155")}`,background:on?col:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .1s"}}>
-                  {on && <span style={{color:"#000",fontSize:9,fontWeight:900,lineHeight:1}}>✓</span>}
+          {(() => {
+            // One platform row (checkbox + colored code). Reused by the flat and grouped layouts;
+            // `indent` nudges children under their vendor header in grouped mode.
+            const platRow = (p, indent=false) => {
+              const on = fPlatforms.has(p);
+              const col = PLT_COLORS[p] || PLT_COLORS.default;
+              return (
+                <div key={p} onClick={()=>toggle(p)} style={{display:"flex",alignItems:"center",gap:8,padding:indent?"6px 12px 6px 26px":"7px 12px",cursor:"pointer",background:on?(lightMode?col+"25":col+"12"):"transparent",transition:"background .1s"}}
+                  onMouseEnter={e=>{ if(!on) e.currentTarget.style.background=lightMode?"#f1f5f9":"#162236"; }}
+                  onMouseLeave={e=>{ if(!on) e.currentTarget.style.background="transparent"; }}>
+                  <div style={{width:13,height:13,borderRadius:3,border:`2px solid ${on?col:(lightMode?"#cbd5e1":"#334155")}`,background:on?col:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .1s"}}>
+                    {on && <span style={{color:"#000",fontSize:9,fontWeight:900,lineHeight:1}}>✓</span>}
+                  </div>
+                  <span title={p} style={{fontSize:12,color:on?col:(lightMode?"#475569":"#a8c4e0"),fontWeight:on?700:400,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{labelOf(p)}</span>
                 </div>
-                <span title={p} style={{fontSize:12,color:on?col:(lightMode?"#475569":"#a8c4e0"),fontWeight:on?700:400,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{labelOf(p)}</span>
-              </div>
-            );
-          })}
+              );
+            };
+            if (!grouped) return platforms.map(p => platRow(p));
+            // Grouped by vendor (Trade Desk → TD/TDV/TDA, Madhive → GCTV/PCTV/AECTV…), mirroring the
+            // Quick Check-in vendor bar: click the bold header to toggle the whole group, or pick tactics
+            // individually underneath. The list arrives pre-sorted by sortPlatforms, so same-vendor
+            // tactics already cluster — we just wrap each run.
+            const groups = [];
+            platforms.forEach(p => { const v = vendorOf(p); let g = groups.find(x=>x.v===v); if(!g){ g={v, items:[]}; groups.push(g); } g.items.push(p); });
+            const toggleGroup = items => setFPlatforms(prev => { const n=new Set(prev); const allOn=items.every(p=>n.has(p)); items.forEach(p=> allOn?n.delete(p):n.add(p)); return n; });
+            const HCOL = "#00c896";
+            return groups.map((g,gi) => {
+              const sep = gi>0 ? {borderTop:`1px solid ${lightMode?"#eef2f7":"#122033"}`} : undefined;
+              // A vendor with a single tactic (DSP, Snapchat, LinkedIn…) needs no header — show the one row.
+              if (g.items.length === 1) return <div key={g.v} style={sep}>{platRow(g.items[0])}</div>;
+              const allOn = g.items.every(p=>fPlatforms.has(p));
+              const someOn = !allOn && g.items.some(p=>fPlatforms.has(p));
+              return (
+                <div key={g.v} style={sep}>
+                  <div onClick={()=>toggleGroup(g.items)} title={`Select all ${g.v.replace(/^The /,"")}`} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",cursor:"pointer",background:allOn?(lightMode?HCOL+"20":HCOL+"14"):"transparent"}}
+                    onMouseEnter={e=>{ if(!allOn) e.currentTarget.style.background=lightMode?"#f1f5f9":"#162236"; }}
+                    onMouseLeave={e=>{ if(!allOn) e.currentTarget.style.background="transparent"; }}>
+                    <div style={{width:13,height:13,borderRadius:3,border:`2px solid ${(allOn||someOn)?HCOL:(lightMode?"#cbd5e1":"#334155")}`,background:allOn?HCOL:(someOn?HCOL+"55":"transparent"),flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      {allOn && <span style={{color:"#000",fontSize:9,fontWeight:900,lineHeight:1}}>✓</span>}
+                      {someOn && <span style={{color:"#000",fontSize:11,fontWeight:900,lineHeight:1}}>–</span>}
+                    </div>
+                    <span style={{fontSize:11,fontWeight:800,color:(allOn||someOn)?HCOL:(lightMode?"#334155":"#c5d9ef"),flex:1}}>{g.v.replace(/^The /,"")}</span>
+                    <span style={{fontSize:9,color:lightMode?"#94a3b8":"#3d5a72",fontWeight:600}}>{g.items.length}</span>
+                  </div>
+                  {g.items.map(p => platRow(p, true))}
+                </div>
+              );
+            });
+          })()}
         </div>
       )}
     </div>
@@ -11198,7 +11245,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         style={{background:lmBgInp,border:"1px solid "+(search?"#00c896":lmBrd),borderRadius:7,padding:"7px 12px",color:lmTxt,fontSize:12,width:220,outline:"none"}}
       />
       {/* Partner filter dropdown removed (2026-06-16, dash cleanup) — fPartner stays "all"; search + platform cover filtering. */}
-      <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode}/>
+      <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode} grouped/>
       {/* Freshness filter — ONE dropdown, replacing the old ✓/✕ button pair + the row of day chips
           (the "updated 2d 3d 7d 14d" cluster the user found ugly). The value encodes both the mode and
           the window: "all" | "up:<days>" | "not:<days>". Each label carries its live match count. */}
@@ -18853,7 +18900,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         </div>
         {/* Client (partner) + Platform multi-select filters, right by the search — scope the whole tab. */}
         <PlatformMultiSelect platforms={partners.filter(p=>p!=="all")} fPlatforms={filterPartners} setFPlatforms={setFilterPartners} lightMode={_lm} noun="Clients" hideClear labelOf={p=>partnerAbbrOf(p, partnerPrefixMap)}/>
-        <PlatformMultiSelect platforms={revPlatforms.filter(p=>p!=="all")} fPlatforms={filterPlatforms} setFPlatforms={setFilterPlatforms} lightMode={_lm} hideClear/>
+        <PlatformMultiSelect platforms={revPlatforms.filter(p=>p!=="all")} fPlatforms={filterPlatforms} setFPlatforms={setFilterPlatforms} lightMode={_lm} hideClear grouped/>
         {(filterPartners.size>0||filterPlatforms.size>0) && <button onClick={()=>{setFilterPartners(new Set());setFilterPlatforms(new Set());}} title="Clear filters"
           style={{background:"none",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:7,padding:"6px 10px",color:_lm?"#64748b":"#7a9bbf",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Clear</button>}
         {revQuery && <span style={{fontSize:11,color:_lm?"#64748b":"#7a9bbf",whiteSpace:"nowrap"}}>{dateVisibleRows.length} match{dateVisibleRows.length!==1?"es":""}</span>}
@@ -24527,7 +24574,7 @@ export default function App() {
                     <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Platform</label>
                     <select value={bulkDraft.platform} onChange={e=>setBulkDraft(p=>({...p,platform:e.target.value}))} style={{width:"100%",background:_lm?"#ffffff":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontFamily:"inherit"}}>
                       <option value="">— No change —</option>
-                      {ALL_PLATFORMS.map(p=><option key={p} value={p}>{p}</option>)}
+                      {sortPlatforms([...ALL_PLATFORMS]).map(p=><option key={p} value={p}>{p}</option>)}
                     </select>
                   </div>
                   <div>
@@ -24732,7 +24779,7 @@ export default function App() {
                 style={{background:"none",border:"none",color:lightMode?"#64748b":"#3d5a72",fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1,marginLeft:2}}>×</button>
             </div>
           )}
-          <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode}/>
+          <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode} grouped/>
           <button
             onClick={()=>setFExcludeGoalHit(v=>!v)}
             title="Hide campaigns that have already hit their monthly goal"
