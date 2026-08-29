@@ -11248,10 +11248,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         style={{background:lmBgInp,border:"1px solid "+(search?"#00c896":lmBrd),borderRadius:7,padding:"7px 12px",color:lmTxt,fontSize:12,width:220,outline:"none"}}
       />
       {/* Partner filter dropdown removed (2026-06-16, dash cleanup) — fPartner stays "all"; search + platform cover filtering. */}
-      <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode} grouped/>
       {/* Status filter — the SAME multi-select as the Campaigns tab (Active / Pacing Behind / Pacing Ahead /
-          Off / Close to Goal / Pending), filtering on c.status. Empty = all. */}
+          Off / Close to Goal / Pending), filtering on c.status. Empty = all. Sits LEFT of Platforms. */}
       <StatusMultiSelect fStatuses={fStatuses} setFStatuses={setFStatuses} lightMode={lightMode}/>
+      <PlatformMultiSelect platforms={platforms} fPlatforms={fPlatforms} setFPlatforms={setFPlatforms} lightMode={lightMode} grouped/>
       {/* Freshness filter — ONE dropdown, replacing the old ✓/✕ button pair + the row of day chips
           (the "updated 2d 3d 7d 14d" cluster the user found ugly). The value encodes both the mode and
           the window: "all" | "up:<days>" | "not:<days>". Each label carries its live match count. */}
