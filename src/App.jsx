@@ -1925,11 +1925,13 @@ function parseIOPdf(text, uris = []) {
   function isIncluded(serviceLabel) {
     const escaped = escapeRe(serviceLabel);
     // Patterns to try (with and without "Is " prefix, ":" optional after Included)
+    // "Is <A>?" allows an optional article — some forms write "Is a CTV Sports Package Included?" / "Is an
+    // MLB … Included?" — so the article between "Is" and the label mustn't block detection.
     const patterns = [
       new RegExp("^" + escaped + "\\s+Included\\??\\s*$", "i"),
       new RegExp("^" + escaped + "\\s+Included\\??\\s+Yes\\s*$", "i"),
-      new RegExp("^Is\\s+" + escaped + "\\s+Included\\??\\s*$", "i"),
-      new RegExp("^Is\\s+" + escaped + "\\s+Included\\??\\s+Yes\\s*$", "i"),
+      new RegExp("^Is\\s+(?:an?\\s+|the\\s+)?" + escaped + "\\s+Included\\??\\s*$", "i"),
+      new RegExp("^Is\\s+(?:an?\\s+|the\\s+)?" + escaped + "\\s+Included\\??\\s+Yes\\s*$", "i"),
     ];
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
@@ -2104,6 +2106,22 @@ function parseIOPdf(text, uris = []) {
       return notes.join(" ").trim() || null;
     }
 
+    // Device-targeting Display variant: some Targeted Display IOs ZERO OUT the base line and put the real
+    // delivery on a "<label> w Devices" line (its CPM = base + a device-targeting uplift, e.g. $3.50 + $2.50
+    // = $6). When the base impressions are empty/zero, read the w-Devices figures so the draft isn't dropped.
+    const _pn = s => { const n = parseFloat(String(s==null?"":s).replace(/[,$\s]/g,"")); return isNaN(n)?0:n; };
+    let _impr   = tryFields(prefix, "Gross Impressions", "Gross Views");
+    let _cpm    = tryFields(prefix, "CPM Rate to Recrue Media", "CPM Rate - Recrue", "CPV Rate to Recrue Media", "Hard Cost to Recrue Media", "Hard Cost", "Rate to Recrue");
+    let _budget = tryFields(prefix, "Gross Dollar", "Views Gross Dollar", "Gross Budget from Client", "Gross Budget", "Cost - Recrue", "Media Spend");
+    if (_pn(_impr) <= 0) {
+      const devPx = prefixes.map(p => p + " w Devices");
+      const dImpr = tryFields(devPx, "Gross Impressions", "Gross Views");
+      if (_pn(dImpr) > 0) {
+        _impr   = dImpr;
+        _cpm    = tryFields(devPx, "CPM Rate to Recrue Media", "Hard Cost to Recrue Media", "Hard Cost", "Rate to Recrue") || _cpm;
+        _budget = tryFields(devPx, "Gross Dollar", "Gross Budget from Client", "Gross Budget") || _budget;
+      }
+    }
     return {
       startDate: getField(datePrefixes, "Start Date"),
       endDate:   getField(datePrefixes, "End Date"),
@@ -2113,14 +2131,14 @@ function parseIOPdf(text, uris = []) {
       //   - CPM/CPV:      "CPM Rate to Recrue Media", "Hard Cost", "Hard Cost to Recrue Media" (CTV)
       //   - Budget:       "Gross Dollar..." (most),    "Gross Budget from Client" (SEM),
       //                   "Media Spend" (SEM fallback)
-      impressions: tryFields(prefix, "Gross Impressions", "Gross Views"),
+      impressions: _impr,
       // CPM/CPV aliases also cover the Spinnaker "Universal IO" / tvScientific format:
       //   "CPM Rate - Recrue ($)" (tvScientific CTV/OTT) and "CPV Rate to Recrue Media" (YouTube TrueView).
-      cpm:         tryFields(prefix, "CPM Rate to Recrue Media", "CPM Rate - Recrue", "CPV Rate to Recrue Media", "Hard Cost to Recrue Media", "Hard Cost", "Rate to Recrue"),
+      cpm:         _cpm,
       // Budget aliases also cover tvScientific's "Cost - Recrue" line (CTV) and YouTube's
       // "Views Gross Dollar($) Budget" (CPV) — the "Views" prefix would otherwise block the plain
       // "Gross Dollar" match, leaving the CPV budget to a wrong CPM-style derivation.
-      budget:      tryFields(prefix, "Gross Dollar", "Views Gross Dollar", "Gross Budget from Client", "Gross Budget", "Cost - Recrue", "Media Spend"),
+      budget:      _budget,
       // Static/Video split fields (AMB Social Media + similar) — when these exist,
       // the service produced two ad-creative types with separate budgets/impressions.
       // Read the "- Static/Video" SUFFIX form first (AMB), then fall back to the "Static/Video <label>"
@@ -4007,7 +4025,7 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
   );
 }
 
-function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null, onDiscardAllDrafts=null, onPrevDraft=null, onNextDraft=null, onValuesChange=null, onSaveDraft=null, onDiscardDraft=null, onSwitchTactic=null }) {
+function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null, onDiscardAllDrafts=null, onPrevDraft=null, onNextDraft=null, onValuesChange=null, onSaveDraft=null, onDiscardDraft=null, onSwitchTactic=null, initialTab="details" }) {
   const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",ioNumber:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",managementFee:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",targetAudience:"",lastCreativeUpdate:"",clientWebsite:"",
     // Report data fields
     demoAge:"",       // JSON: [{label:"18-24",pct:32},{label:"25-34",pct:28}...]
@@ -4347,6 +4365,22 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
       :<input type={type} value={f[key]||""} onChange={e=>set(key,e.target.value)} style={iS}/>}
     </div>
   );
+  // Details vs Metrics tab inside the modal (the user: a little button to edit this month's metrics — e.g.
+  // enter a Madhive CPM after landing here from a "Fix →" data gap).
+  const [formTab, setFormTab] = useState(initialTab || "details");
+  // Write a current-month metric. Updates the flat c.* field AND mirrors it into the synced snapshot's mtd
+  // (source of truth for Pacing/Revenue) when this campaign has one — so an entered CPM/spend/impressions
+  // isn't shadowed by a stale snapshot value, mirroring how the Campaigns-tab metric editor saves.
+  const setMetric = (key, val) => setF(prev => {
+    const next = { ...prev, [key]: val };
+    const field = PLATFORM_SNAPSHOT_FIELD[prev.platform];
+    if (field && prev[field] && prev[field].mtd) {
+      const snapKey = key === "videoViews" ? "video_views" : key === "completionRate" ? "vcr" : key;
+      const num = val === "" ? null : Number(val);
+      next[field] = { ...prev[field], mtd: { ...prev[field].mtd, [snapKey]: (num != null && !isNaN(num)) ? num : null } };
+    }
+    return next;
+  });
   function submit() {
     if (!f.campaignName.trim()||!f.mediaPartner.trim()) { alert("Campaign name and media partner required."); return; }
     const newId = isNew ? Date.now() : f.id;
@@ -4375,6 +4409,15 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 28px 14px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,flexShrink:0,gap:12}}>
           <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",minWidth:0}}>
             <h2 style={{margin:0,color:_lm?"#0f172a":"#edf4ff",fontSize:15,fontWeight:700}}>{isNew?"Add Campaign":"Edit Campaign"}</h2>
+            {/* Details / Metrics tab toggle — Metrics edits THIS month's delivery (impressions, CPM, spend…). */}
+            <div style={{display:"inline-flex",background:_lm?"#f1f5f9":"#0b1626",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:7,padding:2}}>
+              {[["details","📋 Details"],["metrics","📊 Metrics"]].map(([k,l])=>(
+                <button key={k} onClick={()=>setFormTab(k)}
+                  style={{background:formTab===k?(_lm?"#ffffff":"#16233a"):"transparent",border:formTab===k?`1px solid ${_lm?"#cbd5e1":"#334155"}`:"1px solid transparent",borderRadius:5,padding:"4px 12px",color:formTab===k?(_lm?"#0f172a":"#edf4ff"):(_lm?"#64748b":"#7a9bbf"),fontSize:12,fontWeight:formTab===k?700:500,cursor:"pointer",whiteSpace:"nowrap"}}>
+                  {l}
+                </button>
+              ))}
+            </div>
             {/* Auto-save indicator + Revert. Shown when onValuesChange is wired
                 AND user has edited at least one field. Click Revert to restore
                 the modal's original values (and roll back the auto-saved campaign). */}
@@ -4522,7 +4565,40 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               </div>
             </div>
           )}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:20,alignItems:"start"}}>
+          {/* ── METRICS TAB — this month's delivery, editable; flows to Pacing + Revenue ── */}
+          {formTab==="metrics" && (()=>{
+            const isCPV = f.dealType === "CPV" || f.platform === "YT";
+            const mInput = (key, label, hint) => (
+              <div style={{marginBottom:14}}>
+                <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>{label}</label>
+                <input type="number" step="any" value={f[key]??""} onChange={e=>setMetric(key, e.target.value)} style={iS} placeholder="—"/>
+                {hint && <div style={{fontSize:9.5,color:_lm?"#94a3b8":"#4d6e8a",marginTop:3}}>{hint}</div>}
+              </div>
+            );
+            const isModeled = f.platform==="DSP" || f.platform==="GCTV" || f.platform==="PCTV" || f.platform==="AECTV";
+            return (
+              <div style={{maxWidth:760}}>
+                <div style={{fontSize:12,color:_lm?"#475569":"#7a9bbf",lineHeight:1.5,marginBottom:14,background:_lm?"#f8fafc":"#0b1626",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:8,padding:"10px 13px"}}>
+                  This month's delivery for <b style={{color:_lm?"#0f172a":"#edf4ff"}}>{f.campaignName||"this campaign"}</b>. Edits save straight to the campaign and flow to the Pacing & Revenue tabs.
+                  {isModeled && f.platform!=="DSP" && <span style={{color:_lm?"#b45309":"#fbbf24"}}> For Madhive, your <b>cost is impressions × the CPM you enter here</b> — enter it once you have it from the check-in.</span>}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:"0 16px"}}>
+                  {mInput("impressions","Impressions")}
+                  {isCPV && mInput("videoViews","Video Views")}
+                  {mInput("cpm", f.platform==="SEM" ? "CPC ($)" : "CPM ($)", isModeled && f.platform!=="DSP" ? "Madhive cost = impr × this CPM" : "")}
+                  {mInput("spend","Spend ($)", f.platform==="DSP" ? "DSP cost is modeled — leave blank" : "")}
+                  {mInput("ctr","CTR (%)")}
+                  {mInput("clicks","Clicks")}
+                  {(isCPV || ["CTV","OTT","OTTD","GCTV","PCTV","AECTV","TDV","FBV","TT"].includes(f.platform)) && mInput("completionRate","Completion Rate (VCR %)")}
+                  {mInput("reach","Reach")}
+                  {mInput("frequency","Frequency")}
+                  {mInput("conversions","Conversions")}
+                </div>
+              </div>
+            );
+          })()}
+
+          <div style={{display:formTab==="details"?"grid":"none",gridTemplateColumns:"1fr 340px",gap:20,alignItems:"start"}}>
 
           {/* ── LEFT: All campaign fields ── */}
           <div>
@@ -12278,11 +12354,14 @@ function estMonthlyProfit(campaigns){
     const delivered=isCPV?viewsMtd:imprMtd;
     const billed=isCPV?delivered*rate:delivered/1000*rate;
     const revA=Math.min(billed, goalRev);                    // capped at the monthly goal (over-delivery isn't billable)
-    // DSP always modeled; Madhive prefers real spend, then reported CPM, then the estimate; others = reported spend.
-    const spA = modCpms[plat]!=null
-      ? (plat!=="DSP" && spendMtd>0 ? spendMtd
-         : imprMtd/1000*((plat!=="DSP" && (parseFloat(c.cpm)||0)>0) ? (parseFloat(c.cpm)||0) : modCpms[plat]))
-      : spendMtd;
+    // DSP always modeled at its est CPM; Madhive = real spend, else reported CPM × impr, else pending
+    // (no fixed estimate — skip it from this rough tile); others = reported spend.
+    const spA = plat==="DSP"
+      ? imprMtd/1000*(modCpms.DSP||0)
+      : (plat==="GCTV"||plat==="PCTV"||plat==="AECTV")
+        ? (spendMtd>0 ? spendMtd : ((parseFloat(c.cpm)||0)>0 ? imprMtd/1000*(parseFloat(c.cpm)||0) : null))
+        : spendMtd;
+    if(spA==null) return;   // Madhive with no cost basis yet → pending, skip from this estimate
     profitNow+=(revA-spA); revNow+=revA; campCount++;
     if(revA>0||spA>0) anyData=true;
   });
@@ -17558,7 +17637,9 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, cur
           ? <div style={{fontSize:10,color:_lm?"#d97706":"#caa46a",paddingBottom:8,maxWidth:150}}>DSP cost is auto-modeled at ${modeledCpm.toFixed(2)} CPM from impressions.</div>
           : <div><label style={lbl}>Media spend $</label>
               <input type="number" value={spend} onChange={e=>{ setSpend(e.target.value); setDirty(true); }} style={iS} placeholder={canEstimate?`est. ${(nImpr/1000*modeledCpm).toFixed(0)}`:"—"}/>
-              {canEstimate && <div style={{fontSize:9,color:usingEstimate?(_lm?"#d97706":"#caa46a"):(_lm?"#64748b":"#5a7ba0"),marginTop:3,maxWidth:130,lineHeight:1.35}}>{usingEstimate?`Blank → estimated at $${modeledCpm.toFixed(2)} CPM. Enter your real Madhive spend to override.`:"Using your entered spend."}</div>}
+              {canEstimate
+                ? <div style={{fontSize:9,color:usingEstimate?(_lm?"#d97706":"#caa46a"):(_lm?"#64748b":"#5a7ba0"),marginTop:3,maxWidth:150,lineHeight:1.35}}>{usingEstimate?`Blank → cost = your reported $${modeledCpm.toFixed(2)} CPM × impressions. Enter spend to override.`:"Using your entered spend."}</div>
+                : <div style={{fontSize:9,color:_lm?"#64748b":"#5a7ba0",marginTop:3,maxWidth:150,lineHeight:1.35}}>No reported CPM yet — cost stays pending until you enter spend or a CPM lands in the check-in.</div>}
             </div>}
         <button onClick={()=>{ onSave({ impr:nImpr, views:nViews, spend: alwaysModeled?null:nSpend }); setDirty(false); }} disabled={!dirty}
           style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"8px 18px",color:dirty?"#06222b":"#3b5070",fontSize:13,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>{dirty?"Save":"Saved ✓"}</button>
@@ -17603,27 +17684,35 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // returns the CPM to model that platform's cost from, or null for platforms that report real spend.
   const modeledCpms = loadModeledCpms();
   const modeledCpmFor = (p) => (modeledCpms[p] != null ? modeledCpms[p] : null);
+  // The CPM to actually MODEL a campaign's cost from. DSP never reports spend → always its assumed CPM.
+  // Madhive (GCTV/PCTV/AECTV) reports a REAL CPM in the Quick Check-in, so its cost = that reported CPM ×
+  // impressions; until a CPM lands it's PENDING (null) — we no longer fall back to a fixed estimate (the
+  // user found the $16/$22/$16 defaults far too high and only inflating cost). Non-modeled platforms → null.
+  const modeledCpmForCamp = (c) => {
+    if (!c) return null;
+    if (c.platform === "DSP") return modeledCpmFor("DSP");
+    if (c.platform === "GCTV" || c.platform === "PCTV" || c.platform === "AECTV") { const v = parseFloat(c.cpm) || 0; return v > 0 ? v : null; }
+    return null;
+  };
   // Is a modeled-cost campaign currently ESTIMATING its cost (vs using a real spend/CPM)? DSP always
   // estimates (never reports spend); Madhive estimates only UNTIL a real spend or reported cost-CPM exists,
   // then it uses that. Drives the "· est. $X CPM" / "(estimated)" labels so they don't lie once real data lands.
-  const costIsEstimated = (c) => {
-    if (modeledCpmFor(c.platform) == null) return false;
-    if (c.platform === "DSP") return true;
-    const synced = getActualMtdSpend(c) || 0;
-    return !(synced > 0 || (parseFloat(c.spend)||0) > 0 || (parseFloat(c.cpm)||0) > 0);
-  };
+  // Only DSP ever ESTIMATES its cost (it never reports spend). Madhive uses its real reported CPM or is
+  // pending, so it's never "estimated" — no misleading "· est. $X CPM" label on Madhive rows.
+  const costIsEstimated = (c) => c && c.platform === "DSP";
   const [monthLocks, setMonthLocks]         = useState(() => { try { return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); } catch { return {}; } });
   // Closing snapshots saved at each new-month reset — the source of truth for a CLOSED month's
   // actual spend/impressions, since the reset clears the live values. Lets past-month revenue
   // survive the reset instead of vanishing.
   const monthlyBackups = useMemo(() => { try { return JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}"); } catch { return {}; } }, []);
   const [showPLReport, setShowPLReport]     = useState(false);
-  const [plByPlatOpen, setPlByPlatOpen]     = useState(true);    // "where the money's made" platform/tactic panel
+  const [plByPlatOpen, setPlByPlatOpen]     = useState(false);   // "where the money's made" — collapsed by default (analytics live at the bottom now)
   const [plScope, setPlScope]               = useState("month"); // "month" (focused month) | "all" (all-time to date)
   const [plExpandedVendors, setPlExpandedVendors] = useState(() => new Set()); // which vendor rows are drilled into
-  const [tcOpen, setTcOpen]                 = useState(true);    // "top clients" leaderboard panel
+  const [tcOpen, setTcOpen]                 = useState(false);   // "top clients" — collapsed by default (not needed every day)
   const [tcScope, setTcScope]               = useState("month"); // "month" | "all"
   const [tcExpanded, setTcExpanded]         = useState(() => new Set()); // which client rows are drilled into
+  const [breakdownOpen, setBreakdownOpen]   = useState(true);   // the per-campaign breakdown table (collapsible)
   const [plExpandedTactics, setPlExpandedTactics] = useState(() => new Set()); // which tactic rows are drilled into (→ campaigns)
   const [showRateFixer, setShowRateFixer]   = useState(false); // expand the "finish the rates" checklist
   const [showDtFixer, setShowDtFixer]       = useState(false); // expand the "device surcharge" suggestion list
@@ -17670,11 +17759,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     let rev = c.platform === "SEM" ? (semFeeMap(c)[month] || 0)
       : dt === "CPV" ? (views || 0) * rate : (impr || 0) / 1000 * rate;
     if (c.platform !== "SEM" && goalRev > 0) rev = Math.min(rev, goalRev);
-    const _modCpm = modeledCpmFor(c.platform);
-    // DSP: always modeled. Madhive: the entered/real spend wins; estimate only as a fallback. Normal: spend.
-    const sp = _modCpm != null
-      ? ((c.platform !== "DSP" && spend != null && spend > 0) ? spend : (impr || 0) / 1000 * _modCpm)
-      : spend;
+    // DSP: always modeled at its assumed CPM. Madhive: entered spend wins, else impr × reported CPM
+    // (c.cpm), else pending (no fixed estimate). Normal platforms: the entered spend.
+    const sp = c.platform === "DSP"
+      ? (impr || 0) / 1000 * (modeledCpmFor("DSP") || 0)
+      : (c.platform === "GCTV" || c.platform === "PCTV" || c.platform === "AECTV")
+        ? ((spend != null && spend > 0) ? spend
+           : (((impr || 0) > 0 && (parseFloat(c.cpm) || 0) > 0) ? (impr / 1000) * (parseFloat(c.cpm) || 0) : null))
+        : spend;
     if (monthLocks[month]) {
       const lock = monthLocks[month];
       const camps = [...(lock.campaigns || [])];
@@ -17910,16 +18002,16 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       if (mo > thisMonth) return null;
       if (mo === thisMonth && c.endDate && c.endDate.slice(0, 7) < mo) return null; // ended before this month
       if (c.platform !== "DSP") {
-        // Madhive: 1) real entered/reported spend (synced MTD or manually entered), 2) this month's reported
-        // cost CPM × impr, 3) estimate. Mirrors the normal-platform actual/manual resolution below.
+        // Madhive: 1) real entered/synced spend, else 2) the REPORTED cost CPM (from the Quick Check-in) ×
+        // delivered impressions. No spend AND no CPM yet → PENDING (null) — no fixed estimate.
         const realSpend = (mo < thisMonth)
           ? ((closedMonthMetrics(c, mo) || {}).spend || 0)
           : (() => { const a = getActualMtdSpend(c); const m = getManualSpend(c); return (a != null && a > 0) ? a : (m > 0 ? m : 0); })();
         if (realSpend > 0) return realSpend;
         const impr = actualImprForMonth(c, mo);
         if (impr == null || impr <= 0) return null;
-        const realCpm = (mo === thisMonth) ? (parseFloat(c.cpm) || 0) : 0;
-        return (impr / 1000) * (realCpm > 0 ? realCpm : _modCpm);
+        const realCpm = parseFloat(c.cpm) || 0;
+        return realCpm > 0 ? (impr / 1000) * realCpm : null;   // no reported CPM yet → pending
       }
       const impr = actualImprForMonth(c, mo);
       if (impr == null || impr <= 0) return null;
@@ -18164,7 +18256,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     // delivered impressions, so they're "tracked" once they have impressions (even with no real
     // spend). Everything else needs real spend.
     const trackable = c.platform === "SEM" ? Object.keys(spread).length > 0
-      : modeledCpmFor(c.platform) != null ? (getActualMtdImpressions(c) != null)
+      : c.platform === "DSP" ? (getActualMtdImpressions(c) != null)   // DSP: always modeled from impressions
+      : (c.platform === "GCTV" || c.platform === "PCTV" || c.platform === "AECTV")
+        // Madhive: tracked once it has impressions AND a cost basis (a reported CPM or real spend) — with
+        // no CPM yet its cost is pending, so it shouldn't count as tracked profit.
+        ? (getActualMtdImpressions(c) != null && ((parseFloat(c.cpm)||0) > 0 || (getActualMtdSpend(c)||0) > 0 || (parseFloat(c.spend)||0) > 0))
       : hasSpendData(c);
     const monthCells = {};
     let windowRev=0, windowSpend=0, windowDeviceFee=0, windowHasSpend=false;
@@ -18218,7 +18314,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     const rev   = fc.rev || 0;
     const isSEM = c.platform==="SEM", isModeledCost = modeledCpmFor(c.platform) != null;
     const unit  = dealBasis(c)==="CPV" ? "views" : "impressions";
-    let issue = null;
+    let issue = null, tab = "details";   // which modal tab the "Fix →" should open on
     if (isSEM) {
       if (fee <= 0) issue = (spend!=null && spend>0)
         ? "SEM spend/overage logged but no management fee — books as a loss"
@@ -18226,9 +18322,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     } else if (!isModeledCost && rate <= 0 && spend != null) {
       issue = "Spend logged but no contract rate — revenue can't be calculated";
     } else if (!isSEM && rate > 0 && spend != null && spend > 0 && rev <= 0) {
-      issue = `Spend logged but 0 delivered ${unit} — $0 revenue`;
+      issue = `Spend logged but 0 delivered ${unit} — $0 revenue`; tab = "metrics";   // needs impressions/views
+    } else if (isModeledCost && c.platform !== "DSP" && rev > 0 && spend == null && getActualMtdImpressions(c) != null) {
+      issue = "Madhive delivering but no CPM entered yet — cost & profit stay pending until a CPM lands (Quick Check-in) or you enter spend"; tab = "metrics";   // needs the CPM
     }
-    if (issue) acc.push({ c, issue });
+    if (issue) acc.push({ c, issue, tab });
     return acc;
   }, []);
   const showAudit = (isCurrentFocus || isPastFocus);          // relevant when viewing a month you'd close/lock
@@ -18346,12 +18444,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       } else {
         // No delivery yet → cur.rev is already the full-month goal projection; use as-is (don't scale).
         projRev += cur.rev;
-        const _modCpm = modeledCpmFor(r.c.platform);
+        const _modCpm = modeledCpmForCamp(r.c);
         if (_modCpm != null) {
-          // Modeled-cost platform (DSP/Madhive): cost is MODELED, not measured. Since we're counting
-          // this campaign's goal revenue, count its goal-based modeled cost too (same basis as
-          // monthGoalForecast) — otherwise this tile would book goal revenue with $0 cost and overstate
-          // profit vs "if you hit goal".
+          // Modeled-cost platform (DSP est CPM, or Madhive's reported CPM): count its goal-based modeled
+          // cost too, so this tile isn't goal revenue at $0 cost. Madhive with no CPM yet → falls through
+          // to pending (no fixed estimate).
           const rate = parseFloat(r.c.contractRate) || 0;
           if (rate > 0) { projSpend += cur.rev * (_modCpm / rate); anySpend = true; }
         } else if (cur.spend != null) { projSpend += cur.spend; projDeviceFee += (cur.deviceFee || 0); anySpend = true; }
@@ -18379,12 +18476,14 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       // Modeled-cost platform (DSP/Madhive): model the cost from the GOAL impressions at the assumed
       // CPM, regardless of delivery so far — so "if you hit goal" shows a real profit even with zero
       // impressions logged yet. gRev = goalImpr/1000 × rate, so gRev × (cpm/rate) = goalImpr/1000 × cpm.
-      const _modCpm = modeledCpmFor(r.c.platform);
+      const _modCpm = modeledCpmForCamp(r.c);
       if (_modCpm != null) {
         const rate = parseFloat(r.c.contractRate) || 0;
         if (rate > 0) { goalSpend += gRev * (_modCpm / rate); anySpend = true; }
         return;
       }
+      // Madhive with no reported CPM yet is NOT projected at a fixed estimate — fall through to the
+      // proportional (realized ratio) path below; with no realized spend it simply stays pending.
       if (cur && cur.spend != null && cur.rev > 0) {
         // Proportional: hold this campaign's realized spend-to-revenue ratio constant and apply it to
         // the full goal revenue. The pace-projection scale factor cancels out, so this equals
@@ -18453,7 +18552,10 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const NEG_HALF = 60;
 
   return (
-    <div style={{color:_lm?"#0f172a":"#d8eaf8", maxWidth:1500, margin:"0 auto"}}>
+    // Flex column so the two analytics cards (Where the money's made · Top Clients) can be pushed to the
+    // BOTTOM via `order` without physically moving their large JSX blocks (the user: "analytics should be
+    // last — I don't need to see my top clients every day").
+    <div style={{color:_lm?"#0f172a":"#d8eaf8", maxWidth:1500, margin:"0 auto", display:"flex", flexDirection:"column"}}>
       {/* Un-closed-month notice — the tab stays anchored to last month until you close it (see
           thisMonth = moStr(pacingNow())); this explains that and offers one-click close. */}
       {monthResetAvailable && <MonthNotClosedBanner status={monthCloseStatus()} onCloseMonth={onCloseMonth}/>}
@@ -18687,7 +18789,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             {auditOpen && (
               <div style={{padding:"0 12px 10px 12px",display:"flex",flexDirection:"column",gap:5}}>
                 {dataGaps.map((g,i)=>(
-                  <div key={i} onClick={()=>onEdit(g.c)} title="Click to open this campaign and fix it"
+                  <div key={i} onClick={()=>onEdit(g.c, g.tab)} title="Click to open this campaign and fix it"
                     style={{display:"flex",alignItems:"center",gap:8,background:_lm?"#fff7ed":"#130b00",border:`1px solid ${_lm?"#fcd34d":"#f59e0b30"}`,borderRadius:6,padding:"6px 10px",cursor:"pointer"}}>
                     <span style={{background:(PLT_COLORS[g.c.platform]||"#7a9bbf")+"22",color:PLT_COLORS[g.c.platform]||"#7a9bbf",borderRadius:3,padding:"0 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{g.c.platform}</span>
                     <span style={{fontSize:11.5,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",flexShrink:0,maxWidth:190,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.c.campaignName.trim()}</span>
@@ -18761,6 +18863,52 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           );
         })()}
       </div>
+
+      {/* ── Growth — month-over-month + year-to-date (grouped with the month KPIs above per the user). ── */}
+      {(()=>{
+        const aIdx = months.indexOf(activeMonth);
+        const prevMo = aIdx>0 ? months[aIdx-1] : null;
+        const moRealizedRev = (mo)=> monthTotals[mo]?.revenueWithSpend||0;
+        const moProfitOf = (mo)=>{ const t=monthTotals[mo]; return t?(t.revenueWithSpend - t.spend - (t.deviceFee||0)):0; };
+        const isCurr = activeMonth===thisMonth;
+        const curBasisRev = (isCurr && monthForecast) ? (monthForecast.projRev||0) : moRealizedRev(activeMonth);
+        const prevRev = prevMo!=null ? moRealizedRev(prevMo) : null;
+        const momPct = (prevRev && prevRev>0) ? ((curBasisRev - prevRev)/prevRev)*100 : null;
+        const yr = activeMonth.slice(0,4);
+        const ytdMonths = months.filter(m=>m.slice(0,4)===yr && m<=activeMonth);
+        const ytdRev = ytdMonths.reduce((s,m)=>s+moRealizedRev(m),0);
+        const ytdProfit = ytdMonths.reduce((s,m)=>s+moProfitOf(m),0);
+        const ytdMargin = ytdRev>0 ? (ytdProfit/ytdRev)*100 : null;
+        const prevLabelShort = prevMo ? moDate(prevMo).toLocaleDateString("en-US",{month:"short"}) : "";
+        const up = momPct!=null && momPct>=0;
+        return (
+          <>
+            <div style={{...labelStyle,marginBottom:8}}>📈 Growth · {focusLabelShort}{isCurr?" (projected)":""} vs last month · {yr} year-to-date</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:18}}>
+              <div style={{...card,padding:"12px 16px"}}>
+                <div style={{...labelStyle,marginBottom:5}}>{isCurr?"Projected "+focusLabelShort:focusLabelShort} Rev</div>
+                <div style={{fontSize:22,fontWeight:800,color:_lm?"#059669":"#00e5a0",lineHeight:1,marginBottom:3}}>{$fc(curBasisRev)}</div>
+                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{isCurr?"at current pace":"realized"}</div>
+              </div>
+              <div style={{...card,padding:"12px 16px"}}>
+                <div style={{...labelStyle,marginBottom:5}}>vs {prevLabelShort||"last mo"}</div>
+                <div style={{fontSize:22,fontWeight:800,color:momPct==null?(_lm?"#94a3b8":"#4d6e8a"):(up?(_lm?"#059669":"#00d48a"):"#ef4444"),lineHeight:1,marginBottom:3}}>{momPct==null?"—":(up?"▲ ":"▼ ")+Math.abs(momPct).toFixed(0)+"%"}</div>
+                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{prevRev!=null?$fc(prevRev)+" last mo":"no prior month"}</div>
+              </div>
+              <div style={{...card,padding:"12px 16px"}}>
+                <div style={{...labelStyle,marginBottom:5}}>{yr} Rev (YTD)</div>
+                <div style={{fontSize:22,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1,marginBottom:3}}>{$fc(ytdRev)}</div>
+                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{ytdMonths.length} month{ytdMonths.length!==1?"s":""} · realized</div>
+              </div>
+              <div style={{...card,padding:"12px 16px"}}>
+                <div style={{...labelStyle,marginBottom:5}}>{yr} Profit (YTD)</div>
+                <div style={{fontSize:22,fontWeight:800,color:profitColor(ytdProfit),lineHeight:1,marginBottom:3}}>{(ytdProfit>=0?"+":"")+$f(ytdProfit)}</div>
+                <div style={{fontSize:10,color:ytdMargin!=null?marginColor(ytdMargin):(_lm?"#64748b":"#3d5a72")}}>{ytdMargin!=null?ytdMargin.toFixed(0)+"% margin":"—"}</div>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* "Where the money's made" now renders lower — just above the campaign breakdown (see below). */}
 
@@ -18921,72 +19069,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         })()}
       </div>
 
-      {/* ── Window totals (respect the data-start cutoff) ───────── */}
-      <div style={{...labelStyle,marginBottom:8}}>{dataStartMonth ? `Since ${moDate(dataStartMonth).toLocaleDateString("en-US",{month:"long",year:"numeric"})}` : "All-Time"} · Every Month (not just {focusLabelShort})</div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:18}}>
-        {[
-          {label:"Revenue", val:$fc(totRevWithSpend), color:"#7a9bbf", sub:(totRev-totRevWithSpend)>0?`+ ${$fk(totRev-totRevWithSpend)} pending (no spend)`:`${months.length} mo · ${filtered.length} flights`},
-          {label:"Tracked Spend",  val:$fc(totSpend),  color:"#f59e0b", sub:`${trackableCampaigns.length} of ${filtered.length} campaigns`},
-          ...(totDeviceFee > 0 ? [{label:"Device Fee", val:"−"+$fc(totDeviceFee), color:"#c084fc", sub:"device-targeting surcharge"}] : []),
-          {label:"Total Profit",   val:totRevWithSpend>0?(totProfit>=0?"+":"")+$f(totProfit):"—", color:profitColor(totProfit), sub:"on tracked campaigns"},
-          {label:"Avg Margin",     val:totRevWithSpend>0?totMargin.toFixed(1)+"%":"—", color:marginColor(totMargin), sub:"on tracked campaigns"},
-        ].map(s=>(
-          <div key={s.label} style={{...card,padding:"12px 16px"}}>
-            <div style={{...labelStyle,marginBottom:5}}>{s.label}</div>
-            <div style={{fontSize:20,fontWeight:800,color:s.color,lineHeight:1,marginBottom:3}}>{s.val}</div>
-            <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{s.sub}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Growth — month-over-month + year-to-date ── the revenue-focused exec read: are we growing? ──
-          MoM compares the focused month's revenue to the prior month (current month uses its forecast so a
-          partial month isn't unfairly compared to a full one); YTD sums realized revenue/profit for the
-          calendar year up to the focused month. Both respect the client/platform filters (via monthTotals). */}
-      {(()=>{
-        const aIdx = months.indexOf(activeMonth);
-        const prevMo = aIdx>0 ? months[aIdx-1] : null;
-        const moRealizedRev = (mo)=> monthTotals[mo]?.revenueWithSpend||0;
-        const moProfitOf = (mo)=>{ const t=monthTotals[mo]; return t?(t.revenueWithSpend - t.spend - (t.deviceFee||0)):0; };
-        const isCurr = activeMonth===thisMonth;
-        const curBasisRev = (isCurr && monthForecast) ? (monthForecast.projRev||0) : moRealizedRev(activeMonth);
-        const prevRev = prevMo!=null ? moRealizedRev(prevMo) : null;
-        const momPct = (prevRev && prevRev>0) ? ((curBasisRev - prevRev)/prevRev)*100 : null;
-        const yr = activeMonth.slice(0,4);
-        const ytdMonths = months.filter(m=>m.slice(0,4)===yr && m<=activeMonth);
-        const ytdRev = ytdMonths.reduce((s,m)=>s+moRealizedRev(m),0);
-        const ytdProfit = ytdMonths.reduce((s,m)=>s+moProfitOf(m),0);
-        const ytdMargin = ytdRev>0 ? (ytdProfit/ytdRev)*100 : null;
-        const prevLabelShort = prevMo ? moDate(prevMo).toLocaleDateString("en-US",{month:"short"}) : "";
-        const up = momPct!=null && momPct>=0;
-        return (
-          <>
-            <div style={{...labelStyle,marginBottom:8}}>📈 Growth · {focusLabelShort}{isCurr?" (projected)":""} vs last month · {yr} year-to-date</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:18}}>
-              <div style={{...card,padding:"12px 16px"}}>
-                <div style={{...labelStyle,marginBottom:5}}>{isCurr?"Projected "+focusLabelShort:focusLabelShort} Rev</div>
-                <div style={{fontSize:22,fontWeight:800,color:_lm?"#059669":"#00e5a0",lineHeight:1,marginBottom:3}}>{$fc(curBasisRev)}</div>
-                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{isCurr?"at current pace":"realized"}</div>
-              </div>
-              <div style={{...card,padding:"12px 16px"}}>
-                <div style={{...labelStyle,marginBottom:5}}>vs {prevLabelShort||"last mo"}</div>
-                <div style={{fontSize:22,fontWeight:800,color:momPct==null?(_lm?"#94a3b8":"#4d6e8a"):(up?(_lm?"#059669":"#00d48a"):"#ef4444"),lineHeight:1,marginBottom:3}}>{momPct==null?"—":(up?"▲ ":"▼ ")+Math.abs(momPct).toFixed(0)+"%"}</div>
-                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{prevRev!=null?$fc(prevRev)+" last mo":"no prior month"}</div>
-              </div>
-              <div style={{...card,padding:"12px 16px"}}>
-                <div style={{...labelStyle,marginBottom:5}}>{yr} Rev (YTD)</div>
-                <div style={{fontSize:22,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1,marginBottom:3}}>{$fc(ytdRev)}</div>
-                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{ytdMonths.length} month{ytdMonths.length!==1?"s":""} · realized</div>
-              </div>
-              <div style={{...card,padding:"12px 16px"}}>
-                <div style={{...labelStyle,marginBottom:5}}>{yr} Profit (YTD)</div>
-                <div style={{fontSize:22,fontWeight:800,color:profitColor(ytdProfit),lineHeight:1,marginBottom:3}}>{(ytdProfit>=0?"+":"")+$f(ytdProfit)}</div>
-                <div style={{fontSize:10,color:ytdMargin!=null?marginColor(ytdMargin):(_lm?"#64748b":"#3d5a72")}}>{ytdMargin!=null?ytdMargin.toFixed(0)+"% margin":"—"}</div>
-              </div>
-            </div>
-          </>
-        );
-      })()}
+      {/* (Removed the "Since [month] · Every Month" all-time totals row — the month KPIs above + the YTD
+          figures in the Growth card below already cover it; the user found the stacked totals redundant.) */}
 
       {/* ── Where the money's made — profit by vendor → tactic → CAMPAIGNS ──────────────
           Moved here (above the campaign breakdown) per the user. Each vendor drills into its tactics
@@ -19050,7 +19134,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           </div>
         );
         return (
-          <div style={{...card,padding:"14px 18px",marginBottom:14}}>
+          <div style={{...card,padding:"14px 18px",marginBottom:14,order:5}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:plByPlatOpen?12:0,flexWrap:"wrap"}}>
               <button onClick={()=>setPlByPlatOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:7,background:"none",border:"none",cursor:"pointer",padding:0,flex:1,textAlign:"left"}}>
                 <span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",display:"inline-block",transform:plByPlatOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>▸</span>
@@ -19174,7 +19258,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         const gridCols = "minmax(140px,1.8fr) 96px 92px 92px 78px";
         const HC = ({children,r=true})=>(<div style={{fontSize:9,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:_lm?"#94a3b8":"#4d6e8a",textAlign:r?"right":"left"}}>{children}</div>);
         return (
-          <div style={{...card,padding:"14px 18px",marginBottom:14}}>
+          <div style={{...card,padding:"14px 18px",marginBottom:14,order:5}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:tcOpen?12:0,flexWrap:"wrap"}}>
               <button onClick={()=>setTcOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:7,background:"none",border:"none",cursor:"pointer",padding:0,flex:1,textAlign:"left"}}>
                 <span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",display:"inline-block",transform:tcOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>▸</span>
@@ -19321,9 +19405,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         </div>
       ):(
         <div id="campaign-breakdown" style={{...card,padding:"14px 16px",marginBottom:16,scrollMarginTop:80}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
-            <div style={{...labelStyle}}>Campaign Breakdown — {focusLabelShort}</div>
-            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:breakdownOpen?10:0,flexWrap:"wrap",gap:8}}>
+            <button onClick={()=>setBreakdownOpen(v=>!v)} title={breakdownOpen?"Collapse the campaign table":"Expand the campaign table"} style={{display:"flex",alignItems:"center",gap:7,background:"none",border:"none",cursor:"pointer",padding:0,textAlign:"left"}}>
+              <span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",display:"inline-block",transform:breakdownOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>▸</span>
+              <span style={{...labelStyle,margin:0}}>Campaign Breakdown — {focusLabelShort}</span>
+              <span style={{fontSize:10.5,color:_lm?"#94a3b8":"#4d6e8a",fontWeight:600}}>· {dateVisibleRows.length} campaign{dateVisibleRows.length!==1?"s":""}</span>
+            </button>
+            {breakdownOpen && <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
               <div style={{display:"flex",background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#cbd5e1":"#1e293b"}`,borderRadius:5,padding:1}}>
                 {[{k:"dollar",l:"$"},{k:"margin",l:"%"}].map(o=>(
                   <button key={o.k} onClick={()=>setCellMode(o.k)}
@@ -19347,8 +19435,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                   {o.l}
                 </button>
               ))}
-            </div>
+            </div>}
           </div>
+          {breakdownOpen && (<>
           {/* Header */}
           <div style={{display:"grid",gridTemplateColumns:"minmax(240px,1fr) 130px 130px 140px 90px 120px 120px",gap:10,padding:"6px 12px",fontSize:10,color:_lm?"#64748b":"#3d5a72",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,marginBottom:4,alignItems:"center"}}>
             <span>Campaign</span>
@@ -19636,7 +19725,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
                       const curImpr  = lk ? (parseInt(lk.impressions)||0) : (actualImprForMonth(r.c, activeMonth)||0);
                       const curViews = lk ? (parseInt(lk.videoViews)||0)  : (actualViewsForMonth(r.c, activeMonth)||0);
                       return <MonthMetricsEditor monthLabel={focusLabelShort} platform={r.c.platform} isCPV={isCPV}
-                        rate={parseFloat(r.c.contractRate)||0} modeledCpm={modeledCpmFor(r.c.platform)} curImpr={curImpr} curViews={curViews}
+                        rate={parseFloat(r.c.contractRate)||0} modeledCpm={modeledCpmForCamp(r.c)} curImpr={curImpr} curViews={curViews}
                         curSpend={r.focusCell.spend} locked={!!monthLocks[activeMonth]}
                         goalRev={revenueMapForCampaign(r.c)[activeMonth]||0}
                         onSave={(vals)=>commitMonthMetrics(r.c, activeMonth, vals)}/>;
@@ -19657,6 +19746,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             <span>Click campaign to expand · use ‹ › arrows or mini strip to change month · ⏳ = spend not yet entered</span>
             <span><span style={{color:"#00d48a"}}>green</span> profit · <span style={{color:"#ef4444"}}>red</span> loss · <span style={{color:"#f59e0b"}}>amber</span> pending</span>
           </div>
+          </>)}
         </div>
       )}
 
@@ -20547,33 +20637,10 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
       </div>
       )}
 
-      {/* Madhive estimated cost CPM — Madhive CTV (General/Premium/Audience-Ext) reports impressions
-          but no spend, so — like DSP — the Revenue tab models each one's cost from an estimated CPM.
-          A GENERAL revenue setting (not a connector), so it shows in the General sub-tab. Written to
-          CONFIG_KEY.madhiveEstCpm.{GCTV|PCTV|AECTV}; read by loadModeledCpms(). */}
-      {configView !== "connections" && (
-      <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"14px 18px",marginBottom:16,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
-        <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:4,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-          📺 Madhive Estimated Cost
-          <span style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",fontWeight:400}}>Madhive reports impressions, not spend — so the Revenue tab models cost from these CPMs</span>
-        </div>
-        <div style={{fontSize:10.5,color:_lm?"#94a3b8":"#3d5a72",lineHeight:1.55,marginBottom:12,maxWidth:560}}>Each Madhive product costs differently, so set the media CPM you pay for each. Spend = delivered impressions ÷ 1,000 × this CPM, applied to every campaign on that platform (and its profit &amp; forecasts).</div>
-        <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-          {[["GCTV","General CTV","16"],["PCTV","Premium CTV","22"],["AECTV","Audience Ext.","16"]].map(([code,label,ph])=>(
-            <div key={code} style={{minWidth:150}}>
-              <label style={labelS}>{code} <span style={{color:_lm?"#94a3b8":"#3d5a72",textTransform:"none",fontWeight:400}}>· {label}</span></label>
-              <div style={{display:"flex",alignItems:"center",background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,overflow:"hidden"}}>
-                <span style={{padding:"7px 10px",color:"#f59e0b",fontWeight:700,fontSize:13,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
-                <input type="number" step="0.01" min="0" value={getVal("madhiveEstCpm."+code,"")} onChange={e=>setVal("madhiveEstCpm."+code, e.target.value)}
-                  placeholder={ph} style={{flex:1,minWidth:0,background:"transparent",border:"none",padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,outline:"none"}}/>
-                <span style={{padding:"0 10px",color:_lm?"#94a3b8":"#3d5a72",fontSize:10,whiteSpace:"nowrap"}}>/1K</span>
-              </div>
-              <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>Default ${ph}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-      )}
+      {/* (Removed the "Madhive Estimated Cost" card — Madhive cost is no longer a fixed per-tracker
+          estimate. Each Madhive campaign's cost is modeled from its REAL reported CPM (from the Quick
+          Check-in) × delivered impressions, and stays pending until that CPM lands. See modeledCpmForCamp
+          / spendForMonth's Madhive branch in RevenueDashboard.) */}
 
       {/* Section switcher + download — hidden when only one section shows (the General sub-tab). */}
       {(!visibleSections || visibleSections.length > 1) && (
@@ -22502,6 +22569,7 @@ export default function App() {
   const [sortKey, setSortKey]     = useState(_campPersisted.sortKey || "endDate");
   const [sortDir, setSortDir]     = useState(_campPersisted.sortDir || "asc");
   const [editTarget, setEditTarget] = useState(null);
+  const [editInitialTab, setEditInitialTab] = useState("details");  // which modal tab to open on (Revenue "Fix →" can jump to Metrics)
   // ── IO PDF import state ─────────────────────────────────────────────────
   // pdfDrafts: array of { ...campaign fields } pending user approval
   // pdfMeta:   info about the source PDF (reference #, advertiser, partner)
@@ -24413,7 +24481,7 @@ export default function App() {
             onConnectOutlook={connectOutlook}
             onRefreshOutlook={refreshOutlookEvents}
             onNavigate={setActiveTab}
-            onEdit={(camp)=>setEditTarget(camp)}
+            onEdit={(camp)=>{ setEditInitialTab("details"); setEditTarget(camp); }}
             onStartCheckIn={()=>{ setActiveTab("pacing"); setQuickCheckIn(true); }}
             onAddCampaign={()=>setShowAdd(true)}
             onOpenReminders={()=>setShowReminderModal(true)}
@@ -24810,7 +24878,7 @@ export default function App() {
             }}
             onReassignLine={(target, toCampaignId) => reassignBreakdownLine(target, toCampaignId)}
             onClearLine={(target) => clearBreakdownLine(target)}
-            onEdit={(camp)=>setEditTarget(camp)}
+            onEdit={(camp)=>{ setEditInitialTab("details"); setEditTarget(camp); }}
             onClearMetrics={(id)=>{
               // Clearing drops the campaign out of its pacing section, so the list height changes —
               // capture the scroll position and restore it after the re-render so the page doesn't jump.
@@ -24871,7 +24939,7 @@ export default function App() {
               merged.push(c&&cap&&cap!==c.endDate?{...c,endDate:cap}:c);
             }
             return merged;
-          })()} onEdit={(camp)=>setEditTarget(camp)} onLock={(month, lockObj)=>{
+          })()} onEdit={(camp,tab)=>{ setEditInitialTab(tab||"details"); setEditTarget(camp); }} onLock={(month, lockObj)=>{
             // Activity log entry — permanent record of the lock event. The frozen numbers live in the
             // lock snapshot (monthLocks) and this log; we deliberately do NOT write anything to each
             // campaign's notes/history — that section is reserved for the user's own notes.
@@ -25395,7 +25463,7 @@ export default function App() {
                                 {stale&&<button onClick={()=>updateCampaign({...c,lastChecked:today})} style={{background:lightMode?"#f0fdf9":"#002018",border:`1px solid ${lightMode?"#00c896":"#22c55e40"}`,borderRadius:4,color:lightMode?"#059669":"#00ffb3",fontSize:10,padding:"1px 6px",cursor:"pointer",fontWeight:700,marginLeft:4}}>✓</button>}
                               </TD>
                               <TD>
-                                <RowActions c={c} onEdit={()=>setEditTarget(c)} onRenew={()=>setRenewTarget(c)}
+                                <RowActions c={c} onEdit={()=>{ setEditInitialTab("details"); setEditTarget(c); }} onRenew={()=>setRenewTarget(c)}
                                   onDuplicate={()=>{ const copy=freshCampaignCopy(c); setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }}
                                   onDelete={async()=>{ if(await confirm({title:`Delete "${c.campaignName}"?`,message:"This cannot be undone. Consider archiving instead.",confirmLabel:"Delete",danger:true})){ addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Campaign deleted",campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); }}}
                                   onArchive={async()=>{ if(await confirm({title:`Archive "${c.campaignName}"?`,message:"It will move to the Archive tab.",confirmLabel:"Archive"})) { const tod=getToday(); const [ay,am,ad]=tod.split("-"); const astamp=`${am}/${ad}/${ay}`; const archNote=`${astamp} — Campaign manually archived`; const archHist=c.history&&c.history.trim()?`${archNote}\n${c.history}`:archNote; setArchive(prev=>[...prev,{...c,archivedDate:tod,history:archHist}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Manually sent to archive",campaignId:c.id,prevSnapshot:{...c}}); }}}
@@ -25582,7 +25650,7 @@ export default function App() {
                           </div>
                         </TD>
                         <TD>
-                          <RowActions c={c} onEdit={()=>setEditTarget(c)} onRenew={()=>setRenewTarget(c)}
+                          <RowActions c={c} onEdit={()=>{ setEditInitialTab("details"); setEditTarget(c); }} onRenew={()=>setRenewTarget(c)}
                             onDuplicate={()=>{ const copy=freshCampaignCopy(c); setCampaigns(cs=>{ const idx=cs.findIndex(x=>x.id===c.id); const n=[...cs]; n.splice(idx+1,0,copy); return n; }); addLog({type:"duplicated",campaignName:copy.campaignName,partner:copy.mediaPartner,platform:copy.platform,detail:`Duplicated from "${c.campaignName}"`,campaignId:copy.id,prevSnapshot:null}); setEditTarget(copy); }}
                             onDelete={async()=>{ if(await confirm({title:`Delete "${c.campaignName}"?`,message:"This cannot be undone. Consider archiving instead.",confirmLabel:"Delete",danger:true})) { addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:`Campaign deleted`,campaignId:c.id,prevSnapshot:{...c}}); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); } }}
                             onArchive={async()=>{ if(await confirm({title:`Archive "${c.campaignName}"?`,message:"It will move to the Archive tab. You can restore it any time.",confirmLabel:"Archive"})) { const tod=getToday(); const [ay,am,ad]=tod.split("-"); const astamp=`${am}/${ad}/${ay}`; const archNote=`${astamp} — Campaign manually archived`; const archHist=c.history&&c.history.trim()?`${archNote}\n${c.history}`:archNote; setArchive(prev=>[...prev,{...c,archivedDate:tod,history:archHist}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Manually sent to archive",campaignId:c.id,prevSnapshot:{...c}}); }}}
@@ -25658,11 +25726,12 @@ export default function App() {
           // noticeable when editing from deep in the Pacing tab. Capture scroll and restore it after the
           // re-render (double rAF), same as the pacing pause/clear handlers.
           const sy = (typeof window!=="undefined") ? window.scrollY : 0;
-          updateCampaign(u); setEditTarget(null);
+          updateCampaign(u); setEditTarget(null); setEditInitialTab("details");
           if(typeof window!=="undefined" && typeof requestAnimationFrame==="function")
             requestAnimationFrame(()=>requestAnimationFrame(()=>window.scrollTo(0, sy)));
         }}
-        onClose={()=>setEditTarget(null)}
+        onClose={()=>{ setEditTarget(null); setEditInitialTab("details"); }}
+        initialTab={editInitialTab}
         onSwitchTactic={(oldPatched, newCamp)=>{
           // Mid-flight tactic switch: archive the pre-switch (capped) campaign — it stays booked in the
           // Revenue tab up to the switch date and drops out of Pacing — and add the new-tactic campaign for
