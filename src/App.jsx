@@ -1286,6 +1286,18 @@ function pacingMetricFor(platform, dealType) {
 // revenue, pacing, and display all read the SAME basis. Leaves every existing campaign unchanged (a YT
 // campaign with no dealType still resolves CPV; a CPM campaign still CPM).
 function dealBasis(c){ return (c && c.dealType) ? c.dealType : (c && c.platform === "YT" ? "CPV" : "CPM"); }
+// The delivered amount to pace a campaign against, in the SAME unit as its goal — so daily pacing compares
+// like with like: SEM paces on $ SPEND vs the dollar budget goal (NOT impressions vs a dollar goal, which
+// read a $1,125 SEM as "267%" off 3,003 impressions); CPV (e.g. YouTube) paces on video views; everything
+// else on impressions. `m` is an optional resolved-metrics object (MTD snapshot / live editor state); we
+// fall back to the campaign's own stored fields when it's absent or blank.
+function pacedDelivered(c, m) {
+  const mk = pacingMetricFor(c.platform, c.dealType);
+  const pick = (k) => (m && m[k] != null && m[k] !== "") ? m[k] : (c ? c[k] : null);
+  if (mk === "spend") return parseFloat(pick("spend")) || 0;
+  if (mk === "views") return parseInt(pick("videoViews")) || 0;
+  return parseInt(pick("impressions")) || 0;
+}
 
 // computeMonthlyPacing
 // Accepts EITHER the old two-arg form (impressions, note1) for back-compat,
@@ -1853,6 +1865,24 @@ async function extractPdfText(file) {
     } catch {}
   }
   return { text, uris };
+}
+
+// Scan an IO's prose for a date RANGE ("9/1/26-9/30/26", "9/1/2026 to 9/30/2026", en/em-dash variants) and
+// return the END date (ISO) of the range whose START matches `startISO` (else the first valid range). Used
+// to recover a mistyped structured end date from the flight dates people write in the pacing/creative notes.
+function recoverFlightEndFromText(text, startISO) {
+  if (!text) return "";
+  const D = "(\\d{1,2})\\/(\\d{1,2})\\/(\\d{2,4})";
+  const re = new RegExp(D + "\\s*(?:-|–|—|to|through|thru)\\s*" + D, "gi");
+  const toISO = (mo, da, yr) => { let y = parseInt(yr, 10); if (y < 100) y += 2000; return `${y}-${String(mo).padStart(2, "0")}-${String(da).padStart(2, "0")}`; };
+  let m, best = "";
+  while ((m = re.exec(text))) {
+    const s = toISO(m[1], m[2], m[3]), e = toISO(m[4], m[5], m[6]);
+    if (e < s) continue;                 // the range itself is backwards → not a trustworthy source
+    if (s === startISO) return e;         // exact start match wins
+    if (!best) best = e;                  // else remember the first sane range
+  }
+  return best;
 }
 
 // Parses Universal IO PDF text into structured data.
@@ -2739,6 +2769,22 @@ function buildDraftsFromIO(io) {
     });
   }
 
+  // Flight-date sanity — an IO should NEVER create a campaign that "already ended". A start-after-end
+  // (a common month/year typo, e.g. start 9/1/26 but end 8/30/26) is caught here: try to recover the real
+  // end from a date RANGE written in the IO's prose (pacing/creative notes usually spell "9/1/26-9/30/26"),
+  // and if that fails, flag it LOUDLY in Note 2 so the reviewer fixes it instead of approving a dead flight.
+  drafts.forEach(d => {
+    if (d.startDate && d.endDate && d.endDate < d.startDate) {
+      const rec = recoverFlightEndFromText(io.rawText || "", d.startDate);
+      if (rec && rec >= d.startDate) {
+        const bad = d.endDate; d.endDate = rec;
+        d.note2 = (d.note2 ? d.note2 + " " : "") + `⚠ END DATE FIXED: the IO listed ${fmtDate(bad)} (before the ${fmtDate(d.startDate)} start — a typo); corrected to ${fmtDate(rec)} from the flight dates in the IO notes. Please verify.`;
+      } else {
+        d.note2 = (d.note2 ? d.note2 + " " : "") + `⚠ END DATE BEFORE START: the IO lists an end of ${fmtDate(d.endDate)} before the ${fmtDate(d.startDate)} start — almost certainly a typo. Fix the end date before approving.`;
+      }
+    }
+  });
+
   return drafts;
 }
 
@@ -2791,6 +2837,15 @@ function buildFallbackDraft(io) {
   let startDate = startM ? iso(startM[1]) : (allDates[0] || "");
   let endDate   = endM   ? iso(endM[1])   : (allDates.length ? allDates[allDates.length - 1] : "");
 
+  // Flight-date sanity — repair an end-before-start typo from a date range in the prose, else flag it (a draft
+  // should never quietly become an already-ended campaign). See recoverFlightEndFromText.
+  let flightWarn = "";
+  if (startDate && endDate && endDate < startDate) {
+    const rec = recoverFlightEndFromText(text, startDate);
+    if (rec && rec >= startDate) { flightWarn = ` ⚠ END DATE FIXED: ${fmtDate(endDate)} → ${fmtDate(rec)} (was before the start — recovered from the IO's flight dates; verify).`; endDate = rec; }
+    else { flightWarn = ` ⚠ END DATE ${fmtDate(endDate)} IS BEFORE THE START ${fmtDate(startDate)} — likely a typo; fix before approving.`; }
+  }
+
   // Require at least one substantive signal — otherwise it's not an IO we can draft.
   if (!(budget > 0 || impressions > 0 || (startDate && endDate))) return null;
 
@@ -2841,7 +2896,7 @@ function buildFallbackDraft(io) {
     ioNumber: io.reference || "",
     // Low-confidence draft: keep the VERIFY warning (this is a real flag, not import boilerplate) — but
     // the IO number itself now lives in the ioNumber field, so it's dropped from the note text.
-    note2: `⚠ AUTO-DRAFT from an unrecognized IO format — VERIFY every field before approving. Detected: ${found.join(" · ") || "no clear figures"}.${platform ? "" : " Platform not detected — set it manually."}`,
+    note2: `⚠ AUTO-DRAFT from an unrecognized IO format — VERIFY every field before approving. Detected: ${found.join(" · ") || "no clear figures"}.${platform ? "" : " Platform not detected — set it manually."}${flightWarn}`,
   };
 }
 
@@ -3694,7 +3749,7 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
 
           {/* ── DAILY PACING ── */}
           {(()=>{
-            const dt = computeDailyTarget(local.impressions||c.impressions, c.note1, c.startDate, c.endDate, c.goal);
+            const dt = computeDailyTarget(pacedDelivered(c, local), c.note1, c.startDate, c.endDate, c.goal);
             if (!dt) return null;
             const hasDelivery = dt.delivered > 0;
             return (
@@ -4879,10 +4934,12 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 </div>
               )}
               {/* Device Targeting surcharge — the device line bills us an extra $/1K impr (a COST
-                  that eats margin). Auto-suggested when the name contains "Device Targeting". */}
-              {f.platform!=="SEM" && (
+                  that eats margin). Auto-suggested when the name contains "Device Targeting". SEM never
+                  carries it, but if the flag got set (e.g. a tactic switch / import), still SHOW the toggle
+                  on SEM WHEN IT'S ALREADY ON so it can be turned off — otherwise it'd be stuck. */}
+              {(f.platform!=="SEM" || f.deviceSurcharge) && (
                 <div style={{marginBottom:12}}>
-                  <label style={{display:"block",fontSize:10,color:"#e879a6",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📱 Device Targeting Fee</label>
+                  <label style={{display:"block",fontSize:10,color:"#e879a6",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📱 Device Targeting Fee{f.platform==="SEM"&&<span style={{color:_lm?"#94a3b8":"#7a9bbf",fontWeight:400,textTransform:"none",letterSpacing:0,marginLeft:6}}>· not used for SEM — uncheck to remove</span>}</label>
                   <label style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",background:_lm?"#f8fafc":"#162236",border:`1px solid ${f.deviceSurcharge?"#e879a6"+(_lm?"":"55"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"7px 10px"}}>
                     <input type="checkbox" checked={!!f.deviceSurcharge}
                       onChange={e=>{ setDtTouched(true); set("deviceSurcharge", e.target.checked); if(e.target.checked && !f.deviceSurchargeRate) set("deviceSurchargeRate","1.00"); }}
@@ -5907,7 +5964,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
 
       // Build daily pacing snapshot for all active campaigns with goals
       const dailySnap = ctx.campaigns.filter(c=>c.note1).map(c => {
-        const dt = computeDailyTarget(c.impressions, c.note1, c.startDate, c.endDate, c.goal);
+        const dt = computeDailyTarget(pacedDelivered(c), c.note1, c.startDate, c.endDate, c.goal);
         return dt ? { campaign:c.campaign, partner:c.partner, platform:c.platform,
           dailyTarget:dt.dailyTarget, neededPerDay:dt.neededPerDay,
           delivered:dt.delivered, goal:dt.goal, pct:Math.round(dt.delivered/dt.goal*100),
@@ -8486,9 +8543,13 @@ function StatusMultiSelect({ fStatuses, setFStatuses, lightMode=false }) {
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, []);
-  const entries = Object.entries(STATUS_CFG);
+  // "goalhit" is a COMPUTED pseudo-status (delivered ≥ goal), not a stored c.status — added here so it shows
+  // in the dropdown; each tab's filter resolves it against its own goal-hit test. Kept out of STATUS_CFG so
+  // the edit-form status picker never offers it as a settable status.
+  const cfg = { ...STATUS_CFG, goalhit: { label: "🎯 Goal Hit", color: "#00d48a" } };
+  const entries = Object.entries(cfg);
   const toggle = k => setFStatuses(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
-  const label = fStatuses.size === 0 ? "All Statuses" : fStatuses.size === 1 ? (STATUS_CFG[[...fStatuses][0]]?.label || "1 Status") : `${fStatuses.size} Statuses`;
+  const label = fStatuses.size === 0 ? "All Statuses" : fStatuses.size === 1 ? (cfg[[...fStatuses][0]]?.label || "1 Status") : `${fStatuses.size} Statuses`;
   const active = fStatuses.size > 0;
   return (
     <div ref={ref} style={{position:"relative",userSelect:"none",display:"flex",alignItems:"center"}}>
@@ -8831,6 +8892,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [fPartner,       setFPartner]       = useState(_persisted.fPartner || "all");
   const [fPlatforms,     setFPlatforms]     = useState(new Set(_persisted.fPlatforms || []));
   const [fStatuses,      setFStatuses]      = useState(new Set(_persisted.fStatuses || [])); // multi-select status filter (Active / Pacing Behind / Off …), empty = all
+  const [fExcludeGoalHit, setFExcludeGoalHit] = useState(!!_persisted.fExcludeGoalHit); // hide campaigns that already hit their goal
   // Pacing sort config. METRIC_SORTS = keys that read a numeric metric from the resolved `disp`.
   // SORT_DEFAULT_DIR = each key's starting direction. EVERY key is direction-toggleable (click the
   // active key again to reverse); ctr defaults low-first (worst), $/impr default high-first, text A–Z.
@@ -8863,11 +8925,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   useEffect(() => {
     try {
       localStorage.setItem(PACING_FILTER_KEY, JSON.stringify({
-        search, fPartner, fPlatforms: [...fPlatforms], fStatuses: [...fStatuses], sortKey, sortDir, todayFilter, updatedDays, pacingView,
+        search, fPartner, fPlatforms: [...fPlatforms], fStatuses: [...fStatuses], fExcludeGoalHit, sortKey, sortDir, todayFilter, updatedDays, pacingView,
         troubleOnly, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter,
       }));
     } catch {}
-  }, [search, fPartner, fPlatforms, fStatuses, sortKey, sortDir, todayFilter, updatedDays, pacingView, troubleOnly, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter]);
+  }, [search, fPartner, fPlatforms, fStatuses, fExcludeGoalHit, sortKey, sortDir, todayFilter, updatedDays, pacingView, troubleOnly, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter]);
   function clickSort(k) {
     if (sortKey === k) { setSortDir(d => d === "asc" ? "desc" : "asc"); return; }  // toggle direction
     setSortKey(k);
@@ -9036,20 +9098,28 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
-    if(fStatuses.size>0 && !fStatuses.has(c.status||"")) return false; // status filter — same set as the Campaigns tab
     if(todayFilter==="today"     && !dataUpdatedWithin(c, updatedDays)) return false; // fresh within the window
     if(todayFilter==="not-today" &&  dataUpdatedWithin(c, updatedDays)) return false; // stale beyond the window
     return true;
   };
+  // A row has HIT its goal when the manual flag is set OR delivery reached the goal (pctRaw ≥ 1).
+  const rowIsGoalHit = (row) => !!(row && row.c && row.c.goalHit) || !!(row && row.pacing && ((row.pacing.pctRaw>=1) || (row.pacing.pct>=1)));
+  // Status filter (needs the row's pacing for the computed "🎯 Goal Hit" pseudo-status) — kept out of
+  // structPass so the real c.status values AND goal-hit resolve together. Empty set = all.
+  const statusPass = (row) => fStatuses.size===0 || fStatuses.has(row.c.status||"") || (fStatuses.has("goalhit") && rowIsGoalHit(row));
+  // "🎯 Exclude Goal Hit" toggle — hide rows that already hit their monthly goal.
+  const excludeGoalHitPass = (row) => !fExcludeGoalHit || !rowIsGoalHit(row);
   // Per-reason trouble counts (current view + structural filters) — drives the "filter by issue" chips that
   // show under the Trouble button. A focus only takes effect while it still matches something.
   const reasonCounts = {};
   if(troubleOnly){
-    [...allRows, ...offRows].forEach(r=>{ if(structPass(r.c) && inView(r.c)){ reasonsOf(r).forEach(k=>{ reasonCounts[k]=(reasonCounts[k]||0)+1; }); } });
+    [...allRows, ...offRows].forEach(r=>{ if(structPass(r.c) && statusPass(r) && excludeGoalHitPass(r) && inView(r.c)){ reasonsOf(r).forEach(k=>{ reasonCounts[k]=(reasonCounts[k]||0)+1; }); } });
   }
   const effReasonFocus = (troubleOnly && reasonFocus && reasonCounts[reasonFocus]>0) ? reasonFocus : null;
   const filtered = allRows.filter((row)=>{
     if(!structPass(row.c)) return false;
+    if(!statusPass(row)) return false;
+    if(!excludeGoalHitPass(row)) return false;
     // Trouble is VIEW-SCOPED (the user): This Month flags monthly campaigns, ✈ Flights flags flights —
     // each tab shows only its own troubles (graded on the matching basis), so the Flights list isn't padded
     // with monthly campaigns and vice-versa. inView = pacingView==="lifetime" ? flights : monthly.
@@ -9066,8 +9136,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // list AND the two tabs stay distinct (the Flights list isn't padded with monthly campaigns). `filtered`
   // and `offFiltered` apply the SAME `inView && rowIsTrouble` gate, so badge == shown. Paused/off trouble
   // still counts (a goal-hit paused campaign shouldn't drop off) — scoped to the current view.
-  const troubleCount = allRows.filter(r => structPass(r.c) && inView(r.c) && rowIsTrouble(r)).length
-                     + offRows.filter(r => structPass(r.c) && inView(r.c) && rowIsTrouble(r)).length;
+  const troubleCount = allRows.filter(r => structPass(r.c) && statusPass(r) && excludeGoalHitPass(r) && inView(r.c) && rowIsTrouble(r)).length
+                     + offRows.filter(r => structPass(r.c) && statusPass(r) && excludeGoalHitPass(r) && inView(r.c) && rowIsTrouble(r)).length;
   // SPLIT (the user): the This Month view is for MONTHLY-goal campaigns. Multi-month / By-dates FLIGHTS
   // (flightGoalLabel non-null = a total-goal flight with no recurring "/Mo") move to the ✈ Flights view —
   // on This Month their prorated monthly share falsely reads "behind" because it can't see last month's
@@ -9087,6 +9157,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // exact ones the badge counts.
   const offFiltered = offRows.filter((row)=>{
     if(!structPass(row.c)) return false;
+    if(!statusPass(row)) return false;
+    if(!excludeGoalHitPass(row)) return false;
     if(troubleOnly){
       if(!(inView(row.c) && rowIsTrouble(row))) return false;   // view-scoped off troubles (monthly vs flight)
       if(effReasonFocus && !reasonsOf(row).includes(effReasonFocus)) return false;
@@ -9102,7 +9174,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(q && !c.campaignName.toLowerCase().includes(q) && !(c.mediaPartner||"").toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
-    if(fStatuses.size>0 && !fStatuses.has(c.status||"")) return false;
+    if(!statusPass({c}) || !excludeGoalHitPass({c})) return false; // no pacing pre-start → goal-hit resolves via the flag only
     return true;
   });
 
@@ -9161,7 +9233,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
   const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
   const noPace  = withGoal.filter(r=>!r.pacing);
-  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || fStatuses.size>0 || todayFilter!=="all" || troubleOnly;
+  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || fStatuses.size>0 || fExcludeGoalHit || todayFilter!=="all" || troubleOnly;
 
   // ── Lifetime / contract pacing data ────────────────────────────────────────
   // Cumulative delivery across the WHOLE flight = every CLOSED month's final numbers
@@ -11348,6 +11420,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         title="Quick Check-in — drop a CSV/XLSX to update pacing without leaving this tab">
         {quickCheckIn?"✓ Quick Check-in":"⚡ Quick Check-in"}
       </button>
+      {/* Exclude Goal Hit — hide campaigns that already hit their monthly goal (mirrors the Campaigns tab). */}
+      <button onClick={()=>setFExcludeGoalHit(v=>!v)}
+        title="Hide campaigns that have already hit their monthly goal"
+        style={{display:"flex",alignItems:"center",gap:5,flexShrink:0,whiteSpace:"nowrap",transition:"all .15s",
+          background:lightMode?(fExcludeGoalHit?"#f0fdf9":"#f1f5f9"):(fExcludeGoalHit?"#1a0e00":"#0e1a2e"),
+          border:`1px solid ${fExcludeGoalHit?(lightMode?"#00c896":"#f59e0b"):(lightMode?"#cbd5e1":"#1e293b")}`,
+          borderRadius:7,padding:"6px 12px",
+          color:fExcludeGoalHit?(lightMode?"#059669":"#f59e0b"):(lightMode?"#475569":"#7a9bbf"),
+          fontSize:11.5,fontWeight:fExcludeGoalHit?700:400,cursor:"pointer"}}>
+        {fExcludeGoalHit?"🎯 Hiding Goal Hit":"🎯 Exclude Goal Hit"}
+      </button>
       </div>
       {/* Sort — nine buttons collapsed into one dropdown + a direction toggle. clickSort(k) sets the
           key and its sensible default direction; the ↑/↓ button flips it. */}
@@ -11372,7 +11455,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Include the Off section's shown rows in the count when Trouble/crack-focus is on — otherwise a
           paused-but-spending focus reads "0" while its campaign sits visible in the Off section. */}
       <span style={{fontSize:11,color:lmTxtS}}>Showing {filtered.length + (troubleOnly ? offFiltered.length : 0)} of {allActive.length + (troubleOnly ? offRows.length : 0)}</span>
-      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setFStatuses(new Set());setTodayFilter("all");setTroubleOnly(false);setReasonFocus(null);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
+      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setFStatuses(new Set());setFExcludeGoalHit(false);setTodayFilter("all");setTroubleOnly(false);setReasonFocus(null);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
     </div>}
 
     {/* Row count — This Month only (the ✈ Flights view has its own summary strip). */}
@@ -12214,6 +12297,30 @@ function estMonthlyProfit(campaigns){
 //   2) an explicit managementFee + contractValue total, spread across the flight (legacy).
 // Returns a { [YYYY-MM]: fee } map.
 // SEM monthly media budget (the client's spend goal / pass-through) — the "$X/Mo" in Note 1.
+// Weight each calendar month a flight touches by the FRACTION of that month it covers (a whole month = 1,
+// a half month = 0.5). Spreading a flight TOTAL (the management fee, or a contract-total media budget) by
+// these normalized weights gives EQUAL shares to whole months — $750 over Aug+Sep = $375 each, the way the
+// user quotes it ("$750 for two months = $375/mo") — instead of raw day-share ($381 Aug / $369 Sep, because
+// Aug has 31 days), while partial first/last months still prorate by how much of the month they cover.
+function semMonthWeights(startDate, endDate) {
+  const start = new Date(startDate + "T00:00:00");
+  const end   = new Date(endDate   + "T00:00:00");
+  const weights = {}; let total = 0;
+  if (isNaN(start) || isNaN(end) || end < start) return { weights, total };
+  let cur = new Date(start.getFullYear(), start.getMonth(), 1);
+  const endMo = new Date(end.getFullYear(), end.getMonth(), 1);
+  while (cur <= endMo) {
+    const y = cur.getFullYear(), m = cur.getMonth();
+    const dim = new Date(y, m+1, 0).getDate();
+    const mStart = new Date(Math.max(start, new Date(y, m, 1)));
+    const mEnd   = new Date(Math.min(end,   new Date(y, m+1, 0)));
+    const w = Math.max(0, Math.round((mEnd - mStart)/86400000) + 1) / dim; // fraction of THIS month covered
+    weights[`${y}-${String(m+1).padStart(2,"0")}`] = w;
+    total += w;
+    cur = new Date(y, m+1, 1);
+  }
+  return { weights, total };
+}
 function semMonthlyBudget(c) {
   const note = String(c?.note1 || "").replace(/,/g, "");
   const mo = note.match(/\$\s*([\d.]+)\s*\/\s*mo/i);           // "$X/Mo"
@@ -12249,15 +12356,14 @@ function semBudgetForMonth(c, mo) {
   const mediaTotal  = semMediaBudgetTotal(c);
   const budgetPerMo = mediaTotal > 0 ? 0 : semMonthlyBudget(c);
   if (!(mediaTotal > 0 || budgetPerMo > 0)) return 0;
-  const flightStart = new Date(c.startDate + "T00:00:00");
-  const flightEnd   = new Date(c.endDate   + "T00:00:00");
-  const totalFlightDays = Math.max(1, Math.round((flightEnd - flightStart) / 86400000) + 1);
   const [y, mm] = mo.split("-").map(Number);
   const dim = new Date(y, mm, 0).getDate();
+  const flightStart = new Date(c.startDate + "T00:00:00");
+  const flightEnd   = new Date(c.endDate   + "T00:00:00");
   const mStart = new Date(Math.max(flightStart, new Date(y, mm-1, 1)));
   const mEnd   = new Date(Math.min(flightEnd,   new Date(y, mm, 0)));
   const activeDays = Math.max(0, Math.round((mEnd - mStart) / 86400000) + 1);
-  if (mediaTotal > 0) return mediaTotal * (activeDays / totalFlightDays);
+  if (mediaTotal > 0) { const { weights, total } = semMonthWeights(c.startDate, c.endDate); return total > 0 ? mediaTotal * ((weights[mo]||0) / total) : 0; }
   return budgetPerMo * (activeDays / dim);
 }
 
@@ -12274,18 +12380,11 @@ function semFeeMap(c) {
   const end   = new Date(c.endDate   + "T00:00:00");
   if (isNaN(start) || isNaN(end) || end < start) return {};
   const totalFee = semTotalFee(c);
-  const totalDays = Math.max(1, Math.round((end - start) / 86400000) + 1);
+  // Spread the fee by month-fraction weight (whole months share equally) — see semMonthWeights.
+  const { weights, total } = semMonthWeights(c.startDate, c.endDate);
+  if (total <= 0) return {};
   const map = {};
-  let cur = new Date(start.getFullYear(), start.getMonth(), 1);
-  const endMo = new Date(end.getFullYear(), end.getMonth(), 1);
-  while (cur <= endMo) {
-    const mo = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`;
-    const mStart = new Date(Math.max(start, new Date(cur.getFullYear(), cur.getMonth(), 1)));
-    const mEnd   = new Date(Math.min(end,   new Date(cur.getFullYear(), cur.getMonth()+1, 0)));
-    const activeDays = Math.max(0, Math.round((mEnd - mStart) / 86400000) + 1);
-    map[mo] = totalFee * (activeDays / totalDays); // this month's day-share of the TOTAL contract fee
-    cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1);
-  }
+  for (const mo in weights) map[mo] = totalFee * (weights[mo] / total);
   return map;
 }
 
@@ -17522,6 +17621,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const [plByPlatOpen, setPlByPlatOpen]     = useState(true);    // "where the money's made" platform/tactic panel
   const [plScope, setPlScope]               = useState("month"); // "month" (focused month) | "all" (all-time to date)
   const [plExpandedVendors, setPlExpandedVendors] = useState(() => new Set()); // which vendor rows are drilled into
+  const [tcOpen, setTcOpen]                 = useState(true);    // "top clients" leaderboard panel
+  const [tcScope, setTcScope]               = useState("month"); // "month" | "all"
+  const [tcExpanded, setTcExpanded]         = useState(() => new Set()); // which client rows are drilled into
   const [plExpandedTactics, setPlExpandedTactics] = useState(() => new Set()); // which tactic rows are drilled into (→ campaigns)
   const [showRateFixer, setShowRateFixer]   = useState(false); // expand the "finish the rates" checklist
   const [showDtFixer, setShowDtFixer]       = useState(false); // expand the "device surcharge" suggestion list
@@ -17758,8 +17860,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       const mStart = new Date(Math.max(flightStart, new Date(y, mm-1, 1)));
       const mEnd   = new Date(Math.min(flightEnd,   new Date(y, mm, 0)));
       const activeDays = Math.max(0, Math.round((mEnd - mStart)/86400000) + 1);
-      if (mediaTotal > 0) return mediaTotal * (activeDays / totalFlightDays); // day-share of the TOTAL
-      return budgetPerMo * (activeDays / dim);                                // legacy monthly
+      if (mediaTotal > 0) { const { weights, total } = semMonthWeights(c.startDate, c.endDate); return total > 0 ? mediaTotal * ((weights[m]||0) / total) : 0; } // month-fraction share of the TOTAL
+      return budgetPerMo * (activeDays / dim);                                // legacy monthly (per-month budget)
     };
     const nextMo = (m) => { const [y, mm] = m.split("-").map(Number); const d = new Date(y, mm, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
     // Walk flight months start→mo, accumulating budget+spend for REPORTED months only; capture the
@@ -18553,14 +18655,20 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
               📊 Export P&L
             </button>
           )}
-          {isPastFocus && !isLockedFocus && fmRevWithSpend>0 && (
-            <button onClick={async()=>{ if(dataGaps.length>0 && !(await confirm({title:`Lock ${focusLabel} with ${dataGaps.length} data gap${dataGaps.length>1?"s":""}?`,message:"Some running campaigns are missing a rate, fee, or delivered impressions — they'll lock in as $0 revenue or a loss. Fix them first for an accurate P&L.",confirmLabel:"Lock anyway",danger:true}))) return; lockMonth(activeMonth); }}
+          {(isPastFocus || isCurrentFocus) && !isLockedFocus && fmRevWithSpend>0 && (
+            <button onClick={async()=>{
+                // Locking the CURRENT month (before it's over) — done once the final check-in is in and the
+                // numbers are known-good. Non-destructive + reversible (Unlock), so just confirm the timing.
+                if(isCurrentFocus && !(await confirm({title:`Lock ${focusLabel} before month-end?`,message:`${focusLabel} isn't over on the calendar yet. Lock in today's final numbers now — later check-ins or CSV drops won't change ${focusLabelShort}'s revenue/spend. You can Unlock anytime if more data still comes in.`,confirmLabel:"Lock it in"}))) return;
+                if(dataGaps.length>0 && !(await confirm({title:`Lock ${focusLabel} with ${dataGaps.length} data gap${dataGaps.length>1?"s":""}?`,message:"Some running campaigns are missing a rate, fee, or delivered impressions — they'll lock in as $0 revenue or a loss. Fix them first for an accurate P&L.",confirmLabel:"Lock anyway",danger:true}))) return;
+                lockMonth(activeMonth);
+              }}
               style={{background:dataGaps.length>0?(_lm?"#fffbeb":"#1a1200"):(_lm?"#f0fdf9":"#0d1a0a"),border:`1px solid ${dataGaps.length>0?"#f59e0b":(_lm?"#00c896":"#00d48a60")}`,borderRadius:7,padding:"5px 12px",color:dataGaps.length>0?(_lm?"#b45309":"#fbbf24"):(_lm?"#059669":"#00d48a"),fontSize:11,fontWeight:700,cursor:"pointer"}}
-              title={dataGaps.length>0?`${dataGaps.length} data gap${dataGaps.length>1?"s":""} — review before locking`:`Freeze ${focusLabel} spend data so future CSV drops don't overwrite it`}>
-              {dataGaps.length>0?"⚠ ":"🔒 "}Lock {focusLabelShort} Final Data
+              title={dataGaps.length>0?`${dataGaps.length} data gap${dataGaps.length>1?"s":""} — review before locking`:(isCurrentFocus?`Done with ${focusLabelShort}'s check-ins? Freeze its final numbers now — future drops won't change them (reversible).`:`Freeze ${focusLabel} spend data so future CSV drops don't overwrite it`)}>
+              {dataGaps.length>0?"⚠ ":"🔒 "}Lock {focusLabelShort} {isCurrentFocus?"Now":"Final Data"}
             </button>
           )}
-          {isPastFocus && isLockedFocus && (
+          {(isPastFocus || isCurrentFocus) && isLockedFocus && (
             <button onClick={()=>unlockMonth(activeMonth)}
               style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#ef4444":"#ef444460"}`,borderRadius:7,padding:"5px 12px",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer"}}
               title="Remove lock — spend data will update from next CSV drop">
@@ -18831,6 +18939,55 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         ))}
       </div>
 
+      {/* ── Growth — month-over-month + year-to-date ── the revenue-focused exec read: are we growing? ──
+          MoM compares the focused month's revenue to the prior month (current month uses its forecast so a
+          partial month isn't unfairly compared to a full one); YTD sums realized revenue/profit for the
+          calendar year up to the focused month. Both respect the client/platform filters (via monthTotals). */}
+      {(()=>{
+        const aIdx = months.indexOf(activeMonth);
+        const prevMo = aIdx>0 ? months[aIdx-1] : null;
+        const moRealizedRev = (mo)=> monthTotals[mo]?.revenueWithSpend||0;
+        const moProfitOf = (mo)=>{ const t=monthTotals[mo]; return t?(t.revenueWithSpend - t.spend - (t.deviceFee||0)):0; };
+        const isCurr = activeMonth===thisMonth;
+        const curBasisRev = (isCurr && monthForecast) ? (monthForecast.projRev||0) : moRealizedRev(activeMonth);
+        const prevRev = prevMo!=null ? moRealizedRev(prevMo) : null;
+        const momPct = (prevRev && prevRev>0) ? ((curBasisRev - prevRev)/prevRev)*100 : null;
+        const yr = activeMonth.slice(0,4);
+        const ytdMonths = months.filter(m=>m.slice(0,4)===yr && m<=activeMonth);
+        const ytdRev = ytdMonths.reduce((s,m)=>s+moRealizedRev(m),0);
+        const ytdProfit = ytdMonths.reduce((s,m)=>s+moProfitOf(m),0);
+        const ytdMargin = ytdRev>0 ? (ytdProfit/ytdRev)*100 : null;
+        const prevLabelShort = prevMo ? moDate(prevMo).toLocaleDateString("en-US",{month:"short"}) : "";
+        const up = momPct!=null && momPct>=0;
+        return (
+          <>
+            <div style={{...labelStyle,marginBottom:8}}>📈 Growth · {focusLabelShort}{isCurr?" (projected)":""} vs last month · {yr} year-to-date</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:18}}>
+              <div style={{...card,padding:"12px 16px"}}>
+                <div style={{...labelStyle,marginBottom:5}}>{isCurr?"Projected "+focusLabelShort:focusLabelShort} Rev</div>
+                <div style={{fontSize:22,fontWeight:800,color:_lm?"#059669":"#00e5a0",lineHeight:1,marginBottom:3}}>{$fc(curBasisRev)}</div>
+                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{isCurr?"at current pace":"realized"}</div>
+              </div>
+              <div style={{...card,padding:"12px 16px"}}>
+                <div style={{...labelStyle,marginBottom:5}}>vs {prevLabelShort||"last mo"}</div>
+                <div style={{fontSize:22,fontWeight:800,color:momPct==null?(_lm?"#94a3b8":"#4d6e8a"):(up?(_lm?"#059669":"#00d48a"):"#ef4444"),lineHeight:1,marginBottom:3}}>{momPct==null?"—":(up?"▲ ":"▼ ")+Math.abs(momPct).toFixed(0)+"%"}</div>
+                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{prevRev!=null?$fc(prevRev)+" last mo":"no prior month"}</div>
+              </div>
+              <div style={{...card,padding:"12px 16px"}}>
+                <div style={{...labelStyle,marginBottom:5}}>{yr} Rev (YTD)</div>
+                <div style={{fontSize:22,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1,marginBottom:3}}>{$fc(ytdRev)}</div>
+                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{ytdMonths.length} month{ytdMonths.length!==1?"s":""} · realized</div>
+              </div>
+              <div style={{...card,padding:"12px 16px"}}>
+                <div style={{...labelStyle,marginBottom:5}}>{yr} Profit (YTD)</div>
+                <div style={{fontSize:22,fontWeight:800,color:profitColor(ytdProfit),lineHeight:1,marginBottom:3}}>{(ytdProfit>=0?"+":"")+$f(ytdProfit)}</div>
+                <div style={{fontSize:10,color:ytdMargin!=null?marginColor(ytdMargin):(_lm?"#64748b":"#3d5a72")}}>{ytdMargin!=null?ytdMargin.toFixed(0)+"% margin":"—"}</div>
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
       {/* ── Where the money's made — profit by vendor → tactic → CAMPAIGNS ──────────────
           Moved here (above the campaign breakdown) per the user. Each vendor drills into its tactics
           (Meta → FB/FBV), and each tactic now drills again into the actual campaigns for that tactic.
@@ -18985,7 +19142,130 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         );
       })()}
 
+      {/* ── Top Clients — revenue leaderboard by media partner (account), drillable into campaigns ──
+          Complements "Where the money's made" (by platform): which ACCOUNTS drive the business, ranked by
+          REVENUE, each with a share-of-revenue bar + a top-3 concentration read. Same realized-only revenue. */}
+      {(()=>{
+        const useAll = tcScope === "all";
+        const byClient = {};
+        rows.forEach(r=>{
+          const client = (r.c.mediaPartner||"").trim() || "— No client —";
+          const b = byClient[client] || (byClient[client] = { client, rev:0, spend:0, deviceFee:0, realized:false, count:0, pendingRev:0, pendingCount:0, camps:[] });
+          if(useAll){
+            if(r.windowProfit!=null){ b.rev+=r.windowRev; b.spend+=r.windowSpend; b.deviceFee+=r.windowDeviceFee; b.realized=true; b.count++;
+              b.camps.push({ id:r.c.id, name:(r.c.campaignName||"").trim(), platform:r.c.platform||"", rev:r.windowRev, spend:r.windowSpend, profit:r.windowProfit, margin:r.windowRev>0?(r.windowProfit/r.windowRev)*100:null }); }
+          } else {
+            const fc=r.focusCell;
+            if(fc.spend!=null){ b.rev+=fc.rev; b.spend+=fc.spend; b.deviceFee+=fc.deviceFee||0; b.realized=true; b.count++;
+              const p=fc.rev-fc.spend-(fc.deviceFee||0);
+              b.camps.push({ id:r.c.id, name:(r.c.campaignName||"").trim(), platform:r.c.platform||"", rev:fc.rev, spend:fc.spend, profit:p, margin:fc.rev>0?(p/fc.rev)*100:null }); }
+            else if(fc.rev>0){ b.pendingRev+=fc.rev; b.pendingCount++; }
+          }
+        });
+        let clients = Object.values(byClient).filter(b=>b.realized || b.pendingRev>0);
+        if(clients.length===0) return null;
+        clients.forEach(b=>{ b.profit=b.realized?(b.rev-b.spend-b.deviceFee):null; b.margin=(b.realized&&b.rev>0)?(b.profit/b.rev)*100:null; b.camps.sort((x,y)=>(y.rev)-(x.rev)); });
+        clients.sort((a,b)=>(b.rev - a.rev) || (a.client.localeCompare(b.client)));
+        const totRev = clients.reduce((s,b)=>s+b.rev,0);
+        const top3 = clients.slice(0,3).reduce((s,b)=>s+b.rev,0);
+        const concentration = totRev>0 ? (top3/totRev)*100 : null;
+        const maxRev = Math.max(...clients.map(b=>b.rev), 1);
+        const scopeLabel = useAll ? "all-time to date" : focusLabel;
+        const gridCols = "minmax(140px,1.8fr) 96px 92px 92px 78px";
+        const HC = ({children,r=true})=>(<div style={{fontSize:9,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:_lm?"#94a3b8":"#4d6e8a",textAlign:r?"right":"left"}}>{children}</div>);
+        return (
+          <div style={{...card,padding:"14px 18px",marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:tcOpen?12:0,flexWrap:"wrap"}}>
+              <button onClick={()=>setTcOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:7,background:"none",border:"none",cursor:"pointer",padding:0,flex:1,textAlign:"left"}}>
+                <span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",display:"inline-block",transform:tcOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>▸</span>
+                <span style={{...labelStyle,margin:0}}>🏆 Top Clients</span>
+                <span style={{fontSize:10.5,color:_lm?"#94a3b8":"#4d6e8a",fontWeight:600}}>· by revenue · {scopeLabel}</span>
+              </button>
+              {concentration!=null && <span title="Share of revenue from your 3 biggest clients — a diversification / concentration-risk read" style={{fontSize:10,fontWeight:700,color:concentration>=60?(_lm?"#b45309":"#fbbf24"):(_lm?"#64748b":"#7a9bbf"),background:concentration>=60?(_lm?"#fffbeb":"#1a1200"):"transparent",border:concentration>=60?`1px solid ${_lm?"#fcd34d":"#f59e0b55"}`:"none",borderRadius:8,padding:"3px 9px",whiteSpace:"nowrap"}}>Top 3 = {concentration.toFixed(0)}%</span>}
+              <div style={{display:"inline-flex",borderRadius:7,overflow:"hidden",border:`1px solid ${_lm?"#e2e8f0":"#26364f"}`}}>
+                {[{k:"month",t:focusLabelShort},{k:"all",t:"All-time"}].map(o=>(
+                  <button key={o.k} onClick={()=>setTcScope(o.k)} style={{background:tcScope===o.k?(_lm?"#eef2ff":"#0a2036"):"transparent",border:"none",padding:"4px 11px",fontSize:10.5,fontWeight:700,cursor:"pointer",color:tcScope===o.k?(_lm?"#1d4ed8":"#00d9ff"):(_lm?"#64748b":"#4d6e8a")}}>{o.t}</button>
+                ))}
+              </div>
+            </div>
+            {tcOpen && (
+              <>
+                <div style={{display:"grid",gridTemplateColumns:gridCols,gap:8,padding:"0 8px 6px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,marginBottom:4}}>
+                  <HC r={false}>Client</HC><HC>Revenue</HC><HC>Spend</HC><HC>Profit</HC><HC>Margin</HC>
+                </div>
+                {clients.map((b,i)=>{
+                  const open = tcExpanded.has(b.client);
+                  const barPct = Math.round((b.rev/maxRev)*100);
+                  return (
+                    <React.Fragment key={b.client}>
+                      <div onClick={()=>setTcExpanded(prev=>{ const n=new Set(prev); n.has(b.client)?n.delete(b.client):n.add(b.client); return n; })}
+                        style={{display:"grid",gridTemplateColumns:gridCols,gap:8,alignItems:"center",padding:"7px 8px",cursor:"pointer",borderRadius:6,background:open?(_lm?"#f6f9ff":"#0a1524"):"transparent"}}
+                        onMouseEnter={e=>{ if(!open) e.currentTarget.style.background=_lm?"#f8fafc":"#0c1625"; }}
+                        onMouseLeave={e=>{ if(!open) e.currentTarget.style.background="transparent"; }}>
+                        <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+                          <span style={{fontSize:9,color:_lm?"#94a3b8":"#4d6e8a",display:"inline-block",transform:open?"rotate(90deg)":"none",transition:"transform .15s",flexShrink:0}}>▸</span>
+                          <span style={{fontSize:11,fontWeight:800,color:_lm?"#94a3b8":"#4d6e8a",minWidth:14,flexShrink:0,textAlign:"right"}}>{i+1}</span>
+                          <span title={b.client} style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.client}</span>
+                          <span style={{fontSize:9,color:_lm?"#94a3b8":"#4d6e8a",flexShrink:0}}>{b.count}{b.pendingCount>0?` +${b.pendingCount}⏳`:""}</span>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontSize:12,fontWeight:700,color:_lm?"#334155":"#9fb4cf"}}>{$fc(b.rev)}{b.pendingRev>0&&<span style={{fontSize:9,color:_lm?"#b45309":"#fbbf24",fontWeight:600}}> +{$fk(b.pendingRev)}</span>}</div>
+                          <div style={{height:3,background:_lm?"#eef2f7":"#0e1a2e",borderRadius:3,marginTop:3,overflow:"hidden"}}><div style={{height:"100%",width:barPct+"%",background:_lm?"#0ea5e9":"#00d9ff",borderRadius:3}}/></div>
+                        </div>
+                        <div style={{fontSize:11.5,color:_lm?"#b45309":"#c98a2e",textAlign:"right"}}>{b.realized?$fc(b.spend):"—"}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:b.profit!=null?profitColor(b.profit):(_lm?"#cbd5e1":"#3d5a72"),textAlign:"right"}}>{b.profit!=null?(b.profit>=0?"+":"")+$f(b.profit):"⏳"}</div>
+                        <div style={{fontSize:11,color:b.margin!=null?marginColor(b.margin):(_lm?"#cbd5e1":"#3d5a72"),textAlign:"right"}}>{b.margin!=null?b.margin.toFixed(0)+"%":"—"}</div>
+                      </div>
+                      {open && b.camps.map(camp=>(
+                        <div key={"c"+camp.id} style={{display:"grid",gridTemplateColumns:gridCols,gap:8,alignItems:"center",padding:"5px 8px",background:_lm?"#f6f9ff":"#08111f"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6,paddingLeft:30,minWidth:0}}>
+                            <span style={{fontSize:8.5,fontWeight:700,color:PLT_COLORS[camp.platform]||PLT_COLORS.default,background:(PLT_COLORS[camp.platform]||PLT_COLORS.default)+"22",border:`1px solid ${(PLT_COLORS[camp.platform]||PLT_COLORS.default)}55`,borderRadius:3,padding:"0 4px",flexShrink:0}}>{camp.platform}</span>
+                            <span title={camp.name} style={{fontSize:11,color:_lm?"#334155":"#9fb4cf",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{camp.name||"—"}</span>
+                          </div>
+                          <div style={{fontSize:11,color:_lm?"#475569":"#7a9bbf",textAlign:"right"}}>{$fc(camp.rev)}</div>
+                          <div style={{fontSize:11,color:_lm?"#b45309":"#c98a2e",textAlign:"right"}}>{$fc(camp.spend)}</div>
+                          <div style={{fontSize:11,fontWeight:700,color:profitColor(camp.profit||0),textAlign:"right"}}>{(camp.profit>=0?"+":"")+$f(camp.profit)}</div>
+                          <div style={{fontSize:10.5,color:camp.margin!=null?marginColor(camp.margin):(_lm?"#cbd5e1":"#3d5a72"),textAlign:"right"}}>{camp.margin!=null?camp.margin.toFixed(0)+"%":"—"}</div>
+                        </div>
+                      ))}
+                    </React.Fragment>
+                  );
+                })}
+                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:8,paddingLeft:8}}>Ranked by revenue. {useAll?"All-time":"This month's"} realized revenue (⏳ = pending, not yet counted). Click a client to see its campaigns.</div>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
       {/* ── Campaign breakdown — focused month ───────────────── */}
+      {/* Bottom context bar — the timeframe you're viewing (with quick ‹ › month stepping so you don't have
+          to scroll back to the strip up top) + what's still pending, right where the search/breakdown is. */}
+      {(()=>{
+        const aIdx = months.indexOf(activeMonth);
+        const goMo = (i)=>{ const m=months[i]; if(m) setFocusMonth(m===thisMonth?null:m); };
+        const pendVis = dateVisibleRows.filter(r=>r.focusCell && r.focusCell.pending).length;
+        const pendVisRev = dateVisibleRows.reduce((s,r)=>s+((r.focusCell&&r.focusCell.pending)?(r.focusCell.rev||0):0),0);
+        const arrow = (enabled)=>({background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:6,color:_lm?"#475569":"#7a9bbf",fontSize:15,fontWeight:800,lineHeight:1,padding:"2px 10px",cursor:enabled?"pointer":"default",opacity:enabled?1:0.3,userSelect:"none"});
+        return (
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:10,paddingBottom:10,borderBottom:`1px solid ${_lm?"#e2e8f0":"#16233a"}`}}>
+            <span style={{fontSize:9.5,color:_lm?"#94a3b8":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>Viewing</span>
+            <button onClick={()=>goMo(aIdx-1)} disabled={aIdx<=0} title="Previous month" style={arrow(aIdx>0)}>‹</button>
+            <span style={{fontSize:14,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",whiteSpace:"nowrap"}}>📅 {focusLabel}</span>
+            <button onClick={()=>goMo(aIdx+1)} disabled={aIdx>=months.length-1} title="Next month" style={arrow(aIdx<months.length-1)}>›</button>
+            {isCurrentFocus && <span style={{fontSize:9,background:_lm?"#f0fdf9":"#00e5a022",color:_lm?"#059669":"#00e5a0",padding:"2px 7px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em",border:_lm?"1px solid #00c89640":"none"}}>CURRENT</span>}
+            {isLockedFocus && <span style={{fontSize:9,background:_lm?"#f1f5f9":"#7a9bbf22",color:_lm?"#475569":"#7a9bbf",padding:"2px 7px",borderRadius:10,fontWeight:700,letterSpacing:"0.05em"}}>🔒 LOCKED</span>}
+            <span style={{flex:1,minWidth:12}}/>
+            {pendVis>0
+              ? <button onClick={()=>setSortKey("pending")} title="Sort these still-pending campaigns (revenue booked, spend not entered yet) to the top of the breakdown"
+                  style={{display:"inline-flex",alignItems:"center",gap:6,background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#fcd34d":"#f59e0b55"}`,borderRadius:8,padding:"5px 12px",color:_lm?"#b45309":"#fbbf24",fontSize:11.5,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                  ⏳ {pendVis} pending{pendVisRev>0?` · $${Math.round(pendVisRev).toLocaleString()}`:""}
+                  <span style={{fontSize:9,opacity:0.75,fontWeight:600}}>sort ↑</span>
+                </button>
+              : dateVisibleRows.length>0 && <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11.5,fontWeight:700,color:_lm?"#059669":"#00d48a",whiteSpace:"nowrap"}}>✓ All {dateVisibleRows.length} have spend data</span>}
+          </div>
+        );
+      })()}
       {/* Search sits right above the table so results are in view without scrolling. Filters the table only. */}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
         <div style={{display:"flex",alignItems:"center",flex:1,minWidth:200,maxWidth:440,background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${revQuery?(_lm?"#3b82f6":"#3b82f680"):(_lm?"#cbd5e1":"#1e293b")}`,borderRadius:8,padding:"0 10px"}}>
@@ -23215,7 +23495,11 @@ export default function App() {
         if(fGoalType==="flights" && !isFlight) return false;
         if(fGoalType==="monthly" && (isFlight || !(effectiveMonthlyGoal(c)>0))) return false;
       }
-      return ms&&(fStatuses.size===0||fStatuses.has(c.status||""))&&(fPlatforms.size===0||fPlatforms.has(c.platform))&&(!fMonthly||c.monthlyFlight);
+      // Status filter — real c.status values, plus the computed "🎯 Goal Hit" pseudo-status (delivered ≥ goal).
+      const statusOk = fStatuses.size===0
+        || fStatuses.has(c.status||"")
+        || (fStatuses.has("goalhit") && (()=>{ const p=computeMonthlyPacing(c, resolveMetrics(c,dateRange.preset), c.note1); return !!c.goalHit || (p && p.pct>=1); })());
+      return ms&&statusOk&&(fPlatforms.size===0||fPlatforms.has(c.platform))&&(!fMonthly||c.monthlyFlight);
     });
     return [...list].sort((a,b)=>{
       if(sortKey==="reminder"){
@@ -25077,7 +25361,7 @@ export default function App() {
                                 </div>
                                 {(()=>{
                                   const disp=resolveMetrics(c,dateRange.preset);
-                                  const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate,c.goal);
+                                  const dt=computeDailyTarget(pacedDelivered(c,disp),c.note1,c.startDate,c.endDate,c.goal);
                                   const dtChip = dt&&dt.dailyTarget>0&&showDailyGoal ? <span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:lightMode?"#7c3aed":"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span> : null;
                                   // Date-flighted campaigns → show the FLIGHT (total + date range) here in the same
                                   // electric blue as a monthly goal, so the slot is never blank. Else the Note-1 goal.
@@ -25195,7 +25479,7 @@ export default function App() {
                           </div>
                           {(()=>{
                             const disp=resolveMetrics(c,dateRange.preset);
-                            const dt=computeDailyTarget(disp.impressions,c.note1,c.startDate,c.endDate,c.goal);
+                            const dt=computeDailyTarget(pacedDelivered(c,disp),c.note1,c.startDate,c.endDate,c.goal);
                             const dtChip = dt&&dt.dailyTarget>0&&showDailyGoal ? <span title={`Daily target: ${dt.dailyTarget.toLocaleString()}/day · Need to finish: ${dt.neededPerDay.toLocaleString()}/day`} style={{fontSize:11,fontWeight:700,color:lightMode?"#7c3aed":"#a855f7",flexShrink:0,whiteSpace:"nowrap"}}>{dt.dailyTarget.toLocaleString()}/day</span> : null;
                             // Date-flighted campaigns → show the FLIGHT (total + range) here in the same electric blue
                             // as a monthly goal so the slot is never blank. Else fall back to the Note-1 goal.
