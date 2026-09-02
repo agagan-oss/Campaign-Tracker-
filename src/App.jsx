@@ -17790,7 +17790,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   const [tcScope, setTcScope]               = useState("month"); // "month" | "all"
   const [tcExpanded, setTcExpanded]         = useState(() => new Set()); // which client rows are drilled into
   const [breakdownOpen, setBreakdownOpen]   = useState(true);   // the per-campaign breakdown table (collapsible)
+  const [growthOpen, setGrowthOpen]         = useState(false);  // Growth (MoM + YTD) section — collapsed by default
   const [plExpandedTactics, setPlExpandedTactics] = useState(() => new Set()); // which tactic rows are drilled into (→ campaigns)
+  // P&L Report modal — interactive collapse/drill state (mirrors the "Where the money's made" dropdowns).
+  const [plrSections, setPlrSections]       = useState(() => new Set(["partner","platform"])); // open sections (By Campaign collapsed by default)
+  const [plrExpPartner, setPlrExpPartner]   = useState(() => new Set()); // drilled-in partner rows → their campaigns
+  const [plrExpVendor, setPlrExpVendor]     = useState(() => new Set()); // drilled-in vendor rows → their tactics
+  const [plrExpTactic, setPlrExpTactic]     = useState(() => new Set()); // drilled-in tactic rows → their campaigns
   const [showRateFixer, setShowRateFixer]   = useState(false); // expand the "finish the rates" checklist
   const [showDtFixer, setShowDtFixer]       = useState(false); // expand the "device surcharge" suggestion list
   const [showRevForecast, setShowRevForecast] = useState(false); // on-demand month/quarter $ forecast
@@ -18932,55 +18938,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         })()}
       </div>
 
-      {/* ── Growth — month-over-month + year-to-date (grouped with the month KPIs above per the user). ── */}
-      {(()=>{
-        const aIdx = months.indexOf(activeMonth);
-        const prevMo = aIdx>0 ? months[aIdx-1] : null;
-        const moRealizedRev = (mo)=> monthTotals[mo]?.revenueWithSpend||0;
-        const moProfitOf = (mo)=>{ const t=monthTotals[mo]; return t?(t.revenueWithSpend - t.spend - (t.deviceFee||0)):0; };
-        const isCurr = activeMonth===thisMonth;
-        const curBasisRev = (isCurr && monthForecast) ? (monthForecast.projRev||0) : moRealizedRev(activeMonth);
-        const prevRev = prevMo!=null ? moRealizedRev(prevMo) : null;
-        const momPct = (prevRev && prevRev>0) ? ((curBasisRev - prevRev)/prevRev)*100 : null;
-        const yr = activeMonth.slice(0,4);
-        const ytdMonths = months.filter(m=>m.slice(0,4)===yr && m<=activeMonth);
-        const ytdRev = ytdMonths.reduce((s,m)=>s+moRealizedRev(m),0);
-        const ytdProfit = ytdMonths.reduce((s,m)=>s+moProfitOf(m),0);
-        const ytdMargin = ytdRev>0 ? (ytdProfit/ytdRev)*100 : null;
-        const prevLabelShort = prevMo ? moDate(prevMo).toLocaleDateString("en-US",{month:"short"}) : "";
-        const up = momPct!=null && momPct>=0;
-        return (
-          <>
-            <div style={{...labelStyle,marginBottom:8}}>📈 Growth · {focusLabelShort}{isCurr?" (projected)":""} vs last month · {yr} year-to-date</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:18}}>
-              <div style={{...card,padding:"12px 16px"}}>
-                <div style={{...labelStyle,marginBottom:5}}>{isCurr?"Projected "+focusLabelShort:focusLabelShort} Rev</div>
-                <div style={{fontSize:22,fontWeight:800,color:_lm?"#059669":"#00e5a0",lineHeight:1,marginBottom:3}}>{$fc(curBasisRev)}</div>
-                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{isCurr?"at current pace":"realized"}</div>
-              </div>
-              <div style={{...card,padding:"12px 16px"}}>
-                <div style={{...labelStyle,marginBottom:5}}>vs {prevLabelShort||"last mo"}</div>
-                <div style={{fontSize:22,fontWeight:800,color:momPct==null?(_lm?"#94a3b8":"#4d6e8a"):(up?(_lm?"#059669":"#00d48a"):"#ef4444"),lineHeight:1,marginBottom:3}}>{momPct==null?"—":(up?"▲ ":"▼ ")+Math.abs(momPct).toFixed(0)+"%"}</div>
-                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{prevRev!=null?$fc(prevRev)+" last mo":"no prior month"}</div>
-              </div>
-              <div style={{...card,padding:"12px 16px"}}>
-                <div style={{...labelStyle,marginBottom:5}}>{yr} Rev (YTD)</div>
-                <div style={{fontSize:22,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1,marginBottom:3}}>{$fc(ytdRev)}</div>
-                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{ytdMonths.length} month{ytdMonths.length!==1?"s":""} · realized</div>
-              </div>
-              <div style={{...card,padding:"12px 16px"}}>
-                <div style={{...labelStyle,marginBottom:5}}>{yr} Profit (YTD)</div>
-                <div style={{fontSize:22,fontWeight:800,color:profitColor(ytdProfit),lineHeight:1,marginBottom:3}}>{(ytdProfit>=0?"+":"")+$f(ytdProfit)}</div>
-                <div style={{fontSize:10,color:ytdMargin!=null?marginColor(ytdMargin):(_lm?"#64748b":"#3d5a72")}}>{ytdMargin!=null?ytdMargin.toFixed(0)+"% margin":"—"}</div>
-              </div>
-            </div>
-          </>
-        );
-      })()}
-
-      {/* "Where the money's made" now renders lower — just above the campaign breakdown (see below). */}
-
-      {/* ── Forecast (on-demand) — generated only when the user opens it, to keep the tab clean ── */}
+      {/* ── Forecast (on-demand) — generated only when the user opens it. Rendered ABOVE Growth per the
+          user so clicking the current-month "Forecast" button pops the projection right on top of Growth. ── */}
       {showRevForecast && monthForecast && (
         <div style={{...card,padding:"14px 18px",marginBottom:14}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
@@ -19012,6 +18971,72 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:8}}>At current pace = today's delivery & spend rate extended to each campaign's flight end. If you hit goal = full monthly goals × rate, with spend scaled up proportionally to the extra delivery (cost-per-impression held constant). Quarter = closed months + this month's pace forecast + projected. DSP campaigns' spend is modeled at an estimated ${dspCpm.toFixed(2)} CPM (DSP rarely reports real spend) — editable in Config.</div>
         </div>
       )}
+
+      {/* "Where the money's made" now renders lower — just above the campaign breakdown (see below). */}
+
+      {/* ── Growth — month-over-month + year-to-date. COLLAPSIBLE + collapsed by default per the user;
+          click the ▸ header to open. Sits BELOW the Forecast pop-up (which the user moved above it). ── */}
+      {(()=>{
+        const aIdx = months.indexOf(activeMonth);
+        const prevMo = aIdx>0 ? months[aIdx-1] : null;
+        const moRealizedRev = (mo)=> monthTotals[mo]?.revenueWithSpend||0;
+        const moProfitOf = (mo)=>{ const t=monthTotals[mo]; return t?(t.revenueWithSpend - t.spend - (t.deviceFee||0)):0; };
+        const isCurr = activeMonth===thisMonth;
+        const curBasisRev = (isCurr && monthForecast) ? (monthForecast.projRev||0) : moRealizedRev(activeMonth);
+        const prevRev = prevMo!=null ? moRealizedRev(prevMo) : null;
+        const momPct = (prevRev && prevRev>0) ? ((curBasisRev - prevRev)/prevRev)*100 : null;
+        // YTD = year-to-date THROUGH TODAY (thisMonth), not through the month you're browsing. Anchoring it
+        // to activeMonth made "2026 Profit (YTD)" drop the current month whenever you viewed a past month
+        // (e.g. viewing Aug hid Sep's profit), so it disagreed with the all-time/lifetime total below by
+        // exactly the current month. Using thisMonth keeps YTD a stable through-today figure that reconciles
+        // with the lifetime table (all data is floored at June-2026, so 2026-YTD ≡ all-time realized).
+        const yr = thisMonth.slice(0,4);
+        const ytdMonths = months.filter(m=>m.slice(0,4)===yr && m<=thisMonth);
+        const ytdRev = ytdMonths.reduce((s,m)=>s+moRealizedRev(m),0);
+        const ytdProfit = ytdMonths.reduce((s,m)=>s+moProfitOf(m),0);
+        const ytdMargin = ytdRev>0 ? (ytdProfit/ytdRev)*100 : null;
+        const prevLabelShort = prevMo ? moDate(prevMo).toLocaleDateString("en-US",{month:"short"}) : "";
+        const up = momPct!=null && momPct>=0;
+        return (
+          // order:4 → Growth renders BELOW the campaign breakdown (order 0) but above the deep analytics
+          // cards (Where-money's-made / Top Clients, order:5) — per the user "move Growth right below the
+          // campaign breakdown." Card wrapper + toggle-button header match the other collapsible panels
+          // (Campaign Breakdown / Where the money's made / Top Clients) so the collapsed bars look uniform.
+          <div style={{...card,padding:"14px 18px",marginBottom:14,order:4}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:growthOpen?12:0,flexWrap:"wrap"}}>
+              <button onClick={()=>setGrowthOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:7,background:"none",border:"none",cursor:"pointer",padding:0,flex:1,textAlign:"left"}}>
+                <span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",display:"inline-block",transform:growthOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>▸</span>
+                <span style={{...labelStyle,margin:0}}>📈 Growth</span>
+                <span style={{fontSize:10.5,color:_lm?"#94a3b8":"#4d6e8a",fontWeight:600}}>· {focusLabelShort}{isCurr?" (projected)":""} vs last month · {yr} year-to-date</span>
+              </button>
+            </div>
+            {growthOpen && (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
+              <div style={{...card,padding:"12px 16px"}}>
+                <div style={{...labelStyle,marginBottom:5}}>{isCurr?"Projected "+focusLabelShort:focusLabelShort} Rev</div>
+                <div style={{fontSize:22,fontWeight:800,color:_lm?"#059669":"#00e5a0",lineHeight:1,marginBottom:3}}>{$fc(curBasisRev)}</div>
+                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{isCurr?"at current pace":"realized"}</div>
+              </div>
+              <div style={{...card,padding:"12px 16px"}}>
+                <div style={{...labelStyle,marginBottom:5}}>vs {prevLabelShort||"last mo"}</div>
+                <div style={{fontSize:22,fontWeight:800,color:momPct==null?(_lm?"#94a3b8":"#4d6e8a"):(up?(_lm?"#059669":"#00d48a"):"#ef4444"),lineHeight:1,marginBottom:3}}>{momPct==null?"—":(up?"▲ ":"▼ ")+Math.abs(momPct).toFixed(0)+"%"}</div>
+                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{prevRev!=null?$fc(prevRev)+" last mo":"no prior month"}</div>
+              </div>
+              <div style={{...card,padding:"12px 16px"}}>
+                <div style={{...labelStyle,marginBottom:5}}>{yr} Rev (YTD)</div>
+                <div style={{fontSize:22,fontWeight:800,color:_lm?"#0ea5e9":"#7dd3fc",lineHeight:1,marginBottom:3}}>{$fc(ytdRev)}</div>
+                <div style={{fontSize:10,color:_lm?"#64748b":"#3d5a72"}}>{ytdMonths.length} month{ytdMonths.length!==1?"s":""} · realized</div>
+              </div>
+              <div style={{...card,padding:"12px 16px"}}>
+                <div style={{...labelStyle,marginBottom:5}}>{yr} Profit (YTD)</div>
+                <div style={{fontSize:22,fontWeight:800,color:profitColor(ytdProfit),lineHeight:1,marginBottom:3}}>{(ytdProfit>=0?"+":"")+$f(ytdProfit)}</div>
+                <div style={{fontSize:10,color:ytdMargin!=null?marginColor(ytdMargin):(_lm?"#64748b":"#3d5a72")}}>{ytdMargin!=null?ytdMargin.toFixed(0)+"% margin":"—"}</div>
+              </div>
+            </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── 12-month PROFIT bar chart (big & clean) ─────────── */}
       {/* order:-1 → the bar graph renders FIRST (just under the month navigator), above the KPI/Growth/
@@ -19859,13 +19884,13 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           const m = {};
           reportRows.forEach(r=>{
             const k = r.partner || "—";
-            if(!m[k]) m[k] = { partner:k, revenue:0, spend:0, deviceFee:0, count:0, tracked:0 };
+            if(!m[k]) m[k] = { partner:k, revenue:0, spend:0, deviceFee:0, count:0, tracked:0, camps:[] };
             const e = m[k]; e.count++;
-            if(r.spend!=null){ e.revenue += r.revenue; e.spend += r.spend; e.deviceFee += (r.deviceFee||0); e.tracked++; }
+            if(r.spend!=null){ e.revenue += r.revenue; e.spend += r.spend; e.deviceFee += (r.deviceFee||0); e.tracked++; e.camps.push(r); }
           });
           return Object.values(m)
             .filter(e=>e.tracked>0)
-            .map(e=>({ ...e, profit:e.revenue-e.spend-e.deviceFee, margin:e.revenue>0?((e.revenue-e.spend-e.deviceFee)/e.revenue*100):0 }))
+            .map(e=>({ ...e, camps:e.camps.sort((a,b)=>(b.profit||0)-(a.profit||0)), profit:e.revenue-e.spend-e.deviceFee, margin:e.revenue>0?((e.revenue-e.spend-e.deviceFee)/e.revenue*100):0 }))
             .sort((a,b)=>b.profit-a.profit);
         })();
         // By-platform rollup (tracked only, same profit math) — vendor totals, each split into its
@@ -19875,8 +19900,8 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           reportRows.forEach(r=>{
             if(r.spend==null) return; // tracked only
             const plat = r.platform || "—";
-            if(!tac[plat]) tac[plat] = { plat, vendor:vendorOf(plat), revenue:0, spend:0, deviceFee:0, count:0 };
-            const e = tac[plat]; e.count++; e.revenue += r.revenue; e.spend += r.spend; e.deviceFee += (r.deviceFee||0);
+            if(!tac[plat]) tac[plat] = { plat, vendor:vendorOf(plat), revenue:0, spend:0, deviceFee:0, count:0, camps:[] };
+            const e = tac[plat]; e.count++; e.revenue += r.revenue; e.spend += r.spend; e.deviceFee += (r.deviceFee||0); e.camps.push(r);
           });
           const ven = {};
           Object.values(tac).forEach(t=>{
@@ -19887,10 +19912,45 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
           const out = Object.values(ven)
             .map(v=>({ ...v, profit:v.revenue-v.spend-v.deviceFee, margin:v.revenue>0?((v.revenue-v.spend-v.deviceFee)/v.revenue*100):0 }))
             .sort((a,b)=>b.profit-a.profit || vendorRank(a.vendor)-vendorRank(b.vendor));
-          out.forEach(v=>v.tactics.sort((a,b)=>b.profit-a.profit || (PLATFORM_GROUP_ORDER.indexOf(a.plat)-PLATFORM_GROUP_ORDER.indexOf(b.plat))));
+          out.forEach(v=>{ v.tactics.sort((a,b)=>b.profit-a.profit || (PLATFORM_GROUP_ORDER.indexOf(a.plat)-PLATFORM_GROUP_ORDER.indexOf(b.plat))); v.tactics.forEach(t=>t.camps.sort((a,b)=>(b.profit||0)-(a.profit||0))); });
           return out;
         })();
         const printId = "pl-report-"+activeMonth;
+        // ── Interactive drill-down helpers (mirror the Revenue-tab "Where the money's made" dropdowns) ──
+        const fDol = n => "$"+Math.round(n).toLocaleString();
+        const fSgn = n => (n>=0?"+":"-")+"$"+Math.round(Math.abs(n)).toLocaleString();
+        const pColor = p => p>=0?"#00d48a":"#ef4444";
+        const mColor = m => m>=30?"#00d48a":m>=15?"#f59e0b":"#ef4444";
+        const gcols = showDevFee ? "minmax(96px,1.5fr) 74px 74px 60px 70px 48px 42px" : "minmax(110px,1.6fr) 82px 82px 76px 56px 46px";
+        const mkChip = (plat) => { const pc=PLT_COLORS[plat]||"#4d6e8a"; const pr=parseInt(pc.slice(1,3),16)/255,pg=parseInt(pc.slice(3,5),16)/255,pb=parseInt(pc.slice(5,7),16)/255; const ptxt=(0.299*pr+0.587*pg+0.114*pb)>0.45?"#0a1a0a":"#ffffff"; return _lm?<span style={{background:pc,color:ptxt,borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{plat}</span>:<span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"55",borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{plat}</span>; };
+        const rowEl = ({k,indent=0,label,chip,count,rev,spend,dev,profit,margin,share,bold,onClick,open,hasChildren,bg}) => (
+          <div key={k} onClick={onClick} style={{display:"grid",gridTemplateColumns:gcols,alignItems:"center",gap:6,padding:"6px 8px",paddingLeft:8+indent,borderBottom:`1px solid ${_lm?"#f1f5f9":"#0d1525"}`,cursor:onClick?"pointer":"default",background:bg||"transparent"}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+              {hasChildren ? <span style={{fontSize:9,color:_lm?"#94a3b8":"#4d6e8a",transform:open?"rotate(90deg)":"none",transition:"transform .12s",flexShrink:0,display:"inline-block",width:9}}>▸</span> : <span style={{width:9,flexShrink:0}}/>}
+              {chip}
+              {label!==""&&label!=null && <span style={{fontWeight:bold?800:600,color:_lm?"#0f172a":"#edf4ff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>}
+              {count!=null && <span style={{fontSize:9,color:_lm?"#94a3b8":"#4d6e8a",flexShrink:0,fontWeight:600}}>{count}</span>}
+            </div>
+            <div style={{textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:bold?700:600}}>{fDol(rev)}</div>
+            <div style={{textAlign:"right",color:"#f59e0b",fontWeight:bold?700:400}}>{spend==null?"⏳":fDol(spend)}</div>
+            {showDevFee && <div style={{textAlign:"right",color:"#e879a6"}}>{dev>0?fDol(dev):"—"}</div>}
+            <div style={{textAlign:"right",fontWeight:bold?800:700,color:profit==null?(_lm?"#94a3b8":"#3d5a72"):pColor(profit)}}>{profit==null?"—":fSgn(profit)}</div>
+            <div style={{textAlign:"right",color:(profit==null||rev<=0)?(_lm?"#94a3b8":"#3d5a72"):mColor(margin)}}>{(profit==null||rev<=0)?"—":Math.round(margin)+"%"}</div>
+            <div style={{textAlign:"right",color:_lm?"#94a3b8":"#64748b",fontSize:11}}>{share!=null?Math.round(share)+"%":""}</div>
+          </div>
+        );
+        const headRow = (first) => (
+          <div style={{display:"grid",gridTemplateColumns:gcols,gap:6,padding:"5px 8px",borderBottom:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`,fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",color:_lm?"#64748b":"#3d5a72"}}>
+            <div>{first}</div><div style={{textAlign:"right"}}>Rev</div><div style={{textAlign:"right"}}>Spend</div>{showDevFee&&<div style={{textAlign:"right"}}>Dev</div>}<div style={{textAlign:"right"}}>Profit</div><div style={{textAlign:"right"}}>Marg</div><div style={{textAlign:"right"}}>Share</div>
+          </div>
+        );
+        const secHead = (key, title, note) => { const open=plrSections.has(key); return (
+          <div onClick={()=>setPlrSections(s=>{const n=new Set(s);n.has(key)?n.delete(key):n.add(key);return n;})} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",padding:"9px 4px",userSelect:"none",borderTop:`1px solid ${_lm?"#eef2f7":"#111d2e"}`}}>
+            <span style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",transform:open?"rotate(90deg)":"none",transition:"transform .12s",display:"inline-block"}}>▸</span>
+            <span style={{fontSize:11.5,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",textTransform:"uppercase",letterSpacing:"0.06em"}}>{title}</span>
+            {note && <span style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a"}}>{note}</span>}
+          </div>
+        ); };
         return (
           <div style={{position:"fixed",inset:0,background:"#000a",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
             onClick={e=>{if(e.target===e.currentTarget)setShowPLReport(false);}}>
@@ -19984,132 +20044,75 @@ ${byPlatform.length?`<h2>By Platform</h2><table><thead><tr><th>Platform / Tactic
                     </div>
                   ))}
                 </div>
-                {/* By-partner rollup */}
+                {/* ── Interactive drill-downs — high-level rollups you click to open (mirrors the Revenue-tab
+                    "Where the money's made" dropdowns). By Campaign is collapsed by default. ── */}
                 {byPartner.length>0 && (
-                  <div style={{marginBottom:18}}>
-                    <div style={{fontSize:11,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>By Partner</div>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                      <thead>
-                        <tr style={{borderBottom:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
-                          {["Partner","Campaigns","Revenue","Spend",...(showDevFee?["Dev Fee"]:[]),"Profit","Margin","% of Profit"].map(h=>(
-                            <th key={h} style={{padding:"6px 8px",textAlign:["Partner"].includes(h)?"left":"right",color:_lm?"#64748b":"#3d5a72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
+                  <div>
+                    {secHead("partner","By Partner",`${byPartner.length} client${byPartner.length!==1?"s":""} · tap a row for its campaigns`)}
+                    {plrSections.has("partner") && (
+                      <div>
+                        {headRow("Partner")}
                         {byPartner.map((p,i)=>{
-                          const share = totalProfit>0 ? (p.profit/totalProfit*100) : null;
-                          return (
-                            <tr key={i} style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#0d1525"}`}}>
-                              <td style={{padding:"6px 8px",color:_lm?"#0f172a":"#d8eaf8",fontWeight:600,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.partner}</td>
-                              <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#475569":"#7a9bbf"}}>{p.tracked}{p.count>p.tracked?`/${p.count}`:""}</td>
-                              <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:600}}>${Math.round(p.revenue).toLocaleString()}</td>
-                              <td style={{padding:"6px 8px",textAlign:"right",color:"#f59e0b"}}>${Math.round(p.spend).toLocaleString()}</td>
-                              {showDevFee&&<td style={{padding:"6px 8px",textAlign:"right",color:"#e879a6"}}>{p.deviceFee>0?"$"+Math.round(p.deviceFee).toLocaleString():"—"}</td>}
-                              <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:p.profit>=0?"#00d48a":"#ef4444"}}>{(p.profit>=0?"+":"-")+"$"+Math.round(Math.abs(p.profit)).toLocaleString()}</td>
-                              <td style={{padding:"6px 8px",textAlign:"right",color:p.margin>=30?"#00d48a":p.margin>=15?"#f59e0b":"#ef4444"}}>{p.margin.toFixed(1)}%</td>
-                              <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#64748b":"#7a9bbf"}}>{share!=null?share.toFixed(0)+"%":"—"}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {/* By-platform rollup (vendor → tactic) */}
-                {byPlatform.length>0 && (
-                  <div style={{marginBottom:18}}>
-                    <div style={{fontSize:11,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>By Platform</div>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                      <thead>
-                        <tr style={{borderBottom:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
-                          {["Platform / Tactic","Campaigns","Revenue","Spend",...(showDevFee?["Dev Fee"]:[]),"Profit","Margin","% of Profit"].map(h=>(
-                            <th key={h} style={{padding:"6px 8px",textAlign:["Platform / Tactic"].includes(h)?"left":"right",color:_lm?"#64748b":"#3d5a72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {byPlatform.map((v,i)=>{
-                          const share = totalProfit>0 ? (v.profit/totalProfit*100) : null;
-                          const multi = v.tactics.length>1;
+                          const open=plrExpPartner.has(p.partner); const share=totalProfit>0?(p.profit/totalProfit*100):null;
                           return (
                             <React.Fragment key={i}>
-                              <tr style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#0d1525"}`,background:_lm?"#f8fafc":"#0a1628"}}>
-                                <td style={{padding:"7px 8px",color:_lm?"#0f172a":"#edf4ff",fontWeight:800}}>{v.vendor}{!multi&&<span style={{fontSize:9,fontWeight:600,color:_lm?"#94a3b8":"#4d6e8a",marginLeft:6}}>{v.tactics[0].plat}</span>}</td>
-                                <td style={{padding:"7px 8px",textAlign:"right",color:_lm?"#475569":"#7a9bbf"}}>{v.count}</td>
-                                <td style={{padding:"7px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:700}}>${Math.round(v.revenue).toLocaleString()}</td>
-                                <td style={{padding:"7px 8px",textAlign:"right",color:"#f59e0b",fontWeight:700}}>${Math.round(v.spend).toLocaleString()}</td>
-                                {showDevFee&&<td style={{padding:"7px 8px",textAlign:"right",color:"#e879a6"}}>{v.deviceFee>0?"$"+Math.round(v.deviceFee).toLocaleString():"—"}</td>}
-                                <td style={{padding:"7px 8px",textAlign:"right",fontWeight:800,color:v.profit>=0?"#00d48a":"#ef4444"}}>{(v.profit>=0?"+":"-")+"$"+Math.round(Math.abs(v.profit)).toLocaleString()}</td>
-                                <td style={{padding:"7px 8px",textAlign:"right",color:v.margin>=30?"#00d48a":v.margin>=15?"#f59e0b":"#ef4444"}}>{v.margin.toFixed(1)}%</td>
-                                <td style={{padding:"7px 8px",textAlign:"right",color:_lm?"#64748b":"#7a9bbf",fontWeight:700}}>{share!=null?share.toFixed(0)+"%":"—"}</td>
-                              </tr>
-                              {multi && v.tactics.map((t,j)=>{
-                                const pc = PLT_COLORS[t.plat]||"#4d6e8a";
-                                const pr=parseInt(pc.slice(1,3),16)/255,pg=parseInt(pc.slice(3,5),16)/255,pb=parseInt(pc.slice(5,7),16)/255;
-                                const ptxt=(0.299*pr+0.587*pg+0.114*pb)>0.45?"#0a1a0a":"#ffffff";
-                                return (
-                                  <tr key={i+"-"+j} style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#0d1525"}`}}>
-                                    <td style={{padding:"5px 8px 5px 22px"}}>{_lm?<span style={{background:pc,color:ptxt,borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{t.plat}</span>:<span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{t.plat}</span>}</td>
-                                    <td style={{padding:"5px 8px",textAlign:"right",color:_lm?"#94a3b8":"#4d6e8a"}}>{t.count}</td>
-                                    <td style={{padding:"5px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc"}}>${Math.round(t.revenue).toLocaleString()}</td>
-                                    <td style={{padding:"5px 8px",textAlign:"right",color:"#f59e0b"}}>${Math.round(t.spend).toLocaleString()}</td>
-                                    {showDevFee&&<td style={{padding:"5px 8px",textAlign:"right",color:"#e879a6"}}>{t.deviceFee>0?"$"+Math.round(t.deviceFee).toLocaleString():"—"}</td>}
-                                    <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:t.profit>=0?"#00d48a":"#ef4444"}}>{(t.profit>=0?"+":"-")+"$"+Math.round(Math.abs(t.profit)).toLocaleString()}</td>
-                                    <td style={{padding:"5px 8px",textAlign:"right",color:t.margin>=30?"#00d48a":t.margin>=15?"#f59e0b":"#ef4444"}}>{t.margin.toFixed(1)}%</td>
-                                    <td style={{padding:"5px 8px",textAlign:"right",color:_lm?"#cbd5e1":"#3d5a72"}}>—</td>
-                                  </tr>
-                                );
-                              })}
+                              {rowEl({k:"p"+i,label:p.partner,count:p.tracked+(p.count>p.tracked?"/"+p.count:""),rev:p.revenue,spend:p.spend,dev:p.deviceFee,profit:p.profit,margin:p.margin,share,bold:true,bg:_lm?"#f8fafc":"#0a1628",hasChildren:p.camps.length>0,open,onClick:p.camps.length>0?()=>setPlrExpPartner(s=>{const n=new Set(s);n.has(p.partner)?n.delete(p.partner):n.add(p.partner);return n;}):undefined})}
+                              {open && p.camps.map((c,j)=>rowEl({k:"p"+i+"c"+j,indent:22,chip:mkChip(c.platform),label:c.name,rev:c.revenue,spend:c.spend,dev:c.deviceFee,profit:c.profit,margin:c.revenue>0?(c.profit/c.revenue*100):0,share:null}))}
                             </React.Fragment>
                           );
                         })}
-                      </tbody>
-                    </table>
+                      </div>
+                    )}
                   </div>
                 )}
-                {/* Campaign table */}
-                <div style={{fontSize:11,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>By Campaign</div>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                  <thead>
-                    <tr style={{borderBottom:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
-                      {["Partner","Campaign","Plt","Revenue","Spend",...(showDevFee?["Dev Fee"]:[]),"Profit","Margin"].map(h=>(
-                        <th key={h} style={{padding:"7px 8px",textAlign:["Revenue","Spend","Dev Fee","Profit","Margin"].includes(h)?"right":"left",color:_lm?"#64748b":"#3d5a72",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...reportRows].sort((a,b)=>(b.profit||0)-(a.profit||0)).map((r,i)=>{
-                      const margin = r.revenue>0&&r.spend!=null?((r.profit||0)/r.revenue*100):null;
-                      const pc = PLT_COLORS[r.platform]||"#4d6e8a";
-                      const pr=parseInt(pc.slice(1,3),16)/255,pg=parseInt(pc.slice(3,5),16)/255,pb=parseInt(pc.slice(5,7),16)/255;
-                      const ptxt=(0.299*pr+0.587*pg+0.114*pb)>0.45?"#0a1a0a":"#ffffff";
-                      return (
-                        <tr key={i} style={{borderBottom:`1px solid ${_lm?"#f1f5f9":"#0d1525"}`,background:_lm?(i%2===0?"#ffffff":"#f8fafc"):(i%2===0?"transparent":"#06101a")}}>
-                          <td style={{padding:"6px 8px",color:_lm?"#475569":"#7a9bbf",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.partner}</td>
-                          <td style={{padding:"6px 8px",color:_lm?"#0f172a":"#d8eaf8",fontWeight:600,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</td>
-                          <td style={{padding:"6px 8px"}}>{_lm?<span style={{background:pc,color:ptxt,borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.platform}</span>:<span style={{background:pc+"22",color:pc,border:"1px solid "+pc+"55",borderRadius:3,padding:"1px 5px",fontSize:10,fontWeight:700}}>{r.platform}</span>}</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:600}}>${Math.round(r.revenue).toLocaleString()}</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",color:"#f59e0b"}}>{r.spend!=null?"$"+Math.round(r.spend).toLocaleString():"⏳"}</td>
-                          {showDevFee&&<td style={{padding:"6px 8px",textAlign:"right",color:"#e879a6"}}>{r.spend!=null&&r.deviceFee>0?"$"+Math.round(r.deviceFee).toLocaleString():"—"}</td>}
-                          <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:r.profit==null?(_lm?"#94a3b8":"#3d5a72"):r.profit>=0?"#00d48a":"#ef4444"}}>{r.profit==null?"—":(r.profit>=0?"+":"-")+"$"+Math.round(Math.abs(r.profit||0)).toLocaleString()}</td>
-                          <td style={{padding:"6px 8px",textAlign:"right",color:margin==null?(_lm?"#94a3b8":"#3d5a72"):margin>=30?"#00d48a":margin>=15?"#f59e0b":"#ef4444"}}>{margin==null?"—":margin.toFixed(1)+"%"}</td>
-                        </tr>
-                      );
-                    })}
-                    {/* Totals row */}
-                    <tr style={{borderTop:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`,background:_lm?"#f0fdf9":"#0a1628"}}>
-                      <td colSpan={3} style={{padding:"8px 8px",color:_lm?"#059669":"#edf4ff",fontWeight:800,fontSize:13}}>
-                        TOTAL {pendingCount>0&&<span style={{fontSize:10,fontWeight:400,color:_lm?"#94a3b8":"#3d5a72",marginLeft:6}}>({pendingCount} pending excluded from profit)</span>}
-                      </td>
-                      <td style={{padding:"8px 8px",textAlign:"right",color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:800,fontSize:13}}>${Math.round(totalRevWithSpend).toLocaleString()}</td>
-                      <td style={{padding:"8px 8px",textAlign:"right",color:"#f59e0b",fontWeight:800,fontSize:13}}>${Math.round(totalSpend).toLocaleString()}</td>
-                      {showDevFee&&<td style={{padding:"8px 8px",textAlign:"right",color:"#e879a6",fontWeight:800,fontSize:13}}>${Math.round(totalDeviceFee).toLocaleString()}</td>}
-                      <td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,fontSize:13,color:totalProfit>=0?"#00d48a":"#ef4444"}}>{(totalProfit>=0?"+":"-")+"$"+Math.round(Math.abs(totalProfit)).toLocaleString()}</td>
-                      <td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,fontSize:13,color:totalMargin>=30?"#00d48a":totalMargin>=15?"#f59e0b":"#ef4444"}}>{totalRevWithSpend>0?totalMargin.toFixed(1)+"%":"—"}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                {byPlatform.length>0 && (
+                  <div>
+                    {secHead("platform","By Platform",`${byPlatform.length} channel${byPlatform.length!==1?"s":""} · tap to drill vendor → tactic → campaigns`)}
+                    {plrSections.has("platform") && (
+                      <div>
+                        {headRow("Platform / Tactic")}
+                        {byPlatform.map((v,i)=>{
+                          const multi=v.tactics.length>1; const open=plrExpVendor.has(v.vendor); const share=totalProfit>0?(v.profit/totalProfit*100):null;
+                          const soloCamps=!multi?(v.tactics[0]?.camps||[]):[]; const expandable=multi||soloCamps.length>0;
+                          return (
+                            <React.Fragment key={i}>
+                              {rowEl({k:"v"+i,label:v.vendor,chip:!multi?mkChip(v.tactics[0].plat):null,count:v.count,rev:v.revenue,spend:v.spend,dev:v.deviceFee,profit:v.profit,margin:v.margin,share,bold:true,bg:_lm?"#f8fafc":"#0a1628",hasChildren:expandable,open,onClick:expandable?()=>setPlrExpVendor(s=>{const n=new Set(s);n.has(v.vendor)?n.delete(v.vendor):n.add(v.vendor);return n;}):undefined})}
+                              {open && multi && v.tactics.map((t,j)=>{
+                                const tkey=v.vendor+"|"+t.plat; const topen=plrExpTactic.has(tkey);
+                                return (
+                                  <React.Fragment key={"t"+j}>
+                                    {rowEl({k:"v"+i+"t"+j,indent:18,chip:mkChip(t.plat),label:null,count:t.count,rev:t.revenue,spend:t.spend,dev:t.deviceFee,profit:t.profit,margin:t.margin,share:null,hasChildren:t.camps.length>0,open:topen,onClick:t.camps.length>0?()=>setPlrExpTactic(s=>{const n=new Set(s);n.has(tkey)?n.delete(tkey):n.add(tkey);return n;}):undefined})}
+                                    {topen && t.camps.map((c,k)=>rowEl({k:"v"+i+"t"+j+"c"+k,indent:42,label:c.name,rev:c.revenue,spend:c.spend,dev:c.deviceFee,profit:c.profit,margin:c.revenue>0?(c.profit/c.revenue*100):0,share:null}))}
+                                  </React.Fragment>
+                                );
+                              })}
+                              {open && !multi && soloCamps.map((c,j)=>rowEl({k:"v"+i+"s"+j,indent:22,label:c.name,rev:c.revenue,spend:c.spend,dev:c.deviceFee,profit:c.profit,margin:c.revenue>0?(c.profit/c.revenue*100):0,share:null}))}
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div>
+                  {secHead("campaign","By Campaign",`all ${reportRows.length} campaign${reportRows.length!==1?"s":""}`)}
+                  {plrSections.has("campaign") && (
+                    <div>
+                      {headRow("Campaign")}
+                      {[...reportRows].sort((a,b)=>(b.profit||0)-(a.profit||0)).map((r,i)=>rowEl({k:"c"+i,chip:mkChip(r.platform),label:r.name,rev:r.revenue,spend:r.spend!=null?r.spend:null,dev:r.deviceFee,profit:r.profit==null?null:r.profit,margin:(r.revenue>0&&r.spend!=null)?((r.profit||0)/r.revenue*100):0,share:null}))}
+                    </div>
+                  )}
+                </div>
+                {/* Grand total — always visible so the headline number stays grounded with sections collapsed. */}
+                <div style={{display:"grid",gridTemplateColumns:gcols,alignItems:"center",gap:6,padding:"9px 8px",marginTop:8,borderTop:`2px solid ${_lm?"#e2e8f0":"#1a2744"}`,background:_lm?"#f0fdf9":"#0a1628",borderRadius:8}}>
+                  <div style={{fontWeight:800,fontSize:13,color:_lm?"#059669":"#edf4ff"}}>TOTAL {pendingCount>0&&<span style={{fontSize:10,fontWeight:400,color:_lm?"#94a3b8":"#3d5a72"}}>({pendingCount} pending excl.)</span>}</div>
+                  <div style={{textAlign:"right",fontWeight:800,fontSize:13,color:_lm?"#0ea5e9":"#7dd3fc"}}>{fDol(totalRevWithSpend)}</div>
+                  <div style={{textAlign:"right",fontWeight:800,fontSize:13,color:"#f59e0b"}}>{fDol(totalSpend)}</div>
+                  {showDevFee&&<div style={{textAlign:"right",fontWeight:800,fontSize:13,color:"#e879a6"}}>{fDol(totalDeviceFee)}</div>}
+                  <div style={{textAlign:"right",fontWeight:800,fontSize:13,color:pColor(totalProfit)}}>{fSgn(totalProfit)}</div>
+                  <div style={{textAlign:"right",fontWeight:800,fontSize:13,color:totalRevWithSpend>0?mColor(totalMargin):"#94a3b8"}}>{totalRevWithSpend>0?Math.round(totalMargin)+"%":"—"}</div>
+                  <div/>
+                </div>
                 <div style={{marginTop:14,fontSize:10,color:_lm?"#64748b":"#3d5a72",display:"flex",justifyContent:"space-between"}}>
                   <span>{focusLabel} P&L{lock?" · 🔒 Locked "+lock.lockedAt:" · Live data (not locked)"}</span>
                   <span>Generated {new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span>
