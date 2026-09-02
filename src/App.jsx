@@ -686,9 +686,13 @@ const STATUS_CFG = {
   "pacing-ahead":  { label:"Pacing Ahead",  color:"#f97316", bg:"#151000" },
   "pacing-behind": { label:"Pacing Behind", color:"#fde047", bg:"#151a00" },
   "off":           { label:"Off",           color:"#ef4444", bg:"#1a0808" },
+  "paused":        { label:"Paused",        color:"#f59e0b", bg:"#1a1200" },
   "close-to-goal": { label:"Close to Goal", color:"#00e5c0", bg:"#00201a" },
   "":              { label:"Pending",       color:"#a855f7", bg:"#071420" },
 };
+// A "stopped" campaign — turned off OR temporarily paused. Both are NOT-delivering states, so they're
+// grouped together (out of the active pacing list, into the Off/Paused section, off for revenue).
+const isStoppedStatus = (s) => s === "off" || s === "paused";
 const PLT_COLORS_DEFAULT = {
   SEM:"#b91c1c", TD:"#00ffb3", TDV:"#00d48a", TDA:"#a78bfa",
   DSP:"#7dd3fc", FB:"#f472b6", FBV:"#a855f7",
@@ -1489,14 +1493,23 @@ function crossMonthFlightPacing(c) {
   if (!c || !c.startDate || !c.endDate) return null;
   const n = new Date(); const curMonthKey = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;
   if (!(c.startDate.slice(0,7) < curMonthKey && c.endDate.slice(0,7) >= curMonthKey)) return null;
-  if (!flightGoalLabel(c)) return null;   // only real flights (By-dates / total-goal), not recurring "/Mo"
+  // Qualify EITHER as a recognized flight (By-dates / total-goal, no "/Mo") OR a SHORT single-window buy
+  // (≤ 45 days) that just crosses a month boundary. The latter is a ONE-TIME flight even when its goal was
+  // entered as "X/Mo" (e.g. a 4-week IG buy 8/21–9/18 booked as "109K/Mo") — so it must ACCUMULATE its
+  // prior-month delivery across the boundary instead of resetting to ~0 when the month closes (the user's
+  // "all data was removed" case). A genuine recurring monthly campaign runs longer, so the ≤45-day cap
+  // excludes it (a real 2-month+ flight already qualifies via flightGoalLabel).
+  const _flightDays = Math.round((new Date(c.endDate+"T00:00:00") - new Date(c.startDate+"T00:00:00"))/86400000) + 1;
+  if (!flightGoalLabel(c) && !(_flightDays > 0 && _flightDays <= 45)) return null;
   const mk = pacingMetricFor(c.platform, c.dealType);
   const d = resolveMetrics(c, "mtd") || {};
   const liveMtd = mk === "views" ? (parseInt(d.videoViews || c.videoViews) || 0)
     : mk === "spend" ? (parseFloat(d.spend || c.spend) || 0)
     : (parseInt(d.impressions || c.impressions) || 0);
   const delivered = priorMonthsDeliveredFromBackups(c, curMonthKey) + liveMtd;
-  const lp = computeLifetimePacing(c, delivered, parseGoalNumber(c.goal));
+  // Total goal for the flight — the Goal box (for a short "/Mo" one-time buy the box holds the whole-flight
+  // total, e.g. 109K); fall back to the Note-1 monthly figure only if the Goal box is empty.
+  const lp = computeLifetimePacing(c, delivered, parseGoalNumber(c.goal) || parseMonthlyGoal(c.note1) || 0);
   if (!lp) return null;
   return { ...lp,
     pctRaw: lp.pct,
@@ -1647,6 +1660,15 @@ function computeDailyTarget(impressions, note1, startDate, endDate, totalGoalRaw
   const _cs = _pISO(startDate), _ce = _pISO(endDate);
   if (_cs && _cs > winStart) winStart = _cs;
   if (_ce && _ce < winEnd)   winEnd   = _ce;
+  // If the flight doesn't overlap the current month (a NOT-STARTED campaign whose flight begins next month,
+  // or one that already ended), the clip above leaves winStart > winEnd → a 1-day window → the daily target
+  // wrongly equals the FULL monthly goal (the user: "daily and monthly goals are the same"). Re-anchor to
+  // the flight's OWN first month so the per-day target = monthly goal ÷ that month's days.
+  if (winStart > winEnd && _cs) {
+    winStart = _cs;
+    winEnd = new Date(_cs.getFullYear(), _cs.getMonth() + 1, 0); // end of the flight-start month
+    if (_ce && _ce < winEnd) winEnd = _ce;                        // flight ends within its first month
+  }
   const windowDays = Math.max(1, Math.round((winEnd - winStart) / _dayMs) + 1);
   const daysSoFar  = Math.max(0, Math.min(windowDays - 1, Math.round((now - winStart) / _dayMs))); // completed, excl today
   const daysLeft   = Math.max(0, Math.min(windowDays, Math.round((winEnd - now) / _dayMs) + 1));    // remaining, incl today
@@ -4522,8 +4544,8 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             const w = [];
             if (rate <= 0 && !isSEM) w.push(`No ${isCPV ? "CPV" : "CPM"} rate — revenue can't calculate until you set one.`);
             if (goalN <= 0 && !isSEM) w.push(`No ${isCPV ? "view" : "impression"} goal set.`);
-            if (rate > 0 && !isCPV && !isSEM && (rate < 0.5 || rate > 100)) w.push(`The CPM ($${rate.toFixed(2)}) looks unusual — double-check it parsed correctly.`);
-            if (rate > 0 && isCPV && rate > 2) w.push(`The CPV ($${rate.toFixed(2)}) looks high for a per-view rate — verify.`);
+            // Rate-typo guard — platform-aware (vs your own usual rate for the platform, else a sane band).
+            if (!isSEM) { const rw = rateSanity(f.platform, f.dealType, f.contractRate, learnRatesByPlatform(campaigns)[f.platform]); if (rw) w.push(rw); }
             // (Removed the "budget ≠ rate × goal" check — Contract Value AUTO-FILLS from goal × rate, so it
             //  only ever mismatched for the one render between a goal keystroke and the auto-fill catching
             //  up, which made the whole banner flash on every keystroke. The auto-fill keeps them in sync.)
@@ -4634,7 +4656,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                   <label style={{display:"block",fontSize:10,color:_lm?"#3B8FFF":"#00d9ff",textTransform:"uppercase",letterSpacing:"0.06em"}}>{goalMode==="flat"?"Monthly Goal":"Goal Schedule"}</label>
                   {/* 3-way mode control: Single flat goal · per-month grid · custom date-range segments */}
                   <div style={{display:"flex",gap:3}}>
-                    {[["flat","Single"],["month","📅 By month"],["dates","📆 By dates"]].map(([m,lbl])=>{
+                    {[["flat","Single"],["month","📅 By month"],["dates","✈ Flights"]].map(([m,lbl])=>{
                       const on = goalMode===m;
                       return (
                         <button key={m} type="button"
@@ -5007,6 +5029,11 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                       <span style={{fontWeight:400,color:_lm?"#475569":"#4d6e8a"}}> · {effectiveDt==="CPV"?(goal/1000).toFixed(1)+"K views":(goal/1000).toFixed(1)+"K impr"}</span>
                     </div>;
                   })()}
+                  {/* Rate-typo guard — flags a CPM/CPV that's way off your usual rate for this platform (or out
+                      of a sane band), so a mis-keyed billing rate is caught here, not in the month-close P&L. */}
+                  {(()=>{ const w = rateSanity(f.platform, f.dealType, f.contractRate, learnRatesByPlatform(campaigns)[f.platform]); return w ? (
+                    <div style={{fontSize:11,color:_lm?"#b45309":"#fbbf24",background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#fcd34d":"#f59e0b55"}`,borderRadius:6,padding:"5px 9px",marginTop:6,lineHeight:1.4}}>⚠ {w}</div>
+                  ) : null; })()}
                 </div>
               )}
               {/* Device Targeting surcharge — the device line bills us an extra $/1K impr (a COST
@@ -9065,7 +9092,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // not the Off Campaigns list — the start date is what matters, not the on/off toggle.
   const notStartedRunning = campaigns.filter(c => c.status!=="archived" && c.startDate && c.startDate.slice(0,10) > todayStr)
     .sort((a,b)=>a.startDate.localeCompare(b.startDate));
-  const allActive = campaigns.filter(c=>c.status!=="off" && !(c.startDate && c.startDate.slice(0,10) > todayStr));
+  const allActive = campaigns.filter(c=>!isStoppedStatus(c.status) && !(c.startDate && c.startDate.slice(0,10) > todayStr));
   const partners  = ["all", ...new Set(allActive.map(c=>c.mediaPartner).filter(Boolean))].sort();
   // Only platforms the user actually has campaigns on (active + off) — don't list platforms with zero
   // campaigns on the tracker. Uses the full `campaigns` prop (not just allActive) so a platform used
@@ -9075,7 +9102,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // Build rows for ALL active
   const allRows = allActive.map(c=>{
     const disp=resolveMetrics(c,dateRange.preset);
-    const pacing=computeMonthlyPacing(c, disp, c.note1);
+    // crossMonthFlightPacing first so a cross-month flight (incl. a SHORT one-time buy booked as "X/Mo")
+    // paces on its CUMULATIVE delivery (prior-month backups + live MTD) instead of resetting to ~0 when the
+    // month closes — otherwise a flight like an 8/21–9/18 buy reads "behind" off just the new month's data.
+    const pacing=crossMonthFlightPacing(c) || computeMonthlyPacing(c, disp, c.note1);
     const monthlyGoal=effectiveMonthlyGoal(c);
     return {c,disp,pacing,monthlyGoal};
   });
@@ -9084,9 +9114,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // user can still see pacing/data for paused campaigns (e.g. ones that already
   // hit goal) without them mixing into the active Behind/On Track/Ahead buckets.
   // Off campaigns — but NOT future-dated ones (those live in Not Started Yet above, regardless of on/off).
-  const offRows = campaigns.filter(c => c.status === "off" && !(c.startDate && c.startDate.slice(0,10) > todayStr)).map(c => {
+  const offRows = campaigns.filter(c => isStoppedStatus(c.status) && !(c.startDate && c.startDate.slice(0,10) > todayStr)).map(c => {
     const disp = resolveMetrics(c, dateRange.preset);
-    const pacing = computeMonthlyPacing(c, disp, c.note1);
+    const pacing = crossMonthFlightPacing(c) || computeMonthlyPacing(c, disp, c.note1);
     const monthlyGoal = effectiveMonthlyGoal(c);
     return { c, disp, pacing, monthlyGoal };
   });
@@ -10166,6 +10196,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       primaryLabel = "impr";
       primaryColor = "#7dd3fc"; // blue for impressions
     }
+    // For a cross-month FLIGHT, pacing is CUMULATIVE (prior-month backups + live MTD), so the "served"
+    // figure must show that flight total — not just this month's MTD — to match the pacing bar/% and the
+    // expected figure (both already flight-basis). Otherwise the row reads e.g. "1.8K / 45.1K" next to 93%.
+    if (pacing && pacing.flightBasis && pacing.delivered != null) primaryRaw = pacing.delivered;
     // Format with $ for spend, K/M for counts
     if (metricKind === "spend") {
       primaryFmt = primaryRaw >= 1000 ? "$"+(primaryRaw/1000).toFixed(1)+"k" : primaryRaw > 0 ? "$"+primaryRaw.toFixed(0) : null;
@@ -10339,17 +10373,20 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Monthly Goal — impressions / views / spend goal, standalone (budget moved to its own column) */}
       <div>
         {monthlyGoal
-          ? <div style={{display:"flex",flexDirection:"column",gap:1,alignItems:"flex-start"}}>
-              <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}} title={monthlyGoalIsFromFlight(c)?`This month's prorated share of the ${(parseGoalNumber(c.goal)||0).toLocaleString()} flight goal (${fmtDate(c.startDate)}–${fmtDate(c.endDate)}) — no monthly goal set`:`Exact goal: ${monthlyGoal.toLocaleString()}`}>
+          ? (()=>{
+              // When pacing on a cross-month FLIGHT basis, show the whole-flight TOTAL goal (matches the
+              // cumulative served/bar) instead of just this month's phase — otherwise the row shows e.g.
+              // "GOAL 109K" next to a bar that's 38.7% of the 175K flight total.
+              const _isFl = (pacing && pacing.flightBasis) || monthlyGoalIsFromFlight(c);
+              const _g = (pacing && pacing.flightBasis && pacing.goal) ? pacing.goal : monthlyGoal;
+              return <div style={{display:"flex",flexDirection:"column",gap:1,alignItems:"flex-start"}}>
+              <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}} title={pacing&&pacing.flightBasis?`Flight total ${_g.toLocaleString()} across ${fmtDate(c.startDate)}–${fmtDate(c.endDate)} — cumulative delivery (closed months + this month) vs this total`:(monthlyGoalIsFromFlight(c)?`This month's prorated share of the ${(parseGoalNumber(c.goal)||0).toLocaleString()} flight goal (${fmtDate(c.startDate)}–${fmtDate(c.endDate)}) — no monthly goal set`:`Exact goal: ${_g.toLocaleString()}`)}>
                 {metricKind==="spend"
-                  ? "$"+(monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"k":monthlyGoal.toFixed(0))
-                  // Use one decimal place (not zero) so a goal like 41,667 displays
-                  // as "41.7K" not "42K". Matches the precision of the Delivered column
-                  // so users can directly compare "41.8K delivered vs 41.7K goal".
-                  : monthlyGoal>=1000000?(monthlyGoal/1000000).toFixed(2)+"M":monthlyGoal>=1000?(monthlyGoal/1000).toFixed(1)+"K":String(monthlyGoal)}
+                  ? "$"+(_g>=1000?(_g/1000).toFixed(1)+"k":_g.toFixed(0))
+                  : _g>=1000000?(_g/1000000).toFixed(2)+"M":_g>=1000?(_g/1000).toFixed(1)+"K":String(_g)}
               </span>
-              {monthlyGoalIsFromFlight(c) && <span title="This month's share of the total contract Goal, spread across the flight dates (no monthly goal in Note 1)" style={{fontSize:8,fontWeight:700,color:lightMode?"#2563eb":"#7ec8ff",background:lightMode?"#dbeafe":"#0a2540",border:`1px solid ${lightMode?"#93c5fd":"#1e466e"}`,borderRadius:3,padding:"0px 4px",whiteSpace:"nowrap",letterSpacing:"0.02em"}}>✈ flight</span>}
-            </div>
+              {_isFl && <span title={pacing&&pacing.flightBasis?"Whole-flight total goal — the row paces cumulative delivery across the flight dates":"This month's share of the total contract Goal, spread across the flight dates (no monthly goal in Note 1)"} style={{fontSize:8,fontWeight:700,color:lightMode?"#2563eb":"#7ec8ff",background:lightMode?"#dbeafe":"#0a2540",border:`1px solid ${lightMode?"#93c5fd":"#1e466e"}`,borderRadius:3,padding:"0px 4px",whiteSpace:"nowrap",letterSpacing:"0.02em"}}>✈ flight</span>}
+            </div>; })()
           : <span style={{fontSize:11,color:lmTxtD}}>—</span>}
       </div>
 
@@ -11836,8 +11873,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"visible",background:lmBg,marginTop:8,marginBottom:8}}>
         <TableHeader/>
         {noPace.length>0 && <Section connected label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false} forceOpen={troubleOnly}/>}
-        {offFiltered.length>0 && <Section connected label="Off Campaigns" color="#7a9bbf" items={offFiltered} defaultOpen={true} forceOpen={troubleOnly}
-          note="paused/ended — still visible for reference; a paused campaign that hit goal early still counts as Trouble"/>}
+        {offFiltered.length>0 && <Section connected label="Off / Paused Campaigns" color="#7a9bbf" items={offFiltered} defaultOpen={true} forceOpen={troubleOnly}
+          note="off or paused — still visible for reference; one that hit goal early still counts as Trouble"/>}
       </div>
     )}
     {/* "Needs Monthly Goal" stays at the bottom (a config bucket, not an error). */}
@@ -12208,6 +12245,27 @@ function learnRatesByPlatform(campaigns) {
   }
   return out;
 }
+// Flag a contract rate that looks like a data-entry typo — the money-saver: a mis-billed rate (a $70 CTV
+// CPM that should be $7, a CPV entered as a CPM) is caught at the source instead of in the month-close P&L.
+// Compares to THIS user's own typical rate for the platform (learned from their campaigns, ≥2 data points),
+// else falls back to a sane absolute band. Returns a short warning string, or null when the rate looks fine.
+function rateSanity(platform, dealType, rateRaw, learned) {
+  const rate = parseFloat(rateRaw);
+  if (!(rate > 0)) return null;                       // blank/zero is a "missing rate" gap, handled elsewhere
+  const isCPV = dealType === "CPV" || platform === "YT";
+  const unit  = isCPV ? "CPV" : "CPM";
+  const fmt   = v => isCPV ? `$${v.toFixed(3)}` : `$${v.toFixed(2)}`;
+  if (learned && learned.rate > 0 && (learned.count || 0) >= 2) {
+    const ratio = rate / learned.rate;
+    if (ratio >= 4)    return `${fmt(rate)} ${unit} is ~${Math.round(ratio)}× your usual ${platform} rate (${fmt(learned.rate)}) — verify it isn't a typo.`;
+    if (ratio <= 0.25) return `${fmt(rate)} ${unit} is far below your usual ${platform} rate (${fmt(learned.rate)}) — verify it isn't a typo.`;
+    return null;
+  }
+  if (isCPV) { if (rate > 3)    return `${fmt(rate)} CPV looks high for a per-view rate — verify a CPM wasn't entered as CPV.`; }
+  else       { if (rate > 250)  return `${fmt(rate)} CPM looks unusually high — verify it isn't a typo.`;
+               if (rate < 0.10) return `${fmt(rate)} CPM looks unusually low — verify it isn't a typo.`; }
+  return null;
+}
 // Suggest a rate for a platform: learned-from-history first, else a seeded default, else null.
 function suggestRate(platform, learnedMap) {
   if (learnedMap && learnedMap[platform]) return { rate: learnedMap[platform].rate, count: learnedMap[platform].count, learned: true };
@@ -12386,6 +12444,7 @@ function semMonthWeights(startDate, endDate) {
   const end   = new Date(endDate   + "T00:00:00");
   const weights = {}; let total = 0;
   if (isNaN(start) || isNaN(end) || end < start) return { weights, total };
+  const raw = {};
   let cur = new Date(start.getFullYear(), start.getMonth(), 1);
   const endMo = new Date(end.getFullYear(), end.getMonth(), 1);
   while (cur <= endMo) {
@@ -12393,11 +12452,16 @@ function semMonthWeights(startDate, endDate) {
     const dim = new Date(y, m+1, 0).getDate();
     const mStart = new Date(Math.max(start, new Date(y, m, 1)));
     const mEnd   = new Date(Math.min(end,   new Date(y, m+1, 0)));
-    const w = Math.max(0, Math.round((mEnd - mStart)/86400000) + 1) / dim; // fraction of THIS month covered
-    weights[`${y}-${String(m+1).padStart(2,"0")}`] = w;
-    total += w;
+    raw[`${y}-${String(m+1).padStart(2,"0")}`] = Math.max(0, Math.round((mEnd - mStart)/86400000) + 1) / dim; // fraction covered
     cur = new Date(y, m+1, 1);
   }
+  // ROUND each month to a whole flight-month: a month covered ≥ half counts as one (weight 1), a tiny tail
+  // (e.g. a 3-day November on an 8/10–11/03 buy) drops to 0 — so a $750 fee over "Aug–Oct" splits evenly
+  // to $250 each, matching how the user quotes it, instead of a day-share ($189 Aug / … / $27 Nov).
+  for (const mo in raw) { const w = Math.round(raw[mo]); weights[mo] = w; total += w; }
+  // Guard: if EVERY month rounds to 0 (a short buy split across two partial months), fall back to the raw
+  // fractions so we never divide by zero.
+  if (total <= 0) { for (const mo in raw) { weights[mo] = raw[mo]; total += raw[mo]; } }
   return { weights, total };
 }
 function semMonthlyBudget(c) {
@@ -12406,6 +12470,11 @@ function semMonthlyBudget(c) {
   if (mo) return parseFloat(mo[1]);
   const day = note.match(/\$\s*([\d.]+)\s*\/\s*day/i);          // "$X/Day" → monthly = daily × days in the current month
   if (day) { const n = new Date(); return parseFloat(day[1]) * new Date(n.getFullYear(), n.getMonth()+1, 0).getDate(); }
+  // Bare dollar amount, no "/Mo" tag: for SEM the Monthly Goal field IS the monthly budget, so a note
+  // that's JUST a dollar amount ("$1,125", "1125", "2.9K") counts even without the suffix — mirrors
+  // parseMonthlyGoal's Strategy 5. Whole-string match only, so prose ("spent $500") isn't misread.
+  const bare = note.trim().match(/^\$?\s*([\d.]+)\s*([KkMm]?)$/);
+  if (bare) { let v = parseFloat(bare[1]); const u = bare[2].toLowerCase(); if (u === "k") v *= 1000; else if (u === "m") v *= 1e6; return v || 0; }
   return 0;
 }
 // SEM management fee = the TOTAL fee for the WHOLE contract, not a per-month amount. the user's model:
@@ -12423,6 +12492,11 @@ function semTotalFee(c) { return parseFloat(c?.managementFee) || 0; }
 // numbers don't move. Requires CV > fee so we never read a media-only or fee-only value as a total.
 function semMediaBudgetTotal(c) {
   if (!c || c.platform !== "SEM") return 0;
+  // An explicit monthly budget ("$X/Mo" in Note 1) is the user's DIRECT per-month statement of what they
+  // spend in the platform — it WINS over deriving a media total from the Contract Value. So a campaign
+  // with both (e.g. $1,750/Mo goal + a $5,250 contract total) budgets against the $1,750/mo, not a day-share
+  // of (contract − fee). Without this the partial first month read $1,137 instead of the $1,750 budget.
+  if (semMonthlyBudget(c) > 0) return 0;
   const cv = parseFloat(c.contractValue) || 0;
   const fee = semTotalFee(c);
   return (cv > 0 && cv > fee) ? (cv - fee) : 0;
@@ -12443,7 +12517,10 @@ function semBudgetForMonth(c, mo) {
   const mEnd   = new Date(Math.min(flightEnd,   new Date(y, mm, 0)));
   const activeDays = Math.max(0, Math.round((mEnd - mStart) / 86400000) + 1);
   if (mediaTotal > 0) { const { weights, total } = semMonthWeights(c.startDate, c.endDate); return total > 0 ? mediaTotal * ((weights[mo]||0) / total) : 0; }
-  return budgetPerMo * (activeDays / dim);
+  // Monthly "$X/Mo" budget = the FULL monthly amount for each whole flight-month (a partial month the flight
+  // covers ≥ half still gets the full monthly budget — a mid-month launch doesn't shrink the client's monthly
+  // spend cap); a tiny tail month gets $0. So an 8/10 start still budgets $1,750 for August.
+  return budgetPerMo * Math.round(activeDays / dim);
 }
 
 // SEM "revenue" map = the management fee SPREAD across the flight (Recrue's revenue; client media is
@@ -13172,7 +13249,7 @@ function OrgMatrixView({ campaigns=[] }) {
   // Effective status of one campaign line: off (paused) · pending (starts in the future) · ended (flight over) · active.
   const _today = getToday();
   const effStatus = (c) => {
-    if((c.status||"active")==="off") return "off";
+    if(isStoppedStatus(c.status||"active")) return "off";
     const s=(c.startDate||"").slice(0,10), e=(c.endDate||"").slice(0,10);
     if(s && s>_today) return "pending";
     if(e && e<_today) return "ended";
@@ -17953,7 +18030,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       const mEnd   = new Date(Math.min(flightEnd,   new Date(y, mm, 0)));
       const activeDays = Math.max(0, Math.round((mEnd - mStart)/86400000) + 1);
       if (mediaTotal > 0) { const { weights, total } = semMonthWeights(c.startDate, c.endDate); return total > 0 ? mediaTotal * ((weights[m]||0) / total) : 0; } // month-fraction share of the TOTAL
-      return budgetPerMo * (activeDays / dim);                                // legacy monthly (per-month budget)
+      return budgetPerMo * Math.round(activeDays / dim);                      // monthly "$X/Mo" budget — FULL for each whole flight-month (matches semBudgetForMonth)
     };
     const nextMo = (m) => { const [y, mm] = m.split("-").map(Number); const d = new Date(y, mm, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
     // Walk flight months start→mo, accumulating budget+spend for REPORTED months only; capture the
@@ -18188,20 +18265,28 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   months.forEach(mo => { monthTotals[mo] = { revenue:0, spend:0, deviceFee:0, revenueWithSpend:0, pendingRev:0, pendingCount:0 }; });
   filtered.forEach(c => {
     const spread = revenueMapForCampaign(c);
-    Object.entries(spread).forEach(([mo, rev]) => {
-      if (!monthTotals[mo]) return;
+    // Iterate EVERY window month (not just the months present in the live revenue spread), calling the
+    // SAME resolvers the per-campaign table below uses (billedRevenue/spendForMonth/deviceFeeForMonth).
+    // This is what makes the headline tiles + chart provably equal to the sum of the per-campaign
+    // focusCell rows. If we iterated only Object.entries(spread), a campaign whose FROZEN lock snapshot
+    // holds a month's spend but whose CURRENT spread no longer emits that month (e.g. after an
+    // unlock→edit→relock, or a spend-logged/0-impression campaign) would be counted by the table's
+    // focusCell but SKIPPED here — making a locked month's headline profit drift above the table total.
+    months.forEach(mo => {
       // Goal→billed via the shared resolver (delivery cap · SEM paused-month · lock freeze) so the tiles,
-      // chart, and Export P&L always match the per-campaign table below.
-      const adjRev = billedRevenue(c, mo, rev);
-      monthTotals[mo].revenue += adjRev;
+      // chart, and Export P&L always match the per-campaign table below. For a locked month billedRevenue
+      // ignores goalRev and returns the frozen per-campaign revenue, so passing spread[mo]||0 is safe.
+      const adjRev = billedRevenue(c, mo, spread[mo] || 0);
       const s = spendForMonth(c, mo);
       if (s != null) {
         // Trackable for THIS month — counts toward profit
+        monthTotals[mo].revenue += adjRev;
         monthTotals[mo].revenueWithSpend += adjRev;
         monthTotals[mo].spend += s;
         monthTotals[mo].deviceFee += deviceFeeForMonth(c, mo);
       } else if (adjRev > 0) {
         // Revenue but no spend data for this month — pending
+        monthTotals[mo].revenue += adjRev;
         monthTotals[mo].pendingRev += adjRev;
         monthTotals[mo].pendingCount += 1;
       }
@@ -18385,12 +18470,15 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     }
     return true;
   });
-  // Totals for exactly what's VISIBLE (respects client/platform/search). Uses the WINDOW figures
-  // (windowRev/Spend/Profit) — the SAME basis as the headline KPI tiles at the top — so the two never
-  // disagree; only the search narrows this one further. Profit/margin count REALIZED rows (windowProfit != null).
+  // Totals for exactly what's VISIBLE (respects client/platform/search). Scoped to the ACTIVE MONTH
+  // (focusCell) — the SAME basis as the Monthly Profit chart's focused bar, the "Viewing <month>" bar,
+  // and the campaign breakdown table right below — so the tiles read as "this month" and never disagree
+  // with the chart. (Previously summed the whole Jun–Oct window, which made July's tile show every
+  // month's profit at once.) Profit/margin count REALIZED rows only (focusCell.profit != null).
   const visTotals = dateVisibleRows.reduce((a,r)=>{
-    a.rev += r.windowRev || 0;
-    if (r.windowProfit != null) { a.spendRev += r.windowRev || 0; a.spend += r.windowSpend || 0; a.profit += r.windowProfit; }
+    const fc = r.focusCell || {};
+    a.rev += fc.rev || 0;
+    if (fc.profit != null) { a.spendRev += fc.rev || 0; a.spend += fc.spend || 0; a.profit += fc.profit; }
     return a;
   }, { rev:0, spendRev:0, spend:0, profit:0 });
   const visMargin = visTotals.spendRev > 0 ? (visTotals.profit / visTotals.spendRev) * 100 : null;
@@ -18558,9 +18646,11 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
     <div style={{color:_lm?"#0f172a":"#d8eaf8", maxWidth:1500, margin:"0 auto", display:"flex", flexDirection:"column"}}>
       {/* Un-closed-month notice — the tab stays anchored to last month until you close it (see
           thisMonth = moStr(pacingNow())); this explains that and offers one-click close. */}
-      {monthResetAvailable && <MonthNotClosedBanner status={monthCloseStatus()} onCloseMonth={onCloseMonth}/>}
+      {monthResetAvailable && <div style={{order:-2}}><MonthNotClosedBanner status={monthCloseStatus()} onCloseMonth={onCloseMonth}/></div>}
       {/* ── Header ─────────────────────────────────────────────── */}
-      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:14}}>
+      {/* order: header/nudges/navigator pinned above the Monthly Profit chart (order:-1); the chart sits
+          FIRST among the content per the user, with the KPI/Growth/analytics cards flowing under it. */}
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12,marginBottom:14,order:-2}}>
         <div>
           <div style={{fontSize:15,fontWeight:800,color:_lm?"#0f172a":"#edf4ff",marginBottom:2}}>💰 Revenue Dashboard</div>
           <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a"}}>{withContract.length} campaigns · {trackableCampaigns.length} with spend data{totPendingCampaigns>0?` · ${totPendingCampaigns} pending`:""}{notStartedCampaigns>0?` · ${notStartedCampaigns} not started yet`:""}</div>
@@ -18579,7 +18669,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
 
       {/* ── Finish the rates: actionable checklist so every revenue number is calculated, not estimated ── */}
       {missingRates.length>0&&(
-        <div style={{background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:9,padding:"10px 16px",marginBottom:14}}>
+        <div style={{background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:9,padding:"10px 16px",marginBottom:14,order:-2}}>
           <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
             <span style={{fontSize:13}}>📊</span>
             <div style={{flex:1,minWidth:0}}>
@@ -18633,7 +18723,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       {/* ── Device-surcharge suggestion nudge — mirrors the "finish the rates" nudge above.
           Flags FB/Snapchat device-ID-integration campaigns that don't yet carry the surcharge. ── */}
       {deviceIdSuggestions.length>0&&(
-        <div style={{background:_lm?"#fdf2f8":"#1a0f17",border:`1px solid ${_lm?"#f5b8d6":"#e879a640"}`,borderRadius:9,padding:"10px 16px",marginBottom:14}}>
+        <div style={{background:_lm?"#fdf2f8":"#1a0f17",border:`1px solid ${_lm?"#f5b8d6":"#e879a640"}`,borderRadius:9,padding:"10px 16px",marginBottom:14,order:-2}}>
           <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
             <span style={{fontSize:13}}>📱</span>
             <div style={{flex:1,minWidth:0}}>
@@ -18681,7 +18771,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       )}
 
       {/* ── Month navigator — prev/next + mini strip ─────────── */}
-      <div style={{...card,padding:"16px 20px",marginBottom:14}}>
+      <div style={{...card,padding:"16px 20px",marginBottom:14,order:-2}}>
         {/* Big prev / current month / next row */}
         {(()=>{
           const activeIdx = months.indexOf(activeMonth);
@@ -18778,34 +18868,12 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
             </button>
           )}
         </div>
-        {/* Pre-close data-gap audit — flags campaigns that would lock in as $0 revenue or a loss. */}
-        {showAudit && dataGaps.length>0 && (
-          <div style={{marginBottom:12,background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#fcd34d":"#f59e0b55"}`,borderRadius:9,overflow:"hidden"}}>
-            <button onClick={()=>setAuditOpen(v=>!v)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:"9px 12px",textAlign:"left",flexWrap:"wrap"}}>
-              <span style={{fontSize:9,color:_lm?"#b45309":"#fcd34d",display:"inline-block",transform:auditOpen?"rotate(90deg)":"none",transition:"transform .15s"}}>▸</span>
-              <span style={{fontSize:12.5,fontWeight:800,color:_lm?"#b45309":"#fcd34d"}}>⚠ {dataGaps.length} data gap{dataGaps.length>1?"s":""} in {focusLabelShort}</span>
-              <span style={{fontSize:10.5,color:_lm?"#a16207":"#caa15a"}}>— fix before you {isPastFocus?"lock":"close"} the month so the P&amp;L is accurate</span>
-            </button>
-            {auditOpen && (
-              <div style={{padding:"0 12px 10px 12px",display:"flex",flexDirection:"column",gap:5}}>
-                {dataGaps.map((g,i)=>(
-                  <div key={i} onClick={()=>onEdit(g.c, g.tab)} title="Click to open this campaign and fix it"
-                    style={{display:"flex",alignItems:"center",gap:8,background:_lm?"#fff7ed":"#130b00",border:`1px solid ${_lm?"#fcd34d":"#f59e0b30"}`,borderRadius:6,padding:"6px 10px",cursor:"pointer"}}>
-                    <span style={{background:(PLT_COLORS[g.c.platform]||"#7a9bbf")+"22",color:PLT_COLORS[g.c.platform]||"#7a9bbf",borderRadius:3,padding:"0 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{g.c.platform}</span>
-                    <span style={{fontSize:11.5,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",flexShrink:0,maxWidth:190,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.c.campaignName.trim()}</span>
-                    <span style={{fontSize:11,color:_lm?"#b45309":"#fbbf24",flex:1,minWidth:60}}>{g.issue}</span>
-                    <span style={{fontSize:10,fontWeight:700,color:_lm?"#059669":"#00e5a0",whiteSpace:"nowrap",flexShrink:0}}>Fix →</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {showAudit && dataGaps.length===0 && rows.some(r=>r.focusCell.spend!=null) && (
-          <div style={{marginBottom:12,fontSize:11,fontWeight:700,color:_lm?"#059669":"#00d48a",display:"flex",alignItems:"center",gap:6}}>
-            ✓ No data gaps in {focusLabelShort} — every running campaign with spend has revenue booked
-          </div>
-        )}
+        {/* Pre-close data-gap audit banner removed per the user (the amber "⚠ N data gaps …" box + its
+            "✓ No data gaps" counterpart). The information isn't lost: the Lock button still turns amber and
+            warns when there are gaps, and each gap campaign still shows ⏳ / "spend logged but 0 impressions"
+            inline in the breakdown table below. `dataGaps` is still computed for the Lock-button state. */}
+        {/* Month-close "big changes vs last month" banner removed per the user (2026-09-02) — same cleanup
+            as the data-gap banner above; the per-campaign breakdown table still surfaces drops/spikes. */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
           {[
             {label:"Revenue", val:$fc(fmRevWithSpend), color:"#7a9bbf", sub: fmPendingRev>0?`+ ${$fk(fmPendingRev)} pending (no spend yet)`:"campaigns with spend"},
@@ -18946,7 +19014,9 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       )}
 
       {/* ── 12-month PROFIT bar chart (big & clean) ─────────── */}
-      <div style={{...card,padding:"22px 26px",marginBottom:14}}>
+      {/* order:-1 → the bar graph renders FIRST (just under the month navigator), above the KPI/Growth/
+          analytics cards, per the user ("bar graph first, then all the analytics under that"). */}
+      <div style={{...card,padding:"22px 26px",marginBottom:14,order:-1}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
           <div style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff"}}>Monthly Profit</div>
           <div style={{display:"flex",gap:16,fontSize:11,color:_lm?"#64748b":"#7a9bbf",alignItems:"center"}}>
@@ -23116,7 +23186,7 @@ export default function App() {
   // Count "behind" campaigns for the tab badge — use same filter as the pacing dashboard (anything not "off")
   const behindCount = useMemo(()=>
     campaigns.filter(c=>{
-      if(c.status==="off") return false;
+      if(isStoppedStatus(c.status)) return false;
       const disp=resolveMetrics(c,dateRange.preset);
       const pacing=computeMonthlyPacing(c, disp, c.note1);
       return pacing?.label==="Behind";
