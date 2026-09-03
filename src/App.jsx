@@ -1481,6 +1481,31 @@ function priorMonthsDeliveredFromBackups(c, curMonthKey) {
   } catch {}
   return sum;
 }
+// Single-pass rollup of a campaign's PRIOR-month backup metrics — for cross-month FLIGHT KPI columns, which
+// must be CUMULATIVE across the whole flight (not just this month's MTD, which the daily platform drops
+// reset on the 1st). Sums the countable metrics (impr/clicks/spend/views) and carries an impression-weighted
+// VCR numerator (Σ vcr·impr) so a cumulative completion rate = Σ(vcr·impr)/Σ impr can be derived. The
+// month-close backup stores the resolved MTD per campaign incl. clicks/ctr/cpm/completionRate (see the
+// backups[prevMonth] writer), so these fields are available. Live MTD is added by the caller.
+function priorMonthsMetricsFromBackups(c, curMonthKey) {
+  const out = { impr:0, clicks:0, spend:0, views:0, vcrImprNum:0 };
+  try {
+    const b = JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY) || "{}");
+    for (const mo in b) {
+      if (!/^\d{4}-\d{2}$/.test(mo) || mo >= curMonthKey) continue;
+      const rec = ((b[mo] && b[mo].campaigns) || []).find(r => String(r.id) === String(c.id));
+      if (!rec) continue;
+      const im = parseInt(rec.impressions) || 0;
+      out.impr   += im;
+      out.clicks += parseInt(rec.clicks) || 0;
+      out.spend  += parseFloat(rec.spend) || 0;
+      out.views  += parseInt(rec.videoViews) || 0;
+      const v = parseFloat(rec.completionRate) || 0; const vp = v > 1 ? v : v * 100; // normalize → percent
+      out.vcrImprNum += vp * im;
+    }
+  } catch {}
+  return out;
+}
 // Cross-month FLIGHT pacing. A By-dates / total-goal buy whose flight STARTED in a prior calendar month
 // and still runs this month can't be paced on month-to-date alone — the daily platform drops reset MTD
 // on the 1st, so the current-month number EXCLUDES everything delivered before this month and the bar
@@ -10150,25 +10175,49 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const kpi=PLT_KPI[c.platform];
     const isVCR = kpi?.primary==="VCR";
 
-    // CTR — normalize to display percent e.g. 0.25%
+    // Cross-month FLIGHT: the KPI columns (clicks, CTR, spend, CPM, CPC, VCR, views) must be CUMULATIVE
+    // across the WHOLE flight — prior-month backups + live MTD — the SAME basis as the impression pacing
+    // bar (pacing.delivered). Without this, a flight that began last month shows only THIS month's MTD, so
+    // e.g. the user's Riverview flight read Sept-only 64 clicks / 0.30% CTR / $14 spend while the platform
+    // (whole flight) reads 541 clicks / 0.41% CTR / $116. CTR/CPM/CPC are DERIVED from the cumulative
+    // totals; VCR is impression-weighted. Reach/frequency stay MTD (can't be summed across months — reach
+    // is deduplicated people). flightCum.impr === pacing.delivered for impression-metric platforms.
+    const flightCum = (pacing && pacing.flightBasis) ? (()=>{
+      const _n=new Date(); const _cmk=`${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,"0")}`;
+      const _mtd = resolveMetrics(c, "mtd") || {};
+      const p = priorMonthsMetricsFromBackups(c, _cmk);
+      const liveImpr = parseInt(_mtd.impressions||c.impressions)||0;
+      const liveVcrRaw = parseFloat(_mtd.completionRate||c.completionRate)||0; const liveVcr = liveVcrRaw>1?liveVcrRaw:liveVcrRaw*100;
+      const impr = p.impr + liveImpr;
+      return {
+        impr,
+        clicks: p.clicks + (parseInt(_mtd.clicks||c.clicks)||0),
+        spend:  p.spend  + (parseFloat(_mtd.spend||c.spend)||0),
+        views:  p.views  + (parseInt(_mtd.videoViews||c.videoViews)||0),
+        vcr:    impr>0 ? (p.vcrImprNum + liveVcr*liveImpr)/impr : 0,
+      };
+    })() : null;
+
+    // CTR — normalize to display percent e.g. 0.25%. For a flight, derive from cumulative clicks ÷ impr.
     const ctrRaw  = parseFloat(disp.ctr)||0;
-    const ctrDisp = ctrRaw > 1 ? ctrRaw : ctrRaw * 100;
+    const ctrDisp = flightCum ? (flightCum.impr>0 ? (flightCum.clicks/flightCum.impr*100) : 0) : (ctrRaw > 1 ? ctrRaw : ctrRaw * 100);
     const ctrFmt  = ctrDisp.toFixed(2)+"%"; // always 2 decimals (e.g. 0.15%) per the user
     const ctrCol  = ctrDisplayColor(c.platform, ctrDisp);
 
-    // VCR — display as 0-100; values > 100 are data errors (e.g. view count mistakenly stored)
+    // VCR — display as 0-100; values > 100 are data errors (e.g. view count mistakenly stored). For a
+    // flight, use the impression-weighted cumulative completion rate.
     const vcrRaw  = parseFloat(c.completionRate)||0;
-    const vcrDisp = vcrRaw <= 0 ? 0 : vcrRaw > 100 ? 0 : vcrRaw > 1 ? vcrRaw : vcrRaw * 100;
+    const vcrDisp = flightCum ? Math.min(100, Math.max(0, flightCum.vcr)) : (vcrRaw <= 0 ? 0 : vcrRaw > 100 ? 0 : vcrRaw > 1 ? vcrRaw : vcrRaw * 100);
     const vcrCol  = vcrDisplayColor(c.platform, vcrDisp);
 
-    // CPM — color from per-platform benchmark
-    const cpm    = parseFloat(disp.cpm)||parseFloat(c.cpm)||0;
+    // CPM — color from per-platform benchmark. For a flight, derive from cumulative spend ÷ impr.
+    const cpm    = flightCum ? (flightCum.impr>0 ? (flightCum.spend/flightCum.impr*1000) : 0) : (parseFloat(disp.cpm)||parseFloat(c.cpm)||0);
     const cpmCol = cpmColor(c.platform, cpm);
     const bm     = bmFor(c.platform);
     const cpmTip = bm ? `CPM benchmark: ≤$${bm.cpmWarn} good · ≤$${bm.cpmBad} ok · >$${bm.cpmBad} high` : "";
 
-    // Spend
-    const spend = parseFloat(disp.spend)||parseFloat(c.spend)||0;
+    // Spend — flight-cumulative when on flight basis
+    const spend = flightCum ? flightCum.spend : (parseFloat(disp.spend)||parseFloat(c.spend)||0);
 
     // Reach
     const reach = parseInt(disp.reach)||parseInt(c.reach)||0;
@@ -10179,9 +10228,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
     // Primary delivery metric — platform-aware. YT=views, SEM=spend ($), others=impressions
     const metricKind = pacingMetricFor(c.platform, c.dealType);
-    const viewsRaw = parseInt(disp.videoViews||c.videoViews)||0;
-    const imprRaw = parseInt(disp.impressions)||0;
-    const spendRaw = parseFloat(disp.spend||c.spend)||0;
+    const viewsRaw = flightCum ? flightCum.views : (parseInt(disp.videoViews||c.videoViews)||0);
+    const imprRaw = flightCum ? flightCum.impr : (parseInt(disp.impressions)||0);
+    const spendRaw = flightCum ? flightCum.spend : (parseFloat(disp.spend||c.spend)||0);
     let primaryRaw, primaryFmt, primaryLabel, primaryColor;
     if (metricKind === "views") {
       primaryRaw = viewsRaw > 0 ? viewsRaw : imprRaw; // fall back to impressions if no views yet
@@ -10216,8 +10265,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // Flag if no activity at all on an active campaign
     const noActivity = !primaryRaw && (c.status==="active"||c.status==="behind"||c.status==="ahead");
 
-    // Clicks — actual count (not the rate)
-    const clicksRaw = parseInt(disp.clicks||c.clicks)||0;
+    // Clicks — actual count (not the rate). Flight-cumulative when on flight basis.
+    const clicksRaw = flightCum ? flightCum.clicks : (parseInt(disp.clicks||c.clicks)||0);
     const clicksFmt = clicksRaw >= 1000 ? (clicksRaw/1000).toFixed(1)+"K" : clicksRaw > 0 ? String(clicksRaw) : null;
 
     // Pace gap — delivered minus expected (uses platform-aware primary metric)
