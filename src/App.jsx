@@ -18306,7 +18306,12 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
         else if (spendForMonth(c, mo) != null) rev = 0;
       }
     }
-    if (monthLocks[mo]) {
+    // SEM revenue is the DETERMINISTIC management fee (computed from the fee/budget model, NOT captured from
+    // a CSV delivery drop), so a month-lock must NOT freeze it — otherwise a fee-math fix can never reach a
+    // locked month (a stale lock kept booking the old, buggy SEM revenue). Skip the freeze for SEM; it keeps
+    // using the live semFeeMap spread. spendForMonth already recomputes the SEM overage live for the same
+    // reason, so the two stay consistent. Non-SEM revenue (real delivery data) is still frozen by the lock.
+    if (monthLocks[mo] && c.platform !== "SEM") {
       const _lk = monthLocks[mo].campaigns?.find(rr => String(rr.id) === String(c.id));
       rev = _lk ? (_lk.revenue || 0) : 0;
     }
@@ -19897,27 +19902,26 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
       {/* ── P&L Export Modal ──────────────────────────────────── */}
       {showPLReport && (()=>{
         const lock = monthLocks[activeMonth];
-        // Use locked data if available, otherwise build from live rows.
-        // Drop any campaign whose flight ended BEFORE the locked month — some older locks were frozen
-        // (before the ended-before-month guard existed) with an ended campaign's leftover spend as phantom
-        // month spend, which is why they showed on the P&L export but NOT the dashboard (dateVisibleRows
-        // already hides them there). The lock doesn't store end dates, so look each one up by id from the
-        // live active+archive set (archived records carry their capped end date).
-        const endedBeforeLocked = (lc) => {
-          const end = lc.endDate || campaigns.find(x => String(x.id) === String(lc.id))?.endDate;
-          return !!(end && end.slice(0, 7) < activeMonth);
-        };
-        const reportRows = lock
-          ? lock.campaigns.filter(lc => !endedBeforeLocked(lc))
-          : rows.filter(r=>r.monthCells[activeMonth]?.rev>0||r.monthCells[activeMonth]?.spend>0).map(r=>({
-              name:r.c.campaignName.trim(), partner:r.c.mediaPartner, platform:r.c.platform,
-              revenue:r.monthCells[activeMonth]?.rev||0,
-              // Keep null as null — don't coerce to 0 — so pending rows stay out of profit math
-              spend:r.monthCells[activeMonth]?.spend!=null ? r.monthCells[activeMonth].spend : null,
-              deviceFee:r.monthCells[activeMonth]?.deviceFee||0,
-              profit:r.monthCells[activeMonth]?.profit??null,
-              pending:!!(r.monthCells[activeMonth]?.pending),
-            }));
+        // Build the P&L from the SAME per-campaign monthCells the dashboard uses — for BOTH live AND locked
+        // months — so the export can NEVER diverge from the dashboard KPI card (Austin's June case: export
+        // read $47,906 vs dashboard $46,642). Why this is correct for a locked month: `billedRevenue` /
+        // `spendForMonth` / `deviceFeeForMonth` already return the FROZEN lock-snapshot values for non-SEM
+        // (real delivery data we intentionally freeze), while SEM recomputes live (deterministic fee) — so
+        // monthCells IS the correct locked P&L. And the campaign SET is exactly the dashboard's (active +
+        // archived-that-ran-this-month, via the merged `campaigns` prop). The OLD locked path summed
+        // `lock.campaigns` directly, which still counted campaigns no longer in the tracker — hard-deleted
+        // or rate-cleared since the lock — making the export read HIGHER than the dashboard.
+        const reportRows = rows
+          .filter(r=>r.monthCells[activeMonth]?.rev>0||r.monthCells[activeMonth]?.spend>0)
+          .map(r=>({
+            name:r.c.campaignName.trim(), partner:r.c.mediaPartner, platform:r.c.platform,
+            revenue:r.monthCells[activeMonth]?.rev||0,
+            // Keep null as null — don't coerce to 0 — so pending rows stay out of profit math
+            spend:r.monthCells[activeMonth]?.spend!=null ? r.monthCells[activeMonth].spend : null,
+            deviceFee:r.monthCells[activeMonth]?.deviceFee||0,
+            profit:r.monthCells[activeMonth]?.profit??null,
+            pending:!!(r.monthCells[activeMonth]?.pending),
+          }));
         const totalRev   = reportRows.reduce((s,r)=>s+r.revenue,0);
         const totalSpend = reportRows.reduce((s,r)=>s+(r.spend!=null?r.spend:0),0);
         // Mirror dashboard logic: profit only on campaigns that have real spend data (not pending)
@@ -20008,7 +20012,7 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 22px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,position:"sticky",top:0,background:_lm?"#ffffff":"#0c1625",zIndex:2}}>
                 <div>
                   <div style={{fontSize:16,fontWeight:800,color:_lm?"#0f172a":"#edf4ff"}}>📊 P&L Report — {focusLabel}</div>
-                  <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:2}}>{lock?`Locked ${lock.lockedAt}`:"Live data — lock the month to freeze"} · {reportRows.length} campaigns</div>
+                  <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:2}}>{lock?`Locked ${lock.lockedAt}`:"Live data — lock the month to freeze"} · {reportRows.length} campaigns <span style={{color:_lm?"#059669":"#00d48a",fontWeight:700}}>· matches dashboard ✓</span></div>
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   {/* Print to PDF — opens a clean blank window with just the report content
