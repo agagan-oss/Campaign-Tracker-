@@ -693,6 +693,21 @@ const STATUS_CFG = {
 // A "stopped" campaign — turned off OR temporarily paused. Both are NOT-delivering states, so they're
 // grouped together (out of the active pacing list, into the Off/Paused section, off for revenue).
 const isStoppedStatus = (s) => s === "off" || s === "paused";
+// ── Additive (multi-term) search ─────────────────────────────────────────────────────────────────
+// Both the Pacing and Campaigns tabs let the user stack search terms: search "Shining Star", commit it,
+// then add "Britestar" so BOTH show. `terms` is the list of active lowercase terms (committed chips PLUS
+// whatever is still typed in the box). Empty list = no filter (match all). A campaign matches when ANY
+// term is a substring of its name / partner / platform (OR across terms — that's what makes it additive).
+const campaignMatchesTerms = (c, terms) => {
+  if (!terms || terms.length === 0) return true;
+  const name    = (c.campaignName || "").toLowerCase();
+  const partner = (c.mediaPartner || "").toLowerCase();
+  const plat    = (c.platform     || "").toLowerCase();
+  return terms.some(t => name.includes(t) || partner.includes(t) || plat.includes(t));
+};
+// Combine committed term chips with the live input box into one lowercase term list.
+const buildSearchTerms = (chips, live) => [...(chips || []), (live || "").trim()]
+  .map(s => s.trim().toLowerCase()).filter(Boolean);
 const PLT_COLORS_DEFAULT = {
   SEM:"#b91c1c", TD:"#00ffb3", TDV:"#00d48a", TDA:"#a78bfa",
   DSP:"#7dd3fc", FB:"#f472b6", FBV:"#a855f7",
@@ -8600,7 +8615,7 @@ function PlatformMultiSelect({ platforms, fPlatforms, setFPlatforms, lightMode=f
         <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
         <span style={{fontSize:9,opacity:0.5,flexShrink:0}}>{open?"▲":"▼"}</span>
       </button>
-      {active && !hideClear && <span onClick={()=>{ setFPlatforms(new Set()); setOpen(false); }} style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
+      {active && !hideClear && <span onClick={()=>{ setFPlatforms(new Set()); setOpen(false); }} style={{fontSize:11,fontWeight:700,color:"#ef4444",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
       {open && (
         <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:8,zIndex:100,width:224,maxHeight:340,overflowY:"auto",boxShadow:lightMode?"0 8px 32px rgba(0,0,0,.12)":"0 8px 32px rgba(0,0,0,.6)"}}>
           <div style={{padding:"7px 10px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#162236"}`}}>
@@ -8685,7 +8700,7 @@ function StatusMultiSelect({ fStatuses, setFStatuses, lightMode=false }) {
         <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
         <span style={{fontSize:9,opacity:0.5,flexShrink:0}}>{open?"▲":"▼"}</span>
       </button>
-      {active && <span onClick={()=>{ setFStatuses(new Set()); setOpen(false); }} style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
+      {active && <span onClick={()=>{ setFStatuses(new Set()); setOpen(false); }} style={{fontSize:11,fontWeight:700,color:"#ef4444",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
       {open && (
         <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:8,zIndex:100,minWidth:180,boxShadow:lightMode?"0 8px 32px rgba(0,0,0,.12)":"0 8px 32px rgba(0,0,0,.6)",overflow:"hidden"}}>
           <div style={{padding:"7px 10px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#162236"}`}}>
@@ -8732,7 +8747,7 @@ function QuickFiltersMultiSelect({ items, lightMode=false }) {
         <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
         <span style={{fontSize:9,opacity:0.5}}>{open?"▲":"▼"}</span>
       </button>
-      {active && <span onClick={()=>{ items.forEach(i=>{ if(i.active) i.toggle(); }); setOpen(false); }} style={{fontSize:11,color:lightMode?"#64748b":"#4d6e8a",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
+      {active && <span onClick={()=>{ items.forEach(i=>{ if(i.active) i.toggle(); }); setOpen(false); }} style={{fontSize:11,fontWeight:700,color:"#ef4444",cursor:"pointer",padding:"0 2px"}}>Clear</span>}
       {open && (
         <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:8,zIndex:100,minWidth:210,boxShadow:lightMode?"0 8px 32px rgba(0,0,0,.12)":"0 8px 32px rgba(0,0,0,.6)",overflow:"hidden"}}>
           <div style={{padding:"7px 10px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#162236"}`}}>
@@ -9017,6 +9032,9 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [sectionOpen, setSectionOpen] = useState({});
   const [showNoGoal,     setShowNoGoal]     = useState(false);
   const [search,         setSearch]         = useState(_persisted.search || "");
+  // Committed search terms (chips). The live `search` box is OR-combined with these so the user can
+  // stack filters — search one client, press Enter to pin it, then search another and see BOTH.
+  const [searchTerms,    setSearchTerms]    = useState(Array.isArray(_persisted.searchTerms) ? _persisted.searchTerms : []);
   const [fPartner,       setFPartner]       = useState(_persisted.fPartner || "all");
   const [fPlatforms,     setFPlatforms]     = useState(new Set(_persisted.fPlatforms || []));
   const [fStatuses,      setFStatuses]      = useState(new Set(_persisted.fStatuses || [])); // multi-select status filter (Active / Pacing Behind / Off …), empty = all
@@ -9046,6 +9064,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if (!focusRequest || !focusRequest.ts || _focusTsRef.current === focusRequest.ts) return;
     _focusTsRef.current = focusRequest.ts;
     setSearch(focusRequest.name || "");
+    setSearchTerms([]); // focusing one campaign clears any stacked search chips
     setTodayFilter("all");
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }, [focusRequest]);
@@ -9053,11 +9072,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   useEffect(() => {
     try {
       localStorage.setItem(PACING_FILTER_KEY, JSON.stringify({
-        search, fPartner, fPlatforms: [...fPlatforms], fStatuses: [...fStatuses], fExcludeGoalHit, sortKey, sortDir, todayFilter, updatedDays, pacingView,
+        search, searchTerms, fPartner, fPlatforms: [...fPlatforms], fStatuses: [...fStatuses], fExcludeGoalHit, sortKey, sortDir, todayFilter, updatedDays, pacingView,
         troubleOnly, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter,
       }));
     } catch {}
-  }, [search, fPartner, fPlatforms, fStatuses, fExcludeGoalHit, sortKey, sortDir, todayFilter, updatedDays, pacingView, troubleOnly, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter]);
+  }, [search, searchTerms, fPartner, fPlatforms, fStatuses, fExcludeGoalHit, sortKey, sortDir, todayFilter, updatedDays, pacingView, troubleOnly, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter]);
   function clickSort(k) {
     if (sortKey === k) { setSortDir(d => d === "asc" ? "desc" : "asc"); return; }  // toggle direction
     setSortKey(k);
@@ -9148,6 +9167,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
 
   // Apply search + filters
   const q = search.trim().toLowerCase();
+  // Additive search: committed chips + the live box, OR-matched (see campaignMatchesTerms).
+  const searchTermsActive = buildSearchTerms(searchTerms, search);
   // Updated/Not-Updated counts include OFF campaigns too — off campaigns still
   // show in the Pacing tab (Off Campaigns section) so the user wants visibility
   // into their sync status alongside active ones.
@@ -9226,7 +9247,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // section, AND the Trouble badge — everything except the Trouble toggle itself. Keeping them in one
   // predicate is what guarantees the Trouble count can't disagree with what the Trouble filter shows.
   const structPass = (c) => {
-    if(q && !c.campaignName.toLowerCase().includes(q) && !c.mediaPartner.toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
+    if(!campaignMatchesTerms(c, searchTermsActive)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
     if(todayFilter==="today"     && !dataUpdatedWithin(c, updatedDays)) return false; // fresh within the window
@@ -9302,7 +9323,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // platform); the freshness + trouble filters don't, because a campaign that hasn't started has no data
   // to have "updated" — that's exactly the noise the user hit when filtering "not updated today."
   const notStartedFiltered = notStartedRunning.filter(c=>{
-    if(q && !c.campaignName.toLowerCase().includes(q) && !(c.mediaPartner||"").toLowerCase().includes(q) && !c.platform.toLowerCase().includes(q)) return false;
+    if(!campaignMatchesTerms(c, searchTermsActive)) return false;
     if(fPartner!=="all" && c.mediaPartner!==fPartner) return false;
     if(fPlatforms.size>0 && !fPlatforms.has(c.platform)) return false;
     if(!statusPass({c}) || !excludeGoalHitPass({c})) return false; // no pacing pre-start → goal-hit resolves via the flag only
@@ -9364,7 +9385,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const onTrack = withGoal.filter(r=>r.pacing?.label==="On Track");
   const ahead   = withGoal.filter(r=>r.pacing?.label==="Ahead");
   const noPace  = withGoal.filter(r=>!r.pacing);
-  const anyFilter = q || fPartner!=="all" || fPlatforms.size>0 || fStatuses.size>0 || fExcludeGoalHit || todayFilter!=="all" || troubleOnly;
+  const anyFilter = q || searchTerms.length>0 || fPartner!=="all" || fPlatforms.size>0 || fStatuses.size>0 || fExcludeGoalHit || todayFilter!=="all" || troubleOnly;
 
   // ── Lifetime / contract pacing data ────────────────────────────────────────
   // Cumulative delivery across the WHOLE flight = every CLOSED month's final numbers
@@ -11478,9 +11499,23 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
       <input
         value={search} onChange={e=>setSearch(e.target.value)}
-        placeholder="Search campaigns, partners…"
-        style={{background:lmBgInp,border:"1px solid "+(search?"#00c896":lmBrd),borderRadius:7,padding:"7px 12px",color:lmTxt,fontSize:12,width:220,outline:"none"}}
+        onKeyDown={e=>{
+          // Enter pins the current text as a term chip (additive search) and clears the box for the next one.
+          if(e.key==="Enter"){ const t=search.trim(); if(t){ setSearchTerms(prev=> prev.some(p=>p.toLowerCase()===t.toLowerCase()) ? prev : [...prev, t]); setSearch(""); } e.preventDefault(); }
+          // Backspace on an empty box pulls the last chip back into the box to edit/remove it.
+          else if(e.key==="Backspace" && !search && searchTerms.length){ setSearch(searchTerms[searchTerms.length-1]); setSearchTerms(prev=>prev.slice(0,-1)); }
+        }}
+        placeholder={searchTerms.length ? "Add another… (Enter)" : "Search campaigns, partners…"}
+        title="Type to search. Press Enter to add it as a filter and stack another (shows all matches)."
+        style={{background:lmBgInp,border:"1px solid "+((search||searchTerms.length)?"#00c896":lmBrd),borderRadius:7,padding:"7px 12px",color:lmTxt,fontSize:12,width:220,outline:"none"}}
       />
+      {searchTerms.map((t,i)=>(
+        <span key={"pst"+i} style={{display:"inline-flex",alignItems:"center",gap:5,background:lightMode?"#e0f7f1":"#0c3b32",border:"1px solid "+(lightMode?"#00c896":"#0f5a4a"),borderRadius:14,padding:"3px 6px 3px 10px",fontSize:11.5,fontWeight:600,color:lightMode?"#0f766e":"#5eead4"}}>
+          {t}
+          <button onClick={()=>setSearchTerms(prev=>prev.filter((_,j)=>j!==i))} title="Remove this term"
+            style={{background:"none",border:"none",color:"#ef4444",fontSize:13,fontWeight:800,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>×</button>
+        </span>
+      ))}
       {/* Partner filter dropdown removed (2026-06-16, dash cleanup) — fPartner stays "all"; search + platform cover filtering. */}
       {/* Status filter — the SAME multi-select as the Campaigns tab (Active / Pacing Behind / Pacing Ahead /
           Off / Close to Goal / Pending), filtering on c.status. Empty = all. Sits LEFT of Platforms. */}
@@ -11552,7 +11587,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             {[
               {on:showMoM,        set:setShowMoM,        label:"📅 vs Last Month",     desc:"Delivery vs the same point last month"},
               ...(lastBackup?[{on:showLastMonth, set:setShowLastMonth, label:"🗓️ Last Month recap", desc:`${lastBackup.label}'s final results`}]:[]),
-              {on:showQuietLines, set:setShowQuietLines, label:"🔌 Quiet Lines & Ads", desc:"Lines/ads that stopped delivering", badge:quietLines.length+quietAds.length},
+              {on:showQuietLines, set:setShowQuietLines, label:"🚩 Quiet Lines & Ads", desc:"Lines/ads that stopped delivering (auto-flags when found)", badge:quietLines.length+quietAds.length},
               {on:showForecast,   set:setShowForecast,   label:"📈 Forecast",          desc:"Projected end-of-month finish"},
               {on:showAnomalies,  set:setShowAnomalies,  label:"🔍 Anomalies",         desc:"Abnormal daily delivery", badge:anomalyCount},
             ].map((it,ix)=>(
@@ -11617,14 +11652,14 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Include the Off section's shown rows in the count when Trouble/crack-focus is on — otherwise a
           paused-but-spending focus reads "0" while its campaign sits visible in the Off section. */}
       <span style={{fontSize:11,color:lmTxtS}}>Showing {filtered.length + (troubleOnly ? offFiltered.length : 0)} of {allActive.length + (troubleOnly ? offRows.length : 0)}</span>
-      <button onClick={()=>{setSearch("");setFPartner("all");setFPlatforms(new Set());setFStatuses(new Set());setFExcludeGoalHit(false);setTodayFilter("all");setTroubleOnly(false);setReasonFocus(null);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
+      <button onClick={()=>{setSearch("");setSearchTerms([]);setFPartner("all");setFPlatforms(new Set());setFStatuses(new Set());setFExcludeGoalHit(false);setTodayFilter("all");setTroubleOnly(false);setReasonFocus(null);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
     </div>}
 
     {/* Row count — This Month only (the ✈ Flights view has its own summary strip). */}
     {pacingView !== "lifetime" && (
     <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"center",fontSize:10,color:lmTxtD,flexWrap:"wrap"}}>
       <span style={{fontWeight:700,color:lmTxtS}}>{filtered.length - (showFlightsHere ? 0 : flightRowCount)} campaigns</span>
-      {noActivityRows.length>0&&<span style={{color:lmC("#fde047"),fontWeight:700}}>⏸ {noActivityRows.length} flat</span>}
+      {noActivityRows.length>0&&<span title="Campaigns whose delivery hasn't grown since a prior check-in — see the Possibly Stalled panel below" style={{color:lmC("#fde047"),fontWeight:700}}>🚩 {noActivityRows.length} stalled</span>}
       {notStartedRunning.length>0&&(
         <span
           title={"Held out of pacing until they start (no delivery to pace against):\n"+notStartedRunning.slice(0,12).map(c=>{const[y,m,d]=c.startDate.slice(0,10).split("-");return `• ${(c.campaignName||"").trim()} — starts ${parseInt(m)}/${parseInt(d)}/${y.slice(2)}`;}).join("\n")+(notStartedRunning.length>12?`\n…and ${notStartedRunning.length-12} more`:"")}
@@ -11685,14 +11720,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       );
     })()}
 
-    {/* ── Line-level "gone quiet" panel ── opened from the toolbar toggle (does not auto-pop).
-        Surfaces a single ad line that stopped delivering even while its parent campaign keeps
-        running (e.g. a retargeting set that shut off). Dismissible per line for the day. */}
-    {showQuietLines && (
+    {/* ── Line-level "gone quiet" panel ── AUTO-SURFACES whenever a line or ad has stopped delivering
+        (Austin: "if I'm running three lines for one campaign, one line can shut off and I won't notice").
+        Catches a single ad line that stopped even while its parent campaign keeps running (e.g. a
+        retargeting set that shut off). Dismissible per line. The toolbar toggle still opens it manually
+        (to show the "nothing quiet" all-clear) but is no longer required for a real alert to appear. */}
+    {(showQuietLines || quietLines.length>0 || quietAds.length>0) && (
       <div style={{background:lightMode?"#fff7ed":"#1a0f00",border:`1px solid ${lightMode?"#fdba74":"#f9731640"}`,borderRadius:9,padding:"10px 14px",marginBottom:12}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:(quietLines.length||quietAds.length)?8:0,flexWrap:"wrap"}}>
-          <span style={{fontSize:12,fontWeight:800,color:lightMode?"#c2410c":"#fb923c"}}>🔌 Lines &amp; Ads Gone Quiet ({quietLines.length+quietAds.length})</span>
-          <span style={{fontSize:10,color:lmTxtS}}>A line or ad stopped delivering while its campaign keeps running. Counts are since your last check-in (lines) or last creative import (ads).</span>
+          <span style={{fontSize:12,fontWeight:800,color:lightMode?"#c2410c":"#fb923c"}}>🚩 A Line Stopped Delivering ({quietLines.length+quietAds.length})</span>
+          <span style={{fontSize:10,color:lmTxtS}}>A line or ad stopped delivering while its campaign keeps running — easy to miss. Counts are since your last check-in (lines) or last creative import (ads).</span>
         </div>
         {(quietLines.length+quietAds.length)===0 && <div style={{fontSize:11,color:lmTxtS}}>Nothing has gone quiet — every line and ad is still delivering since its last check-in. (Dismissed alerts stay hidden until that line/ad delivers again or a new creative report is dropped.)</div>}
         {quietLines.length>0 && <div style={{fontSize:10,fontWeight:700,color:lightMode?"#9a3412":"#fdba74",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4,display:"flex",alignItems:"center",gap:8}}>Lines ({quietLines.length}){quietLines.length>1 && <button onClick={()=>dismissAll(quietLines.map(q=>q.key))} title="Dismiss all these lines until they deliver again" style={{background:"none",border:`1px solid ${lightMode?"#fdba74":"#f9731660"}`,borderRadius:5,color:lightMode?"#c2410c":"#fb923c",fontSize:9,fontWeight:700,padding:"1px 8px",cursor:"pointer",textTransform:"none",letterSpacing:0}}>Dismiss all</button>}</div>}
@@ -11870,8 +11907,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     )}
     {noActivityRows.length>0&&!troubleOnly&&(   /* hidden in Trouble mode — these rows already show in their pacing bucket; the separate stalled list would double them up */
       <div style={{marginBottom:viewMode==="table"?4:14}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:lightMode?"#fffbeb":"#1a1208",border:"1px solid #fde04740",borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
-          <span style={{fontSize:11,fontWeight:800,color:lmC("#fde047"),textTransform:"uppercase",letterSpacing:"0.07em"}}>⏸ Possibly Stalled ({noActivityRows.length})</span>
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 11px",background:lightMode?"#fffbeb":"#1a1208",border:"1px solid #fde04740",borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
+          <span style={{fontSize:11,fontWeight:800,color:lmC("#fde047"),textTransform:"uppercase",letterSpacing:"0.06em"}}>🚩 Possibly Stalled ({noActivityRows.length})</span>
           <span style={{fontSize:10,color:lmTxtM,flex:1}}>Delivery hasn't grown since a previous-day check-in. Could be paused, finished, or just a slow day — verify, then dismiss. Dismissed stalls stay hidden until the campaign delivers again.</span>
           <button onClick={()=>dismissAll(noActivityRows.map(r=>stallKey(r.c)))}
             style={{background:lightMode?"#fef9c3":"#1a2a1a",border:"1px solid #fde04760",borderRadius:4,color:lmC("#fde047"),fontSize:10,padding:"2px 10px",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>
@@ -11889,9 +11926,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             ? <div key={r.c.id} style={{position:"relative"}}>
                 <TableRow {...r}/>
                 <div style={{position:"absolute",right:106,top:"50%",transform:"translateY(-50%)",display:"flex",gap:5,alignItems:"center"}}>
-                  <span style={{fontSize:9,color:lmC("#fde047"),fontWeight:700,background:lightMode?"#fef9c3":"#1a1208",border:"1px solid #fde04740",borderRadius:3,padding:"1px 5px",whiteSpace:"nowrap"}}>
-                    flat @ {stalledAt}
-                  </span>
+                  <span title={`Delivery hasn't grown since your last check-in — stuck at ${stalledAt} impressions. Could be paused, finished, or a slow day — verify, then dismiss.`} style={{fontSize:12,lineHeight:1,cursor:"default"}}>🚩</span>
                   <button onClick={(e)=>{e.stopPropagation(); dismissStall(r.c);}} title="Dismiss — stays hidden until it delivers again"
                     style={{background:lightMode?"#f8fafc":"#162236",border:"1px solid "+(lightMode?"#cbd5e1":"#334155"),borderRadius:3,color:lmTxtM,fontSize:9,padding:"1px 6px",cursor:"pointer",fontWeight:600}}>
                     Dismiss
@@ -11901,9 +11936,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             : <div key={r.c.id} style={{position:"relative"}}>
                 <PacingCard {...r}/>
                 <div style={{position:"absolute",top:10,right:10,display:"flex",gap:5,alignItems:"center"}}>
-                  <span style={{fontSize:10,color:lmC("#fde047"),fontWeight:700,background:lightMode?"#fef9c3":"#1a1208",border:"1px solid #fde04740",borderRadius:4,padding:"2px 8px"}}>
-                    flat @ {stalledAt}
-                  </span>
+                  <span title={`Delivery hasn't grown since your last check-in — stuck at ${stalledAt} impressions. Could be paused, finished, or a slow day — verify, then dismiss.`} style={{fontSize:13,lineHeight:1,cursor:"default"}}>🚩</span>
                   <button onClick={(e)=>{e.stopPropagation(); dismissStall(r.c);}} title="Dismiss — stays hidden until it delivers again"
                     style={{background:lightMode?"#f1f5f9":"#162236",border:`1px solid ${lightMode?"#e2e8f0":"#334155"}`,borderRadius:4,color:lightMode?"#475569":"#7a9bbf",fontSize:10,padding:"2px 8px",cursor:"pointer",fontWeight:600}}>
                     Dismiss
@@ -12439,11 +12472,13 @@ function estMonthlyProfit(campaigns){
   const mk=`${y}-${String(m+1).padStart(2,"0")}`;
   const dim=new Date(y,m+1,0).getDate(), dom=now.getDate();
   const timeElapsed=Math.min(1, Math.max(0.05, dom/dim));
-  let profitNow=0, revNow=0, campCount=0, anyData=false;
+  let profitNow=0, revNow=0, campCount=0, anyData=false, projRev=0, projSpend=0;
   (campaigns||[]).forEach(c=>{
-    if((c.status||"active")!=="active") return;
+    const st=(c.status||"active");
+    if(st==="archived") return;                             // archived isn't part of the live month
     if(c.startDate && c.startDate.slice(0,7) > mk) return;   // hasn't started this month
     if(c.endDate   && c.endDate.slice(0,7)   < mk) return;   // ended before this month
+    const stopped = isStoppedStatus(st);                     // off / paused — earned counts, but NO future growth
     const plat=c.platform;
     const disp=resolveMetrics(c,"mtd")||{};
     const imprMtd=parseInt(disp.impressions||c.impressions)||0;
@@ -12451,7 +12486,11 @@ function estMonthlyProfit(campaigns){
     const spendMtd=parseFloat(disp.spend||c.spend)||0;
     if(plat==="SEM"){
       const fee=(semFeeMap(c)||{})[mk]||0;                  // management fee = revenue ≈ profit (media is the client's pass-through)
-      if(fee>0){ const soFar=fee*timeElapsed; profitNow+=soFar; revNow+=soFar; campCount++; anyData=true; }
+      // The Revenue tab books the WHOLE month's management fee as this month's revenue (billedRevenue
+      // returns the full monthly fee), so count it the same here — otherwise "booked so far" (and the
+      // projection) would disagree with the Revenue tab on SEM. A stopped SEM campaign keeps its fee too
+      // (it earned the month it ran).
+      if(fee>0){ profitNow+=fee; revNow+=fee; campCount++; anyData=true; projRev += fee; }
       return;
     }
     const rate=parseFloat(c.contractRate)||0;
@@ -12471,10 +12510,27 @@ function estMonthlyProfit(campaigns){
     if(spA==null) return;   // Madhive with no cost basis yet → pending, skip from this estimate
     profitNow+=(revA-spA); revNow+=revA; campCount++;
     if(revA>0||spA>0) anyData=true;
+    // Month-end projection — mirrors the Revenue-tab chart's liveForecast so the two views AGREE:
+    //  · stopped (off/paused): count only what it EARNED, flat — it won't deliver more.
+    //  · delivering: extrapolate to month-end at the current daily pace (flight-aware, capped 4×).
+    //  · not yet reported: assume it hits its full goal (reporting lag shouldn't zero it out) — model the
+    //    goal-level cost for DSP/Madhive; other platforms have no cost basis yet so count goal revenue.
+    if(stopped){
+      projRev += revA; projSpend += spA;
+    } else if(delivered>0){
+      const dt=computeDailyTarget(imprMtd, c.note1, c.startDate, c.endDate, c.goal);
+      const scale = dt ? Math.min(4, Math.max(1, dt.daysInMonth/Math.max(1, dt.dayOfMonth))) : Math.min(4, Math.max(1, timeElapsed>0?1/timeElapsed:1));
+      projRev += revA*scale; projSpend += spA*scale;
+    } else if(goalRev>0){
+      const goalCost = plat==="DSP" ? goalRev*((modCpms.DSP||0)/rate)
+        : (plat==="GCTV"||plat==="PCTV"||plat==="AECTV") ? ((parseFloat(c.cpm)||0)>0 ? goalRev*((parseFloat(c.cpm)||0)/rate) : 0)
+        : 0;
+      projRev += goalRev; projSpend += goalCost;
+    }
   });
   const margin = revNow>0 ? profitNow/revNow : null;
-  const onPace = timeElapsed>0 ? profitNow/timeElapsed : profitNow;  // "at this rate" — extrapolate profit booked so far
-  return { profitNow, revNow, margin, onPace, campCount, anyData, daysLeft: Math.max(0, dim-dom) };
+  const onPace = projRev - projSpend;   // per-campaign month-end projected PROFIT (single source for Home + Revenue chart)
+  return { profitNow, revNow, margin, onPace, projRev, projSpend, campCount, anyData, daysLeft: Math.max(0, dim-dom) };
 }
 
 // SEM revenue = the management fee only. The client's media spend is pass-through (their money),
@@ -17776,7 +17832,7 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, cur
   );
 }
 
-function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{}, onSetDeviceSurcharge=()=>{}, onSetMonthMetrics=()=>{}, monthResetAvailable=false, onCloseMonth=()=>{}, confirm=async()=>true }) {
+function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{}, onSetDeviceSurcharge=()=>{}, onSetMonthMetrics=()=>{}, monthResetAvailable=false, onCloseMonth=()=>{}, confirm=async()=>true }) {
   // Revenue tab filter/sort state persists to localStorage so the view sticks
   // across sessions. Same pattern as Pacing/Campaigns tabs. focusMonth is
   // intentionally NOT persisted — it's typically the current month and would be
@@ -18574,38 +18630,17 @@ function RevenueDashboard({ campaigns=[], onEdit=()=>{}, onLock=()=>{}, onSetRat
   // Monthly Profit bar chart's vertical scale and the current-month dotted "pace target" bar stay fixed
   // when you click around other months' bars. The focus-gated `monthForecast` below drives the on-demand
   // Forecast panel (which only makes sense while the live month is the one in focus).
-  const liveForecast = (() => {
-    let projRev = 0, projSpend = 0, projDeviceFee = 0, any = false, anySpend = false;
-    rows.forEach(r => {
-      const cur = r.monthCells[thisMonth];
-      if (!cur || !(cur.rev > 0)) return;
-      const actualImpr = getActualMtdImpressions(r.c);
-      if (actualImpr != null && actualImpr > 0) {
-        // Has delivered something this month → cur.rev is actual-so-far; extend it to month-end at
-        // the current daily pace (flight-aware), capped at 4× so very-early-month noise can't blow up.
-        const dt = computeDailyTarget(actualImpr, r.c.note1, r.c.startDate, r.c.endDate, r.c.goal);
-        const windowDays = dt ? dt.daysInMonth : 30;
-        const elapsed = dt ? Math.max(1, dt.dayOfMonth) : 1;
-        const scale = Math.min(4, Math.max(1, windowDays / elapsed));
-        projRev += cur.rev * scale;
-        if (cur.spend != null) { projSpend += cur.spend * scale; projDeviceFee += (cur.deviceFee || 0) * scale; anySpend = true; }
-      } else {
-        // No delivery yet → cur.rev is already the full-month goal projection; use as-is (don't scale).
-        projRev += cur.rev;
-        const _modCpm = modeledCpmForCamp(r.c);
-        if (_modCpm != null) {
-          // Modeled-cost platform (DSP est CPM, or Madhive's reported CPM): count its goal-based modeled
-          // cost too, so this tile isn't goal revenue at $0 cost. Madhive with no CPM yet → falls through
-          // to pending (no fixed estimate).
-          const rate = parseFloat(r.c.contractRate) || 0;
-          if (rate > 0) { projSpend += cur.rev * (_modCpm / rate); anySpend = true; }
-        } else if (cur.spend != null) { projSpend += cur.spend; projDeviceFee += (cur.deviceFee || 0); anySpend = true; }
-      }
-      any = true;
-    });
-    if (!any) return null;
-    return { projRev, projSpend: anySpend ? projSpend : null, projDeviceFee: anySpend ? projDeviceFee : 0, projProfit: anySpend ? (projRev - projSpend - projDeviceFee) : null };
-  })();
+  // Month-end forecast comes from the SINGLE app-level projection (`monthPnl`, computed by
+  // estMonthlyProfit and piped in) so the chart's projected-profit bar ALWAYS equals the Home "on pace
+  // for" tile — they used to be two separate calculations and drifted apart (the user's repeated
+  // complaint). estMonthlyProfit is the current-month projector: delivering campaigns extrapolated to
+  // month-end at pace, not-yet-reported at goal, paused campaigns at earned-only.
+  const liveForecast = (monthPnl && monthPnl.anyData) ? {
+    projRev: monthPnl.projRev,
+    projSpend: monthPnl.projSpend,
+    projDeviceFee: 0,
+    projProfit: monthPnl.onPace,
+  } : null;
   const monthForecast = activeMonth === thisMonth ? liveForecast : null;
   // ── Goal-based "target" finish ──────────────────────────────────────────────
   // Answers "where do I land if I HIT my monthly goals this month?" Revenue = each active
@@ -21887,7 +21922,7 @@ function healthBand(score){
   return { grade:"D", label:"At risk", color:"#ef4444" };
 }
 
-function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDrafts, pendingCheckins, lightMode, outlookEvents=[], outlookStatus={}, onConnectOutlook, onRefreshOutlook, onNavigate, onEdit, onStartCheckIn, onAddCampaign, onOpenReminders, onConfirmLive, onGoToPacing }) {
+function HomeDashboard({ campaigns, monthPnl=null, archive=[], reminders, activityLog, pdfDrafts, pendingCheckins, lightMode, outlookEvents=[], outlookStatus={}, onConnectOutlook, onRefreshOutlook, onNavigate, onEdit, onStartCheckIn, onAddCampaign, onOpenReminders, onConfirmLive, onGoToPacing }) {
   const _lm = lightMode;
   const card = { background:_lm?"#ffffff":"#0c1625", border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`, borderRadius:14 };
   const labelStyle = { fontSize:10, color:_lm?"#64748b":"#4d6e8a", textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700 };
@@ -22324,7 +22359,7 @@ function HomeDashboard({ campaigns, archive=[], reminders, activityLog, pdfDraft
           Estimated from actual delivery capped at goal, minus media cost (DSP modeled, SEM = fee).
           Click → Revenue tab for the exact P&L. Hidden until there's some delivery/spend data to show. */}
       {(()=>{
-        const pnl = estMonthlyProfit(campaigns);
+        const pnl = monthPnl || estMonthlyProfit(campaigns);   // shared app-level projection (single source of truth)
         if(!pnl.anyData) return null;
         const monthName = new Date(todayISO+"T12:00:00Z").toLocaleDateString("en-US",{month:"long", timeZone:"UTC"});
         const pos = pnl.profitNow>=0;
@@ -22679,12 +22714,19 @@ export default function App() {
 
   const [campaigns, setCampaigns] = useState(()=>{ try { const s=localStorage.getItem(STORAGE_KEY); return s?JSON.parse(s):initialCampaigns; } catch { return initialCampaigns; } });
   const [reminders, setReminders] = useState(()=>{ try { const s=localStorage.getItem(REMINDERS_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
+  // ONE month-end P&L projection for the WHOLE app — the Revenue-tab chart AND the Home "on pace for" tile
+  // both read THIS same value, so their projected-profit numbers can't disagree (the user hit repeated
+  // mismatches from two independently-computed estimates). Piped down to both as the `monthPnl` prop.
+  const monthPnl = React.useMemo(()=>estMonthlyProfit(campaigns), [campaigns]);
   // Campaigns tab filter/sort state persists to localStorage so the view sticks
   // across sessions. Same pattern as the Pacing tab — single JSON object keyed
   // under "campaigns-filter-state". Set is serialized as array.
   const CAMPAIGNS_FILTER_KEY = "campaigns-filter-state";
   const _campPersisted = (()=>{ try{ return JSON.parse(localStorage.getItem(CAMPAIGNS_FILTER_KEY) || "{}"); } catch { return {}; } })();
   const [search, setSearch]       = useState(_campPersisted.search || "");
+  // Committed search terms (chips) — OR-combined with the live box so the user can stack clients
+  // (search one, Enter to pin, search another → see BOTH). Mirrors the Pacing tab's additive search.
+  const [searchTerms, setSearchTerms] = useState(Array.isArray(_campPersisted.searchTerms) ? _campPersisted.searchTerms : []);
   const [fStatuses, setFStatuses] = useState(()=> new Set(_campPersisted.fStatuses || []));  // multi-select status filter; empty = all
   const [fPlatforms, setFPlatforms] = useState(new Set(_campPersisted.fPlatforms || []));
   const [fMonthly, setFMonthly]   = useState(_campPersisted.fMonthly || false);
@@ -23212,11 +23254,11 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem(CAMPAIGNS_FILTER_KEY, JSON.stringify({
-        search, fStatuses: [...fStatuses], fPlatforms: [...fPlatforms], fMonthly, fGoalType, sortKey, sortDir,
+        search, searchTerms, fStatuses: [...fStatuses], fPlatforms: [...fPlatforms], fMonthly, fGoalType, sortKey, sortDir,
         groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fStaleDays, fNote2, fHasData, fNoRetargeting,
       }));
     } catch {}
-  }, [search, fStatuses, fPlatforms, fMonthly, fGoalType, sortKey, sortDir, groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fStaleDays, fNote2, fHasData, fNoRetargeting]);
+  }, [search, searchTerms, fStatuses, fPlatforms, fMonthly, fGoalType, sortKey, sortDir, groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fStaleDays, fNote2, fHasData, fNoRetargeting]);
   const [showDailyGoal, setShowDailyGoal]       = useState(false);
   const [showPacingBar, setShowPacingBar]       = useState(false);
   const [quickCheckIn, setQuickCheckIn]         = useState(false);
@@ -23631,9 +23673,10 @@ export default function App() {
   // with zero campaigns in the pacing filter. (Reverted 2026-07-30 from the all-platforms union.)
   const platforms = useMemo(()=>sortPlatforms([...new Set(campaigns.map(c=>c.platform).filter(Boolean))]),[campaigns]);
   const filtered  = useMemo(()=>{
+    // Additive search: committed chips + the live box, OR-matched across name/partner/platform.
+    const _terms = buildSearchTerms(searchTerms, search);
     let list = campaigns.filter(c=>{
-      const q=search.toLowerCase();
-      const ms=!q||c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||c.platform.toLowerCase().includes(q);
+      const ms = campaignMatchesTerms(c, _terms);
       const hasReminder = reminders.some(r=>!r.dismissed&&r.campaignId===c.id);
       if(sortKey==="reminder" && !hasReminder) return false;
       if(fGoalHit) {
@@ -23723,7 +23766,7 @@ export default function App() {
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
     });
-  },[campaigns,reminders,search,fStatuses,fPlatforms,fMonthly,fGoalType,fGoalHit,fCloseToGoal,fExcludeGoalHit,fRecentDays,fStaleDays,fNote2,fNoRetargeting,fHasData,sortKey,sortDir,dateRange.preset]);
+  },[campaigns,reminders,search,searchTerms,fStatuses,fPlatforms,fMonthly,fGoalType,fGoalHit,fCloseToGoal,fExcludeGoalHit,fRecentDays,fStaleDays,fNote2,fNoRetargeting,fHasData,sortKey,sortDir,dateRange.preset]);
 
   const stats = useMemo(()=>({
     total: campaigns.length,
@@ -24596,6 +24639,7 @@ export default function App() {
         {activeTab==="home" ? (
           <HomeDashboard
             campaigns={campaigns}
+            monthPnl={monthPnl}
             archive={archive}
             reminders={reminders}
             activityLog={activityLog}
@@ -25049,7 +25093,7 @@ export default function App() {
             try{ localStorage.setItem("campaign-tracker-zeus-prompt", prompt); }catch{}
           }}/>
         ) : activeTab==="revenue" ? (
-          <RevenueDashboard campaigns={(()=>{
+          <RevenueDashboard monthPnl={monthPnl} campaigns={(()=>{
             // Merge active + archived campaigns for the revenue view, but de-duplicate by
             // id so a record that exists in BOTH lists (e.g. archived without being removed
             // from active) is only counted ONCE. The active copy wins when ids collide.
@@ -25308,7 +25352,22 @@ export default function App() {
         {/* Date-range bar removed (2026-06-16) — see Pacing tab note; dateRange stays "mtd". */}
         {/* Filters */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search campaigns, partners, platforms…" style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${lightMode?"#cbd5e1":"#1e293b"}`,borderRadius:7,padding:"8px 14px",color:lightMode?"#0f172a":"#d8eaf8",fontSize:14,width:280}}/>
+          <input value={search} onChange={e=>setSearch(e.target.value)}
+            onKeyDown={e=>{
+              // Enter pins the current text as a search chip and clears the box for the next term (additive).
+              if(e.key==="Enter"){ const t=search.trim(); if(t){ setSearchTerms(prev=> prev.some(p=>p.toLowerCase()===t.toLowerCase()) ? prev : [...prev, t]); setSearch(""); } e.preventDefault(); }
+              else if(e.key==="Backspace" && !search && searchTerms.length){ setSearch(searchTerms[searchTerms.length-1]); setSearchTerms(prev=>prev.slice(0,-1)); }
+            }}
+            placeholder={searchTerms.length ? "Add another… (Enter)" : "Search campaigns, partners, platforms…"}
+            title="Type to search. Press Enter to add it as a filter and stack another (shows all matches)."
+            style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${(search||searchTerms.length)?"#00c896":(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:7,padding:"8px 14px",color:lightMode?"#0f172a":"#d8eaf8",fontSize:14,width:280}}/>
+          {searchTerms.map((t,i)=>(
+            <span key={"cst"+i} style={{display:"inline-flex",alignItems:"center",gap:5,background:lightMode?"#e0f7f1":"#0c3b32",border:"1px solid "+(lightMode?"#00c896":"#0f5a4a"),borderRadius:14,padding:"4px 7px 4px 11px",fontSize:12.5,fontWeight:600,color:lightMode?"#0f766e":"#5eead4"}}>
+              {t}
+              <button onClick={()=>setSearchTerms(prev=>prev.filter((_,j)=>j!==i))} title="Remove this term"
+                style={{background:"none",border:"none",color:"#ef4444",fontSize:14,fontWeight:800,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>×</button>
+            </span>
+          ))}
           {/* Quick filters — stackable multi-select (each toggles its own filter; they AND together). */}
           <QuickFiltersMultiSelect lightMode={lightMode} items={[
             { key:"stale",    label:"🕒 Not Updated Recently", active:fStaleDays>0,         toggle:()=>setFStaleDays(d=>d>0?0:3) },
@@ -25905,7 +25964,7 @@ export default function App() {
         // Clear EVERY Campaigns-tab filter first — otherwise an active platform/status/goal-type/etc. filter
         // can exclude the campaign we're jumping to, so its row never renders and the scroll lands nowhere
         // (the user: "I had platform filters on, so it just bumped me to the tab and didn't pull it up").
-        setSearch(""); setFStatuses(new Set()); setFPlatforms(new Set()); setFMonthly(false); setFGoalType("all");
+        setSearch(""); setSearchTerms([]); setFStatuses(new Set()); setFPlatforms(new Set()); setFMonthly(false); setFGoalType("all");
         setFGoalHit(false); setFCloseToGoal(false); setFExcludeGoalHit(false);
         setFRecentDays(0); setFStaleDays(0); setFNote2(false); setFHasData("all"); setFNoRetargeting(false);
         setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; });
