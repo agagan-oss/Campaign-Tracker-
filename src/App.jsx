@@ -693,21 +693,42 @@ const STATUS_CFG = {
 // A "stopped" campaign — turned off OR temporarily paused. Both are NOT-delivering states, so they're
 // grouped together (out of the active pacing list, into the Off/Paused section, off for revenue).
 const isStoppedStatus = (s) => s === "off" || s === "paused";
-// ── Additive (multi-term) search ─────────────────────────────────────────────────────────────────
+// ── Additive (multi-term) search, with per-chip include/exclude ──────────────────────────────────
 // Both the Pacing and Campaigns tabs let the user stack search terms: search "Shining Star", commit it,
-// then add "Britestar" so BOTH show. `terms` is the list of active lowercase terms (committed chips PLUS
-// whatever is still typed in the box). Empty list = no filter (match all). A campaign matches when ANY
-// term is a substring of its name / partner / platform (OR across terms — that's what makes it additive).
-const campaignMatchesTerms = (c, terms) => {
-  if (!terms || terms.length === 0) return true;
+// then add "Britestar" so BOTH show. Committed chips are {t, exclude}: an INCLUDE chip (green) widens the
+// view (OR), an EXCLUDE chip (red, click a chip to flip it) hides matches. Match rule: a campaign passes
+// when it matches NONE of the exclude terms AND (there are no include terms OR it matches ANY include term).
+const _termHits = (c, t) => {
   const name    = (c.campaignName || "").toLowerCase();
   const partner = (c.mediaPartner || "").toLowerCase();
   const plat    = (c.platform     || "").toLowerCase();
-  return terms.some(t => name.includes(t) || partner.includes(t) || plat.includes(t));
+  return name.includes(t) || partner.includes(t) || plat.includes(t);
 };
-// Combine committed term chips with the live input box into one lowercase term list.
-const buildSearchTerms = (chips, live) => [...(chips || []), (live || "").trim()]
-  .map(s => s.trim().toLowerCase()).filter(Boolean);
+// `terms` = { include:[lc…], exclude:[lc…] } from buildSearchTerms.
+const campaignMatchesTerms = (c, terms) => {
+  if (!terms) return true;
+  const inc = terms.include || [], exc = terms.exclude || [];
+  if (exc.some(t => _termHits(c, t))) return false;   // an exclude match always hides the row
+  if (inc.length === 0) return true;                  // no positive filter → everything (not excluded) shows
+  return inc.some(t => _termHits(c, t));              // otherwise must match at least one include term
+};
+// Normalize stored chips (legacy bare strings → include chips) into [{t, exclude}].
+const normSearchChips = (a) => Array.isArray(a)
+  ? a.map(x => typeof x === "string" ? { t: x, exclude: false } : { t: x.t || "", exclude: !!x.exclude })
+     .filter(x => x.t)
+  : [];
+// Split committed chips + the live input box into { include, exclude } lowercase term lists.
+// The live box is always treated as an include-candidate (you commit a chip, then click it to exclude).
+const buildSearchTerms = (chips, live) => {
+  const include = [], exclude = [];
+  normSearchChips(chips).forEach(ch => {
+    const t = ch.t.trim().toLowerCase(); if (!t) return;
+    (ch.exclude ? exclude : include).push(t);
+  });
+  const lv = (live || "").trim().toLowerCase();
+  if (lv) include.push(lv);
+  return { include, exclude };
+};
 const PLT_COLORS_DEFAULT = {
   SEM:"#b91c1c", TD:"#00ffb3", TDV:"#00d48a", TDA:"#a78bfa",
   DSP:"#7dd3fc", FB:"#f472b6", FBV:"#a855f7",
@@ -9034,7 +9055,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [search,         setSearch]         = useState(_persisted.search || "");
   // Committed search terms (chips). The live `search` box is OR-combined with these so the user can
   // stack filters — search one client, press Enter to pin it, then search another and see BOTH.
-  const [searchTerms,    setSearchTerms]    = useState(Array.isArray(_persisted.searchTerms) ? _persisted.searchTerms : []);
+  const [searchTerms,    setSearchTerms]    = useState(normSearchChips(_persisted.searchTerms));
   const [fPartner,       setFPartner]       = useState(_persisted.fPartner || "all");
   const [fPlatforms,     setFPlatforms]     = useState(new Set(_persisted.fPlatforms || []));
   const [fStatuses,      setFStatuses]      = useState(new Set(_persisted.fStatuses || [])); // multi-select status filter (Active / Pacing Behind / Off …), empty = all
@@ -11500,20 +11521,27 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       <input
         value={search} onChange={e=>setSearch(e.target.value)}
         onKeyDown={e=>{
-          // Enter pins the current text as a term chip (additive search) and clears the box for the next one.
-          if(e.key==="Enter"){ const t=search.trim(); if(t){ setSearchTerms(prev=> prev.some(p=>p.toLowerCase()===t.toLowerCase()) ? prev : [...prev, t]); setSearch(""); } e.preventDefault(); }
-          // Backspace on an empty box pulls the last chip back into the box to edit/remove it.
-          else if(e.key==="Backspace" && !search && searchTerms.length){ setSearch(searchTerms[searchTerms.length-1]); setSearchTerms(prev=>prev.slice(0,-1)); }
+          // Enter pins the current text as an INCLUDE chip (additive search) and clears the box for the next one.
+          if(e.key==="Enter"){ const t=search.trim(); if(t){ setSearchTerms(prev=> prev.some(p=>p.t.toLowerCase()===t.toLowerCase()) ? prev : [...prev, {t, exclude:false}]); setSearch(""); } e.preventDefault(); }
+          // Backspace on an empty box pulls the last chip's text back into the box to edit/remove it.
+          else if(e.key==="Backspace" && !search && searchTerms.length){ setSearch(searchTerms[searchTerms.length-1].t); setSearchTerms(prev=>prev.slice(0,-1)); }
         }}
         placeholder={searchTerms.length ? "Add another… (Enter)" : "Search campaigns, partners…"}
-        title="Type to search. Press Enter to add it as a filter and stack another (shows all matches)."
+        title="Type to search. Press Enter to pin it, stack more, then click a pinned term to exclude it instead."
         style={{background:lmBgInp,border:"1px solid "+((search||searchTerms.length)?"#00c896":lmBrd),borderRadius:7,padding:"7px 12px",color:lmTxt,fontSize:12,width:220,outline:"none"}}
       />
-      {searchTerms.map((t,i)=>(
-        <span key={"pst"+i} style={{display:"inline-flex",alignItems:"center",gap:5,background:lightMode?"#e0f7f1":"#0c3b32",border:"1px solid "+(lightMode?"#00c896":"#0f5a4a"),borderRadius:14,padding:"3px 6px 3px 10px",fontSize:11.5,fontWeight:600,color:lightMode?"#0f766e":"#5eead4"}}>
-          {t}
-          <button onClick={()=>setSearchTerms(prev=>prev.filter((_,j)=>j!==i))} title="Remove this term"
-            style={{background:"none",border:"none",color:"#ef4444",fontSize:13,fontWeight:800,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>×</button>
+      {searchTerms.map((chip,i)=>(
+        <span key={"pst"+i}
+          onClick={()=>setSearchTerms(prev=>prev.map((c,j)=>j===i?{...c,exclude:!c.exclude}:c))}
+          title={chip.exclude?"Excluding — click to include again":"Click to exclude instead (hide these)"}
+          style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",userSelect:"none",borderRadius:14,padding:"3px 6px 3px 10px",fontSize:11.5,fontWeight:600,
+            background: chip.exclude?(lightMode?"#fee2e2":"#3a1113"):(lightMode?"#e0f7f1":"#0c3b32"),
+            border:"1px solid "+(chip.exclude?(lightMode?"#ef4444":"#7f2427"):(lightMode?"#00c896":"#0f5a4a")),
+            color: chip.exclude?(lightMode?"#b91c1c":"#fca5a5"):(lightMode?"#0f766e":"#5eead4"),
+            textDecoration: chip.exclude?"line-through":"none"}}>
+          <span style={{fontWeight:800,fontSize:12,textDecoration:"none"}}>{chip.exclude?"−":"+"}</span>{chip.t}
+          <button onClick={e=>{e.stopPropagation();setSearchTerms(prev=>prev.filter((_,j)=>j!==i));}} title="Remove this term"
+            style={{background:"none",border:"none",color:"#ef4444",fontSize:13,fontWeight:800,cursor:"pointer",lineHeight:1,padding:"0 2px",textDecoration:"none"}}>×</button>
         </span>
       ))}
       {/* Partner filter dropdown removed (2026-06-16, dash cleanup) — fPartner stays "all"; search + platform cover filtering. */}
@@ -13268,6 +13296,16 @@ function CatPicker({ value, options, colorOf, onSelect, onAdd, onRemove }) {
 // Preferences note — a small 📌 pin button that opens a fixed-position textarea for DURABLE client/partner
 // preferences (reporting cadence, format, key contacts, do's & don'ts). Separate from the per-row reporting
 // Notes: prefs are keyed by the entity's own name so they persist as campaigns rotate. Amber/filled when set.
+// Portal helper that survives BOTH build setups. The localhost dev page loads React-DOM as a UMD
+// <script>, so `ReactDOM` is a global and createPortal works. The deployed Vite bundle scopes modules and
+// never exposes a `ReactDOM` global — a bare `ReactDOM.createPortal` there throws "ReactDOM is not defined"
+// and white-screens the whole app (the Reports client-prefs pencil crash). `typeof` is safe on an undefined
+// global (unlike a direct property read), so we portal when it's available and otherwise render the node
+// inline — the popover is position:fixed, so it still positions against the viewport correctly.
+const safePortal = (node) =>
+  (typeof ReactDOM !== "undefined" && ReactDOM && ReactDOM.createPortal)
+    ? ReactDOM.createPortal(node, document.body)
+    : node;
 function PrefsPopover({ value, onSave, label, accent="#f59e0b" }) {
   const [open, setOpen] = React.useState(false);
   const [pos, setPos]   = React.useState(null);
@@ -13298,7 +13336,7 @@ function PrefsPopover({ value, onSave, label, accent="#f59e0b" }) {
         onMouseLeave={e=>{ if(!has) e.currentTarget.style.color=txtD; }}>
         ✎
       </button>
-      {open && pos && ReactDOM.createPortal(
+      {open && pos && safePortal(
         <div ref={menuRef} style={{position:"fixed",top:pos.top,left:pos.left,width:300,background:menuBg,border:`1px solid ${bd}`,borderRadius:9,boxShadow:"0 12px 34px rgba(0,0,0,0.45)",zIndex:100000,padding:10}}>
           <div style={{fontSize:10.5,fontWeight:800,color:accent,textTransform:"uppercase",letterSpacing:"0.04em",marginBottom:6,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📌 {label}</div>
           <textarea ref={taRef} value={draft} onChange={e=>setDraft(e.target.value)}
@@ -13309,7 +13347,7 @@ function PrefsPopover({ value, onSave, label, accent="#f59e0b" }) {
             <span style={{fontSize:9.5,color:txtD}}>⌘/Ctrl+Enter to save · Esc to cancel</span>
             <button onClick={()=>{ onSave(draft); setOpen(false); }} style={{background:accent,border:"none",borderRadius:5,color:"#111",fontSize:11.5,fontWeight:800,padding:"4px 14px",cursor:"pointer",boxShadow:`0 0 10px ${accent}88, 0 0 3px ${accent}`}}>Save</button>
           </div>
-        </div>, document.body)}
+        </div>)}
     </>
   );
 }
@@ -22726,7 +22764,7 @@ export default function App() {
   const [search, setSearch]       = useState(_campPersisted.search || "");
   // Committed search terms (chips) — OR-combined with the live box so the user can stack clients
   // (search one, Enter to pin, search another → see BOTH). Mirrors the Pacing tab's additive search.
-  const [searchTerms, setSearchTerms] = useState(Array.isArray(_campPersisted.searchTerms) ? _campPersisted.searchTerms : []);
+  const [searchTerms, setSearchTerms] = useState(normSearchChips(_campPersisted.searchTerms));
   const [fStatuses, setFStatuses] = useState(()=> new Set(_campPersisted.fStatuses || []));  // multi-select status filter; empty = all
   const [fPlatforms, setFPlatforms] = useState(new Set(_campPersisted.fPlatforms || []));
   const [fMonthly, setFMonthly]   = useState(_campPersisted.fMonthly || false);
@@ -25354,18 +25392,25 @@ export default function App() {
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
           <input value={search} onChange={e=>setSearch(e.target.value)}
             onKeyDown={e=>{
-              // Enter pins the current text as a search chip and clears the box for the next term (additive).
-              if(e.key==="Enter"){ const t=search.trim(); if(t){ setSearchTerms(prev=> prev.some(p=>p.toLowerCase()===t.toLowerCase()) ? prev : [...prev, t]); setSearch(""); } e.preventDefault(); }
-              else if(e.key==="Backspace" && !search && searchTerms.length){ setSearch(searchTerms[searchTerms.length-1]); setSearchTerms(prev=>prev.slice(0,-1)); }
+              // Enter pins the current text as an INCLUDE chip and clears the box for the next term (additive).
+              if(e.key==="Enter"){ const t=search.trim(); if(t){ setSearchTerms(prev=> prev.some(p=>p.t.toLowerCase()===t.toLowerCase()) ? prev : [...prev, {t, exclude:false}]); setSearch(""); } e.preventDefault(); }
+              else if(e.key==="Backspace" && !search && searchTerms.length){ setSearch(searchTerms[searchTerms.length-1].t); setSearchTerms(prev=>prev.slice(0,-1)); }
             }}
             placeholder={searchTerms.length ? "Add another… (Enter)" : "Search campaigns, partners, platforms…"}
-            title="Type to search. Press Enter to add it as a filter and stack another (shows all matches)."
+            title="Type to search. Press Enter to pin it, stack more, then click a pinned term to exclude it instead."
             style={{background:lightMode?"#ffffff":"#0e1a2e",border:`1px solid ${(search||searchTerms.length)?"#00c896":(lightMode?"#cbd5e1":"#1e293b")}`,borderRadius:7,padding:"8px 14px",color:lightMode?"#0f172a":"#d8eaf8",fontSize:14,width:280}}/>
-          {searchTerms.map((t,i)=>(
-            <span key={"cst"+i} style={{display:"inline-flex",alignItems:"center",gap:5,background:lightMode?"#e0f7f1":"#0c3b32",border:"1px solid "+(lightMode?"#00c896":"#0f5a4a"),borderRadius:14,padding:"4px 7px 4px 11px",fontSize:12.5,fontWeight:600,color:lightMode?"#0f766e":"#5eead4"}}>
-              {t}
-              <button onClick={()=>setSearchTerms(prev=>prev.filter((_,j)=>j!==i))} title="Remove this term"
-                style={{background:"none",border:"none",color:"#ef4444",fontSize:14,fontWeight:800,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>×</button>
+          {searchTerms.map((chip,i)=>(
+            <span key={"cst"+i}
+              onClick={()=>setSearchTerms(prev=>prev.map((c,j)=>j===i?{...c,exclude:!c.exclude}:c))}
+              title={chip.exclude?"Excluding — click to include again":"Click to exclude instead (hide these)"}
+              style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",userSelect:"none",borderRadius:14,padding:"4px 7px 4px 11px",fontSize:12.5,fontWeight:600,
+                background: chip.exclude?(lightMode?"#fee2e2":"#3a1113"):(lightMode?"#e0f7f1":"#0c3b32"),
+                border:"1px solid "+(chip.exclude?(lightMode?"#ef4444":"#7f2427"):(lightMode?"#00c896":"#0f5a4a")),
+                color: chip.exclude?(lightMode?"#b91c1c":"#fca5a5"):(lightMode?"#0f766e":"#5eead4"),
+                textDecoration: chip.exclude?"line-through":"none"}}>
+              <span style={{fontWeight:800,fontSize:13,textDecoration:"none"}}>{chip.exclude?"−":"+"}</span>{chip.t}
+              <button onClick={e=>{e.stopPropagation();setSearchTerms(prev=>prev.filter((_,j)=>j!==i));}} title="Remove this term"
+                style={{background:"none",border:"none",color:"#ef4444",fontSize:14,fontWeight:800,cursor:"pointer",lineHeight:1,padding:"0 2px",textDecoration:"none"}}>×</button>
             </span>
           ))}
           {/* Quick filters — stackable multi-select (each toggles its own filter; they AND together). */}
