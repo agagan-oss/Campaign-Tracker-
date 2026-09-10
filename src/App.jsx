@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, Fragment } from "react";
+import ReactDOM from "react-dom"; // for createPortal — bundled by Vite on the deployed site; the localhost index.html strips this line (ReactDOM is already a UMD global there)
 
 const STORAGE_KEY = "campaign-tracker-v3";
 const ZEUS_KEY = "campaign-tracker-zeus";
@@ -13296,12 +13297,13 @@ function CatPicker({ value, options, colorOf, onSelect, onAdd, onRemove }) {
 // Preferences note — a small 📌 pin button that opens a fixed-position textarea for DURABLE client/partner
 // preferences (reporting cadence, format, key contacts, do's & don'ts). Separate from the per-row reporting
 // Notes: prefs are keyed by the entity's own name so they persist as campaigns rotate. Amber/filled when set.
-// Portal helper that survives BOTH build setups. The localhost dev page loads React-DOM as a UMD
-// <script>, so `ReactDOM` is a global and createPortal works. The deployed Vite bundle scopes modules and
-// never exposes a `ReactDOM` global — a bare `ReactDOM.createPortal` there throws "ReactDOM is not defined"
-// and white-screens the whole app (the Reports client-prefs pencil crash). `typeof` is safe on an undefined
-// global (unlike a direct property read), so we portal when it's available and otherwise render the node
-// inline — the popover is position:fixed, so it still positions against the viewport correctly.
+// Portal helper that works in BOTH build setups. `ReactDOM` comes from the top-of-file react-dom import:
+// the deployed Vite build bundles it, and the localhost index.html strips that import line because
+// react-dom is already loaded as a UMD <script> global there. Either way createPortal renders the popover
+// into <body>, so it escapes the table's stacking context and paints ON TOP of the campaign rows. The
+// `typeof` guard (safe on an undefined global) is a last resort — if react-dom somehow didn't load, render
+// the node inline (position:fixed) rather than crash. This one call was the "ReactDOM is not defined"
+// white-screen on the deployed Reports client-prefs pencil.
 const safePortal = (node) =>
   (typeof ReactDOM !== "undefined" && ReactDOM && ReactDOM.createPortal)
     ? ReactDOM.createPortal(node, document.body)
