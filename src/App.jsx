@@ -9082,7 +9082,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   // SORT_DEFAULT_DIR = each key's starting direction. EVERY key is direction-toggleable (click the
   // active key again to reverse); ctr defaults low-first (worst), $/impr default high-first, text A–Z.
   const METRIC_SORTS = { impr:"impressions", ctr:"ctr", cpm:"cpm", spend:"spend" };
-  const SORT_DEFAULT_DIR = { pacing:"asc", impr:"desc", ctr:"asc", cpm:"desc", spend:"desc", ends:"asc", platform:"asc", partner:"asc", name:"asc" };
+  const SORT_DEFAULT_DIR = { pacing:"asc", impr:"desc", yestneed:"asc", ctr:"asc", cpm:"desc", spend:"desc", ends:"asc", platform:"asc", partner:"asc", name:"asc" };
   const _initSortKey = _persisted.sortKey || "pacing";
   const [sortKey,        setSortKey]        = useState(_initSortKey);
   const [sortDir,        setSortDir]        = useState(_persisted.sortDir || SORT_DEFAULT_DIR[_initSortKey] || "asc");
@@ -9378,6 +9378,15 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const pacingMonthEnd = (()=>{ const n=pacingNow(); const d=new Date(n.getFullYear(), n.getMonth()+1, 0); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
   const partialFlight = c => !!c && ((c.startDate && c.startDate > pacingMonthStart) || (c.endDate && c.endDate < pacingMonthEnd));
   const orderMap={"Behind":0,"No data":1,"On Track":2,"Ahead":3};
+  // Cache yesterday's %-of-needed per campaign so the "Yest vs Need" sort doesn't recompute the daily
+  // delivery spread on every comparison (sortFn runs O(n log n) times over ~100 campaigns).
+  const _yestNeedCache = new Map();
+  const yestNeedPct = (row) => {
+    const id = row.c.id;
+    if(_yestNeedCache.has(id)) return _yestNeedCache.get(id);
+    const v = computeYesterdayDelivery(row.c, row.monthlyGoal)?.pctOfNeeded ?? null;
+    _yestNeedCache.set(id, v); return v;
+  };
   const sortFn = (a,b) => {
     const dir = sortDir==="asc" ? 1 : -1; // every sort key is direction-toggleable
     if(sortKey==="name")     return dir * a.c.campaignName.localeCompare(b.c.campaignName);
@@ -9394,6 +9403,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       if(!ea!==!eb) return ea?-1:1;
       if(ea===eb)   return 0;
       return dir * (ea<eb?-1:1);
+    }
+    if(sortKey==="yestneed"){
+      // Yesterday's delivery as a % of what's needed PER DAY to finish the goal — surfaces lines slipping on
+      // DAILY pace even when the overall goal still reads on track (the user: "I need 2K/day but only served
+      // 1K yesterday"). asc = worst daily pace (lowest %) first. Null (no target / no yesterday reading)
+      // sinks to the bottom in both directions so the actionable, delivering rows lead.
+      const pa = yestNeedPct(a), pb = yestNeedPct(b);
+      const na = pa==null, nb = pb==null;
+      if(na!==nb) return na?1:-1;
+      if(na&&nb) return 0;
+      return dir * (pa - pb);
     }
     if(METRIC_SORTS[sortKey]){
       const f=METRIC_SORTS[sortKey];
@@ -11682,7 +11702,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         <select value={sortKey} onChange={e=>clickSort(e.target.value)}
           title="Choose how to sort the campaign list"
           style={{background:lmBgInp,border:"1px solid "+lmBrd,borderRadius:7,padding:"6px 12px",color:lmTxt,fontSize:11.5,fontWeight:600,cursor:"pointer",outline:"none"}}>
-          {[["pacing","Pacing"],["impr","Impr / Views"],["ctr","CTR / VCR"],["cpm","CPM"],["spend","Spend"],["ends","End date"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
+          {[["pacing","Pacing"],["impr","Impr / Views"],["yestneed","Yest vs Need/day"],["ctr","CTR / VCR"],["cpm","CPM"],["spend","Spend"],["ends","End date"],["platform","Platform"],["partner","Partner"],["name","Name"]].map(([k,l])=>(
             <option key={k} value={k}>{l}</option>
           ))}
         </select>
@@ -15144,6 +15164,32 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     }).filter(r=>Object.values(r).some(v=>v));
   }
 
+  // ── Google Ads UI export preamble stripper ────────────────────────────────
+  // The report downloaded straight from the Google Ads web UI leads with a title line ("Campaign report")
+  // and a quoted date-range line BEFORE the real header row — parseCSVText would otherwise treat the title
+  // as the header and every column would be wrong. Detect that shape and slice from the true header line.
+  // Deliberately narrow so it never touches a normal CSV: the header must name a `Campaign` column AND a
+  // Google-native metric (Impr. / TrueView / Avg. CPM), and it must be preceded by a title/date preamble.
+  function stripReportPreamble(text){
+    const lines = String(text||"").split(/\r?\n/);
+    const hdrIdx = lines.findIndex(l => /(^|,)\s*"?Campaign"?\s*(,|$)/i.test(l) && /Impr\.|TrueView|Avg\.\s*CPM/i.test(l));
+    if (hdrIdx > 0) {
+      const first = (lines[0]||"").replace(/"/g,"").trim();
+      if (!first.includes(",") || /report\s*$/i.test(first)) return lines.slice(hdrIdx).join("\n");
+    }
+    return text;
+  }
+  // Strip the tactic/year tokens off a Google Ads campaign name so it scores against the CLIENT part of the
+  // tracker name: "Shining Star Holy Redeemer Search Campaign 2026" → "Shining Star Holy Redeemer",
+  // "Shining Star Holy Redeemer (BDSLAM) Youtube" → "Shining Star Holy Redeemer". Used only for the native
+  // UI export, which carries no Account Name column to match on.
+  function googleClientLabel(name){
+    return String(name||"")
+      .replace(/\([^)]*\)/g," ")                                                  // drop (BDSLAM) etc.
+      .replace(/\b(search campaign|search|youtube|video|yt|display|campaign|20\d\d)\b/gi," ")
+      .replace(/[()\/\-]/g," ").replace(/\s+/g," ").trim();
+  }
+
   // ── Generic column finder — tries multiple common header names ─────────────
   function findCol(row, candidates) {
     const keys = Object.keys(row);
@@ -15340,15 +15386,16 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if (freqRaw > 0) row["_frequency"] = freqRaw;
 
     } else if (source==="Google") {
-      // ── Google Ads / YouTube (TapClicks export) ────────────────────────────
+      // ── Google Ads / YouTube (TapClicks export AND the native Google Ads UI export) ─────────────────
       const clean = v => (v||"").toString().replace(/[$,%,\s]/g,"");
-      impressions    = parseInt(clean(row["Impressions"]||row["impressions"]))||0;
+      // "Impr." (with the period) is the native Google Ads UI column; "Impressions" is TapClicks.
+      impressions    = parseInt(clean(row["Impressions"]||row["impressions"]||row["Impr."]||row["Impr"]))||0;
       clicks         = parseInt(clean(row["Clicks"]||row["clicks"]))||0;
       spend          = parseFloat(clean(row["Cost"]||row["Spend"]||row["cost"]||row["spend"]))||0;
       cpm            = parseFloat(clean(row["Avg. CPM"]||row["CPM"]||row["cpm"]))||0;
       // Google/YouTube exports name the views column differently depending on report:
-      // TapClicks → "Views"; Google Ads native TrueView report → "TrueView Video Views".
-      videoViews     = parseInt(clean(row["TrueView Video Views"]||row["Trueview Video Views"]||row["TrueView Views"]||row["Video Views"]||row["Video views"]||row["Views"]||row["views"]))||0;
+      // TapClicks → "Views"; native TrueView report → "TrueView views" (lower-case v) / "TrueView Video Views".
+      videoViews     = parseInt(clean(row["TrueView views"]||row["TrueView Views"]||row["TrueView Video Views"]||row["Trueview Video Views"]||row["Video Views"]||row["Video views"]||row["Views"]||row["views"]))||0;
       reach          = parseInt(clean(row["Reach"]||row["reach"]))||0;
       // View rate / VCR — TapClicks may store as decimal (0.45) or percent (45.0)
       const vrRaw    = parseFloat(clean(row["Video played to: 100%"]||row["View rate"]||row["VCR"]||row["vcr"]))||0;
@@ -15661,8 +15708,12 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   // YT row to their YT campaign — otherwise both rows (same Account Name) land on ONE campaign and the
   // Search spend books onto the YouTube line (or vice-versa). Mirrors the TVsci tactic routing.
   function googleRowIsYouTube(row){
+    // Native Google Ads UI export gives the tactic outright in "Campaign type" (Search / Video / Display).
+    const ctype = (row["Campaign type"]||row["Campaign Type"]||"").toString().trim().toLowerCase();
+    if (ctype === "video") return true;
+    if (ctype === "search" || ctype === "display" || ctype === "shopping") return false;
     const clean = v => (v==null?"":v).toString().replace(/[$,%,\s]/g,"");
-    const views = parseInt(clean(row["TrueView Video Views"]||row["Trueview Video Views"]||row["TrueView Views"]||row["Video Views"]||row["Video views"]||row["Views"]))||0;
+    const views = parseInt(clean(row["TrueView views"]||row["TrueView Views"]||row["TrueView Video Views"]||row["Trueview Video Views"]||row["Video Views"]||row["Video views"]||row["Views"]))||0;
     if (views > 0) return true;
     const cpv = clean(row["Avg. CPV"]||row["Avg CPV"]||row["CPV"]);
     if (cpv && parseFloat(cpv) > 0) return true;
@@ -16010,7 +16061,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       }catch(e){ setFileError("XLSX parse error: "+e.message); return; }
     } else {
       const text=await file.text();
-      rows=parseCSVText(text);
+      rows=parseCSVText(stripReportPreamble(text));
     }
 
     if(!rows?.length){ setFileError("No data found in file"); return; }
@@ -16258,6 +16309,20 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // (e.g. "COM-Envista Credit Union_LR", "ALL-Pearl Hawaii FCU_AG"). Filter
     // out other reps' rows so the user only sees his own ~10 campaigns instead
     // of 60+ company-wide.
+    // ── Google Ads native UI export: drop the trailing "Total:" summary rows ──
+    // The web-UI report ends with Total: Campaigns / Account / Display / Search / Video rows (the campaign
+    // name column is blank or "--" on those). Skip anything without a real campaign name so they don't
+    // become junk rows to map. Also drops any stray blank row. (No-op for the TapClicks Google export.)
+    if(source==="Google"){
+      rows = rows.filter(row => {
+        const status = (row["Campaign status"]||row["Campaign Status"]||"").toString().trim();
+        if(/^total\b/i.test(status)) return false;              // "Total: Campaigns", "Total: Search", …
+        const nm = (row["Campaign"]||row["Campaign Name"]||"").toString().trim();
+        return nm && nm !== "--" && nm !== "—";
+      });
+      if(!rows.length){ setFileError("No campaign rows found in this Google report — it looks like only totals or an empty export."); return; }
+    }
+
     if(source==="Google" && rows.length > 0 && rows[0]["Account Name"] !== undefined){
       const sampleAccounts = rows.slice(0, 5).map(r => (r["Account Name"]||"").toString());
       const looksLikeCompanyWide = sampleAccounts.some(a => /_[A-Za-z]{2,3}\s*$/.test(a));
@@ -16430,27 +16495,31 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
           if(bestId){ initMap[i]=bestId; initConf[i]= tied ? 0.5 : bestScore; autoCount++; }
         }
       } else if(source==="Google"){
-        // Google: match by Account Name (e.g. "COM-Envista Credit Union_LR" → "Envista Credit Union")
-        // Account names are stable across exports; campaign names change per ad set/keyword group
+        // Route this row to its own tactic FIRST: a YouTube/Video row → the client's YT campaign, a
+        // Search row → their SEM campaign — so Search spend can't book onto the YouTube line (or vice-
+        // versa). Tactic comes from "Campaign type" (native UI export) or views/CPV/name (TapClicks).
+        const tactic = googleRowIsYouTube(row) ? "YT" : "SEM";
         const accName = getGoogleAccountName(row);
-        const clientName = getGoogleClientName(accName);
-        // Route this row to its own tactic first: a YouTube row → the client's YT campaign, a Search
-        // row → their SEM campaign. Both rows carry the SAME Account Name, so without this they'd both
-        // land on ONE campaign and the Search spend would book onto the YouTube line (or vice-versa).
-        const matchedId = matchGoogleToTracker(clientName, matchCandidates, googleRowIsYouTube(row) ? "YT" : "SEM");
-        if(matchedId){ initMap[i]=matchedId; initConf[i]=0.8; autoCount++; }
-        else {
-          // Fallback: fuzzy match on campaign name in case Account Name is missing
+        // TapClicks export: match by the stable Account Name ("COM-Envista Credit Union_LR" → "Envista
+        // Credit Union"). The native Google Ads UI export has NO Account Name, so fall back to a client
+        // name derived from the campaign name — still tactic-routed.
+        let matchedId = accName ? matchGoogleToTracker(getGoogleClientName(accName), matchCandidates, tactic) : "";
+        let conf = 0.8;
+        if(!matchedId){
           const csvName = getCampName(row, source);
-          if(csvName){
+          matchedId = matchGoogleToTracker(googleClientLabel(csvName), matchCandidates, tactic);
+          if(matchedId){ conf = 0.75; }
+          else if(csvName){
+            // Tactic-scoped fuzzy fallback — prefer same-platform (YT/SEM) campaigns so a Search row can't
+            // land on a YouTube campaign just because the name scores slightly higher there.
+            const scoped = matchCandidates.filter(c=>c.platform===tactic);
+            const pool = scoped.length ? scoped : matchCandidates;
             let bestId="",bestScore=0;
-            matchCandidates.forEach(c=>{
-              const score=fuzzyScore(csvName,c.campaignName);
-              if(score>bestScore&&score>=0.45){ bestScore=score; bestId=String(c.id); }
-            });
-            if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; }
+            pool.forEach(c=>{ const score=fuzzyScore(csvName,c.campaignName); if(score>bestScore&&score>=0.45){ bestScore=score; bestId=String(c.id); } });
+            if(bestId){ matchedId=bestId; conf=bestScore; }
           }
         }
+        if(matchedId){ initMap[i]=matchedId; initConf[i]=conf; autoCount++; }
       } else if(source==="Facebook/Meta" && row["Account"]){
         // TapClicks Facebook XLSX format: has an "Account" column with prefix-encoded
         // client names. Match TTD-style (account → strip prefix/suffix → match client).
