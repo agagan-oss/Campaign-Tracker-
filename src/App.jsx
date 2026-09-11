@@ -1562,7 +1562,24 @@ function crossMonthFlightPacing(c) {
   // "all data was removed" case). A genuine recurring monthly campaign runs longer, so the ≤45-day cap
   // excludes it (a real 2-month+ flight already qualifies via flightGoalLabel).
   const _flightDays = Math.round((new Date(c.endDate+"T00:00:00") - new Date(c.startDate+"T00:00:00"))/86400000) + 1;
-  if (!flightGoalLabel(c) && !(_flightDays > 0 && _flightDays <= 45)) return null;
+  // A short window that FULLY CONTAINS a whole calendar month isn't a one-time cross-boundary buy — it's a
+  // RECURRING monthly campaign (it ran an entire prior month) whose end was just shortened. Those keep normal
+  // per-month pacing (the user: a monthly-goal SEM ending 9/14 must still pace to THIS month's budget by 9/14,
+  // not cumulate Aug+Sep — otherwise Need/Day reads $0 because cumulative delivery already ≈ the monthly goal).
+  // Only a genuine mid-month one-time buy — partial first month AND partial last month (e.g. an IG 8/21–9/18) —
+  // uses the cumulative flight basis. Shortening a recurring campaign's end must NOT flip its pacing basis.
+  const _containsWholeMonth = (()=>{
+    const s=new Date(c.startDate+"T00:00:00"), e=new Date(c.endDate+"T00:00:00");
+    if(isNaN(s)||isNaN(e)) return false;
+    let y=s.getFullYear(), m=s.getMonth(); const ey=e.getFullYear(), em=e.getMonth();
+    while(y<ey || (y===ey && m<=em)){
+      const first=new Date(y,m,1), last=new Date(y,m+1,0);
+      if(first>=s && last<=e) return true;   // this whole calendar month sits inside the flight window
+      m++; if(m>11){ m=0; y++; }
+    }
+    return false;
+  })();
+  if (!flightGoalLabel(c) && !((_flightDays > 0 && _flightDays <= 45) && !_containsWholeMonth)) return null;
   const mk = pacingMetricFor(c.platform, c.dealType);
   const d = resolveMetrics(c, "mtd") || {};
   const liveMtd = mk === "views" ? (parseInt(d.videoViews || c.videoViews) || 0)
@@ -14954,6 +14971,16 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       onAutoLoadConsumed();
     }
   }, [autoLoadFile]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ── "Checked in today" tracker ── which platforms already got fresh data today, so the platform
+  // filter pills below light up GREEN as the user works through their platforms — an at-a-glance
+  // "what have I still got left" without re-reading the campaign list. A platform counts as done when
+  // any of its campaigns carries today's lastQciDate (the exact stamp applyMapping writes, ~16491).
+  const _qciTodayStr = getToday();
+  const platformsDoneToday = React.useMemo(()=>{
+    const s = new Set();
+    activeCamps.forEach(c=>{ if(c && c.platform && c.lastQciDate === _qciTodayStr) s.add(c.platform); });
+    return s;
+  }, [activeCamps, _qciTodayStr]);
   const [fileSource,   setFileSource]   = React.useState("");     // "Facebook/Meta" | "Snapchat"
   const [mapping,      setMapping]      = React.useState({});     // fileRowIdx -> campId (integers only)
   const [matchConf,    setMatchConf]    = React.useState({});     // fileRowIdx -> confidence (1.0=memory, 0.8=TTD, fuzzy score for others)
@@ -16863,7 +16890,14 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center",justifyContent:"center"}}>
           {(()=>{
             const togglePlat = p => setQciPlatforms(prev=>{ const n=new Set(prev); n.has(p)?n.delete(p):n.add(p); return n; });
-            const pillStyle = active => ({background:active?(_lm?"#eff6ff":"#1a3a5c"):(_lm?"#f1f5f9":"#0a1628"),border:`1px solid ${active?(_lm?"#93c5fd":"#00d9ff"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:4,padding:"2px 8px",color:active?(_lm?"#3B8FFF":"#00d9ff"):(_lm?"#64748b":"#4d6e8a"),fontSize:11,fontWeight:active?700:400,cursor:"pointer",whiteSpace:"nowrap"});
+            // `done` = this platform already got today's check-in → GREEN (selected/blue still wins so the
+            // active filter stays obvious). Lets the user see at a glance which platforms are left.
+            const pillStyle = (active, done) => ({
+              background: active?(_lm?"#eff6ff":"#1a3a5c") : done?(_lm?"#dcfce7":"#052e1e") : (_lm?"#f1f5f9":"#0a1628"),
+              border:`1px solid ${active?(_lm?"#93c5fd":"#00d9ff") : done?(_lm?"#86efac":"#00c87a") : (_lm?"#e2e8f0":"#1e293b")}`,
+              borderRadius:4,padding:"2px 8px",
+              color: active?(_lm?"#3B8FFF":"#00d9ff") : done?(_lm?"#15803d":"#34e0a1") : (_lm?"#64748b":"#4d6e8a"),
+              fontSize:11,fontWeight:(active||done)?700:400,cursor:"pointer",whiteSpace:"nowrap"});
             // Group the platforms the user actually has (qciPlatformList) by vendor (PLATFORM_VENDOR), in the
             // usual picker order (vendorRank).
             const groups=[]; const seen={};
@@ -16874,17 +16908,24 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
               const multi=g.plats.length>1;
               const allOn=g.plats.every(p=>qciPlatforms.has(p));
               const someOn=g.plats.some(p=>qciPlatforms.has(p));
+              // groupDone = EVERY tactic in this vendor is checked in today → the whole vendor button goes
+              // green (with a ✓) when it isn't the active filter, so a finished vendor reads as finished.
+              const groupDone=g.plats.every(p=>platformsDoneToday.has(p));
               const label=VLABEL[g.vendor]||g.vendor;
               const toggleGroup=()=>setQciPlatforms(prev=>{ const n=new Set(prev); if(allOn) g.plats.forEach(p=>n.delete(p)); else g.plats.forEach(p=>n.add(p)); return n; });
               return (
-                <div key={g.vendor} style={{display:"flex",alignItems:"center",gap:2,...(multi?{border:`1px solid ${allOn?(_lm?"#bfdbfe":"#00d9ff55"):(_lm?"#e2e8f0":"#16283c")}`,borderRadius:6,padding:"2px 3px"}:{})}}>
+                <div key={g.vendor} style={{display:"flex",alignItems:"center",gap:2,...(multi?{border:`1px solid ${allOn?(_lm?"#bfdbfe":"#00d9ff55"):(!someOn&&groupDone)?(_lm?"#86efac":"#00c87a55"):(_lm?"#e2e8f0":"#16283c")}`,borderRadius:6,padding:"2px 3px"}:{})}}>
                   {multi&&(
-                    <button onClick={toggleGroup} title={`${allOn?"Deselect":"Select"} all ${label} tactics: ${g.plats.join(", ")}`}
-                      style={{background:allOn?(_lm?"#dbeafe":"#0a2f4a"):someOn?(_lm?"#eff6ff":"#0a1f33"):(_lm?"#f8fafc":"#0a1628"),border:`1px solid ${allOn?(_lm?"#60a5fa":"#00d9ff"):someOn?(_lm?"#93c5fd":"#00d9ff70"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:4,padding:"2px 9px",color:someOn?(_lm?"#2563eb":"#00d9ff"):(_lm?"#475569":"#8aa0b6"),fontSize:11,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>
-                      {label}
+                    <button onClick={toggleGroup} title={`${allOn?"Deselect":"Select"} all ${label} tactics: ${g.plats.join(", ")}${groupDone?" · all checked in today ✓":""}`}
+                      style={{background:allOn?(_lm?"#dbeafe":"#0a2f4a"):someOn?(_lm?"#eff6ff":"#0a1f33"):groupDone?(_lm?"#dcfce7":"#052e1e"):(_lm?"#f8fafc":"#0a1628"),border:`1px solid ${allOn?(_lm?"#60a5fa":"#00d9ff"):someOn?(_lm?"#93c5fd":"#00d9ff70"):groupDone?(_lm?"#86efac":"#00c87a"):(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:4,padding:"2px 9px",color:someOn?(_lm?"#2563eb":"#00d9ff"):groupDone?(_lm?"#15803d":"#34e0a1"):(_lm?"#475569":"#8aa0b6"),fontSize:11,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>
+                      {groupDone?`✓ ${label}`:label}
                     </button>
                   )}
-                  {g.plats.map(p=>(<button key={p} onClick={()=>togglePlat(p)} style={pillStyle(qciPlatforms.has(p))}>{p}</button>))}
+                  {g.plats.map(p=>{ const done=platformsDoneToday.has(p); return (
+                    <button key={p} onClick={()=>togglePlat(p)}
+                      title={done?`${p} — checked in today ✓`:`${p} — not checked in yet today`}
+                      style={pillStyle(qciPlatforms.has(p), done)}>{done?`✓ ${p}`:p}</button>
+                  );})}
                 </div>
               );
             });
