@@ -699,11 +699,22 @@ const isStoppedStatus = (s) => s === "off" || s === "paused";
 // then add "Britestar" so BOTH show. Committed chips are {t, exclude}: an INCLUDE chip (green) widens the
 // view (OR), an EXCLUDE chip (red, click a chip to flip it) hides matches. Match rule: a campaign passes
 // when it matches NONE of the exclude terms AND (there are no include terms OR it matches ANY include term).
+// Partner-code (prefix) search: typing a code like "SPIN" / "ALL-KITV" should match every campaign whose
+// media partner shows that code in the Partner column. partnerAbbrOf() returns the DISPLAYED code (a custom
+// one from PARTNER_ABBR_KEY, else the derived default), so matching it matches exactly what the user sees.
+// Cache the abbr map with a short TTL so we don't hit localStorage per-campaign on every keystroke.
+let _partnerAbbrCache = null, _partnerAbbrCacheAt = 0;
+function cachedPartnerAbbrMap(){
+  const now = Date.now();
+  if (!_partnerAbbrCache || now - _partnerAbbrCacheAt > 2000) { _partnerAbbrCache = loadPartnerAbbr(); _partnerAbbrCacheAt = now; }
+  return _partnerAbbrCache;
+}
 const _termHits = (c, t) => {
   const name    = (c.campaignName || "").toLowerCase();
   const partner = (c.mediaPartner || "").toLowerCase();
   const plat    = (c.platform     || "").toLowerCase();
-  return name.includes(t) || partner.includes(t) || plat.includes(t);
+  const code    = partnerAbbrOf(c.mediaPartner, cachedPartnerAbbrMap()).toLowerCase();
+  return name.includes(t) || partner.includes(t) || plat.includes(t) || (!!code && code.includes(t));
 };
 // `terms` = { include:[lc…], exclude:[lc…] } from buildSearchTerms.
 const campaignMatchesTerms = (c, terms) => {
@@ -3282,6 +3293,7 @@ function ReminderModal({ campaigns, archive=[], onClose, reminders, setReminders
       || rt.label.toLowerCase().includes(q)
       || (camp&&camp.campaignName.toLowerCase().includes(q))
       || (camp&&camp.mediaPartner.toLowerCase().includes(q))
+      || (camp&&partnerAbbrOf(camp.mediaPartner, cachedPartnerAbbrMap()).toLowerCase().includes(q))
       || (r.date||"").includes(q);
   }
   const overdue  = sorted.filter(r=>!r.dismissed && r.date<today  && matchesSearch(r));
@@ -8224,6 +8236,7 @@ function CampaignArchive({ archive, onRestore, onBulkRestore, onClear }) {
     const q = search.toLowerCase();
     const ms = !q || c.campaignName.toLowerCase().includes(q)
       || c.mediaPartner.toLowerCase().includes(q)
+      || partnerAbbrOf(c.mediaPartner, cachedPartnerAbbrMap()).toLowerCase().includes(q)
       || (c.platform||"").toLowerCase().includes(q)
       || (c.goal||"").toLowerCase().includes(q)
       || (c.note1||"").toLowerCase().includes(q)
@@ -9821,20 +9834,35 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     const daysLeft = (dr !== null && dr >= 0 && dr < daysLeftMonth) ? dr : daysLeftMonth;
     const remaining = Math.max(0, (monthlyGoal||0) - todayMtd);
     const goalHit = monthlyGoal > 0 && todayMtd >= monthlyGoal;
-    // Primary bar = catch-up pace (remaining ÷ days left). That goes to 0 on the LAST day of
-    // the month and the instant a goal is hit — which is exactly why the column went flat blue
-    // for everyone at month-end / goal-hit (every row fell into "no target"). So when the
-    // catch-up bar isn't usable, fall back to the even monthly pace (goal ÷ days in month),
-    // which is always defined — keeping the column meaningfully color-coded every day.
-    const catchUpPerDay = daysLeft > 0 && monthlyGoal > 0 ? Math.round(remaining / daysLeft) : 0;
-    const evenDailyPace = monthlyGoal > 0 ? Math.round(monthlyGoal / dim) : 0;
-    // Grade yesterday against the NORMAL even daily pace (goal ÷ days in month), NOT the catch-up rate
-    // (remaining ÷ days left). Catch-up is inflated for any behind campaign, so grading against it made a
-    // campaign delivering perfectly normally look red EVERY day (the user: "almost all the numbers are
-    // red… I don't know where to begin looking"). Whether a campaign is behind on the MONTH is already
-    // shown by the pacing bar + Gap column; this column answers "did it deliver a healthy amount
-    // yesterday?" — so a normal-but-behind day reads green, and only a near-dark day reads red.
-    const neededPerDay = evenDailyPace > 0 ? evenDailyPace : catchUpPerDay;
+    // Even daily pace = goal ÷ the campaign's ACTUAL delivering days THIS MONTH (its flight window inside
+    // the month), NOT the full calendar month. A campaign ending mid-month (e.g. 9/14) only has ~14 days to
+    // deliver, so goal÷30 badly understates the daily target and makes a way-behind day read green (the
+    // user shortened his Shining Star end dates → yesterday showed 156% green while they were way behind).
+    const flightDaysThisMonth = (()=>{
+      const n = dimDate;
+      const monthStart = new Date(n.getFullYear(), n.getMonth(), 1);
+      const monthEnd   = new Date(n.getFullYear(), n.getMonth()+1, 0);
+      const fStart = c.startDate ? new Date(c.startDate+"T00:00:00") : monthStart;
+      const fEnd   = c.endDate   ? new Date(c.endDate+"T00:00:00")   : monthEnd;
+      const winStart = fStart > monthStart ? fStart : monthStart;
+      const winEnd   = fEnd   < monthEnd   ? fEnd   : monthEnd;
+      return Math.max(1, Math.round((winEnd - winStart)/86400000) + 1);
+    })();
+    const evenDailyPace = monthlyGoal > 0 ? Math.round(monthlyGoal / flightDaysThisMonth) : 0;
+    // Catch-up pace — remaining ÷ days left (aim ~1 day early to MATCH the Need/Day column right beside it),
+    // so a behind campaign near its end grades against the same real target the Need/Day column shows.
+    const catchUpDaysLeft = Math.max(1, daysLeft - 1);
+    const catchUpPerDay = monthlyGoal > 0 ? Math.round(remaining / catchUpDaysLeft) : 0;
+    // Which target to grade yesterday against:
+    //  • MID-flight (plenty of runway): the EVEN pace — answers "did yesterday deliver a healthy amount?"
+    //    so a campaign that's only moderately behind on the month isn't a wall of red (the user's earlier
+    //    "almost everything's red, I don't know where to begin" feedback).
+    //  • FINAL STRETCH (≤7 days left): the CATCH-UP pace — near the end the even pace is misleading, a behind
+    //    campaign genuinely can't coast, so yesterday is graded on whether it's keeping up with what it now
+    //    NEEDS (the user: shortened end date → "yesterday should not be green, we are way behind").
+    const nearFlightEnd = daysLeft >= 0 && daysLeft <= 7;
+    const neededPerDay = (nearFlightEnd && catchUpPerDay > 0) ? catchUpPerDay
+                       : (evenDailyPace > 0 ? evenDailyPace : catchUpPerDay);
     // If check-ins were SKIPPED, `delivered` spans multiple days (baseDate → today), so grade the
     // PER-DAY average — otherwise a 2-day total reads as ~200% of a single day's target and disagrees
     // with the daily chart (which already spreads delivery across the gap).
@@ -12194,6 +12222,7 @@ function ReassignLineModal({ target, campaigns, lightMode, onCancel, onConfirm }
       const q = search.trim().toLowerCase();
       return c.campaignName.toLowerCase().includes(q) ||
              (c.mediaPartner||"").toLowerCase().includes(q) ||
+             partnerAbbrOf(c.mediaPartner, cachedPartnerAbbrMap()).toLowerCase().includes(q) ||
              (c.platform||"").toLowerCase().includes(q);
     })
     .sort((a,b)=>a.campaignName.localeCompare(b.campaignName))
@@ -13754,7 +13783,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   // ── Computed campaigns ────────────────────────────────────────────────────────
   const filteredCamps = useMemo(()=>all.filter(c=>{
     const q=search.toLowerCase();
-    return (!q||c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||(c.platform||"").toLowerCase().includes(q))
+    return (!q||c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||partnerAbbrOf(c.mediaPartner, cachedPartnerAbbrMap()).toLowerCase().includes(q)||(c.platform||"").toLowerCase().includes(q))
       &&(filterPartner==="all"||c.mediaPartner===filterPartner);
   }),[all,search,filterPartner]);
 
@@ -15128,7 +15157,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
 
   const visibleCamps = activeCamps.filter(c=>{
     const q=qciSearch.toLowerCase();
-    return (!q||c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q))
+    return (!q||c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||partnerAbbrOf(c.mediaPartner, cachedPartnerAbbrMap()).toLowerCase().includes(q))
       &&(qciPlatforms.size===0||qciPlatforms.has(c.platform));
   });
 
@@ -17536,7 +17565,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                           }
                           if (qciSearch) {   // the check-in search box filters the mapping options too
                             const q = qciSearch.toLowerCase();
-                            if (!c.campaignName.toLowerCase().includes(q) && !(c.mediaPartner||"").toLowerCase().includes(q)) return false;
+                            if (!c.campaignName.toLowerCase().includes(q) && !(c.mediaPartner||"").toLowerCase().includes(q) && !partnerAbbrOf(c.mediaPartner, cachedPartnerAbbrMap()).toLowerCase().includes(q)) return false;
                           }
                           return true;
                         });
@@ -20665,11 +20694,11 @@ function PlatformConfig({ campaigns=[], metaSyncStatus=null, metaSyncInfo=null, 
   const dspActive    = campaigns.filter(c=>c.platform==="DSP" && c.status==="active");
   const googleActive = campaigns.filter(c=>["SEM","YT"].includes(c.platform) && c.status==="active");
   const snapActive   = campaigns.filter(c=>c.platform==="SP" && c.status==="active");
-  const metaFiltered = q ? metaActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)) : metaActive;
-  const ttdFiltered  = q ? ttdActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q))  : ttdActive;
-  const dspFiltered    = q ? dspActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q))    : dspActive;
-  const googleFiltered = q ? googleActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)) : googleActive;
-  const snapFiltered   = q ? snapActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q))   : snapActive;
+  const metaFiltered = q ? metaActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||partnerAbbrOf(c.mediaPartner, cachedPartnerAbbrMap()).toLowerCase().includes(q)) : metaActive;
+  const ttdFiltered  = q ? ttdActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||partnerAbbrOf(c.mediaPartner, cachedPartnerAbbrMap()).toLowerCase().includes(q))  : ttdActive;
+  const dspFiltered    = q ? dspActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||partnerAbbrOf(c.mediaPartner, cachedPartnerAbbrMap()).toLowerCase().includes(q))    : dspActive;
+  const googleFiltered = q ? googleActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||partnerAbbrOf(c.mediaPartner, cachedPartnerAbbrMap()).toLowerCase().includes(q)) : googleActive;
+  const snapFiltered   = q ? snapActive.filter(c=>c.campaignName.toLowerCase().includes(q)||c.mediaPartner.toLowerCase().includes(q)||partnerAbbrOf(c.mediaPartner, cachedPartnerAbbrMap()).toLowerCase().includes(q))   : snapActive;
 
   // Group by partner
   function groupByPartner(list) {
