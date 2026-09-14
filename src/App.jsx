@@ -12875,10 +12875,20 @@ function getLogoUrl(website) {
 }
 
 // Horizontal bar chart HTML
+// Normalize audience rows: coerce pct to a finite number, keep the label, drop blank/NaN rows. Guards the
+// chart helpers against malformed data ({label,value} instead of {label,pct}, empty strings, etc.) that
+// otherwise produced NaN SVG paths + a wall of "attribute d: Expected number" console errors.
+function _cleanAudience(data){
+  return (Array.isArray(data)?data:[]).map(d=>{
+    const pct = parseFloat(d && (d.pct!=null?d.pct:d.value));
+    return { label: (d && (d.label!=null?d.label:d.name)) || "", pct: isFinite(pct) ? pct : 0 };
+  }).filter(d=>d.label!=="" || d.pct>0);
+}
 function hbarHTML(data, color) {
-  if(!data||!data.length) return "";
-  const max=Math.max(...data.map(d=>d.pct||0),1);
-  return data.map(d=>`<div style="margin-bottom:8px">
+  const rows=_cleanAudience(data).filter(d=>d.pct>0);
+  if(!rows.length) return "";
+  const max=Math.max(...rows.map(d=>d.pct),1);
+  return rows.map(d=>`<div style="margin-bottom:8px">
     <div style="display:flex;justify-content:space-between;font-size:11px;color:#333;margin-bottom:3px;font-weight:500">
       <span>${d.label}</span><strong style="color:#1a1a2e">${d.pct}%</strong>
     </div>
@@ -12890,12 +12900,13 @@ function hbarHTML(data, color) {
 
 // Donut chart as inline SVG + legend
 function donutSVG(data, color, size=80) {
-  if(!data||!data.length) return "";
-  const total=data.reduce((s,d)=>s+(d.pct||0),0)||1;
+  const rows=_cleanAudience(data).filter(d=>d.pct>0);
+  if(!rows.length) return "";
+  const total=rows.reduce((s,d)=>s+d.pct,0)||1;
   const cx=size/2, cy=size/2, r=size*0.38, ir=size*0.22;
   const palette=["#1a73e8","#34a853","#fbbc04","#ea4335","#9c27b0","#00838f","#ff6d00","#795548","#546e7a"];
   let angle=-Math.PI/2;
-  const slices=data.map((d,i)=>{
+  const slices=rows.map((d,i)=>{
     const sweep=(d.pct/total)*2*Math.PI;
     const x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle);
     angle+=sweep;
@@ -12905,7 +12916,7 @@ function donutSVG(data, color, size=80) {
     const lg=sweep>Math.PI?1:0;
     return `<path d="M${x1.toFixed(1)},${y1.toFixed(1)} A${r},${r} 0 ${lg},1 ${x2.toFixed(1)},${y2.toFixed(1)} L${ix2.toFixed(1)},${iy2.toFixed(1)} A${ir},${ir} 0 ${lg},0 ${ix1.toFixed(1)},${iy1.toFixed(1)} Z" fill="${palette[i%palette.length]}" stroke="white" stroke-width="1.5"/>`;
   }).join("");
-  const legend=data.map((d,i)=>`<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:#555;margin-bottom:3px"><div style="width:9px;height:9px;border-radius:2px;background:${palette[i%palette.length]};flex-shrink:0"></div>${d.label}: ${d.pct}%</div>`).join("");
+  const legend=rows.map((d,i)=>`<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:#555;margin-bottom:3px"><div style="width:9px;height:9px;border-radius:2px;background:${palette[i%palette.length]};flex-shrink:0"></div>${d.label}: ${d.pct}%</div>`).join("");
   return `<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap"><svg width="${size}" height="${size}">${slices}</svg><div>${legend}</div></div>`;
 }
 
@@ -13734,6 +13745,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   const [logoDataUrl,   setLogoDataUrl]   = useState("");
   const [websiteInput,  setWebsiteInput]  = useState("");
   const [brandColor,    setBrandColor]    = useState("#1a73e8");
+  const [secondaryColor,setSecondaryColor]= useState(""); // optional 2nd brand color — when set, the hero blends brand→secondary instead of brand→black
   const [colorOverride, setColorOverride] = useState(false);
   const [logoError,     setLogoError]     = useState("");
   const [logoLoaded,    setLogoLoaded]    = useState(false);
@@ -14046,15 +14058,42 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   // ── Style constants & helpers ────────────────────────────────────────────────
   const iS = {background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:6,padding:"7px 10px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"};
 
-  // ── Brand color palette — header IS the exact chosen color ──────────────────
-  const accent      = brandColor;                   // exact brand color — header bg, KPI numbers
-  const accentLight = lighten(accent, 0.88);        // very light tint — KPI card backgrounds
-  const accentMid   = lighten(accent, 0.60);        // mid tint — dividers, borders, date text
-  const headerBg    = brandColor;                   // EXACT brand color for header
-  const headerLight = lighten(accent, 0.15);        // slightly lighter for gradient end
-  const headerText  = textOnBg(brandColor);         // white or dark depending on brand color
-  const headerMuted = headerText==="#ffffff" ? "rgba(255,255,255,.55)" : "rgba(0,0,0,.5)";
-  const headerFaint = headerText==="#ffffff" ? "rgba(255,255,255,.35)" : "rgba(0,0,0,.3)";
+  // ── Report palette — premium "agency" look: a deep-ink hero with a brand-color glow, brand accents
+  //    through the (light, print-friendly) body. Everything derives from the single chosen brandColor. ──
+  const rptFont     = "'Inter','Segoe UI',-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif";
+  const accent      = brandColor;                   // exact brand color — KPI numbers, bars, accents
+  const accentLight = lighten(accent, 0.88);        // very light tint — soft section backgrounds
+  const accentMid   = lighten(accent, 0.60);        // mid tint — dividers, borders
+  const accentDark  = darken(accent, 0.30);         // deeper brand — subtle hero corner tint
+  // Dark surfaces are HUE-NEUTRAL near-black charcoal (not navy), so the hero/table pair cleanly with ANY
+  // brand color — a maroon or gold client no longer clashes with a blue base. The brand shows only as a
+  // soft GLOW + a faint corner wash, i.e. "brand on black" rather than a two-hue gradient.
+  const ink         = "#15171d";                    // neutral near-black — hero base + table headers + body ink
+  const inkSoft     = "#5b6170";                     // muted body text / labels
+  const hairline    = "#eaecf2";                     // hairline separators
+  const cardShadow  = "0 1px 2px rgba(17,19,24,.05), 0 10px 26px rgba(17,19,24,.06)";
+  // Optional SECONDARY brand color: when the client has one, the hero blends brand→secondary (a glow of
+  // each on the dark canvas + a secondary corner wash) instead of brand→black. Kept dark so white text
+  // stays legible no matter which two colors the client picks. Blank = the neutral "brand on black" look.
+  const secondary   = (secondaryColor||"").trim();
+  const hasSecondary = /^#[0-9a-fA-F]{6}$/.test(secondary);
+  const glow2       = hasSecondary ? secondary : accent;           // bottom-left glow
+  const heroCorner  = hasSecondary ? darken(secondary, 0.35) : accentDark; // far bottom-right wash
+  // Hero surface — neutral charcoal base (legible white text under any brand color) + a brand glow (top-
+  // right) + a second glow (bottom-left: the secondary color if set, else the brand) + a corner wash.
+  const heroBg      = `radial-gradient(125% 155% at 100% 0%, ${accent}55 0%, transparent 48%), radial-gradient(95% 135% at 0% 100%, ${glow2}${hasSecondary?"4d":"22"} 0%, transparent 46%), linear-gradient(135deg, #0f1116 0%, #191b22 55%, ${heroCorner} 155%)`;
+  const heroText    = "#ffffff";
+  const heroMuted   = "rgba(255,255,255,.62)";
+  const heroFaint   = "rgba(255,255,255,.42)";
+  const heroAccent  = lighten(accent, 0.42);         // brand tint bright enough to pop on the dark hero
+  // Accent bar under the hero — brand→secondary→brand when a secondary is set, else brand→bright→brand.
+  const accentBarBg = `linear-gradient(90deg, ${accent} 0%, ${hasSecondary?secondary:heroAccent} 50%, ${accent} 100%)`;
+  // Back-compat names still referenced by the table headers + the PDF export template below.
+  const headerBg    = ink;
+  const headerLight = "#191b22";
+  const headerText  = heroText;
+  const headerMuted = heroMuted;
+  const headerFaint = heroFaint;
 
   // ── Display names ─────────────────────────────────────────────────────────────
   const autoClientName = useMemo(()=>{
@@ -14063,6 +14102,8 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   },[selectedCamps]);
   const displayClient = clientName||autoClientName;
   const displayTitle  = reportTitle||(displayClient+" — Performance Report");
+  // Monogram (client initials) for the logo-less fallback — reads far more "agency" than a 📊 emoji.
+  const monogram = (displayClient||"").trim().split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]||"").join("").toUpperCase() || "★";
 
   // ── Inline editable header field ─────────────────────────────────────────────
   function InlineEdit({field, value, onChange, style={}, placeholder="Click to edit"}) {
@@ -14114,8 +14155,11 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
   // ── Section header with × to hide ────────────────────────────────────────────
   function SectionHeader({title, skey}) {
     return (
-      <div style={{fontSize:10,fontWeight:700,color:"#444",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${accent}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <span>{title}</span>
+      <div style={{marginBottom:12,paddingBottom:8,borderBottom:`1px solid ${hairline}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <span style={{display:"flex",alignItems:"center",gap:9}}>
+          <span style={{width:4,height:14,borderRadius:3,background:`linear-gradient(${accent},${accentMid})`,flexShrink:0}}/>
+          <span style={{fontSize:11,fontWeight:800,color:ink,textTransform:"uppercase",letterSpacing:".14em"}}>{title}</span>
+        </span>
         <button onClick={()=>setSections(p=>({...p,[skey]:!p[skey]}))} title="Hide section" className="no-print"
           style={{background:"none",border:"none",color:"#ccc",fontSize:13,cursor:"pointer",lineHeight:1,padding:"0 2px"}}>×</button>
       </div>
@@ -14145,37 +14189,41 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
     const body=document.getElementById("rpt-preview-body");
     if(!body) return;
     const site = websiteInput||detectedWebsite;
-    let logoHtml = `<div style="width:54px;height:54px;background:rgba(255,255,255,.12);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:26px">📊</div>`;
+    let logoHtml = `<div style="width:56px;height:56px;background:linear-gradient(150deg,${accent},${accentDark});border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:800;color:#fff;border:1px solid rgba(255,255,255,.18);box-shadow:0 6px 18px ${accent}55">${monogram}</div>`;
     if(logoDataUrl) {
-      logoHtml = `<img src="${logoDataUrl}" style="height:60px;max-width:180px;object-fit:contain;background:white;padding:8px;border-radius:8px" alt="logo"/>`;
+      logoHtml = `<img src="${logoDataUrl}" style="height:60px;max-width:180px;object-fit:contain;background:white;padding:8px;border-radius:12px;box-shadow:0 4px 14px rgba(0,0,0,.25)" alt="logo"/>`;
     } else if(site) {
       try {
         const domain = new URL(site.startsWith("http")?site:"https://"+site).hostname.replace(/^www\./,"");
         const favUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
-        logoHtml = `<img src="${favUrl}" style="height:48px;max-width:48px;object-fit:contain;background:white;padding:5px;border-radius:6px" alt="logo"/>`;
+        logoHtml = `<img src="${favUrl}" style="height:52px;max-width:52px;object-fit:contain;background:white;padding:6px;border-radius:12px;box-shadow:0 4px 14px rgba(0,0,0,.25)" alt="logo"/>`;
       } catch {}
     }
     const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>${displayTitle}</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:white;color:#1a1a2e;font-size:13px}
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:${rptFont.replace(/"/g,"'")};background:white;color:${ink};font-size:13px}table{font-variant-numeric:tabular-nums}
 @media print{@page{margin:.45in;size:letter}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.no-print{display:none!important}}</style>
 </head><body>
-<div style="background:linear-gradient(135deg,${headerBg} 0%,${headerLight} 100%);padding:24px 28px;display:flex;align-items:center;justify-content:space-between;gap:16px">
-  <div style="display:flex;align-items:center;gap:16px">${logoHtml}
+<div style="background:${heroBg};padding:28px 30px;display:flex;align-items:center;justify-content:space-between;gap:16px">
+  <div style="display:flex;align-items:center;gap:18px">${logoHtml}
     <div>
-      <div style="font-size:11px;color:${headerMuted};text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">${displayClient}</div>
-      <div style="font-size:20px;font-weight:900;color:${headerText};line-height:1.1">${displayTitle}</div>
-      <div style="font-size:12px;color:${accentMid};margin-top:4px;font-weight:600">${dr.label}</div>
-      <div style="font-size:10px;color:${headerFaint};margin-top:2px">Created ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
+      <div style="font-size:10px;color:${heroAccent};text-transform:uppercase;letter-spacing:.22em;font-weight:700;margin-bottom:6px">Performance Report</div>
+      <div style="font-size:10.5px;color:${heroMuted};text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">${displayClient}</div>
+      <div style="font-size:22px;font-weight:800;color:${heroText};line-height:1.1;letter-spacing:-0.02em">${displayTitle}</div>
+      <div style="display:inline-flex;align-items:center;gap:7px;margin-top:9px;padding:4px 11px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.14);border-radius:20px">
+        <span style="width:6px;height:6px;border-radius:50%;background:${heroAccent};box-shadow:0 0 8px ${heroAccent}"></span>
+        <span style="font-size:11.5px;color:#fff;font-weight:600">${dr.label}</span>
+      </div>
+      <div style="font-size:9px;color:${heroFaint};margin-top:7px">Created ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div>
     </div>
   </div>
   <div style="text-align:right;flex-shrink:0">
-    ${preparedBy ? `<div style="font-size:10px;color:${headerMuted};text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px">Prepared by</div>
-    <div style="font-size:15px;font-weight:700;color:${headerText}">${preparedBy}</div>` : ""}
-    <div style="font-size:10px;color:${headerFaint};margin-top:2px">${rows.length} campaign tactic${rows.length!==1?"s":""}</div>
+    ${preparedBy ? `<div style="font-size:10px;color:${heroMuted};text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px">Prepared by</div>
+    <div style="font-size:15px;font-weight:700;color:${heroText}">${preparedBy}</div>` : ""}
+    <div style="font-size:10px;color:${heroFaint};margin-top:2px">${rows.length} campaign tactic${rows.length!==1?"s":""}</div>
   </div>
 </div>
-<div style="height:3px;background:linear-gradient(90deg,${accent},${accentMid})"></div>
-<div style="padding:22px 28px">${body.innerHTML}</div>
+<div style="height:3px;background:${accentBarBg};box-shadow:0 0 12px ${accent}99"></div>
+<div style="padding:26px 30px">${body.innerHTML}</div>
 
 <script>window.onload=()=>setTimeout(()=>window.print(),350)</script>
 </body></html>`;
@@ -14193,6 +14241,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
       title: displayTitle,
       preparedBy,
       brandColor,
+      secondaryColor,
       websiteInput,
       dateRange: dr,
       sections: {...sections},
@@ -14452,13 +14501,45 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                       style={{width:22,height:22,borderRadius:4,background:c,border:`2px solid ${brandColor===c?"white":"transparent"}`,cursor:"pointer",padding:0,flexShrink:0}}/>
                   ))}
                 </div>
+
+                {/* Secondary color (optional) — blends the hero brand→secondary instead of brand→black. */}
+                <label style={{display:"flex",alignItems:"center",gap:6,fontSize:9,color:_lm?"#475569":"#4d6e8a",textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:6}}>
+                  Secondary Color
+                  <span style={{fontWeight:400,textTransform:"none",letterSpacing:0,color:_lm?"#94a3b8":"#3d5a72"}}>· optional 2nd brand color</span>
+                  {hasSecondary && <button onClick={()=>setSecondaryColor("")} title="Remove — hero goes back to brand-on-black" style={{marginLeft:"auto",background:"none",border:"none",color:"#ef4444",fontSize:11,fontWeight:800,cursor:"pointer",padding:0}}>✕ clear</button>}
+                </label>
+                <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+                  <input type="color" value={hasSecondary?secondary:"#8B6914"} onChange={e=>setSecondaryColor(e.target.value)}
+                    style={{width:38,height:34,borderRadius:5,border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,cursor:"pointer",padding:0,flexShrink:0,opacity:hasSecondary?1:.6}}/>
+                  <input value={secondary} onChange={e=>{const v=e.target.value; if(/^#?[0-9a-fA-F]{0,6}$/.test(v)) setSecondaryColor(v?(v[0]==="#"?v:"#"+v):"");}}
+                    placeholder="none"
+                    style={{...iS,width:84,fontFamily:"monospace",fontSize:12,padding:"5px 8px"}}/>
+                  {typeof EyeDropper!=="undefined"&&(
+                    <button onClick={async()=>{try{const ed=new EyeDropper();const r=await ed.open();setSecondaryColor(r.sRGBHex);}catch(e){}}}
+                      title="Pick from screen" style={{flex:1,background:_lm?"#f1f5f9":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px",color:"#60a5fa",fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}}>🖱️ Pick</button>
+                  )}
+                  <label title="Drop image to extract color" style={{flex:1,background:_lm?"#f1f5f9":"#0e1a2e",border:`1px dashed ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px",color:"#a855f7",fontSize:10,cursor:"pointer",textAlign:"center",whiteSpace:"nowrap"}}>
+                    🎨 Drop
+                    <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
+                      const f=e.target.files[0]; if(!f) return;
+                      const rd=new FileReader(); rd.onload=ev=>{const img=new Image(); img.onload=()=>{const c=extractDominantColor(img);if(c){setSecondaryColor(saturate(c));}};img.src=ev.target.result;}; rd.readAsDataURL(f);
+                    }}/>
+                  </label>
+                </div>
+                {/* Preset second-color swatches */}
+                <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
+                  {["#8B6914","#C0A062","#B08D57","#0f172a","#334155","#64748b","#7f1d1d","#166534","#1e3a8a","#000000"].map(c=>(
+                    <button key={c} onClick={()=>setSecondaryColor(c)}
+                      style={{width:22,height:22,borderRadius:4,background:c,border:`2px solid ${secondary.toLowerCase()===c.toLowerCase()?"white":"transparent"}`,cursor:"pointer",padding:0,flexShrink:0}}/>
+                  ))}
+                </div>
                 {/* Mini live preview */}
                 <div style={{borderRadius:5,overflow:"hidden"}}>
-                  <div style={{background:`linear-gradient(135deg,${headerBg},${headerLight})`,padding:"6px 10px",display:"flex",alignItems:"center",gap:6}}>
-                    <div style={{width:16,height:16,background:"white",borderRadius:2,opacity:.9,flexShrink:0}}/>
-                    <div style={{fontSize:8,fontWeight:800,color:headerText,flex:1}}>Client Name — Performance Report</div>
+                  <div style={{background:heroBg,padding:"8px 10px",display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{width:16,height:16,background:`linear-gradient(150deg,${accent},${accentDark})`,borderRadius:3,flexShrink:0}}/>
+                    <div style={{fontSize:8,fontWeight:800,color:heroText,flex:1}}>Client Name — Performance Report</div>
                   </div>
-                  <div style={{height:2,background:accent}}/>
+                  <div style={{height:2,background:accentBarBg}}/>
                   <div style={{background:"white",padding:"4px 8px",display:"flex",gap:4}}>
                     {["Impressions","Clicks","CTR"].map((l,i)=>(
                       <div key={i} style={{flex:1,background:"#f8f9fa",border:"1px solid #eee",borderRadius:3,padding:"3px 0",textAlign:"center"}}>
@@ -14527,26 +14608,30 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
             </div>
           </div>
         ) : (
-          <div key={brandColor+logoKey} style={{background:"white",borderRadius:12,overflow:"hidden",boxShadow:"0 4px 32px rgba(0,0,0,.5)"}}>
+          <div key={brandColor+logoKey} style={{background:"white",borderRadius:16,overflow:"hidden",boxShadow:"0 8px 40px rgba(0,0,0,.55)",fontFamily:rptFont}}>
 
             {/* ── Report Header ── */}
-            <div style={{background:`linear-gradient(160deg,${headerBg} 0%,${headerLight} 100%)`,padding:"24px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
-              <div style={{display:"flex",alignItems:"center",gap:16}}>
+            <div style={{background:heroBg,padding:"28px 30px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,position:"relative"}}>
+              <div style={{display:"flex",alignItems:"center",gap:18}}>
                 {previewLogoUrl
                   ? <img key={previewLogoUrl.src+logoKey} src={previewLogoUrl.src} alt="logo"
                       onError={e=>{ if(previewLogoUrl.fallback&&e.currentTarget.src!==previewLogoUrl.fallback){ e.currentTarget.onerror=null; e.currentTarget.src=previewLogoUrl.fallback; } }}
-                      style={{height:52,width:52,objectFit:"contain",background:"white",padding:6,borderRadius:8,flexShrink:0}}/>
-                  : <div style={{width:52,height:52,background:"rgba(255,255,255,.12)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>📊</div>
+                      style={{height:56,width:56,objectFit:"contain",background:"white",padding:7,borderRadius:12,flexShrink:0,boxShadow:"0 4px 14px rgba(0,0,0,.25)"}}/>
+                  : <div style={{width:56,height:56,background:`linear-gradient(150deg, ${accent}, ${accentDark})`,borderRadius:14,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,fontWeight:800,color:heroText,letterSpacing:".02em",flexShrink:0,border:"1px solid rgba(255,255,255,.18)",boxShadow:`0 6px 18px ${accent}55`}}>{monogram}</div>
                 }
                 <div>
-                  <div style={{fontSize:11,color:headerMuted,textTransform:"uppercase",letterSpacing:".06em",marginBottom:2}}>
+                  <div style={{fontSize:10,color:heroAccent,textTransform:"uppercase",letterSpacing:".22em",fontWeight:700,marginBottom:6}}>Performance Report</div>
+                  <div style={{fontSize:10.5,color:heroMuted,textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>
                     <InlineEdit field="clientName" value={displayClient} onChange={setClientName}
-                      style={{fontSize:11,color:headerMuted,letterSpacing:".06em"}} placeholder="Client name"/>
+                      style={{fontSize:10.5,color:heroMuted,letterSpacing:".08em"}} placeholder="Client name"/>
                   </div>
                   <InlineEdit field="reportTitle" value={displayTitle} onChange={v=>{setReportTitle(v);}}
-                    style={{fontSize:19,fontWeight:900,lineHeight:1.1,display:"block",color:headerText}} placeholder="Report title"/>
-                  <div style={{fontSize:12,color:accentMid,marginTop:4,fontWeight:600}}>{dr.label}</div>
-                  <div style={{fontSize:9,color:headerFaint,marginTop:2}}>Created {new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})} · <span style={{opacity:.6}}>click text to edit</span></div>
+                    style={{fontSize:22,fontWeight:800,lineHeight:1.1,display:"block",color:heroText,letterSpacing:"-0.02em"}} placeholder="Report title"/>
+                  <div style={{display:"inline-flex",alignItems:"center",gap:7,marginTop:9,padding:"4px 11px",background:"rgba(255,255,255,.09)",border:"1px solid rgba(255,255,255,.14)",borderRadius:20}}>
+                    <span style={{width:6,height:6,borderRadius:"50%",background:heroAccent,boxShadow:`0 0 8px ${heroAccent}`,flexShrink:0}}/>
+                    <span style={{fontSize:11.5,color:"#fff",fontWeight:600}}>{dr.label}</span>
+                  </div>
+                  <div style={{fontSize:9,color:heroFaint,marginTop:7}}>Created {new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})} · <span style={{opacity:.7}} className="no-print">click text to edit</span></div>
                 </div>
               </div>
               <div style={{textAlign:"right",flexShrink:0}}>
@@ -14560,14 +14645,14 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                   </div>
                 ) : null}
                 <InlineEdit field="preparedBy" value={preparedBy} onChange={setPreparedBy}
-                  style={{fontSize:14,fontWeight:700}} placeholder="+ Prepared by (optional)"/>
-                <div style={{fontSize:9,color:headerFaint,marginTop:2}}>{rows.length} tactic{rows.length!==1?"s":""}</div>
+                  style={{fontSize:14,fontWeight:700,color:heroText}} placeholder="+ Prepared by (optional)"/>
+                <div style={{fontSize:9,color:heroFaint,marginTop:2}}>{rows.length} tactic{rows.length!==1?"s":""}</div>
               </div>
             </div>
-            <div style={{height:3,background:`linear-gradient(90deg,${accent},${accentMid})`}}/>
+            <div style={{height:3,background:accentBarBg,boxShadow:`0 0 12px ${accent}99`}}/>
 
             {/* ── Preview Body ── */}
-            <div id="rpt-preview-body" style={{padding:"22px 28px",background:"white",color:"#1a1a2e"}}>
+            <div id="rpt-preview-body" style={{padding:"26px 30px",background:"white",color:ink,fontFamily:rptFont}}>
 
               {/* KPIs */}
               {sections.kpis&&(()=>{
@@ -14582,11 +14667,12 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                 return (
                   <div style={{marginBottom:22}}>
                     <SectionHeader title="Overall Performance" skey="kpis"/>
-                    <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(kpis.length,4)},1fr)`,gap:10}}>
+                    <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(kpis.length,4)},1fr)`,gap:12}}>
                       {kpis.map(k=>(
-                        <div key={k.label} style={{background:"#f8f9fa",border:"1px solid #e8eaf0",borderRadius:8,padding:"12px 14px",textAlign:"center"}}>
-                          <div style={{fontSize:24,fontWeight:900,color:"#1a1a2e",lineHeight:1,letterSpacing:"-0.02em"}}>{k.val}</div>
-                          <div style={{fontSize:9,color:"#555",marginTop:4,textTransform:"uppercase",letterSpacing:".06em",fontWeight:700}}>{k.label}</div>
+                        <div key={k.label} style={{position:"relative",background:"#ffffff",border:`1px solid ${hairline}`,borderRadius:12,padding:"16px 16px 14px",overflow:"hidden",boxShadow:cardShadow,breakInside:"avoid"}}>
+                          <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,${accent},${accentMid})`}}/>
+                          <div style={{fontSize:28,fontWeight:800,color:ink,lineHeight:1,letterSpacing:"-0.03em",fontVariantNumeric:"tabular-nums"}}>{k.val}</div>
+                          <div style={{fontSize:9,color:inkSoft,marginTop:7,textTransform:"uppercase",letterSpacing:".11em",fontWeight:700}}>{k.label}</div>
                         </div>
                       ))}
                     </div>
@@ -14602,14 +14688,14 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                 return (
                   <div style={{marginBottom:22}}>
                     <SectionHeader title="Impressions by Tactic" skey="impChart"/>
-                    <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px 14px 8px"}}>
+                    <div style={{background:"#fbfcff",border:"1px solid "+hairline,borderRadius:10,boxShadow:cardShadow,padding:"14px 14px 8px"}}>
                       <div style={{display:"flex",alignItems:"flex-end",gap:8,height:110}}>
                         {cr.map(r=>{
                           const pc=platCol(r.platform);
                           return (
                             <div key={r.id} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:0}}>
                               <div style={{fontSize:8,color:pc,fontWeight:700,textAlign:"center"}}>{fmtN(r.m.impressions)}</div>
-                              <div style={{width:"100%",background:pc,borderRadius:"3px 3px 0 0",height:`${Math.max(4,(r.m.impressions/mx)*90)}px`,minHeight:4}}/>
+                              <div style={{width:"100%",background:`linear-gradient(180deg, ${lighten(pc,0.18)} 0%, ${pc} 100%)`,borderRadius:"4px 4px 1px 1px",height:`${Math.max(4,(r.m.impressions/mx)*90)}px`,minHeight:4}}/>
                               <div style={{fontSize:8,color:"#999",textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{r.platform}</div>
                             </div>
                           );
@@ -14638,7 +14724,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                   <div style={{marginBottom:22}}>
                     <SectionHeader title="Weekly Performance by Tactic" skey="weeklyChart"/>
                     {!anyData ? (
-                      <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"16px",fontSize:11,color:"#888",fontStyle:"italic"}}>
+                      <div style={{background:"#fbfcff",border:"1px solid "+hairline,borderRadius:10,boxShadow:cardShadow,padding:"16px",fontSize:11,color:"#888",fontStyle:"italic"}}>
                         No weekly history yet. This chart fills in automatically as Quick Check-in CSVs are recorded over the report period — each check-in adds a data point, and weeks are built by comparing consecutive readings.
                       </div>
                     ) : (
@@ -14649,7 +14735,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                           const clkMax=Math.max(...weeks.map(w=>w.clicks),1);
                           const many=weeks.length>14;
                           return (
-                            <div key={r.id} style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px 16px 12px",breakInside:"avoid"}}>
+                            <div key={r.id} style={{background:"#fbfcff",border:"1px solid "+hairline,borderRadius:10,boxShadow:cardShadow,padding:"14px 16px 12px",breakInside:"avoid"}}>
                               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
                                 <div style={{fontSize:12,fontWeight:800,color:"#1a1a2e",display:"flex",alignItems:"center",gap:7}}>
                                   <span style={{width:9,height:9,borderRadius:2,background:pc,display:"inline-block"}}/>
@@ -14668,7 +14754,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                                     <div key={w.weekStart} style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
                                       <div style={{fontSize:8.5,color:pc,fontWeight:700,lineHeight:1,textAlign:"center",whiteSpace:"nowrap"}}>{fmtN(w.impressions)}</div>
                                       <div style={{display:"flex",alignItems:"flex-end",gap:2,height:132,width:"100%"}}>
-                                        <div title={`${fmtN(w.impressions)} impr`} style={{flex:1,background:pc,borderRadius:"3px 3px 0 0",height:`${Math.max(3,(w.impressions/impMax)*128)}px`}}/>
+                                        <div title={`${fmtN(w.impressions)} impr`} style={{flex:1,background:`linear-gradient(180deg, ${lighten(pc,0.18)} 0%, ${pc} 100%)`,borderRadius:"4px 4px 1px 1px",height:`${Math.max(3,(w.impressions/impMax)*128)}px`}}/>
                                         <div title={`${w.clicks} clicks`} style={{flex:1,background:"#1a1a2e",borderRadius:"3px 3px 0 0",height:`${Math.max(3,(w.clicks/clkMax)*128)}px`}}/>
                                       </div>
                                       <div style={{fontSize:8.5,color:"#999",whiteSpace:"nowrap"}}>{fmtWk(w.weekStart)}</div>
@@ -14693,7 +14779,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                 return (
                   <div style={{marginBottom:22}}>
                     <SectionHeader title="CTR by Tactic" skey="ctrChart"/>
-                    <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px"}}>
+                    <div style={{background:"#fbfcff",border:"1px solid "+hairline,borderRadius:10,boxShadow:cardShadow,padding:"14px"}}>
                       {cr.map(r=>(
                         <div key={r.id} style={{marginBottom:8}}>
                           <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#555",marginBottom:2}}>
@@ -14701,7 +14787,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                             <strong style={{color:"#1a1a2e",flexShrink:0,fontWeight:700}}>{r.m.ctr.toFixed(2)}%</strong>
                           </div>
                           <div style={{background:"#e8eaf0",borderRadius:3,height:12,overflow:"hidden"}}>
-                            <div style={{background:accent,height:"100%",width:`${(r.m.ctr/mx*100).toFixed(1)}%`,borderRadius:3}}/>
+                            <div style={{background:`linear-gradient(90deg, ${accentMid}, ${accent})`,height:"100%",width:`${(r.m.ctr/mx*100).toFixed(1)}%`,borderRadius:3}}/>
                           </div>
                         </div>
                       ))}
@@ -14715,18 +14801,18 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
               {sections.table&&(
                 <div style={{marginBottom:22}}>
                   <SectionHeader title="Campaign Performance by Tactic" skey="table"/>
-                  <div style={{overflowX:"auto"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                  <div style={{overflowX:"auto",border:`1px solid ${hairline}`,borderRadius:12,boxShadow:cardShadow}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,fontVariantNumeric:"tabular-nums"}}>
                       <thead>
                         <tr style={{background:headerBg,color:"white"}}>
                           {["Campaign","Platform","Impressions","Clicks","CTR","Reach","VCR/CR"].map(h=>(
-                            <th key={h} style={{padding:"8px 10px",textAlign:h==="Campaign"||h==="Platform"?"left":"right",fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".05em"}}>{h}</th>
+                            <th key={h} style={{padding:"11px 12px",textAlign:h==="Campaign"||h==="Platform"?"left":"right",fontSize:8.5,fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"rgba(255,255,255,.72)"}}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {rows.map((r,i)=>(
-                          <tr key={r.id} style={{background:i%2===0?"#f9faff":"white"}}>
+                          <tr key={r.id} style={{background:i%2===0?"#f8fafd":"white"}}>
                             <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8"}}>
                               <div style={{fontWeight:600,color:"#1a1a2e"}}>{r.campaignName.trim()}</div>
                               {r.goal&&<div style={{fontSize:9,color:"#aaa"}}>{r.goal}</div>}
@@ -14741,13 +14827,13 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                             <td style={{padding:"8px 10px",borderBottom:"1px solid #eef0f8",textAlign:"right"}}>{r.m.completionRate>0?r.m.completionRate.toFixed(1)+"%":r.m.videoViews>0?fmtN(r.m.videoViews):"—"}</td>
                           </tr>
                         ))}
-                        <tr style={{background:headerBg,color:"white",fontWeight:800,fontSize:12}}>
-                          <td style={{padding:"8px 10px"}} colSpan={2}>TOTAL</td>
-                          <td style={{padding:"8px 10px",textAlign:"right"}}>{totals.impressions>0?fmtN(totals.impressions):"—"}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right"}}>{totals.clicks>0?fmtN(totals.clicks):"—"}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right"}}>{overallCTR}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right"}}>{totals.reach>0?fmtN(totals.reach):"—"}</td>
-                          <td style={{padding:"8px 10px",textAlign:"right"}}>—</td>
+                        <tr style={{background:`linear-gradient(90deg, ${ink}, ${accentDark})`,color:"white",fontWeight:800,fontSize:12,borderTop:`2px solid ${accent}`}}>
+                          <td style={{padding:"11px 12px",letterSpacing:".08em",fontSize:10,textTransform:"uppercase"}} colSpan={2}>Total</td>
+                          <td style={{padding:"11px 12px",textAlign:"right"}}>{totals.impressions>0?fmtN(totals.impressions):"—"}</td>
+                          <td style={{padding:"11px 12px",textAlign:"right"}}>{totals.clicks>0?fmtN(totals.clicks):"—"}</td>
+                          <td style={{padding:"11px 12px",textAlign:"right"}}>{overallCTR}</td>
+                          <td style={{padding:"11px 12px",textAlign:"right"}}>{totals.reach>0?fmtN(totals.reach):"—"}</td>
+                          <td style={{padding:"11px 12px",textAlign:"right"}}>—</td>
                         </tr>
                       </tbody>
                     </table>
@@ -14788,7 +14874,7 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                   <div style={{marginBottom:22}}>
                     <SectionHeader title="Top Performing Creatives" skey="creatives"/>
                     {dataCreatives.length>0&&(
-                      <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,overflow:"hidden",marginBottom:allScreenshots.length>0?12:0}}>
+                      <div style={{background:"#fbfcff",border:"1px solid "+hairline,borderRadius:10,boxShadow:cardShadow,overflow:"hidden",marginBottom:allScreenshots.length>0?12:0}}>
                         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                           <thead><tr style={{background:headerBg,color:"white"}}>
                             {["Creative","Platform","Impressions","Clicks","CTR"].map(h=>(
@@ -14838,28 +14924,31 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
                 if(!allAge.length&&!allGender.length&&!allDevice.length&&!allGeo.length) return null;
                 return (
                   <div style={{marginBottom:22}}>
-                    <div style={{fontSize:10,fontWeight:700,color:"#444",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10,paddingBottom:6,borderBottom:`2px solid ${accent}`}}>Audience Insights</div>
+                    <div style={{marginBottom:12,paddingBottom:8,borderBottom:`1px solid ${hairline}`,display:"flex",alignItems:"center",gap:9}}>
+                      <span style={{width:4,height:14,borderRadius:3,background:`linear-gradient(${accent},${accentMid})`,flexShrink:0}}/>
+                      <span style={{fontSize:11,fontWeight:800,color:ink,textTransform:"uppercase",letterSpacing:".14em"}}>Audience Insights</span>
+                    </div>
                     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14}}>
                       {allAge.length>0&&(
-                        <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px"}}>
+                        <div style={{background:"#fbfcff",border:"1px solid "+hairline,borderRadius:10,boxShadow:cardShadow,padding:"14px"}}>
                           <div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:10,textTransform:"uppercase",letterSpacing:".05em"}}>Age Breakdown</div>
                           <div dangerouslySetInnerHTML={{__html:hbarHTML(allAge,accent)}}/>
                         </div>
                       )}
                       {allGender.length>0&&(
-                        <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px"}}>
+                        <div style={{background:"#fbfcff",border:"1px solid "+hairline,borderRadius:10,boxShadow:cardShadow,padding:"14px"}}>
                           <div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:10,textTransform:"uppercase",letterSpacing:".05em"}}>Gender</div>
                           <div dangerouslySetInnerHTML={{__html:donutSVG(allGender,accent)}}/>
                         </div>
                       )}
                       {allDevice.length>0&&(
-                        <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px"}}>
+                        <div style={{background:"#fbfcff",border:"1px solid "+hairline,borderRadius:10,boxShadow:cardShadow,padding:"14px"}}>
                           <div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:10,textTransform:"uppercase",letterSpacing:".05em"}}>Device</div>
                           <div dangerouslySetInnerHTML={{__html:donutSVG(allDevice,accent)}}/>
                         </div>
                       )}
                       {allGeo.length>0&&(
-                        <div style={{background:"#f8f9ff",border:"1px solid #e8eaf0",borderRadius:8,padding:"14px"}}>
+                        <div style={{background:"#fbfcff",border:"1px solid "+hairline,borderRadius:10,boxShadow:cardShadow,padding:"14px"}}>
                           <div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:10,textTransform:"uppercase",letterSpacing:".05em"}}>Top Locations</div>
                           <div dangerouslySetInnerHTML={{__html:hbarHTML(allGeo,accent)}}/>
                         </div>
@@ -14872,9 +14961,12 @@ function ReportingDashboard({ campaigns=[], archive=[] }) {
 
 
               {/* Footer — only one, inside the body */}
-              <div style={{borderTop:`1px solid ${accentMid}`,marginTop:16,paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <span style={{fontSize:9,color:"#aaa"}}>{preparedBy?`${preparedBy} · `:""}{displayTitle} · {dr.label}</span>
-                <span style={{fontSize:9,color:"#aaa"}}>Confidential — For Client Use Only</span>
+              <div style={{borderTop:`1px solid ${hairline}`,marginTop:20,paddingTop:12,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                <span style={{display:"flex",alignItems:"center",gap:8,fontSize:9,color:inkSoft}}>
+                  <span style={{width:16,height:16,borderRadius:4,background:`linear-gradient(150deg, ${accent}, ${accentDark})`,display:"inline-flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:8,fontWeight:800,flexShrink:0}}>{monogram}</span>
+                  {preparedBy?`${preparedBy} · `:""}{displayTitle} · {dr.label}
+                </span>
+                <span style={{fontSize:8.5,color:inkSoft,textTransform:"uppercase",letterSpacing:".1em",fontWeight:600,padding:"3px 9px",border:`1px solid ${hairline}`,borderRadius:20}}>Confidential — For Client Use Only</span>
               </div>
 
             </div>{/* end preview body */}
@@ -15243,6 +15335,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if(f.includes("googleads")||f.includes("youtube"))   return "Google";
     if(f.includes("facebook")||f.includes("fbads")||f.includes("meta")) return "Facebook/Meta";
     if(f.includes("snapchat")||f.includes("snapads"))    return "Snapchat";
+    if(f.includes("madhive"))                            return "Madhive"; // Madhive CTV delivery export (GCTV/PCTV/AECTV)
     if(f.includes("dspinternal")||f.includes("allreps")) return "DSP-Internal";
     if(f.includes("mobile"))                             return "DSP"; // DSP "Mobile" device-targeting export
     // Deliberately narrow: the filename wins over column sniffing, so a bare "tvsci" test would
@@ -15275,11 +15368,13 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // DSP "Mobile" export (title-case): Advertiser Name + Campaign Name + Line Item Name + Impressions
     // (no "Impressions Won", no spend). Multiple line items per advertiser; matched by advertiser name.
     if (cols.includes("line item name") && cols.includes("advertiser name") && cols.includes("impressions")) return "DSP";
+    // Madhive CTV delivery export — "Line Item Name" + "Completed View Rate" + "Campaign Name". Newer
+    // exports ALSO carry a "Total Cost" column, which made the Google check below (campaign + impr + cost)
+    // wrongly claim the file and route it to SEM/YT — so Madhive MUST be tested BEFORE Google. Its
+    // Line-Item + Completed-View-Rate signature is specific to Madhive/TVsci CTV, never a Google export.
+    if (cols.includes("line item name") && cols.includes("completed view rate") && cols.includes("campaign name")) return "Madhive";
     // Google Ads / YouTube — "campaign" + impressions/clicks + cost, but NOT TradeDesk or Meta columns
     if (cols.includes("campaign") && (cols.includes("impressions")||cols.includes("clicks")) && (cols.includes("cost")||cols.includes("spend")) && !cols.includes("advertiser name") && !cols.includes("amount spent")) return "Google";
-    // Madhive CTV delivery export — "Line Item Name" + "Completed View Rate" + "Campaign Name" (no
-    // Advertiser/spend columns). Each client has a general line item and a "Premium" line item.
-    if (cols.includes("line item name") && cols.includes("completed view rate") && cols.includes("campaign name")) return "Madhive";
     // TVsci spend report (the hourly "Ambio Spend Report" sheet): Ad Account Name + Campaign Name +
     // Lifetime Spend. LIFETIME dollars only — no MTD and no impressions — so it feeds a dedicated
     // lifetime-spend field and NEVER the monthly P&L (see the applyMapping branch). Must be checked
@@ -15376,12 +15471,16 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if (ctr > 1) ctr = ctr/100; // normalize if expressed as a whole percent
 
     } else if (source==="Madhive") {
-      // Madhive CTV delivery: Impressions + Completed View Rate (VCR). No spend/clicks in the export —
-      // CTV revenue is CPM on impressions (the contract rate on the PCTV/GCTV campaign in the tracker).
+      // Madhive CTV delivery: Impressions + Completed View Rate (VCR). NEWER exports also carry a
+      // "Total Cost" column — the real media cost — so we read it as spend (per line item; applyMapping
+      // sums the Premium + General lines into the campaign). CPM is then cost ÷ impressions × 1000, which
+      // feeds the Revenue tab's REAL-spend-preferred path (spendForMonth) instead of the modeled CPM.
       const clean = v => (v==null?"":v).toString().replace(/[$,%\s]/g,"");
       impressions = parseInt(clean(row["Impressions"]))||0;
       const rawVcr = parseFloat(clean(row["Completed View Rate"]))||0;
       completionRate = rawVcr > 0 && rawVcr <= 1 ? rawVcr*100 : rawVcr; // normalize 0-1 → 0-100
+      spend = parseFloat(clean(row["Total Cost"]||row["Total cost"]||row["Cost"]||row["Spend"]))||0;
+      cpm = impressions > 0 && spend > 0 ? (spend / impressions) * 1000 : 0;
 
     } else if (source==="Snapchat") {
       impressions = parseFloat(row["Paid Impressions"]||0)||0;
