@@ -2018,13 +2018,20 @@ function parseIOPdf(text, uris = []) {
   // Find the value that follows a labeled field. PDF.js extracts each cell as
   // its own text item; values are typically on the line AFTER the label.
   function valueAfter(labelPrefix) {
-    const lower = labelPrefix.toLowerCase();
+    // Match the label even when it word-wraps across several lines ("Advertiser &" / "Program Name:" /
+    // "Clear Lake Bank and Trust") by growing a join window; the value is the remainder or the next line.
+    const re = new RegExp("^" + labelPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+") + "\\b", "i");
+    const MAXJOIN = 6;
     for (let i = 0; i < lines.length; i++) {
-      const l = lines[i];
-      if (l.toLowerCase().startsWith(lower)) {
-        const rest = l.slice(labelPrefix.length).replace(/^[\s:()\#$]+/, "").trim();
+      let joined = "";
+      for (let k = 0; k < MAXJOIN && i + k < lines.length; k++) {
+        joined = (joined ? joined + " " : "") + lines[i + k];
+        if (!re.test(joined)) continue;
+        const rest = joined.slice(joined.match(re)[0].length).replace(/^[\s:()\#$]+/, "").trim();
         if (looksLikeValue(rest)) return rest;
-        return lines[i+1] || null;
+        let ni = i + k + 1;
+        if (lines[ni] && /:$/.test(lines[ni]) && !looksLikeValue(lines[ni])) ni++;
+        return lines[ni] || null;
       }
     }
     return null;
@@ -2035,27 +2042,37 @@ function parseIOPdf(text, uris = []) {
   //  - Allen Media Broadcasting style: "Is Social Media Included? Yes" (with "Is" prefix)
   // The serviceLabel arg is the bare service name in either case.
   function isIncluded(serviceLabel) {
-    const escaped = escapeRe(serviceLabel);
-    // Patterns to try (with and without "Is " prefix, ":" optional after Included)
+    // Allow ANY whitespace between the label's words — some Formsite PDFs word-wrap a flag label across
+    // several one-word lines ("Is Targeted" / "Display" / "Included?" / "Yes"), which we reconstruct by
+    // joining a window of consecutive lines below. escapeRe leaves spaces literal, so swap them for \s+.
+    const flex = escapeRe(serviceLabel).replace(/ /g, "\\s+");
     // "Is <A>?" allows an optional article — some forms write "Is a CTV Sports Package Included?" / "Is an
     // MLB … Included?" — so the article between "Is" and the label mustn't block detection.
-    const patterns = [
-      new RegExp("^" + escaped + "\\s+Included\\??\\s*$", "i"),
-      new RegExp("^" + escaped + "\\s+Included\\??\\s+Yes\\s*$", "i"),
-      new RegExp("^Is\\s+(?:an?\\s+|the\\s+)?" + escaped + "\\s+Included\\??\\s*$", "i"),
-      new RegExp("^Is\\s+(?:an?\\s+|the\\s+)?" + escaped + "\\s+Included\\??\\s+Yes\\s*$", "i"),
+    // Each pattern is tagged isPre = it carries the "Is " prefix. A NO-"Is" pattern must not match a label
+    // that is really the TAIL of a wrapped "Is <longer> Included?" flag — e.g. "Display" must NOT match
+    // inside "Is Targeted Display Included?" (which would wrongly create a bare-Display/DSP draft). So a
+    // no-"Is" match is rejected when a preceding fragment already opened an "Is …" flag (insideIsFlag).
+    const labelPat = [                                              // label ends at "Included?"; "Yes" is on the next line
+      { re: new RegExp("^" + flex + "\\s+Included\\??\\s*$", "i"), isPre:false },
+      { re: new RegExp("^Is\\s+(?:an?\\s+|the\\s+)?" + flex + "\\s+Included\\??\\s*$", "i"), isPre:true },
     ];
+    const inlineYes = [                                             // "…Included? Yes" all on the (joined) line
+      { re: new RegExp("^" + flex + "\\s+Included\\??\\s+Yes\\s*$", "i"), isPre:false },
+      { re: new RegExp("^Is\\s+(?:an?\\s+|the\\s+)?" + flex + "\\s+Included\\??\\s+Yes\\s*$", "i"), isPre:true },
+    ];
+    const insideIsFlag = (i) => /^is\s/i.test(lines[i-1]||"") || /^is\s/i.test(lines[i-2]||"") || /^is\s/i.test(lines[i-3]||"");
+    const MAXJOIN = 6; // a wrapped flag ("Is Targeted"/"Display"/"Included?") can be several fragments
     for (let i = 0; i < lines.length; i++) {
-      const l = lines[i];
-      for (let p = 0; p < patterns.length; p++) {
-        if (patterns[p].test(l)) {
-          // Even-indexed patterns (0, 2) need a "Yes" on the next line;
-          // odd-indexed (1, 3) already include "Yes" inline.
-          if (p % 2 === 0) {
-            if ((lines[i+1] || "").trim().toLowerCase() === "yes") return true;
-          } else {
-            return true;
-          }
+      let joined = "";
+      for (let k = 0; k < MAXJOIN && i + k < lines.length; k++) {
+        joined = (joined ? joined + " " : "") + lines[i + k];
+        const jn = joined.trim();
+        for (const { re, isPre } of inlineYes) if (re.test(jn) && (isPre || !insideIsFlag(i))) return true;
+        let matched = false;
+        for (const { re, isPre } of labelPat) if (re.test(jn) && (isPre || !insideIsFlag(i))) { matched = true; break; }
+        if (matched) {                                             // matched the "…Included?" label window
+          if ((lines[i + k + 1] || "").trim().toLowerCase() === "yes") return true;
+          break;                                                   // the anchored label can't match a longer window too
         }
       }
     }
@@ -2077,34 +2094,28 @@ function parseIOPdf(text, uris = []) {
   // Audio" is flagged but its fields are prefixed "Digital Audio:"). We try each candidate in order.
   function getField(prefix, label) {
     const prefixes = Array.isArray(prefix) ? prefix : [prefix];
+    const MAXJOIN = 6; // labels can word-wrap across several one-word lines ("Targeted"/"Display: Gross"/"Impressions :")
     for (const px of prefixes) {
-      // (?:\s+Inventory)? allows "General Audience CTV Inventory: Gross Impressions"
-      const re = new RegExp("^" + escapeRe(px) + "(?:\\s+Inventory)?\\s*:?\\s*" + escapeRe(label) + "\\b", "i");
+      // (?:\s+Inventory)? allows "General Audience CTV Inventory: Gross Impressions". Spaces in the prefix
+      // and label become \s+ so a label split across lines (joined with a single space below) still matches.
+      const flexPx = escapeRe(px).replace(/ /g, "\\s+");
+      const flexLb = escapeRe(label).replace(/ /g, "\\s+");
+      const re = new RegExp("^" + flexPx + "(?:\\s+Inventory)?\\s*:?\\s*" + flexLb + "\\b", "i");
       for (let i = 0; i < lines.length; i++) {
-        const l = lines[i];
-        // Try single-line match first
-        const m = l.match(re);
-        if (m) {
-          const rest = l.slice(m[0].length).replace(/^[\s:()\#$-]+/, "").trim();
+        // Grow a window of consecutive lines until the label regex matches. Return at the FIRST match so we
+        // never join past the value into the next field. Value = the remainder if it's data, else the next line.
+        let joined = "";
+        for (let k = 0; k < MAXJOIN && i + k < lines.length; k++) {
+          joined = (joined ? joined + " " : "") + lines[i + k];
+          const m = joined.match(re);
+          if (!m) continue;
+          const rest = joined.slice(m[0].length).replace(/^[\s:()\#$-]+/, "").trim();
           if (looksLikeValue(rest)) return rest;
-          // Value is on a following line. The label itself sometimes wraps — e.g.
-          //   "Gross Dollar($) Budget to" / "CTVBuyer:" / "300.00"
-          // where line+1 ("CTVBuyer:") is a label continuation, not the value. If line+1 is
-          // such a continuation (ends in a colon and isn't itself a value), skip to line+2.
-          let ni = i + 1;
-          if (lines[ni] && /:$/.test(lines[ni]) && !looksLikeValue(lines[ni])) ni = i + 2;
+          // Value is on a following line. The label itself sometimes wraps one more fragment ("…Budget to" /
+          // "CTVBuyer:" / "300.00") — skip a trailing label-continuation line (ends in ":" and isn't a value).
+          let ni = i + k + 1;
+          if (lines[ni] && /:$/.test(lines[ni]) && !looksLikeValue(lines[ni])) ni++;
           return lines[ni] || null;
-        }
-        // Try wrapped-label match: current line + next line joined.
-        // The label might span 2 lines in the PDF; value is on line+2.
-        if (i + 1 < lines.length) {
-          const joined = l + " " + lines[i+1];
-          const m2 = joined.match(re);
-          if (m2) {
-            const rest = joined.slice(m2[0].length).replace(/^[\s:()\#$-]+/, "").trim();
-            if (looksLikeValue(rest)) return rest;
-            return lines[i+2] || null;
-          }
         }
       }
     }
@@ -2480,6 +2491,34 @@ function parseIOPdf(text, uris = []) {
     });
   }
 
+  // ── Email Marketing (AMB) — per-drop + re-drop + matchback pricing (NO CPM / impressions) ──
+  // The generic reader finds no Gross Impressions/Budget (they're $0 on this form — the money lives in the
+  // per-drop bracket + re-drop + matchback fields), so enrich the detected EMAIL service with its real
+  // pricing so buildDraftsFromIO can draft it. Flat-text regex is used because the Formsite labels wrap
+  // heavily; the drops/re-drops COUNTS are a best guess (= # months) — every value is editable in the form.
+  {
+    const emailSvc = services.find(s => s.platform === "EMAIL" || s.key === "email");
+    if (emailSvc) {
+      const flat = lines.join(" ");
+      const _n = s => { const v = parseFloat(String(s == null ? "" : s).replace(/[,$\s]/g, "")); return isNaN(v) ? 0 : v; };
+      // The three "Cost per drop <bracket>:" values — the applicable one is the only non-zero.
+      const brackets = [...flat.matchAll(/Cost per drop\s+(?:under\s+20,?000|20,?001\s+to\s+50,?000|50,?001\s+or\s+more)\s*:?\s*\$?\s*([\d,]+(?:\.\d+)?)/gi)].map(m => parseFloat(m[1].replace(/,/g, "")));
+      const perDrop = brackets.find(v => v > 0) || 0;
+      const months  = parseInt((flat.match(/How many\s+months\s*:?\s*(\d+)/i) || [])[1]) || 1;
+      const reDropM = flat.match(/Re-?drop\s+Cost\s+to\s+Recrue\s*:?\s*\$?\s*([\d,]+(?:\.\d+)?)/i);
+      const mbM     = flat.match(/Match\s*back\s+Cost\s+to\s+Recrue\s*:?\s*\$?\s*([\d,]+(?:\.\d+)?)/i);
+      emailSvc.email = {
+        perDrop, drops: months,
+        reDropCost: reDropM ? _n(reDropM[1]) : 0,
+        reDrops:    reDropM ? months : 0,
+        matchback:  mbM ? _n(mbM[1]) : 0,
+        startDate:  getField("Email", "Start Date"),
+        endDate:    getField("Email", "End Date"),
+        notes:      getField("Email", "Notes") || null,
+      };
+    }
+  }
+
   // ── Unrecognized services → fuzzy-mapped ──────────────────────────────────────────────────────────
   // Any "<X> Included? Yes" line the defs above didn't cover, that carries readable data, is matched to the
   // closest platform (fuzzyPlatformGuess) and pushed for review — so a NEW streaming brand / tactic maps
@@ -2601,6 +2640,33 @@ function buildDraftsFromIO(io) {
         targetAudience: (li.targetAudience || "").trim(),
         clientWebsite: (li.website || "").trim(),
         history: noteToHistory([li.goalsObjectives].filter(Boolean).join(" ")),
+      });
+      return;
+    }
+    // ── Email Marketing (EMAIL) — revenue = per-drop×drops + re-drop×re-drops + matchback; no CPM. Cost is
+    // entered by the user in the form (emailCost) → profit = revenue − cost. All pricing fields are editable.
+    if (svc.email) {
+      const em = svc.email;
+      const revenue = (em.perDrop||0)*(em.drops||0) + (em.reDropCost||0)*(em.reDrops||0) + (em.matchback||0);
+      drafts.push({
+        mediaPartner: ioPartner,
+        campaignName: advertiser,             // the EMAIL platform button shows the tactic — no suffix
+        platform: "EMAIL",
+        startDate: parseDate(em.startDate), endDate: parseDate(em.endDate),
+        status: "off",
+        goal: "",
+        contractRate: "", dealType: "",
+        contractValue: revenue > 0 ? revenue.toFixed(2) : "",
+        emailPerDrop:   em.perDrop    > 0 ? String(em.perDrop)    : "",
+        emailDrops:     em.drops      > 0 ? String(em.drops)      : "",
+        emailRedropCost:em.reDropCost > 0 ? String(em.reDropCost) : "",
+        emailRedrops:   em.reDrops    > 0 ? String(em.reDrops)    : "",
+        emailMatchback: em.matchback  > 0 ? String(em.matchback)  : "",
+        emailCost: "",                        // your vendor cost — enter to see profit = revenue − cost
+        note1: "",
+        note2: "📧 Email pricing auto-filled from the IO — confirm drop counts + enter your vendor cost.",
+        ioNumber: io.reference || "",
+        history: noteToHistory(em.notes),
       });
       return;
     }
@@ -4140,6 +4206,9 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
 
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null, onDiscardAllDrafts=null, onPrevDraft=null, onNextDraft=null, onValuesChange=null, onSaveDraft=null, onDiscardDraft=null, onSwitchTactic=null, initialTab="details" }) {
   const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",ioNumber:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",managementFee:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",targetAudience:"",lastCreativeUpdate:"",clientWebsite:"",
+    // Email (EMAIL platform) custom pricing — charged per drop + per re-drop + matchback; revenue = the
+    // sum of these, profit = revenue − emailCost (the vendor cost you enter). No CPM/impressions.
+    emailPerDrop:"",emailDrops:"",emailRedropCost:"",emailRedrops:"",emailMatchback:"",emailCost:"",
     // Report data fields
     demoAge:"",       // JSON: [{label:"18-24",pct:32},{label:"25-34",pct:28}...]
     demoGender:"",    // JSON: [{label:"Female",pct:62},{label:"Male",pct:38}]
@@ -4251,6 +4320,16 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     const cvStr = String(Math.round(cv * 100) / 100);
     if (String(f.contractValue || "") !== cvStr) setF(prev => ({ ...prev, contractValue: cvStr }));
   }, [f.goal, f.contractRate, f.platform, f.dealType, cvTouched]);
+  // ── EMAIL: Contract Value (revenue) = per-drop×#drops + re-drop×#re-drops + matchback ──
+  // Auto-fills from the email line items (unless a contract value was typed by hand). Profit = revenue − emailCost.
+  useEffect(() => {
+    if (f.platform !== "EMAIL" || cvTouched) return;
+    if (!autoFillReady.current && f.contractValue && String(f.contractValue).trim()) return; // keep loaded value on open
+    const n = v => parseFloat(v) || 0;
+    const rev = n(f.emailPerDrop)*n(f.emailDrops) + n(f.emailRedropCost)*n(f.emailRedrops) + n(f.emailMatchback);
+    const want = rev > 0 ? String(Math.round(rev*100)/100) : "";
+    setF(prev => (String(prev.contractValue||"") === want ? prev : { ...prev, contractValue: want }));
+  }, [f.platform, f.emailPerDrop, f.emailDrops, f.emailRedropCost, f.emailRedrops, f.emailMatchback, cvTouched]);
   // ── Switch tactic mid-flight ── State for the "this campaign changed tactic partway through the month"
   // helper (e.g. FB → FBV). Archives the pre-switch portion (frozen, still booked in Revenue capped at the
   // switch) and spawns a linked new-tactic campaign for the remainder. See the panel below the Extend helper.
@@ -4628,15 +4707,16 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             const plat = f.platform;
             const isCPV = f.dealType === "CPV" || plat === "YT";
             const isSEM = plat === "SEM";
+            const isEmail = plat === "EMAIL";                        // EMAIL bills per-drop/matchback — no CPM/impression goal
             const rate  = parseFloat(f.contractRate) || 0;
             const goalN = parseGoalNumber(f.goal);
             const cv    = parseFloat(f.contractValue) || 0;
             const nm    = (f.campaignName || "").trim().toLowerCase();
             const w = [];
-            if (rate <= 0 && !isSEM) w.push(`No ${isCPV ? "CPV" : "CPM"} rate — revenue can't calculate until you set one.`);
-            if (goalN <= 0 && !isSEM) w.push(`No ${isCPV ? "view" : "impression"} goal set.`);
+            if (rate <= 0 && !isSEM && !isEmail) w.push(`No ${isCPV ? "CPV" : "CPM"} rate — revenue can't calculate until you set one.`);
+            if (goalN <= 0 && !isSEM && !isEmail) w.push(`No ${isCPV ? "view" : "impression"} goal set.`);
             // Rate-typo guard — platform-aware (vs your own usual rate for the platform, else a sane band).
-            if (!isSEM) { const rw = rateSanity(f.platform, f.dealType, f.contractRate, learnRatesByPlatform(campaigns)[f.platform]); if (rw) w.push(rw); }
+            if (!isSEM && !isEmail) { const rw = rateSanity(f.platform, f.dealType, f.contractRate, learnRatesByPlatform(campaigns)[f.platform]); if (rw) w.push(rw); }
             // (Removed the "budget ≠ rate × goal" check — Contract Value AUTO-FILLS from goal × rate, so it
             //  only ever mismatched for the one render between a goal keystroke and the auto-fill catching
             //  up, which made the whole banner flash on every keystroke. The auto-fill keeps them in sync.)
@@ -4881,10 +4961,16 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 const rate = parseFloat(f.contractRate)||0;
                 const curCV = parseFloat(f.contractValue)||0;
                 const oldTotal = parseGoalNum(f.goal);
-                // Contract value: from CPM × new impressions if a rate is set; else scale the existing
-                // contract value by the total-impression change (works for SEM/no-CPM campaigns too).
+                // Contract value:
+                //  • SEM = the client's media budget (the total spend goal) + the management fee. For SEM the
+                //    Goal IS the media $ ($1,125/mo × 2 = $2,250), and the fee is Recrue's cut ($750), so the
+                //    contract total = $3,000. Scaling the old value (the other branches) produced garbage
+                //    like $15 here — SEM has no CPM, so its contract value is media + fee, full stop.
+                //  • CPM/CPV campaigns = rate × new impressions.
+                //  • Everything else = scale the existing contract value by the impression change.
                 let newCV = null;
-                if(rate>0) newCV = ((totalImpr/1000)*rate).toFixed(2);
+                if(f.platform==="SEM"){ newCV = (totalImpr + (parseFloat(f.managementFee)||0)).toFixed(2); }
+                else if(rate>0) newCV = ((totalImpr/1000)*rate).toFixed(2);
                 else if(curCV>0 && oldTotal>0) newCV = (curCV*(totalImpr/oldTotal)).toFixed(2);
                 const changed = newGoal!==(f.goal||"") || (newCV!==null && newCV!==String(f.contractValue||"") && Math.abs(parseFloat(newCV)-curCV) >= 0.5);
                 return (
@@ -5076,8 +5162,50 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 </div>
                 );
               })()}
+              {/* EMAIL pricing — charged per drop + per re-drop + matchback (no CPM). Revenue = the sum;
+                  profit = revenue − your vendor cost. All fields editable; Contract Value auto-fills. */}
+              {f.platform==="EMAIL" && (()=>{
+                const n = v => parseFloat(v)||0;
+                const dropsRev = n(f.emailPerDrop)*n(f.emailDrops);
+                const redropRev = n(f.emailRedropCost)*n(f.emailRedrops);
+                const mb = n(f.emailMatchback);
+                const revenue = dropsRev + redropRev + mb;
+                const cost = n(f.emailCost);
+                const profit = revenue - cost;
+                const money = (key, ph, color="#34d399") => (
+                  <div style={{display:"flex",alignItems:"center",flex:1,minWidth:0,background:_lm?"#f8fafc":"#162236",border:`1px solid ${f[key]?(_lm?"#00c896":"#00c89660"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,overflow:"hidden"}}>
+                    <span style={{padding:"6px 7px",color,fontWeight:700,fontSize:12,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
+                    <input type="number" step="0.01" value={f[key]||""} onChange={e=>set(key,e.target.value)} placeholder={ph} style={{flex:1,minWidth:0,background:"transparent",border:"none",padding:"6px 7px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                  </div>
+                );
+                const count = (key, ph) => (
+                  <input type="number" value={f[key]||""} onChange={e=>set(key,e.target.value)} placeholder={ph} style={{width:64,flexShrink:0,background:_lm?"#f8fafc":"#162236",border:`1px solid ${f[key]?(_lm?"#00c896":"#00c89660"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"6px 7px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none",textAlign:"center"}}/>
+                );
+                const lbl = t => <div style={{fontSize:8.5,color:_lm?"#64748b":"#4d6e8a",marginBottom:2,textTransform:"uppercase",letterSpacing:".05em"}}>{t}</div>;
+                return (
+                <div style={{marginBottom:12}}>
+                  <label style={{display:"block",fontSize:10,color:"#f97316",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>📧 Email Pricing <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(per drop + matchback — revenue)</span></label>
+                  <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"flex-end"}}>
+                    <div style={{flex:1,minWidth:0}}>{lbl("Cost / drop")}{money("emailPerDrop","750")}</div>
+                    <div>{lbl("# drops")}{count("emailDrops","2")}</div>
+                    <div style={{flex:1,minWidth:0}}>{lbl("Re-drop cost")}{money("emailRedropCost","375")}</div>
+                    <div>{lbl("# re-drops")}{count("emailRedrops","2")}</div>
+                  </div>
+                  <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"flex-end"}}>
+                    <div style={{flex:1,minWidth:0}}>{lbl("Matchback")}{money("emailMatchback","175")}</div>
+                    <div style={{flex:1,minWidth:0}}>{lbl("Your cost (vendor)")}{money("emailCost","0","#e879a6")}</div>
+                  </div>
+                  {(revenue>0||cost>0) && (
+                    <div style={{fontSize:11,color:_lm?"#475569":"#9fb8d4",lineHeight:1.6,background:_lm?"#fff7ed":"#1a1005",border:`1px solid ${_lm?"#fed7aa":"#f9731633"}`,borderRadius:6,padding:"6px 10px"}}>
+                      Revenue <b style={{color:_lm?"#059669":"#00e5a0"}}>${revenue.toLocaleString()}</b> − cost <b style={{color:_lm?"#be185d":"#f9a8d4"}}>${cost.toLocaleString()}</b> = <b style={{color:profit>=0?(_lm?"#059669":"#00e5a0"):"#ef4444"}}>${profit.toLocaleString()} profit</b>
+                      <div style={{fontSize:9.5,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>{n(f.emailDrops)||0}×${n(f.emailPerDrop)||0} drops + {n(f.emailRedrops)||0}×${n(f.emailRedropCost)||0} re-drops + ${mb.toLocaleString()} matchback → auto-fills Contract Value.</div>
+                    </div>
+                  )}
+                </div>
+                );
+              })()}
               {/* Deal Type + Contract Rate — drives monthly revenue calculation */}
-              {f.platform!=="SEM" && (
+              {f.platform!=="SEM" && f.platform!=="EMAIL" && (
                 <div style={{marginBottom:12}}>
                   <label style={{display:"block",fontSize:10,color:"#34d399",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>📈 Monthly Revenue Rate</label>
                   <div style={{display:"flex",gap:6,alignItems:"center"}}>
@@ -12639,12 +12767,21 @@ function estMonthlyProfit(campaigns){
 // these normalized weights gives EQUAL shares to whole months — $750 over Aug+Sep = $375 each, the way the
 // user quotes it ("$750 for two months = $375/mo") — instead of raw day-share ($381 Aug / $369 Sep, because
 // Aug has 31 days), while partial first/last months still prorate by how much of the month they cover.
+// A calendar month a SEM flight touches counts as ONE whole budget-month when the flight runs in it for at
+// least ~a week. The user budgets SEM per MONTH, so a partial month like a 9/1–9/14 September (14 days) is a
+// FULL $X/Mo month — full media budget AND an equal share of the management fee — NOT a fraction. Only a
+// tiny trailing tail (a few days of a month the buy barely touches) drops to 0. This is why "$750 over Aug
+// + a 14-day September = $375 each", and why a 14-day September's spend is measured against the full $1,125
+// budget (so under-budget spend keeps the full fee) instead of a $0 budget (all spend wrongly over-budget).
+// Was Math.round(days/daysInMonth), which zeroed any month under 15 days — the Shining Star September bug.
+function semMonthCounts(activeDays) { return (Number(activeDays) || 0) >= 7 ? 1 : 0; }
 function semMonthWeights(startDate, endDate) {
   const start = new Date(startDate + "T00:00:00");
   const end   = new Date(endDate   + "T00:00:00");
   const weights = {}; let total = 0;
   if (isNaN(start) || isNaN(end) || end < start) return { weights, total };
-  const raw = {};
+  const frac = {};   // fraction of each month covered — only used for the all-slivers fallback below
+  const days = {};   // active days in each month — drives the whole-month count
   let cur = new Date(start.getFullYear(), start.getMonth(), 1);
   const endMo = new Date(end.getFullYear(), end.getMonth(), 1);
   while (cur <= endMo) {
@@ -12652,16 +12789,17 @@ function semMonthWeights(startDate, endDate) {
     const dim = new Date(y, m+1, 0).getDate();
     const mStart = new Date(Math.max(start, new Date(y, m, 1)));
     const mEnd   = new Date(Math.min(end,   new Date(y, m+1, 0)));
-    raw[`${y}-${String(m+1).padStart(2,"0")}`] = Math.max(0, Math.round((mEnd - mStart)/86400000) + 1) / dim; // fraction covered
+    const ad = Math.max(0, Math.round((mEnd - mStart)/86400000) + 1);
+    const key = `${y}-${String(m+1).padStart(2,"0")}`;
+    days[key] = ad; frac[key] = ad / dim;
     cur = new Date(y, m+1, 1);
   }
-  // ROUND each month to a whole flight-month: a month covered ≥ half counts as one (weight 1), a tiny tail
-  // (e.g. a 3-day November on an 8/10–11/03 buy) drops to 0 — so a $750 fee over "Aug–Oct" splits evenly
-  // to $250 each, matching how the user quotes it, instead of a day-share ($189 Aug / … / $27 Nov).
-  for (const mo in raw) { const w = Math.round(raw[mo]); weights[mo] = w; total += w; }
-  // Guard: if EVERY month rounds to 0 (a short buy split across two partial months), fall back to the raw
+  // Each month the flight runs ≥ ~a week counts as ONE whole budget-month (see semMonthCounts) — so a $750
+  // fee over "Aug + a 14-day Sep" splits evenly to $375 each, and a tiny tail drops to 0.
+  for (const mo in days) { const w = semMonthCounts(days[mo]); weights[mo] = w; total += w; }
+  // Guard: if EVERY month is a sub-week sliver (a short buy straddling a boundary), fall back to the raw
   // fractions so we never divide by zero.
-  if (total <= 0) { for (const mo in raw) { weights[mo] = raw[mo]; total += raw[mo]; } }
+  if (total <= 0) { for (const mo in frac) { weights[mo] = frac[mo]; total += frac[mo]; } }
   return { weights, total };
 }
 function semMonthlyBudget(c) {
@@ -12717,10 +12855,10 @@ function semBudgetForMonth(c, mo) {
   const mEnd   = new Date(Math.min(flightEnd,   new Date(y, mm, 0)));
   const activeDays = Math.max(0, Math.round((mEnd - mStart) / 86400000) + 1);
   if (mediaTotal > 0) { const { weights, total } = semMonthWeights(c.startDate, c.endDate); return total > 0 ? mediaTotal * ((weights[mo]||0) / total) : 0; }
-  // Monthly "$X/Mo" budget = the FULL monthly amount for each whole flight-month (a partial month the flight
-  // covers ≥ half still gets the full monthly budget — a mid-month launch doesn't shrink the client's monthly
-  // spend cap); a tiny tail month gets $0. So an 8/10 start still budgets $1,750 for August.
-  return budgetPerMo * Math.round(activeDays / dim);
+  // Monthly "$X/Mo" budget = the FULL monthly amount for each whole flight-month the flight runs ≥ ~a week
+  // (a mid-month launch OR a mid-month end doesn't shrink the client's monthly spend cap — a 14-day
+  // September still budgets the full $1,125); a tiny tail month gets $0. See semMonthCounts.
+  return budgetPerMo * semMonthCounts(activeDays);
 }
 
 // SEM "revenue" map = the management fee SPREAD across the flight (Recrue's revenue; client media is
@@ -18419,7 +18557,7 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
       const mEnd   = new Date(Math.min(flightEnd,   new Date(y, mm, 0)));
       const activeDays = Math.max(0, Math.round((mEnd - mStart)/86400000) + 1);
       if (mediaTotal > 0) { const { weights, total } = semMonthWeights(c.startDate, c.endDate); return total > 0 ? mediaTotal * ((weights[m]||0) / total) : 0; } // month-fraction share of the TOTAL
-      return budgetPerMo * Math.round(activeDays / dim);                      // monthly "$X/Mo" budget — FULL for each whole flight-month (matches semBudgetForMonth)
+      return budgetPerMo * semMonthCounts(activeDays);                        // monthly "$X/Mo" budget — FULL for each ≥~week flight-month (matches semBudgetForMonth)
     };
     const nextMo = (m) => { const [y, mm] = m.split("-").map(Number); const d = new Date(y, mm, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
     // Walk flight months start→mo, accumulating budget+spend for REPORTED months only; capture the
@@ -18450,6 +18588,19 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
     if (c.platform === "SEM") {
       // Overage is now flight-cumulative (recoverable across months) — see semOverageForMonth.
       return semOverageForMonth(c, mo);
+    }
+    // EMAIL: cost = the vendor cost the user enters (emailCost), spread across the flight by month-weight —
+    // there's no media spend/impressions. Revenue is the contract value (per-drop + matchback), so the
+    // Revenue tab's profit = revenue − this cost. No cost entered → 0 (profit = the full revenue).
+    if (c.platform === "EMAIL") {
+      if (mo > thisMonth) return null;                                   // future month → pending
+      const cost = parseFloat(c.emailCost) || 0;
+      if (cost <= 0) return 0;
+      if (c.startDate && c.endDate) {
+        const { weights, total } = semMonthWeights(c.startDate, c.endDate);
+        if (total > 0) return cost * ((weights[mo] || 0) / total);
+      }
+      return 0;
     }
     // Locked months: use the frozen snapshot — immune to future CSV drops
     if (monthLocks[mo]) {
