@@ -790,6 +790,15 @@ function lmBadge(c) {
 
 function getToday() { return new Date().toISOString().split("T")[0]; }
 
+// Spend/price freshness — the fields that move a campaign's COST or the PRICE we charge (never a
+// clicks/CTR/reach-only refresh). When any of these change on a QCI drop or a manual edit, we stamp
+// `lastSpendUpdate` so the Revenue tab can show "spend updated MM/DD/YYYY". impressions is included
+// because modeled-cost platforms (DSP/Madhive) derive spend from delivered impressions.
+const SPEND_STAMP_KEYS = ["spend","cpm","impressions","contractRate","managementFee","emailBillPerDrop","emailCostPerDrop","emailDrops"];
+function spendDriverChanged(orig, next) {
+  return SPEND_STAMP_KEYS.some(k => String((orig && orig[k]) ?? "") !== String((next && next[k]) ?? ""));
+}
+
 // ── Tracker time zone ────────────────────────────────────────────────────────────────────────────
 // The team is East-coast, so the tracker DEFAULTS to Eastern for anything time-of-day (calendar
 // meetings, the homepage agenda's Today/Tomorrow grouping, the greeting) — regardless of how any one
@@ -2643,28 +2652,51 @@ function buildDraftsFromIO(io) {
       });
       return;
     }
-    // ── Email Marketing (EMAIL) — revenue = per-drop×drops + re-drop×re-drops + matchback; no CPM. Cost is
-    // entered by the user in the form (emailCost) → profit = revenue − cost. All pricing fields are editable.
+    // ── Email Marketing (EMAIL) — billed PER DROP. We bill the client emailBillPerDrop (e.g. $750) and it
+    // costs us emailCostPerDrop (e.g. $500) → $250 profit/drop. emailDrops is a dated list [{d,done,b,c,label}]
+    // Austin confirms as each drop actually goes out. IO gives the per-drop rate + a count + a flight window;
+    // we seed one dated (unconfirmed) entry per drop spread across the flight, plus re-drops/matchback as
+    // labeled entries. Cost/drop is left blank for Austin to enter ($500).
     if (svc.email) {
       const em = svc.email;
-      const revenue = (em.perDrop||0)*(em.drops||0) + (em.reDropCost||0)*(em.reDrops||0) + (em.matchback||0);
+      const sIso = parseDate(em.startDate), eIso = parseDate(em.endDate);
+      const billPer = em.perDrop > 0 ? em.perDrop : 0;
+      // Spread N drops evenly across [start,end]; blank dates if the flight window is unknown.
+      const spread = (n) => {
+        const out = [];
+        const s = sIso ? new Date(sIso + "T00:00:00") : null;
+        const e = eIso ? new Date(eIso + "T00:00:00") : null;
+        for (let i = 0; i < n; i++) {
+          let d = "";
+          if (s && e && n > 0) {
+            const t = n === 1 ? s.getTime() : s.getTime() + (e.getTime() - s.getTime()) * (i / (n - 1));
+            d = new Date(t).toISOString().split("T")[0];
+          } else if (s) { d = sIso; }
+          out.push(d);
+        }
+        return out;
+      };
+      const drops = [];
+      spread(em.drops || 0).forEach(d => drops.push({ d, done: false, b: "", c: "", label: "" }));
+      // Re-drops — labeled, with the re-drop rate as a bill override when it differs from the base rate.
+      const reB = (em.reDropCost > 0 && em.reDropCost !== billPer) ? String(em.reDropCost) : "";
+      for (let i = 0; i < (em.reDrops || 0); i++) drops.push({ d: eIso || "", done: false, b: reB, c: "", label: "Re-drop" });
+      // Matchback — a single labeled entry billed at the matchback amount.
+      if (em.matchback > 0) drops.push({ d: eIso || "", done: false, b: String(em.matchback), c: "", label: "Matchback" });
       drafts.push({
         mediaPartner: ioPartner,
         campaignName: advertiser,             // the EMAIL platform button shows the tactic — no suffix
         platform: "EMAIL",
-        startDate: parseDate(em.startDate), endDate: parseDate(em.endDate),
+        startDate: sIso, endDate: eIso,
         status: "off",
         goal: "",
         contractRate: "", dealType: "",
-        contractValue: revenue > 0 ? revenue.toFixed(2) : "",
-        emailPerDrop:   em.perDrop    > 0 ? String(em.perDrop)    : "",
-        emailDrops:     em.drops      > 0 ? String(em.drops)      : "",
-        emailRedropCost:em.reDropCost > 0 ? String(em.reDropCost) : "",
-        emailRedrops:   em.reDrops    > 0 ? String(em.reDrops)    : "",
-        emailMatchback: em.matchback  > 0 ? String(em.matchback)  : "",
-        emailCost: "",                        // your vendor cost — enter to see profit = revenue − cost
+        contractValue: "",                    // auto-fills from the sum of drop bills on open
+        emailBillPerDrop: billPer > 0 ? String(billPer) : "",
+        emailCostPerDrop: "",                 // your cost per drop — enter (e.g. 500) to see profit
+        emailDrops: drops.length ? JSON.stringify(drops) : "",
         note1: "",
-        note2: "📧 Email pricing auto-filled from the IO — confirm drop counts + enter your vendor cost.",
+        note2: "📧 Email drops auto-filled from the IO — set the actual drop dates, enter your cost/drop, and check each off as it goes out.",
         ioNumber: io.reference || "",
         history: noteToHistory(em.notes),
       });
@@ -3768,6 +3800,8 @@ function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders
     // edits). The "Not Updated Recently" filter keys off it so hand-edits count as an update — but a
     // plain "Mark All Checked" (which only bumps lastChecked) does NOT reset the stale clock.
     let patched = {...c, ...local, lastChecked: getToday(), lastMetricUpdate: getToday()};
+    // Spend/price-specific stamp — only if this edit moved a cost/price driver (not a CTR-only tweak).
+    if (spendDriverChanged(c, patched)) patched.lastSpendUpdate = getToday();
     // If the displayed metrics came from a synced snapshot, write the hand-edits back INTO that
     // snapshot key too. The Revenue tab (and this tab via resolveMetrics) read spend/impressions
     // from the snapshot FIRST, so without this the manual c.spend/c.impressions would be shadowed
@@ -4206,9 +4240,12 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
 
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null, onDiscardAllDrafts=null, onPrevDraft=null, onNextDraft=null, onValuesChange=null, onSaveDraft=null, onDiscardDraft=null, onSwitchTactic=null, initialTab="details" }) {
   const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",ioNumber:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",managementFee:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",targetAudience:"",lastCreativeUpdate:"",clientWebsite:"",
-    // Email (EMAIL platform) custom pricing — charged per drop + per re-drop + matchback; revenue = the
-    // sum of these, profit = revenue − emailCost (the vendor cost you enter). No CPM/impressions.
-    emailPerDrop:"",emailDrops:"",emailRedropCost:"",emailRedrops:"",emailMatchback:"",emailCost:"",
+    // Email (EMAIL platform): billed per DROP. Each drop bills the client (default emailBillPerDrop, e.g.
+    // $750) and costs us emailCostPerDrop (e.g. $500) → profit is the difference ($250). emailDrops is a
+    // JSON list of the scheduled drops: [{d:"2026-10-01", done:false, b:750, c:500, label:""}] — each with a
+    // DATE and a "dropped ✓" confirm flag. Revenue/cost book by each CONFIRMED drop's date. Contract Value =
+    // the sum of every drop's bill. Re-drops / matchback are just drops in the list (with a label).
+    emailBillPerDrop:"",emailCostPerDrop:"",emailDrops:"",
     // Report data fields
     demoAge:"",       // JSON: [{label:"18-24",pct:32},{label:"25-34",pct:28}...]
     demoGender:"",    // JSON: [{label:"Female",pct:62},{label:"Male",pct:38}]
@@ -4274,7 +4311,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
   const [rateTouched, setRateTouched] = useState(false);
   useEffect(() => {
     if (rateTouched) return;
-    if (!f.platform || f.platform === "SEM") return;   // SEM bills a management fee, not a CPM
+    if (!f.platform || f.platform === "SEM" || f.platform === "EMAIL") return;   // SEM = mgmt fee, EMAIL = per-drop — neither has a CPM
     const hasRate = !!(f.contractRate && String(f.contractRate).trim());
     if (!autoFillReady.current && hasRate) return;     // on open, keep the rate the form loaded with
     const sug = suggestRate(f.platform, learnRatesByPlatform(campaigns));
@@ -4296,7 +4333,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     const changed = prevPlatformRef.current !== f.platform;
     prevPlatformRef.current = f.platform;
     if (dealTypeTouched) return;                        // user picked a deal type by hand — leave it
-    if (!f.platform || f.platform === "SEM") return;   // SEM has no CPM/CPV deal type
+    if (!f.platform || f.platform === "SEM" || f.platform === "EMAIL") return;   // SEM/EMAIL have no CPM/CPV deal type
     // On a platform CHANGE, snap to the right basis. On OPEN (no change), only fill a BLANK dealType
     // (fresh Add, or a legacy YT campaign saved without one) — never rewrite a saved deal type.
     if (!changed && f.dealType) return;
@@ -4320,16 +4357,15 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     const cvStr = String(Math.round(cv * 100) / 100);
     if (String(f.contractValue || "") !== cvStr) setF(prev => ({ ...prev, contractValue: cvStr }));
   }, [f.goal, f.contractRate, f.platform, f.dealType, cvTouched]);
-  // ── EMAIL: Contract Value (revenue) = per-drop×#drops + re-drop×#re-drops + matchback ──
-  // Auto-fills from the email line items (unless a contract value was typed by hand). Profit = revenue − emailCost.
+  // ── EMAIL: Contract Value = the sum of every scheduled drop's bill ──
+  // Auto-fills from the drop list (unless a contract value was typed by hand). Profit = bill − cost per drop.
   useEffect(() => {
     if (f.platform !== "EMAIL" || cvTouched) return;
     if (!autoFillReady.current && f.contractValue && String(f.contractValue).trim()) return; // keep loaded value on open
-    const n = v => parseFloat(v) || 0;
-    const rev = n(f.emailPerDrop)*n(f.emailDrops) + n(f.emailRedropCost)*n(f.emailRedrops) + n(f.emailMatchback);
+    const rev = emailContractValue(f);
     const want = rev > 0 ? String(Math.round(rev*100)/100) : "";
     setF(prev => (String(prev.contractValue||"") === want ? prev : { ...prev, contractValue: want }));
-  }, [f.platform, f.emailPerDrop, f.emailDrops, f.emailRedropCost, f.emailRedrops, f.emailMatchback, cvTouched]);
+  }, [f.platform, f.emailDrops, f.emailBillPerDrop, cvTouched]);
   // ── Switch tactic mid-flight ── State for the "this campaign changed tactic partway through the month"
   // helper (e.g. FB → FBV). Archives the pre-switch portion (frozen, still booked in Revenue capped at the
   // switch) and spawns a linked new-tactic campaign for the remainder. See the panel below the Extend helper.
@@ -4585,6 +4621,9 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
       const _orig = initialFRef.current || {};
       const _metricKeys = ["impressions","clicks","ctr","cpm","spend","reach","frequency","videoViews","completionRate","conversions"];
       if(_metricKeys.some(k => String(saved[k]??"") !== String(_orig[k]??""))) saved = {...saved, lastMetricUpdate: getToday()};
+      // Spend/price-specific stamp — only when a cost/price driver moved (spend, CPM, rate, mgmt fee,
+      // email bill/cost/drops, or the impressions that drive modeled cost). Feeds the Revenue tab line.
+      if(spendDriverChanged(_orig, saved)) saved = {...saved, lastSpendUpdate: getToday()};
     }
     onSave(saved);
     // Link any pending reminders to the new campaign ID
@@ -5162,43 +5201,79 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 </div>
                 );
               })()}
-              {/* EMAIL pricing — charged per drop + per re-drop + matchback (no CPM). Revenue = the sum;
-                  profit = revenue − your vendor cost. All fields editable; Contract Value auto-fills. */}
+              {/* EMAIL — billed per DROP. Each drop has a DATE + a "dropped ✓" confirm, plus its bill and cost
+                  (default from the per-drop fields). Profit = bill − cost. Revenue/cost book by each confirmed
+                  drop's date; Contract Value = the sum of all drops' bill. Re-drops / matchback are just drops. */}
               {f.platform==="EMAIL" && (()=>{
                 const n = v => parseFloat(v)||0;
-                const dropsRev = n(f.emailPerDrop)*n(f.emailDrops);
-                const redropRev = n(f.emailRedropCost)*n(f.emailRedrops);
-                const mb = n(f.emailMatchback);
-                const revenue = dropsRev + redropRev + mb;
-                const cost = n(f.emailCost);
-                const profit = revenue - cost;
-                const money = (key, ph, color="#34d399") => (
-                  <div style={{display:"flex",alignItems:"center",flex:1,minWidth:0,background:_lm?"#f8fafc":"#162236",border:`1px solid ${f[key]?(_lm?"#00c896":"#00c89660"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,overflow:"hidden"}}>
-                    <span style={{padding:"6px 7px",color,fontWeight:700,fontSize:12,background:_lm?"#f1f5f9":"#0e1a2e",borderRight:`1px solid ${_lm?"#e2e8f0":"#334155"}`}}>$</span>
-                    <input type="number" step="0.01" value={f[key]||""} onChange={e=>set(key,e.target.value)} placeholder={ph} style={{flex:1,minWidth:0,background:"transparent",border:"none",padding:"6px 7px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                const defB = n(f.emailBillPerDrop), defC = n(f.emailCostPerDrop);
+                let drops=[]; try{ drops=JSON.parse(f.emailDrops||"[]"); }catch{} if(!Array.isArray(drops)) drops=[];
+                const setDrops = arr => { setCvTouched(false); set("emailDrops", JSON.stringify(arr)); };
+                const billOf = d => (d.b!=null&&d.b!=="")?n(d.b):defB;
+                const costOf = d => (d.c!=null&&d.c!=="")?n(d.c):defC;
+                const revenue = drops.reduce((s,d)=>s+billOf(d),0);
+                const cost    = drops.reduce((s,d)=>s+costOf(d),0);
+                const profit  = revenue - cost;
+                const done    = drops.filter(d=>d.done).length;
+                const today   = getToday();
+                const missed  = drops.filter(d=>!d.done && d.d && d.d < today).length; // past-due, not confirmed
+                const addDrop = (label="") => setDrops([...drops, {d:"", done:false, b:"", c:"", label}]);
+                const upd = (i,key,val) => setDrops(drops.map((d,j)=>j===i?{...d,[key]:val}:d));
+                const rm  = i => setDrops(drops.filter((_,j)=>j!==i));
+                const dInp = {background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px 7px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11.5,outline:"none",colorScheme:_lm?"light":"dark"};
+                const money = (val,onCh,ph,color="#34d399") => (
+                  <div style={{display:"flex",alignItems:"center",width:66,flexShrink:0,background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,overflow:"hidden"}}>
+                    <span style={{padding:"5px 4px",color,fontWeight:700,fontSize:11}}>$</span>
+                    <input type="number" value={val??""} onChange={e=>onCh(e.target.value)} placeholder={ph} style={{width:"100%",minWidth:0,background:"transparent",border:"none",padding:"5px 2px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11.5,outline:"none"}}/>
                   </div>
                 );
-                const count = (key, ph) => (
-                  <input type="number" value={f[key]||""} onChange={e=>set(key,e.target.value)} placeholder={ph} style={{width:64,flexShrink:0,background:_lm?"#f8fafc":"#162236",border:`1px solid ${f[key]?(_lm?"#00c896":"#00c89660"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,padding:"6px 7px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none",textAlign:"center"}}/>
-                );
-                const lbl = t => <div style={{fontSize:8.5,color:_lm?"#64748b":"#4d6e8a",marginBottom:2,textTransform:"uppercase",letterSpacing:".05em"}}>{t}</div>;
                 return (
                 <div style={{marginBottom:12}}>
-                  <label style={{display:"block",fontSize:10,color:"#f97316",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>📧 Email Pricing <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(per drop + matchback — revenue)</span></label>
-                  <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"flex-end"}}>
-                    <div style={{flex:1,minWidth:0}}>{lbl("Cost / drop")}{money("emailPerDrop","750")}</div>
-                    <div>{lbl("# drops")}{count("emailDrops","2")}</div>
-                    <div style={{flex:1,minWidth:0}}>{lbl("Re-drop cost")}{money("emailRedropCost","375")}</div>
-                    <div>{lbl("# re-drops")}{count("emailRedrops","2")}</div>
+                  <label style={{display:"block",fontSize:10,color:"#f97316",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>📧 Email Drops <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(bill − cost = profit per drop)</span></label>
+                  {/* Default bill / cost per drop — pre-fills new drops */}
+                  <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"center"}}>
+                    <span style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:".05em",width:52,flexShrink:0}}>Default</span>
+                    <div style={{display:"flex",alignItems:"center",flex:1,minWidth:0,background:_lm?"#f8fafc":"#162236",border:`1px solid ${f.emailBillPerDrop?(_lm?"#00c896":"#00c89660"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,overflow:"hidden"}}>
+                      <span style={{padding:"6px 7px",color:"#34d399",fontWeight:700,fontSize:12,background:_lm?"#f1f5f9":"#0e1a2e"}}>$</span>
+                      <input type="number" value={f.emailBillPerDrop||""} onChange={e=>set("emailBillPerDrop",e.target.value)} placeholder="750 bill/drop" style={{flex:1,minWidth:0,background:"transparent",border:"none",padding:"6px 4px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                    </div>
+                    <span style={{color:_lm?"#94a3b8":"#4d6e8a",fontSize:11}}>−</span>
+                    <div style={{display:"flex",alignItems:"center",flex:1,minWidth:0,background:_lm?"#f8fafc":"#162236",border:`1px solid ${f.emailCostPerDrop?(_lm?"#e879a6":"#e879a655"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,overflow:"hidden"}}>
+                      <span style={{padding:"6px 7px",color:"#e879a6",fontWeight:700,fontSize:12,background:_lm?"#fdf2f8":"#1e0f1a"}}>$</span>
+                      <input type="number" value={f.emailCostPerDrop||""} onChange={e=>set("emailCostPerDrop",e.target.value)} placeholder="500 cost/drop" style={{flex:1,minWidth:0,background:"transparent",border:"none",padding:"6px 4px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                    </div>
+                    {(defB>0||defC>0) && <span style={{fontSize:10,color:_lm?"#059669":"#00e5a0",fontWeight:700,whiteSpace:"nowrap"}}>= ${(defB-defC).toLocaleString()}/drop</span>}
                   </div>
-                  <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"flex-end"}}>
-                    <div style={{flex:1,minWidth:0}}>{lbl("Matchback")}{money("emailMatchback","175")}</div>
-                    <div style={{flex:1,minWidth:0}}>{lbl("Your cost (vendor)")}{money("emailCost","0","#e879a6")}</div>
+                  {/* Drop schedule — a dated, confirmable line per drop */}
+                  {drops.length>0 && (
+                    <div style={{display:"flex",gap:5,marginBottom:3,paddingLeft:22,fontSize:8,color:_lm?"#94a3b8":"#4d6e8a",textTransform:"uppercase",letterSpacing:".05em"}}>
+                      <span style={{flex:1}}>Drop date</span><span style={{width:66,flexShrink:0}}>Bill</span><span style={{width:66,flexShrink:0}}>Cost</span><span style={{width:16,flexShrink:0}}></span>
+                    </div>
+                  )}
+                  {drops.map((d,i)=>(
+                    <div key={i} style={{display:"flex",gap:5,alignItems:"center",marginBottom:5}}>
+                      <input type="checkbox" checked={!!d.done} onChange={e=>upd(i,"done",e.target.checked)} title="Confirm this drop actually went out" style={{accentColor:"#00c896",width:15,height:15,cursor:"pointer",flexShrink:0}}/>
+                      <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:2}}>
+                        <input type="date" value={d.d||""} onChange={e=>upd(i,"d",e.target.value)} style={{...dInp,width:"100%"}}/>
+                        {d.label ? <span style={{fontSize:8.5,color:"#f97316",fontWeight:700,paddingLeft:2}}>{d.label}</span> : null}
+                      </div>
+                      {money(d.b, v=>upd(i,"b",v), String(defB||750))}
+                      {money(d.c, v=>upd(i,"c",v), String(defC||500), "#e879a6")}
+                      <button type="button" onClick={()=>rm(i)} title="Remove drop" style={{background:"none",border:"none",color:"#ef4444",fontSize:15,fontWeight:800,lineHeight:1,cursor:"pointer",padding:"0 2px",flexShrink:0}}>×</button>
+                    </div>
+                  ))}
+                  <div style={{display:"flex",gap:6,marginTop:2,marginBottom:6}}>
+                    <button type="button" onClick={()=>addDrop()} style={{flex:1,background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:5,padding:"5px",color:_lm?"#059669":"#00e5a0",fontSize:10,fontWeight:700,cursor:"pointer"}}>+ Drop</button>
+                    <button type="button" onClick={()=>addDrop("Re-drop")} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px",color:_lm?"#475569":"#8aa0b6",fontSize:10,cursor:"pointer"}}>+ Re-drop</button>
+                    <button type="button" onClick={()=>addDrop("Matchback")} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px",color:_lm?"#475569":"#8aa0b6",fontSize:10,cursor:"pointer"}}>+ Matchback</button>
                   </div>
-                  {(revenue>0||cost>0) && (
+                  {(revenue>0||cost>0||drops.length>0) && (
                     <div style={{fontSize:11,color:_lm?"#475569":"#9fb8d4",lineHeight:1.6,background:_lm?"#fff7ed":"#1a1005",border:`1px solid ${_lm?"#fed7aa":"#f9731633"}`,borderRadius:6,padding:"6px 10px"}}>
                       Revenue <b style={{color:_lm?"#059669":"#00e5a0"}}>${revenue.toLocaleString()}</b> − cost <b style={{color:_lm?"#be185d":"#f9a8d4"}}>${cost.toLocaleString()}</b> = <b style={{color:profit>=0?(_lm?"#059669":"#00e5a0"):"#ef4444"}}>${profit.toLocaleString()} profit</b>
-                      <div style={{fontSize:9.5,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>{n(f.emailDrops)||0}×${n(f.emailPerDrop)||0} drops + {n(f.emailRedrops)||0}×${n(f.emailRedropCost)||0} re-drops + ${mb.toLocaleString()} matchback → auto-fills Contract Value.</div>
+                      <div style={{fontSize:9.5,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>
+                        <b style={{color:done===drops.length&&drops.length>0?(_lm?"#059669":"#00e5a0"):(_lm?"#475569":"#9fb8d4")}}>{done}/{drops.length} dropped ✓</b> · revenue books per confirmed drop's date · Contract Value = total bill.
+                        {missed>0 && <span style={{color:"#ef4444",fontWeight:700}}> · ⚠ {missed} past-due, not confirmed</span>}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -12882,6 +12957,31 @@ function semFeeMap(c) {
   return map;
 }
 
+// ── Email drop model ──────────────────────────────────────────────────────────────────────────────
+// EMAIL campaigns bill per DROP. `emailDrops` is a JSON list of { d:date, done:bool, b:bill, c:cost, label }.
+// Revenue and cost book by each CONFIRMED (done) drop's DATE — so a drop confirmed 10/15 books its $750
+// bill − $500 cost = $250 profit in October, and an un-confirmed/future drop is pending. The contract
+// value is the sum of EVERY scheduled drop's bill (the full booking). Bill/cost default to the campaign's
+// emailBillPerDrop / emailCostPerDrop when a drop doesn't override them. Re-drops/matchback are just drops.
+function emailDropList(c) {
+  if (!c || c.platform !== "EMAIL") return [];
+  let arr = [];
+  try { arr = JSON.parse(c.emailDrops || "[]"); } catch { arr = []; }
+  if (!Array.isArray(arr)) arr = [];
+  const defB = parseFloat(c.emailBillPerDrop) || 0;
+  const defC = parseFloat(c.emailCostPerDrop) || 0;
+  return arr.filter(d => d).map(d => ({
+    d: d.d || "",
+    done: !!d.done,
+    b: (d.b != null && d.b !== "") ? (parseFloat(d.b) || 0) : defB,
+    c: (d.c != null && d.c !== "") ? (parseFloat(d.c) || 0) : defC,
+    label: d.label || "",
+  }));
+}
+function emailContractValue(c) { return emailDropList(c).reduce((s, d) => s + (d.b || 0), 0); }
+function emailRevenueForMonth(c, mo) { return emailDropList(c).reduce((s, d) => (d.done && d.d && d.d.slice(0,7) === mo) ? s + (d.b || 0) : s, 0); }
+function emailCostForMonth(c, mo)    { return emailDropList(c).reduce((s, d) => (d.done && d.d && d.d.slice(0,7) === mo) ? s + (d.c || 0) : s, 0); }
+
 // Returns a { [YYYY-MM]: revenue } map for a campaign.
 // Prefers CPM/CPV rate-based monthly revenue (if contractRate is set), computed PER MONTH so a
 // multi-phase flight bills the right amount in each month. Falls back to the legacy pro-rated
@@ -12889,6 +12989,12 @@ function semFeeMap(c) {
 function revenueMapForCampaign(c) {
   // SEM is a management-fee model — revenue is the fee, never the client's pass-through media spend.
   if (c && c.platform === "SEM") return semFeeMap(c);
+  // EMAIL: revenue books per CONFIRMED drop, in the month of its date.
+  if (c && c.platform === "EMAIL") {
+    const map = {};
+    emailDropList(c).forEach(d => { if (d.done && d.d) { const m = d.d.slice(0,7); map[m] = (map[m] || 0) + (d.b || 0); } });
+    return map;
+  }
   // Rate-based: spread each calendar month the campaign is active using THAT month's goal.
   const isRateBased = c && c.platform !== "SEM" && parseFloat(c.contractRate) > 0
     && true /* YT defaults to CPV, no explicit dealType required */;
@@ -17018,8 +17124,15 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       const sourceSnap = snapField ? {
         [snapField]: { ...(c[snapField]||{}), mtd: mtdSnap }
       } : {};
+      // Spend/price freshness stamp — only when this drop actually moved the SPEND dollars or the
+      // impressions that drive modeled cost (a clicks/CTR-only refresh should NOT bump it). Powers the
+      // Revenue tab's "spend updated MM/DD/YYYY" line; distinct from lastQciDate/lastMetricUpdate.
+      const _newSpend = u.spend>0?String(parseFloat(u.spend.toFixed(2))):c.spend;
+      const _newImpr  = u.impressions>0?String(u.impressions):c.impressions;
+      const _spendMoved = String(_newSpend??"")!==String(c.spend??"") || String(_newImpr??"")!==String(c.impressions??"");
       return {...c,
         ...sourceSnap,
+        lastSpendUpdate: _spendMoved ? stamp : (c.lastSpendUpdate||""),
         // Auto-activate ONLY if status was blank (a fresh campaign that's never been set).
         // Never auto-flip an "off" campaign back to active — "off" means manually paused,
         // and that decision belongs to the user. The Pacing tab shows a discoverable
@@ -18589,17 +18702,13 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
       // Overage is now flight-cumulative (recoverable across months) — see semOverageForMonth.
       return semOverageForMonth(c, mo);
     }
-    // EMAIL: cost = the vendor cost the user enters (emailCost), spread across the flight by month-weight —
-    // there's no media spend/impressions. Revenue is the contract value (per-drop + matchback), so the
-    // Revenue tab's profit = revenue − this cost. No cost entered → 0 (profit = the full revenue).
+    // EMAIL: "spend" = the per-drop COST of the drops CONFIRMED in this month (each drop bills the client
+    // and costs us; profit = bill − cost). Booked by the drop's date, so it lines up with the revenue map.
+    // A future month with no confirmed drops → pending (null); a past month with none → 0.
     if (c.platform === "EMAIL") {
-      if (mo > thisMonth) return null;                                   // future month → pending
-      const cost = parseFloat(c.emailCost) || 0;
-      if (cost <= 0) return 0;
-      if (c.startDate && c.endDate) {
-        const { weights, total } = semMonthWeights(c.startDate, c.endDate);
-        if (total > 0) return cost * ((weights[mo] || 0) / total);
-      }
+      const cost = emailCostForMonth(c, mo);
+      if (cost > 0) return cost;
+      if (mo > thisMonth) return null;                                   // future month, nothing confirmed → pending
       return 0;
     }
     // Locked months: use the frozen snapshot — immune to future CSV drops
@@ -18778,6 +18887,10 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
         const cm = closedMonthMetrics(c, mo);
         if (!(cm && cm.spend > 0)) rev = 0;
       }
+    } else if (c.platform === "EMAIL") {
+      // EMAIL bills per DROP — revenue is the drop-based spread (goalRev), never delivery-capped. A stray
+      // contractRate/dealType (from the generic CPM auto-fill) must NOT route it through the impression path.
+      // rev stays = goalRev.
     } else if (mo <= thisMonth && rev > 0) {
       const rate = parseFloat(c.contractRate);
       const effectiveDt = dealBasis(c);  // explicit dealType wins; else YouTube→CPV, others→CPM
@@ -20170,6 +20283,14 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
                         <div style={{fontSize:26,fontWeight:700,color:"#f59e0b",lineHeight:1}}>
                           {r.focusCell.spend==null?<span style={{color:"#f59e0b",fontSize:18}}>⏳ pending</span>:$fc(r.focusCell.spend)}
                         </div>
+                        {/* When the spend/price numbers were last refreshed — spend-specific (a clicks/CTR-only
+                            drop won't move it). Falls back to the last QCI date for legacy rows (a QCI always
+                            carried spend). MM/DD/YYYY per the house date format. */}
+                        {(()=>{
+                          const upd = r.c.lastSpendUpdate || r.c.lastQciDate || "";
+                          if(!/^\d{4}-\d{2}-\d{2}/.test(upd)) return null;
+                          return <div style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",marginTop:5,whiteSpace:"nowrap"}} title="Last time this campaign's spend / price data was updated (via a check-in file or a manual edit)">📅 Spend updated {fmtDate(upd.slice(0,10))}</div>;
+                        })()}
                       </div>
                       {r.c.deviceSurcharge && (
                         <div>
