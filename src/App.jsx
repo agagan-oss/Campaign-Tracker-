@@ -12769,14 +12769,22 @@ function estMonthlyProfit(campaigns){
   const now=pacingNow(); const y=now.getFullYear(), m=now.getMonth();
   const mk=`${y}-${String(m+1).padStart(2,"0")}`;
   const dim=new Date(y,m+1,0).getDate(), dom=now.getDate();
+  const todayMid=new Date(y,m,dom).getTime();   // midnight today — anchor for data-freshness in the pace projection
   const timeElapsed=Math.min(1, Math.max(0.05, dom/dim));
   let profitNow=0, revNow=0, campCount=0, anyData=false, projRev=0, projSpend=0;
   (campaigns||[]).forEach(c=>{
     const st=(c.status||"active");
-    if(st==="archived") return;                             // archived isn't part of the live month
+    // An ARCHIVED campaign (passed in tagged _fromArchive, its flight already capped at the archive date)
+    // has BANKED whatever it delivered this month — that realized profit is part of the month's total and
+    // must survive into the projection. If we drop it, the pace-target bar can fall BELOW the solid
+    // "realized so far" bar (archive a batch that already hit goal → projected profit drops under money
+    // you've already made). So we DON'T skip it: it flows through exactly like a stopped campaign below —
+    // earned-only, no future growth, no goal assumption. Archives whose flight ended before this month are
+    // still dropped by the endDate guard just below.
+    const isArchived = st==="archived" || c._fromArchive;
     if(c.startDate && c.startDate.slice(0,7) > mk) return;   // hasn't started this month
     if(c.endDate   && c.endDate.slice(0,7)   < mk) return;   // ended before this month
-    const stopped = isStoppedStatus(st);                     // off / paused — earned counts, but NO future growth
+    const stopped = isStoppedStatus(st) || isArchived;       // off / paused / archived — earned counts, NO future growth
     const plat=c.platform;
     const disp=resolveMetrics(c,"mtd")||{};
     const imprMtd=parseInt(disp.impressions||c.impressions)||0;
@@ -12792,7 +12800,10 @@ function estMonthlyProfit(campaigns){
       return;
     }
     const rate=parseFloat(c.contractRate)||0;
-    const goalRev=calcMonthlyRevenue(c)||0;                 // full-month goal×rate ceiling
+    // Resolve THIS month's goal explicitly (m, first-of-month) — same call revenueMapForCampaign makes —
+    // so a multi-phase Note-1 goal ("106K Aug 159K Sep") caps the pace projection at the SEPTEMBER figure,
+    // matching the "if you hit goal" side. With no month arg it fell back to a prorated-from-total number.
+    const goalRev=calcMonthlyRevenue(c, m, new Date(y, m, 1))||0;   // full-month goal×rate ceiling
     if(!(rate>0) || !(goalRev>0)) return;
     const isCPV=dealBasis(c)==="CPV";
     const delivered=isCPV?viewsMtd:imprMtd;
@@ -12816,9 +12827,24 @@ function estMonthlyProfit(campaigns){
     if(stopped){
       projRev += revA; projSpend += spA;
     } else if(delivered>0){
+      // Extrapolate to month-end at the run-rate. Two corrections so an on-pace campaign projects to
+      // ~its goal instead of falling systematically short:
+      //  1. DATA-DATE-AWARE — divide the delivery by the days the DATA actually covers (through its
+      //     as-of date), not today's calendar day. Otherwise a check-in that's a few days stale is
+      //     scaled as if it covered every day up to today, understating the pace.
+      //  2. GOAL CAP — over-delivery isn't billable (see the revenue cap), so the projection can never
+      //     exceed the monthly goal → "at current pace" is always ≤ "if you hit goal".
       const dt=computeDailyTarget(imprMtd, c.note1, c.startDate, c.endDate, c.goal);
-      const scale = dt ? Math.min(4, Math.max(1, dt.daysInMonth/Math.max(1, dt.dayOfMonth))) : Math.min(4, Math.max(1, timeElapsed>0?1/timeElapsed:1));
-      projRev += revA*scale; projSpend += spA*scale;
+      let coverDays = dt ? Math.max(1, dt.dayOfMonth) : Math.max(1, dom);
+      if(dt){
+        const asOfM = (()=>{ const s=c.lastQciAt||c.lastQciDate||c.lastMetricUpdate||""; const mm=String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); if(!mm) return null; const t=new Date(+mm[1],+mm[2]-1,+mm[3]).getTime(); return isNaN(t)?null:Math.min(t,todayMid); })();
+        if(asOfM!=null){ const behind=Math.round((todayMid-asOfM)/86400000); coverDays=Math.max(1, dt.dayOfMonth-Math.max(0,behind)); }
+      }
+      const windowDays = dt ? dt.daysInMonth : dim;
+      const scale = Math.min(4, Math.max(1, windowDays/coverDays));
+      const revProj = Math.min(revA*scale, goalRev);            // billing cap: can't pace past the monthly goal
+      const spendScale = revA>0 ? revProj/revA : scale;         // spend tracks the (capped) projected delivery
+      projRev += revProj; projSpend += spA*spendScale;
     } else if(goalRev>0){
       const goalCost = plat==="DSP" ? goalRev*((modCpms.DSP||0)/rate)
         : (plat==="GCTV"||plat==="PCTV"||plat==="AECTV") ? ((parseFloat(c.cpm)||0)>0 ? goalRev*((parseFloat(c.cpm)||0)/rate) : 0)
@@ -13709,6 +13735,9 @@ function OrgMatrixView({ campaigns=[] }) {
   const saveCmList = (list)=>{ setCmList(list); try{ localStorage.setItem("reports-cm-list", JSON.stringify(list)); }catch{} };
   const addCm = (name)=>{ const n=(name||"").trim(); if(n && !cmList.includes(n)) saveCmList([...cmList,n]); };
   const removeCm = (name)=>{ saveCmList(cmList.filter(x=>x!==name)); };
+  // Which campaign-name rows are expanded to show their per-platform line detail (keyed by partner||name).
+  const [expanded, setExpanded] = React.useState(()=>new Set());
+  const toggleExpand = (k)=> setExpanded(prev=>{ const n=new Set(prev); n.has(k)?n.delete(k):n.add(k); return n; });
   const rows = React.useMemo(()=> (campaigns||[]).filter(c=>c && (inclArchived || c.status!=="archived")), [campaigns, inclArchived]);
   const ql = q.trim().toLowerCase();
   const passQ = (c)=> !ql || (c.campaignName||"").toLowerCase().includes(ql) || (c.mediaPartner||"").toLowerCase().includes(ql) || (c.platform||"").toLowerCase().includes(ql) || (c.category||"").toLowerCase().includes(ql);
@@ -13732,7 +13761,8 @@ function OrgMatrixView({ campaigns=[] }) {
       const partner = (c.mediaPartner||"").trim() || "— No partner —";
       const client  = (c.campaignName||"").trim() || "—";
       (out[partner] = out[partner] || {});
-      const g = out[partner][client] = out[partner][client] || { platforms:new Set(), start:null, end:null, impr:0, budget:0, category:"", statuses:new Set() };
+      const g = out[partner][client] = out[partner][client] || { platforms:new Set(), start:null, end:null, impr:0, budget:0, category:"", statuses:new Set(), lines:[] };
+      g.lines.push(c);   // keep the underlying per-platform campaign objects so a row can expand to its detail
       if(c.platform) g.platforms.add(c.platform);
       const s=(c.startDate||"").slice(0,10), e=(c.endDate||"").slice(0,10);
       if(s && (!g.start || s<g.start)) g.start=s;
@@ -13900,11 +13930,15 @@ tr.grp td{background:#eef2ff;font-size:10.5px;color:#3730a3;} .foot{margin-top:1
                     const g = clients[name];
                     const st = aggStatus(g.statuses); const sc = STAT[st];
                     const nk = noteKey(partner, name);
+                    const isExp = expanded.has(nk);
                     return (
-                      <tr key={name} style={{background:i%2?stripe:"transparent"}}>
-                        <td style={{...td,fontWeight:700,position:"sticky",left:0,zIndex:1,background:i%2?stripe:stick,boxShadow:`1px 0 0 ${cardBd}`,borderLeft:`3px solid ${sc.c}`,minWidth:220,overflow:"hidden",textOverflow:"ellipsis",maxWidth:320}}>
+                      <React.Fragment key={name}>
+                      <tr style={{background:isExp?(_lm?"#eff6ff":"#0c1c30"):(i%2?stripe:"transparent")}}>
+                        <td onClick={()=>toggleExpand(nk)} title="Click to show / hide this campaign's platform lines"
+                          style={{...td,fontWeight:700,position:"sticky",left:0,zIndex:1,background:isExp?(_lm?"#eff6ff":"#0c1c30"):(i%2?stripe:stick),boxShadow:`1px 0 0 ${cardBd}`,borderLeft:`3px solid ${sc.c}`,minWidth:220,overflow:"hidden",textOverflow:"ellipsis",maxWidth:320,cursor:"pointer"}}>
+                          <span style={{display:"inline-block",width:12,color:txtD,fontSize:9,transform:isExp?"rotate(90deg)":"none",transition:"transform .12s"}}>▸</span>
                           <span title={sc.l} style={{fontSize:8.5,fontWeight:800,color:sc.c,background:sc.c+"22",border:`1px solid ${sc.c}66`,borderRadius:3,padding:"0 5px",marginRight:6,textTransform:"uppercase",letterSpacing:"0.03em"}}>{sc.l}</span>
-                          {name}
+                          <span style={{borderBottom:`1px dotted ${txtD}`}}>{name}</span>
                         </td>
                         <td style={{...td,padding:"3px 6px",overflow:"visible"}}>
                           <CatPicker value={metaOf(nk).category ?? (g.category||"")} options={catList} colorOf={catColor} onSelect={(v)=>setMeta(nk,"category",v)} onAdd={addCat} onRemove={removeCat}/>
@@ -13931,6 +13965,83 @@ tr.grp td{background:#eef2ff;font-size:10.5px;color:#3730a3;} .foot{margin-top:1
                             style={{width:"100%",minWidth:150,background:"transparent",border:`1px solid ${metaOf(nk).note?(_lm?"#0891b2":"#0e7490"):"transparent"}`,borderRadius:5,padding:"3px 6px",color:metaOf(nk).note?(_lm?"#0891b2":"#22d3ee"):txt,fontSize:11.5,fontFamily:"inherit",outline:"none"}}/>
                         </td>
                       </tr>
+                      {isExp && (
+                        <tr>
+                          <td colSpan={platforms.length+7} style={{padding:"2px 12px 12px 30px",background:_lm?"#f8fafc":"#0a1420",borderBottom:`1px solid ${cardBd}`}}>
+                            <div style={{fontSize:9.5,fontWeight:800,color:txtS,textTransform:"uppercase",letterSpacing:"0.05em",margin:"6px 0 5px"}}>{g.lines.length} platform line{g.lines.length!==1?"s":""}</div>
+                            <div style={{overflowX:"auto"}}>
+                              <table style={{borderCollapse:"collapse",fontSize:11.5,minWidth:640}}>
+                                <thead>
+                                  <tr style={{color:txtD,textAlign:"left"}}>
+                                    {["Platform","Status","Flight","Goal (mo)","Rate","Delivered (MTD)","Pacing"].map((h,hi)=>(
+                                      <th key={h} style={{padding:"3px 12px 5px 0",fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.04em",textAlign:hi>=3&&hi<=5?"right":"left",whiteSpace:"nowrap"}}>{h}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(()=>{ const ord=sortPlatforms(g.lines.map(c=>c.platform)); return g.lines.slice().sort((a,b)=>ord.indexOf(a.platform)-ord.indexOf(b.platform)); })().map((c,li)=>{
+                                    const ls = effStatus(c); const lsc = STAT[ls];
+                                    const mtd = resolveMetrics(c,"mtd")||{};
+                                    const isCPV = dealBasis(c)==="CPV";
+                                    const delivered = parseInt((isCPV?(mtd.videoViews||c.videoViews):(mtd.impressions||c.impressions)))||0;
+                                    const rateN = parseFloat(c.contractRate)||0;
+                                    // Pacing on THIS month: computeDailyTarget resolves the month's goal (from Note 1 or a
+                                    // prorated flight share) and grades delivery-to-date against it — same signal as the Pacing tab.
+                                    const dt = computeDailyTarget(delivered, c.note1, c.startDate, c.endDate, c.goal);
+                                    const goalMo = dt ? dt.goal : 0;
+                                    return (
+                                      <tr key={li} style={{borderTop:`1px solid ${_lm?"#eef2f7":"#101d30"}`,color:txt}}>
+                                        <td style={{padding:"4px 12px 4px 0",whiteSpace:"nowrap"}}>
+                                          <span style={{display:"inline-block",width:9,height:9,borderRadius:2,background:PLT_COLORS[c.platform]||PLT_COLORS.default,marginRight:6,verticalAlign:"middle"}}/>
+                                          <b>{c.platform||"—"}</b>
+                                        </td>
+                                        <td style={{padding:"4px 12px 4px 0",whiteSpace:"nowrap"}}><span style={{color:lsc.c,fontWeight:700}}>{lsc.l}</span></td>
+                                        <td style={{padding:"4px 12px 4px 0",whiteSpace:"nowrap",color:txtS,fontVariantNumeric:"tabular-nums"}}>{fmtMd(c.startDate)} → {fmtMd(c.endDate)}</td>
+                                        <td style={{padding:"4px 12px 4px 0",textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{goalMo>0?fmtK(goalMo)+(isCPV?" views":" impr"):"—"}</td>
+                                        <td style={{padding:"4px 12px 4px 0",textAlign:"right",whiteSpace:"nowrap",color:txtS,fontVariantNumeric:"tabular-nums"}}>{rateN>0?`$${isCPV?rateN.toFixed(3):rateN.toFixed(2)} ${isCPV?"CPV":"CPM"}`:"—"}</td>
+                                        <td style={{padding:"4px 12px 4px 0",textAlign:"right",fontWeight:700,fontVariantNumeric:"tabular-nums",color:delivered>0?(_lm?"#059669":"#00e5a0"):txtD}}>{delivered>0?fmtK(delivered):"—"}</td>
+                                        <td style={{padding:"4px 0",textAlign:"left",whiteSpace:"nowrap"}}>{dt&&dt.actualDailyRate?<span style={{color:dt.color,fontWeight:800}}>{dt.status}</span>:<span style={{color:txtD}}>—</span>}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                            {/* Notes + change history — merged across the campaign's platform lines (deduped,
+                                newest first) so Nicole can see at a glance what turned on/off/paused and why. */}
+                            {(()=>{
+                              const seen=new Set(); const entries=[];
+                              g.lines.forEach(c=>{ (c.history||"").split("\n").map(s=>s.trim()).filter(Boolean).forEach(line=>{ if(!seen.has(line)){ seen.add(line); entries.push(line); } }); });
+                              const parseD = s => { const m=s.match(/^([0-9][0-9/\-]{5,10})\s*[—-]/); const t=m?Date.parse(m[1]):NaN; return isNaN(t)?0:t; };
+                              entries.sort((a,b)=>parseD(b)-parseD(a));
+                              const warns=[...new Set(g.lines.map(c=>(c.note2||"").trim()).filter(Boolean))];
+                              if(!entries.length && !warns.length) return null;
+                              return (
+                                <div style={{marginTop:11,paddingTop:9,borderTop:`1px solid ${cardBd}`}}>
+                                  <div style={{fontSize:9.5,fontWeight:800,color:txtS,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>📋 Notes &amp; change history</div>
+                                  {warns.map((w,wi)=>(
+                                    <div key={"w"+wi} style={{fontSize:11.5,color:_lm?"#b45309":"#fbbf24",marginBottom:5,lineHeight:1.5}}>{/^\s*[⚠!]/.test(w)?w:"⚠ "+w}</div>
+                                  ))}
+                                  {entries.length>0 && (
+                                    <div style={{background:_lm?"#ffffff":"#060d18",border:`1px solid ${cardBd}`,borderRadius:6,padding:"8px 11px",maxHeight:180,overflowY:"auto"}}>
+                                      {entries.map((e,ei)=>{
+                                        const dash=e.search(/\s[—-]\s/); const date=dash>0?e.slice(0,dash).trim():""; const rest=dash>0?e.slice(dash).replace(/^\s*[—-]\s*/,"").trim():e;
+                                        return (
+                                          <div key={ei} style={{display:"flex",gap:10,fontSize:11.5,lineHeight:1.55,padding:"2px 0",borderTop:ei?`1px solid ${_lm?"#f1f5f9":"#0e1a2e"}`:"none",color:txt}}>
+                                            {date && <span style={{color:txtD,whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums",minWidth:66}}>{date}</span>}
+                                            <span style={{color:_lm?"#475569":"#9fb8d4"}}>{rest}</span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </td>
+                        </tr>
+                      )}
+                      </React.Fragment>
                     );
                   })}
                 </React.Fragment>
@@ -18314,7 +18425,7 @@ function ReportVault({ onAnalyzeWithZeus }) {
 // Inline "correct this month's numbers" editor shown inside a Revenue-tab campaign dropdown. Lets you
 // fix a campaign's delivered impressions/views and media spend for the focused month right there — even
 // a LOCKED month — and see the revenue/profit update live. onSave writes it through (see onSetMonthMetrics).
-function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, curImpr, curViews, curSpend, locked, goalRev=0, onSave }) {
+function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, curImpr, curViews, curSpend, locked, goalRev=0, deviceFee=0, onSave }) {
   // DSP never reports real spend → its cost is ALWAYS auto-modeled (no spend field). Madhive DOES get real
   // spend/CPM from check-ins, so it shows a spend field and only ESTIMATES (× modeledCpm) as a fallback when
   // spend is left blank. Everything else is a normal real-spend platform.
@@ -18336,27 +18447,48 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, cur
   const cost = alwaysModeled ? nImpr/1000*modeledCpm
              : (nSpend != null ? nSpend : (canEstimate ? nImpr/1000*modeledCpm : null));
   const usingEstimate = !alwaysModeled && canEstimate && nSpend == null;   // Madhive falling back to the estimate
-  const profit = cost==null ? null : rev-cost;
+  const dFee = parseFloat(deviceFee)||0;                                    // device-line surcharge (eats profit)
+  const profit = cost==null ? null : rev-cost-dFee;
   const $r = n => "$"+Math.round(n).toLocaleString();
+  // Every column is label-on-top-of-control so tops align (alignItems:flex-start) → the two input
+  // boxes sit on the exact same line. Non-input columns get an invisible spacer label of the same
+  // height so their control lands on the input row too. No helper sentences — numbers do the talking.
+  const col = {display:"flex",flexDirection:"column"};
+  const spacerLbl = {...lbl, visibility:"hidden"};
+  const boxH = {height:34,boxSizing:"border-box"};
   return (
     <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
-      <div style={{fontSize:10,color:_lm?"#0369a1":"#7dd3fc",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:8}}>✏️ Edit {monthLabel} numbers</div>
-      <div style={{display:"flex",gap:12,alignItems:"flex-end",flexWrap:"wrap"}}>
-        <div><label style={lbl}>{isCPV?"Views delivered":"Impressions delivered"}</label>
-          <input type="number" value={isCPV?views:impr} onChange={e=>{ isCPV?setViews(e.target.value):setImpr(e.target.value); setDirty(true); }} style={iS} placeholder="0"/></div>
+      <div style={{fontSize:10,color:_lm?"#0369a1":"#7dd3fc",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700,marginBottom:8}}>✏️ Edit {monthLabel}</div>
+      <div style={{display:"flex",gap:12,alignItems:"flex-start",flexWrap:"wrap"}}>
+        <div style={col}><label style={lbl}>{isCPV?"Views":"Impr."}</label>
+          <input type="number" value={isCPV?views:impr} onChange={e=>{ isCPV?setViews(e.target.value):setImpr(e.target.value); setDirty(true); }} style={{...iS,...boxH}} placeholder="0"/></div>
         {alwaysModeled
-          ? <div style={{fontSize:10,color:_lm?"#d97706":"#caa46a",paddingBottom:8,maxWidth:150}}>DSP cost is auto-modeled at ${modeledCpm.toFixed(2)} CPM from impressions.</div>
-          : <div><label style={lbl}>Media spend $</label>
-              <input type="number" value={spend} onChange={e=>{ setSpend(e.target.value); setDirty(true); }} style={iS} placeholder={canEstimate?`est. ${(nImpr/1000*modeledCpm).toFixed(0)}`:"—"}/>
-              {canEstimate
-                ? <div style={{fontSize:9,color:usingEstimate?(_lm?"#d97706":"#caa46a"):(_lm?"#64748b":"#5a7ba0"),marginTop:3,maxWidth:150,lineHeight:1.35}}>{usingEstimate?`Blank → cost = your reported $${modeledCpm.toFixed(2)} CPM × impressions. Enter spend to override.`:"Using your entered spend."}</div>
-                : <div style={{fontSize:9,color:_lm?"#64748b":"#5a7ba0",marginTop:3,maxWidth:150,lineHeight:1.35}}>No reported CPM yet — cost stays pending until you enter spend or a CPM lands in the check-in.</div>}
-            </div>}
-        <button onClick={()=>{ onSave({ impr:nImpr, views:nViews, spend: alwaysModeled?null:nSpend }); setDirty(false); }} disabled={!dirty}
-          style={{background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"8px 18px",color:dirty?"#06222b":"#3b5070",fontSize:13,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>{dirty?"Save":"Saved ✓"}</button>
-        <span style={{fontSize:12,color:_lm?"#475569":"#9fb8d4",paddingBottom:8}}>= <b style={{color:_lm?"#059669":"#00e5a0"}}>{$r(rev)}</b> revenue{cost!=null&&<> − <b style={{color:"#f59e0b"}}>{$r(cost)}</b> = <b style={{color:profit>=0?(_lm?"#059669":"#00d48a"):"#ef4444"}}>{(profit>=0?"+":"−")+"$"+Math.round(Math.abs(profit)).toLocaleString()}</b> profit</>}</span>
+          ? <div style={col}><label style={lbl}>Cost</label>
+              <div style={{...iS,...boxH,display:"flex",alignItems:"center",color:_lm?"#d97706":"#caa46a",whiteSpace:"nowrap"}} title="DSP cost is auto-modeled from impressions">auto ${modeledCpm.toFixed(2)} CPM</div></div>
+          : <div style={col}><label style={lbl}>Spend $</label>
+              <input type="number" value={spend} onChange={e=>{ setSpend(e.target.value); setDirty(true); }} style={{...iS,...boxH}} placeholder={canEstimate?`est ${(nImpr/1000*modeledCpm).toFixed(0)}`:"—"}/></div>}
+        <div style={col}><label style={spacerLbl}>.</label>
+          <button onClick={()=>{ onSave({ impr:nImpr, views:nViews, spend: alwaysModeled?null:nSpend }); setDirty(false); }} disabled={!dirty}
+            style={{...boxH,background:dirty?"#00c896":"#132140",border:"none",borderRadius:6,padding:"0 18px",color:dirty?"#06222b":"#3b5070",fontSize:13,fontWeight:700,cursor:dirty?"pointer":"default",transition:"all .15s"}}>{dirty?"Save":"Saved ✓"}</button></div>
+        {/* Live preview — Revenue − Spend [− Device fee] = Profit, labeled above like the topline, with the
+            operators between so the math reads straight across and foots to the P&L this writes. */}
+        {(()=>{
+          const opCol = sym => <div style={{...col,justifyContent:"flex-end"}}><label style={spacerLbl}>.</label>
+            <span style={{...boxH,display:"flex",alignItems:"center",fontSize:15,fontWeight:700,color:_lm?"#94a3b8":"#4d6e8a"}}>{sym}</span></div>;
+          const numCol = (label,val,color) => <div style={col}><label style={lbl}>{label}</label>
+            <span style={{...boxH,display:"flex",alignItems:"center",fontSize:15,fontWeight:700,color,whiteSpace:"nowrap"}}>{val}</span></div>;
+          return <>
+            <div style={{width:1,alignSelf:"stretch",background:_lm?"#e2e8f0":"#1a2744",margin:"0 4px"}}/>
+            {numCol("Revenue",$r(rev),_lm?"#059669":"#00e5a0")}
+            {cost!=null && opCol("−")}
+            {cost!=null && numCol("Spend",$r(cost),"#f59e0b")}
+            {cost!=null && dFee>0 && opCol("−")}
+            {cost!=null && dFee>0 && numCol("Device fee",$r(dFee),"#e879a6")}
+            {cost!=null && opCol("=")}
+            {cost!=null && numCol("Profit",(profit>=0?"+":"−")+"$"+Math.round(Math.abs(profit)).toLocaleString(),profit>=0?(_lm?"#059669":"#00d48a"):"#ef4444")}
+          </>;
+        })()}
       </div>
-      <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:6,fontStyle:"italic"}}>Updates this month's P&amp;L right away{locked?" — including the 🔒 locked snapshot, no unlock needed":""}.</div>
     </div>
   );
 }
@@ -19194,6 +19326,20 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
     if (activeMonth !== thisMonth) return null;
     let goalRev = 0, goalSpend = 0, goalDeviceFee = 0, any = false, anySpend = false;
     rows.forEach(r => {
+      // Archived campaigns won't deliver MORE, so their unearned GOAL must not count toward "if you hit
+      // goal" — but whatever they already BANKED this month is real money and belongs in the total, or
+      // "if you hit goal" can read BELOW the profit you've already realized (archive a batch that hit
+      // goal → target drops under money in the bank). So instead of dropping them, fold in their REALIZED
+      // current-month revenue/spend/device-fee (earned-only, no goal — the same delivery-based cells the
+      // realized bar sums), then move on. Mirrors estMonthlyProfit treating archived like a stopped line.
+      if (r.c._fromArchive || (r.c.status||"") === "archived") {
+        const cur = r.monthCells[thisMonth];
+        if (cur && cur.spend != null && ((cur.rev||0) > 0 || (cur.spend||0) > 0)) {
+          goalRev += cur.rev || 0; goalSpend += cur.spend || 0; goalDeviceFee += (cur.deviceFee || 0);
+          any = true; anySpend = true;
+        }
+        return;
+      }
       const cur = r.monthCells[thisMonth];
       const gRev = revenueMapForCampaign(r.c)[thisMonth] || 0; // full-goal monthly revenue (pre actual-delivery adjustment)
       if (!(gRev > 0)) return;
@@ -19599,7 +19745,7 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
               {quarterForecast.profit!=null && <div style={{fontSize:11,fontWeight:700,color:profitColor(quarterForecast.profit),marginTop:3}}>{(quarterForecast.profit>=0?"+":"")+$fk(quarterForecast.profit)} profit</div>}
             </div>
           </div>
-          <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:8}}>At current pace = today's delivery & spend rate extended to each campaign's flight end. If you hit goal = full monthly goals × rate, with spend scaled up proportionally to the extra delivery (cost-per-impression held constant). Quarter = closed months + this month's pace forecast + projected. DSP campaigns' spend is modeled at an estimated ${dspCpm.toFixed(2)} CPM (DSP rarely reports real spend) — editable in Config.</div>
+          <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:8}}>At current pace = each campaign's run rate (delivery ÷ the days its LATEST check-in covers) extended to month-end, capped at its monthly goal — so a check-in that's a few days old doesn't understate the pace, and over-delivery isn't counted as billable. If you hit goal = full monthly goals × rate, with spend scaled up proportionally to the extra delivery (cost-per-impression held constant). Quarter = closed months + this month's pace forecast + projected. DSP campaigns' spend is modeled at an estimated ${dspCpm.toFixed(2)} CPM (DSP rarely reports real spend) — editable in Config.</div>
         </div>
       )}
 
@@ -20238,83 +20384,69 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
                 </div>
                 {/* Expanded detail row */}
                 {isOpen && (
-                  <div style={{background:_lm?"#f8fafc":"#0a1320",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8,padding:"18px 22px",margin:"4px 4px 10px"}}>
-                    <div style={{display:"grid",gridTemplateColumns:r.c.deviceSurcharge?"1fr 1fr 1fr 1fr auto":"1fr 1fr 1fr auto",gap:24,alignItems:"end"}}>
-                      <div>
-                        <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
-                          Revenue · {focusLabelShort}
-                          {r.monthlyRev!=null&&<span style={{color:_lm?"#00c896":"#00e19e",fontWeight:400,textTransform:"none",marginLeft:6,letterSpacing:0}}>
-                            {dealBasis(r.c)==="CPV"?`$${parseFloat(r.c.contractRate).toFixed(3)} CPV`:`$${parseFloat(r.c.contractRate).toFixed(2)} CPM`}</span>}
-                        </div>
-                        <div style={{fontSize:26,fontWeight:700,color:_lm?"#0ea5e9":"#7a9bbf",lineHeight:1}}>{$fc(r.focusCell.rev)}</div>
-                        {r.monthlyRev!=null&&(()=>{
-                          const goal=parseMonthlyGoal(r.c.note1);
-                          const effectiveDt=dealBasis(r.c);
-                          const rateNum=parseFloat(r.c.contractRate)||0;
-                          if(rateNum>0){
-                            // Bill on what was ACTUALLY delivered this month — views for CPV (YouTube),
-                            // impressions for CPM — and only fall back to the Note-1 goal when nothing's
-                            // delivered yet. (Previously the actual-delivery path was CPM-only, so a YouTube
-                            // CPV row showed the full monthly goal next to an actual-delivery revenue number.)
-                            const actualDelivered = effectiveDt==="CPV"
-                              ? actualViewsForMonth(r.c, activeMonth)
-                              : actualImprForMonth(r.c, activeMonth);
-                            const usingActual = actualDelivered!=null && actualDelivered>0;
-                            const basis = usingActual ? actualDelivered : goal;
-                            if(basis){
-                              const unitTxt = effectiveDt==="CPV"
-                                ? `${basis.toLocaleString()} views × $${rateNum.toFixed(3)}/view`
-                                : `${(basis/1000).toFixed(1)}K impr × $${rateNum.toFixed(2)} CPM`;
-                              return <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:3}}>
-                                {unitTxt} = <span style={{color:_lm?"#059669":"#00c896",fontWeight:700}}>${Math.round(r.focusCell.rev||r.monthlyRev||0).toLocaleString()}</span>
-                                <span style={{color:usingActual?"#f59e0b":(_lm?"#94a3b8":"#3d5a72"),marginLeft:4}}>
-                                  {usingActual?"actual":"goal"}
-                                </span>
-                              </div>;
-                            }
-                          }
-                          return <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:3}}>per month</div>;
-                        })()}
-                      </div>
-                      <div>
-                        <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
-                          Spend{costIsEstimated(r.c)&&<span style={{color:"#f59e0b",fontWeight:700,textTransform:"none",letterSpacing:0,marginLeft:5}}>· est. ${modeledCpmFor(r.c.platform).toFixed(2)} CPM</span>}
-                        </div>
-                        <div style={{fontSize:26,fontWeight:700,color:"#f59e0b",lineHeight:1}}>
-                          {r.focusCell.spend==null?<span style={{color:"#f59e0b",fontSize:18}}>⏳ pending</span>:$fc(r.focusCell.spend)}
-                        </div>
-                        {/* When the spend/price numbers were last refreshed — spend-specific (a clicks/CTR-only
-                            drop won't move it). Falls back to the last QCI date for legacy rows (a QCI always
-                            carried spend). MM/DD/YYYY per the house date format. */}
-                        {(()=>{
-                          const upd = r.c.lastSpendUpdate || r.c.lastQciDate || "";
-                          if(!/^\d{4}-\d{2}-\d{2}/.test(upd)) return null;
-                          return <div style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",marginTop:5,whiteSpace:"nowrap"}} title="Last time this campaign's spend / price data was updated (via a check-in file or a manual edit)">📅 Spend updated {fmtDate(upd.slice(0,10))}</div>;
-                        })()}
-                      </div>
-                      {r.c.deviceSurcharge && (
-                        <div>
-                          <div style={{fontSize:10,color:_lm?"#9d174d":"#e879a6",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Device Fee</div>
-                          <div style={{fontSize:26,fontWeight:700,color:"#e879a6",lineHeight:1}}>
-                            {r.focusCell.deviceFee>0?"−"+$fc(r.focusCell.deviceFee):<span style={{fontSize:18,color:_lm?"#94a3b8":"#3d5a72"}}>$0</span>}
+                  <div style={{position:"relative",background:_lm?"#f8fafc":"#0a1320",border:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,borderRadius:8,padding:"18px 22px",margin:"4px 4px 10px"}}>
+                    {/* Edit lives in the corner so it never skews the KPI columns. */}
+                    <button onClick={(e)=>{ e.stopPropagation(); onEdit(r.c); }}
+                      style={{position:"absolute",top:14,right:16,background:_lm?"#f0fdf9":"#162236",border:`1px solid ${_lm?"#00c896":"#334155"}`,color:_lm?"#059669":"#7a9bbf",fontSize:12,fontWeight:600,padding:"6px 14px",borderRadius:6,cursor:"pointer",whiteSpace:"nowrap"}}>
+                      Edit →
+                    </button>
+                    {/* Topline KPIs — EQUAL columns, number on top, word-label below → every big number
+                        shares the same baseline and the columns are evenly spaced. */}
+                    {(()=>{
+                      const kNum = c => ({fontSize:26,fontWeight:700,color:c,lineHeight:1});
+                      const kLbl = c => ({fontSize:10,color:c||(_lm?"#64748b":"#7a9bbf"),textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:5});
+                      const kSub = {fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",marginTop:2,whiteSpace:"nowrap"};
+                      // Revenue delivered-volume sub-line.
+                      const revSub = (()=>{
+                        if(r.monthlyRev==null) return null;
+                        const goal=parseMonthlyGoal(r.c.note1), effectiveDt=dealBasis(r.c), rateNum=parseFloat(r.c.contractRate)||0;
+                        if(rateNum<=0) return <div style={kSub}>per month</div>;
+                        const actualDelivered = effectiveDt==="CPV"?actualViewsForMonth(r.c,activeMonth):actualImprForMonth(r.c,activeMonth);
+                        const usingActual = actualDelivered!=null && actualDelivered>0;
+                        const basis = usingActual?actualDelivered:goal;
+                        if(!basis) return null;
+                        const volTxt = effectiveDt==="CPV"?`${basis.toLocaleString()} views`:`${(basis/1000).toFixed(1)}K impr`;
+                        return <div style={kSub}>{volTxt}<span style={{color:usingActual?"#f59e0b":(_lm?"#94a3b8":"#3d5a72"),marginLeft:4}}>{usingActual?"actual":"goal"}</span></div>;
+                      })();
+                      // Spend "updated" sub-line (spend-specific date).
+                      const spendUpd = r.c.lastSpendUpdate || r.c.lastQciDate || "";
+                      const spendSub = /^\d{4}-\d{2}-\d{2}/.test(spendUpd)
+                        ? <div style={kSub} title="Last time this campaign's spend / price data was updated (via a check-in file or a manual edit)">updated {fmtDate(spendUpd.slice(0,10))}</div>
+                        : null;
+                      return (
+                        <div style={{display:"grid",gridTemplateColumns:`repeat(${r.c.deviceSurcharge?4:3},1fr)`,gap:20,alignItems:"start",paddingRight:70}}>
+                          {/* Revenue */}
+                          <div>
+                            <div style={kLbl()}>revenue</div>
+                            <div style={kNum(_lm?"#0ea5e9":"#7a9bbf")}>{$fc(r.focusCell.rev)}</div>
+                            {revSub}
+                          </div>
+                          {/* Spend */}
+                          <div>
+                            <div style={kLbl()}>spend{costIsEstimated(r.c)&&<span style={{color:"#f59e0b",marginLeft:4}}>· est</span>}</div>
+                            <div style={kNum("#f59e0b")}>{r.focusCell.spend==null?<span style={{fontSize:18}}>⏳ pending</span>:$fc(r.focusCell.spend)}</div>
+                            {spendSub}
+                          </div>
+                          {/* Device fee (only when the surcharge is on) */}
+                          {r.c.deviceSurcharge && (
+                            <div>
+                              <div style={kLbl(_lm?"#9d174d":"#e879a6")}>device fee</div>
+                              <div style={kNum("#e879a6")}>{r.focusCell.deviceFee>0?"−"+$fc(r.focusCell.deviceFee):<span style={{fontSize:18,color:_lm?"#94a3b8":"#3d5a72"}}>$0</span>}</div>
+                            </div>
+                          )}
+                          {/* Profit */}
+                          <div>
+                            <div style={kLbl()}>profit{r.focusMargin!=null&&<span style={{color:marginColor(r.focusMargin),marginLeft:4}}>· {r.focusMargin.toFixed(0)}%</span>}</div>
+                            <div style={kNum(r.focusCell.profit!=null?profitColor(r.focusCell.profit):"#3d5a72")}>{r.focusCell.profit==null?<span style={{fontSize:18}}>—</span>:r.focusCell.rev>0?(r.focusCell.profit>=0?"+":"")+$f(r.focusCell.profit):"—"}</div>
                           </div>
                         </div>
-                      )}
-                      <div>
-                        <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>
-                          Profit{r.focusMargin!=null?<span style={{color:marginColor(r.focusMargin),marginLeft:6,fontWeight:700}}>· {r.focusMargin.toFixed(0)}%</span>:""}
-                        </div>
-                        <div style={{fontSize:26,fontWeight:700,color:r.focusCell.profit!=null?profitColor(r.focusCell.profit):"#3d5a72",lineHeight:1}}>
-                          {r.focusCell.profit==null?<span style={{fontSize:18}}>—</span>:r.focusCell.rev>0?(r.focusCell.profit>=0?"+":"")+$f(r.focusCell.profit):"—"}
-                        </div>
-                      </div>
-                      <button onClick={(e)=>{ e.stopPropagation(); onEdit(r.c); }}
-                        style={{background:_lm?"#f0fdf9":"#162236",border:`1px solid ${_lm?"#00c896":"#334155"}`,color:_lm?"#059669":"#7a9bbf",fontSize:12,fontWeight:600,padding:"7px 16px",borderRadius:6,cursor:"pointer",whiteSpace:"nowrap"}}>
-                        Edit →
-                      </button>
-                    </div>
+                      );
+                    })()}
                     {/* ── Real-time profit math, spelled out — delivered × rate − spend = profit so far ── */}
                     {(()=>{
+                      const muted = _lm?"#64748b":"#4d6e8a";
+                      const strip = kids => <div style={{marginTop:12,paddingTop:10,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",fontSize:12.5,color:muted}}>{kids}</div>;
+                      const chip = (txt,col) => <span style={{fontSize:10.5,fontWeight:700,color:col,border:`1px solid ${col}55`,borderRadius:4,padding:"1px 7px",whiteSpace:"nowrap"}}>{txt}</span>;
                       // SEM: management fee is the profit; over-budget media spend eats into it.
                       if(r.c.platform==="SEM"){
                         const fee = r.focusCell.rev||0;                 // monthly management fee
@@ -20324,39 +20456,12 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
                         const actual = activeMonth===thisMonth
                           ? (getActualMtdSpend(r.c) ?? getManualSpend(r.c))
                           : (closedMonthMetrics(r.c, activeMonth)?.spend ?? 0);
-                        const feeMissing = !(parseFloat(r.c.managementFee)>0);
+                        if(!(parseFloat(r.c.managementFee)>0)) return strip(chip("⚠ Set Management Fee — that's the profit","#f59e0b"));
                         if(fee<=0 && r.focusCell.profit==null && !budget) return null;
-                        return (
-                          <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
-                            <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Fee math</div>
-                            {feeMissing ? (
-                              <div style={{fontSize:12.5,color:_lm?"#d97706":"#f59e0b",lineHeight:1.6}}>
-                                No <b>Management Fee</b> set — add it (that's the profit). Note 1's “${budget?budget.toLocaleString():"X"}/Mo” is the media budget, not the fee.
-                              </div>
-                            ) : (
-                              <>
-                                <div style={{fontSize:13.5,lineHeight:1.75,color:_lm?"#334155":"#d8eaf8"}}>
-                                  Management fee <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>{$fc(fee)}</span>
-                                  {overage>0 && <><span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> − </span><span style={{color:"#f59e0b",fontWeight:700}}>{$fc(overage)}</span> over budget</>}
-                                  {overage<0 && <><span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> + </span><span style={{color:_lm?"#059669":"#00d48a",fontWeight:700}}>{$fc(-overage)}</span> recovered</>}
-                                  <span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> = </span>
-                                  <span style={{color:profitColor(prof),fontWeight:800}}>{(prof>=0?"+":"")+$fc(prof)}</span> profit
-                                </div>
-                                <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
-                                  Media <span style={{color:"#f59e0b",fontWeight:700}}>{$fc(actual||0)}</span> of <span style={{fontWeight:700}}>{budget?$fc(budget):"—"}</span> budget ·{" "}
-                                  {overage>0
-                                    ? <span style={{color:"#ef4444",fontWeight:700}}>{$fc(overage)} over · eats the fee</span>
-                                    : overage<0
-                                    ? <span style={{color:_lm?"#059669":"#00d48a",fontWeight:700}}>under · +{$fc(-overage)} recovered</span>
-                                    : <span style={{color:_lm?"#059669":"#00d48a"}}>within budget</span>}
-                                </div>
-                                <div style={{fontSize:10.5,color:_lm?"#94a3b8":"#3d5a72",marginTop:4,fontStyle:"italic"}}>
-                                  Over-budget tracked flight-wide — a later under-spend wins it back.
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        );
+                        return strip(<>
+                          <span title="Over-budget is tracked flight-wide — a later under-spend wins it back">Media <b style={{color:"#f59e0b"}}>{$fc(actual||0)}</b> / {budget?$fc(budget):"—"} budget</span>
+                          {overage>0?chip(`${$fc(overage)} over`,"#ef4444"):overage<0?chip(`+${$fc(-overage)} recovered`,_lm?"#059669":"#00d48a"):chip("within budget",_lm?"#059669":"#00d48a")}
+                        </>);
                       }
                       const rev = r.focusCell.rev||0;
                       const spend = r.focusCell.spend;
@@ -20376,80 +20481,20 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
                         ? `${Math.round(billable).toLocaleString()} views × $${rateNum.toFixed(3)}/view`
                         : `${(billable/1000).toFixed(1)}K impr × $${rateNum.toFixed(2)} CPM`;
                       if(rev<=0 && spend==null) return null;
-                      return (
-                        <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
-                          <div style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:600,marginBottom:6}}>Profit math</div>
-                          {profit==null ? (
-                            <div style={{fontSize:12.5,color:_lm?"#475569":"#9fb8d4",lineHeight:1.6}}>
-                              Earned <span style={{color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:700}}>{$fc(rev)}</span> so far{hasUnit?` · ${eq}`:""} · profit shows once spend is entered.
-                            </div>
-                          ) : (
-                            <div>
-                              <div style={{fontSize:13.5,lineHeight:1.75,color:_lm?"#334155":"#d8eaf8"}}>
-                                {hasUnit&&<><span style={{color:_lm?"#0ea5e9":"#7dd3fc",fontWeight:700}}>{eq}</span> = </>}
-                                <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>{$fc(rev)}</span> revenue
-                                <span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> − </span>
-                                <span style={{color:"#f59e0b",fontWeight:700}}>{$fc(spend)}</span> spend
-                                {r.focusCell.deviceFee>0&&<>
-                                  <span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> − </span>
-                                  <span style={{color:"#e879a6",fontWeight:700}}>{$fc(r.focusCell.deviceFee)}</span> device fee
-                                </>}
-                                <span style={{color:_lm?"#94a3b8":"#4d6e8a"}}> = </span>
-                                <span style={{color:profitColor(profit),fontWeight:800}}>{(profit>=0?"+":"")+$fc(profit)}</span> profit so far
-                              </div>
-                              {/* Over-goal delivery note — the surplus isn't billable, so revenue stopped at
-                                  the goal while its media spend still counts against profit. */}
-                              {overUnits > 0 && (
-                                <div style={{fontSize:11.5,color:_lm?"#d97706":"#fbbf24",marginTop:5,lineHeight:1.5}}>
-                                  {isCPV?`${Math.round(overUnits).toLocaleString()} views`:`${(overUnits/1000).toFixed(1)}K impr`} <b>over goal</b> · not billable · revenue capped at {$fc(rev)} · extra spend cuts profit
-                                </div>
-                              )}
-                              {/* Spend entered but nothing delivered → $0 revenue. This trips people up on a
-                                  restored/ended campaign: revenue is billed on DELIVERY (impr/views × rate),
-                                  not on spend. Tell them exactly how to book it. */}
-                              {rev<=0 && rateNum>0 && spend!=null && !(delivered>0) && (
-                                <div style={{fontSize:12,color:_lm?"#d97706":"#fbbf24",marginTop:6,lineHeight:1.55}}>
-                                  ⚠ No {isCPV?"views":"impr"} logged for {focusLabelShort} → <b>$0 revenue</b>. Bills on delivery ({isCPV?"views × $"+rateNum.toFixed(3):"impr × $"+rateNum.toFixed(2)+" CPM"}), not spend — enter delivered {isCPV?"views":"impr"} to populate.
-                                </div>
-                              )}
-                              {isCPV && costPer!=null && (
-                                <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
-                                  Billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(3)}/view</span> − your cost <span style={{color:"#f59e0b",fontWeight:700}}>${costPer.toFixed(3)}/view</span> = margin <span style={{color:profitColor(rateNum-costPer),fontWeight:700}}>${(rateNum-costPer).toFixed(3)}/view</span>
-                                </div>
-                              )}
-                              {/* CPM campaigns: show the campaign's ACTUAL delivered CPM (spend ÷ impressions × 1000)
-                                  against the billed contract CPM, so the margin per thousand is spelled out. */}
-                              {!isCPV && hasUnit && costPer!=null && (
-                                <div style={{fontSize:11.5,color:_lm?"#64748b":"#4d6e8a",marginTop:5}}>
-                                  Billed at <span style={{color:_lm?"#059669":"#00e5a0",fontWeight:700}}>${rateNum.toFixed(2)} CPM</span> − your cost <span style={{color:"#f59e0b",fontWeight:700}}>${(costPer*1000).toFixed(2)} CPM</span>{costIsEstimated(r.c)&&<span style={{color:"#f59e0b",fontStyle:"italic"}}> (estimated)</span>} = margin <span style={{color:profitColor(rateNum-costPer*1000),fontWeight:700}}>${(rateNum-costPer*1000).toFixed(2)} CPM</span>
-                                </div>
-                              )}
-                              {/* Device surcharge transparency — spell out the matched device-line impressions
-                                  so it's obvious whether a "device" line is being picked up (and what it costs). */}
-                              {r.c.deviceSurcharge && (()=>{
-                                const dfRate = parseFloat(r.c.deviceSurchargeRate) || 1;
-                                const fee = r.focusCell.deviceFee || 0;
-                                if (fee > 0) {
-                                  const dfImpr = activeMonth===thisMonth ? deviceLineImpr(r.c) : Math.round(fee / (dfRate||1) * 1000);
-                                  return (
-                                    <div style={{fontSize:11.5,color:_lm?"#9d174d":"#e879a6",marginTop:5}}>
-                                      📱 Device line: <span style={{fontWeight:700}}>{dfImpr.toLocaleString()} impr</span> × <span style={{fontWeight:700}}>${dfRate.toFixed(2)}/1K</span> = <span style={{fontWeight:700}}>{$fc(fee)} device fee</span>
-                                    </div>
-                                  );
-                                }
-                                if (activeMonth===thisMonth) {
-                                  return (
-                                    <div style={{fontSize:11.5,color:_lm?"#d97706":"#caa46a",marginTop:5}}>
-                                      📱 Device surcharge on · no device line yet ($0)
-                                    </div>
-                                  );
-                                }
-                                return null;
-                              })()}
-                            </div>
-                          )}
-                        </div>
-                      );
+                      // Pending (no spend yet) — just the earned-so-far number.
+                      if(profit==null) return strip(<span>Earned <b style={{color:_lm?"#0ea5e9":"#7dd3fc"}}>{$fc(rev)}</b> · enter spend for profit</span>);
+                      // Flag chips (only when they apply) — over-goal surplus, or spend-with-no-delivery.
+                      const overChip = overUnits>0 ? chip(`${isCPV?Math.round(overUnits).toLocaleString()+" views":(overUnits/1000).toFixed(1)+"K impr"} over goal`,"#f59e0b") : null;
+                      const zeroChip = (rev<=0 && rateNum>0 && spend!=null && !(delivered>0)) ? chip(`⚠ no ${isCPV?"views":"impr"} → $0 rev`,"#f59e0b") : null;
+                      // Per-unit margin — the one number the KPI tiles don't already show.
+                      const marginPer = costPer!=null ? (isCPV ? rateNum-costPer : rateNum-costPer*1000) : null;
+                      const marginNode = (hasUnit && costPer!=null) ? (
+                        <span>Billed <b style={{color:_lm?"#059669":"#00e5a0"}}>{isCPV?`$${rateNum.toFixed(3)}`:`$${rateNum.toFixed(2)}`}</b>
+                          <span style={{color:muted}}> · </span>cost <b style={{color:"#f59e0b"}}>{isCPV?`$${costPer.toFixed(3)}`:`$${(costPer*1000).toFixed(2)}`}</b>{costIsEstimated(r.c)&&<i style={{color:"#f59e0b"}}> est</i>}
+                          <span style={{color:muted}}> · </span>margin <b style={{color:profitColor(marginPer)}}>{isCPV?`$${marginPer.toFixed(3)}/view`:`$${marginPer.toFixed(2)} CPM`}</b></span>
+                      ) : null;
+                      if(!marginNode && !overChip && !zeroChip) return null;
+                      return strip(<>{marginNode}{overChip}{zeroChip}</>);
                     })()}
                     {/* Inline "edit this month's numbers" — correct delivery/spend right here (works on a
                         locked month too), so a missed/late campaign doesn't need the unlock/edit/relock dance. */}
@@ -20462,6 +20507,7 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
                         rate={parseFloat(r.c.contractRate)||0} modeledCpm={modeledCpmForCamp(r.c)} curImpr={curImpr} curViews={curViews}
                         curSpend={r.focusCell.spend} locked={!!monthLocks[activeMonth]}
                         goalRev={revenueMapForCampaign(r.c)[activeMonth]||0}
+                        deviceFee={r.c.deviceSurcharge?(r.focusCell.deviceFee||0):0}
                         onSave={(vals)=>commitMonthMetrics(r.c, activeMonth, vals)}/>;
                     })()}
                     <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:14,paddingTop:12,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
@@ -23267,7 +23313,8 @@ export default function App() {
   // ONE month-end P&L projection for the WHOLE app — the Revenue-tab chart AND the Home "on pace for" tile
   // both read THIS same value, so their projected-profit numbers can't disagree (the user hit repeated
   // mismatches from two independently-computed estimates). Piped down to both as the `monthPnl` prop.
-  const monthPnl = React.useMemo(()=>estMonthlyProfit(campaigns), [campaigns]);
+  // NOTE: defined LOWER (after `archive` is declared) because the projection now includes archived
+  // campaigns' realized current-month profit — see `revenueCampaigns` / `monthPnl` below.
   // Campaigns tab filter/sort state persists to localStorage so the view sticks
   // across sessions. Same pattern as the Pacing tab — single JSON object keyed
   // under "campaigns-filter-state". Set is serialized as array.
@@ -23857,6 +23904,26 @@ export default function App() {
     try { localStorage.setItem("campaign-tracker-partner-prefixes", JSON.stringify(partnerPrefixes)); } catch {}
   }, [partnerPrefixes]);
   const [archive, setArchive] = useState(()=>{ try { const s=localStorage.getItem(ARCHIVE_KEY); return s?JSON.parse(s):[]; } catch { return []; } });
+  // Active + archived campaigns merged into ONE list (archived flight capped at the archive date, de-duped
+  // by id with the active copy winning). This is the SAME set the Revenue tab renders its realized bars
+  // from — and now also the input to the month-end projection — so the projected "pace target" bar and the
+  // solid "realized so far" bar are computed over the identical campaigns and can never disagree. Building
+  // it once here (instead of inline in the Revenue view) keeps the projection and the chart in lockstep.
+  const revenueCampaigns = React.useMemo(()=>{
+    const seen=new Set(); const merged=[];
+    for(const c of campaigns){ const k=c&&c.id!=null?c.id:c; if(seen.has(k))continue; seen.add(k); merged.push(c); }
+    for(const c of archive){
+      const k=c&&c.id!=null?c.id:c; if(seen.has(k))continue; seen.add(k);
+      const cap=(c&&c.archivedDate&&c.endDate&&c.archivedDate<c.endDate)?c.archivedDate:(c&&c.endDate);
+      merged.push({...(c&&cap&&cap!==c.endDate?{...c,endDate:cap}:c), _fromArchive:true});
+    }
+    return merged;
+  }, [campaigns, archive]);
+  // ONE month-end P&L projection for the WHOLE app (see the note up top where the comment lives). Computed
+  // from revenueCampaigns so archived campaigns' already-realized current-month profit stays in the
+  // projection — an archived campaign won't deliver MORE, but the money it already banked this month is
+  // real and must not drop the pace-target below what's already realized.
+  const monthPnl = React.useMemo(()=>estMonthlyProfit(revenueCampaigns), [revenueCampaigns]);
   const [metaSyncStatus, setMetaSyncStatus] = useState(null);
   const [metaSyncInfo,   setMetaSyncInfo]   = useState(null);
   const [ttdSyncStatus,  setTtdSyncStatus]  = useState(null);
@@ -25643,23 +25710,7 @@ export default function App() {
             try{ localStorage.setItem("campaign-tracker-zeus-prompt", prompt); }catch{}
           }}/>
         ) : activeTab==="revenue" ? (
-          <RevenueDashboard monthPnl={monthPnl} campaigns={(()=>{
-            // Merge active + archived campaigns for the revenue view, but de-duplicate by
-            // id so a record that exists in BOTH lists (e.g. archived without being removed
-            // from active) is only counted ONCE. The active copy wins when ids collide.
-            const seen=new Set(); const merged=[];
-            // Active campaigns first — the live copy wins on id collisions.
-            for(const c of campaigns){ const k=c&&c.id!=null?c.id:c; if(seen.has(k))continue; seen.add(k); merged.push(c); }
-            // Archived campaigns: a pulled campaign stops earning the moment it's archived, so cap its
-            // revenue flight at the archive date. Otherwise it keeps accruing current/future-month
-            // revenue (e.g. an SEM fee for a month it wasn't running) and pollutes the breakdown + totals.
-            for(const c of archive){
-              const k=c&&c.id!=null?c.id:c; if(seen.has(k))continue; seen.add(k);
-              const cap=(c&&c.archivedDate&&c.endDate&&c.archivedDate<c.endDate)?c.archivedDate:(c&&c.endDate);
-              merged.push(c&&cap&&cap!==c.endDate?{...c,endDate:cap}:c);
-            }
-            return merged;
-          })()} onEdit={(camp,tab)=>{ setEditInitialTab(tab||"details"); setEditTarget(camp); }} onLock={(month, lockObj)=>{
+          <RevenueDashboard monthPnl={monthPnl} campaigns={revenueCampaigns} onEdit={(camp,tab)=>{ setEditInitialTab(tab||"details"); setEditTarget(camp); }} onLock={(month, lockObj)=>{
             // Activity log entry — permanent record of the lock event. The frozen numbers live in the
             // lock snapshot (monthLocks) and this log; we deliberately do NOT write anything to each
             // campaign's notes/history — that section is reserved for the user's own notes.
