@@ -3768,6 +3768,90 @@ function RowActions({ c, onEdit, onRenew, onDuplicate, onDelete, onArchive }) {
   );
 }
 
+// Campaigns-tab campaign cell. The WHOLE cell is clickable (name, goal text, empty space) — clicking
+// anywhere except an indicator badge/control opens a small dropdown with this campaign's reminders + its
+// change-history box (the two live-context things you'd otherwise open the edit modal for). The cell's
+// contents (name + indicators + goal/pacing) are passed as children so this component only supplies the
+// click target + popover; the name span inside carries `camp-name` so the "hide indicators" CSS leaves it
+// visible. Dropdown is position:fixed (anchored to the cell via getBoundingClientRect) so the table's
+// overflow can't clip it; it closes on outside-click, scroll, or resize.
+function CampaignNameCell({ c, reminders = [], onManageReminders = () => {}, children }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ left: 0, top: undefined, bottom: undefined });
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => { document.removeEventListener("mousedown", onDown); window.removeEventListener("scroll", close, true); window.removeEventListener("resize", close); };
+  }, [open]);
+  function handleOpen() {
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      const up = r.bottom + 340 > window.innerHeight && r.top > 340;
+      setPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - 320)), top: up ? undefined : r.bottom + 6, bottom: up ? (window.innerHeight - r.top + 6) : undefined });
+    }
+    setOpen(v => !v);
+  }
+  function onCellClick(e) {
+    // Indicator badges + any real control (status <select>, ✓ buttons, etc.) keep their own click; a click
+    // anywhere ELSE in the cell (name, goal text, blank space) opens the reminders/history popover.
+    if (e.target.closest("button, a, select, input, textarea")) return;
+    handleOpen();
+  }
+  const campReminders = (reminders || []).filter(r => !r.dismissed && r.campaignId === c.id)
+    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+  const historyLines = String(c.history || "").split("\n").map(s => s.trim()).filter(Boolean);
+  const nm = (c.campaignName || "").trim();
+  return (
+    <div ref={ref} onClick={onCellClick} onMouseDown={e => e.stopPropagation()} title="Click for reminders & change history" style={{ cursor: "pointer" }}>
+      {children}
+      {open && (
+        <div onClick={e => e.stopPropagation()} style={{ position: "fixed", left: pos.left, top: pos.top, bottom: pos.bottom, zIndex: 99999, width: 300, background: _lm ? "#ffffff" : "#0c1625", border: `1px solid ${_lm ? "#e2e8f0" : "#1e293b"}`, borderRadius: 9, boxShadow: _lm ? "0 8px 24px rgba(0,0,0,.14)" : "0 10px 34px rgba(0,0,0,.9)", overflow: "hidden", cursor: "default" }}>
+          <div style={{ padding: "9px 12px", borderBottom: `1px solid ${_lm ? "#f1f5f9" : "#0e1828"}`, background: _lm ? "#f8fafc" : "#0a1422" }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: _lm ? "#0f172a" : "#edf4ff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nm}</div>
+          </div>
+          {/* Reminders */}
+          <div style={{ padding: "10px 12px", borderBottom: `1px solid ${_lm ? "#f1f5f9" : "#0e1828"}` }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: _lm ? "#475569" : "#7a9bbf" }}>🔔 Reminders</span>
+              <button onClick={() => { setOpen(false); onManageReminders(); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, fontWeight: 700, color: _lm ? "#059669" : "#00c896", padding: 0 }}>Manage →</button>
+            </div>
+            {campReminders.length === 0
+              ? <div style={{ fontSize: 11, color: _lm ? "#94a3b8" : "#4d6e8a" }}>No reminders set</div>
+              : <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 120, overflowY: "auto" }}>
+                  {campReminders.map(r => {
+                    const overdue = String(r.date || "") <= getToday();
+                    const rt = (typeof REMINDER_TYPES !== "undefined") ? REMINDER_TYPES.find(t => t.value === r.type) : null;
+                    return (
+                      <div key={r.id} style={{ display: "flex", gap: 7, fontSize: 11, alignItems: "baseline" }}>
+                        <span style={{ fontWeight: 700, color: overdue ? (_lm ? "#b45309" : "#fcd34d") : (_lm ? "#0891b2" : "#00d9ff"), whiteSpace: "nowrap", flexShrink: 0 }}>{r.date ? fmtDate(r.date) : "—"}</span>
+                        <span style={{ color: _lm ? "#334155" : "#a8c4e0", lineHeight: 1.4 }}>{(r.note && r.note.trim()) || (rt && rt.label) || "(reminder)"}</span>
+                      </div>
+                    );
+                  })}
+                </div>}
+          </div>
+          {/* Change history */}
+          <div style={{ padding: "10px 12px" }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: _lm ? "#475569" : "#7a9bbf", marginBottom: 6 }}>🕘 Change history</div>
+            {historyLines.length === 0
+              ? <div style={{ fontSize: 11, color: _lm ? "#94a3b8" : "#4d6e8a" }}>No change history yet</div>
+              : <div style={{ maxHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
+                  {historyLines.map((line, i) => (
+                    <div key={i} style={{ fontSize: 11, color: _lm ? "#334155" : "#a8c4e0", lineHeight: 1.45, borderLeft: `2px solid ${_lm ? "#e2e8f0" : "#1e293b"}`, paddingLeft: 8 }}>{line}</div>
+                  ))}
+                </div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MetricRow({ c, colSpan, onUpdate, dateRange, reminders=[], setReminders=()=>{} }) {
   const resolved = resolveMetrics(c, dateRange.preset);
   const [local, setLocal] = useState({impressions:resolved.impressions,ctr:resolved.ctr,cpm:resolved.cpm,spend:resolved.spend,completionRate:c.completionRate||"",conversions:c.conversions||"",clicks:c.clicks||"",reach:c.reach||"",frequency:c.frequency||"",videoViews:c.videoViews||""});
@@ -23864,6 +23948,9 @@ export default function App() {
   const [partnerAbbr, setPartnerAbbr]           = useState(loadPartnerAbbr);
   const [partnerCodesOpen, setPartnerCodesOpen] = useState(false);
   const [showStats, setShowStats]               = useState(()=>{ try{ return localStorage.getItem("campaigns-show-stats")==="1"; }catch{ return false; } }); // stat tiles collapsed by default
+  // "Hide indicators" — pauses the DISPLAY of the row badges (Goal Hit, ★ Monthly Flight, RT, 🔔, NEW,
+  // ⚠ Note2) for a cleaner read. Purely visual: the flags still compute + function. Persisted per-user.
+  const [hideIndicators, setHideIndicators]     = useState(()=>{ try{ return localStorage.getItem("campaigns-hide-indicators")==="1"; }catch{ return false; } });
   const [collapsedClients, setCollapsedClients] = useState(new Set());
   const [dragId, setDragId]       = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
@@ -25019,6 +25106,13 @@ export default function App() {
         .pacing-hscroll::-webkit-scrollbar-thumb:hover{background:${lightMode?"#64748b":"#4a6a9a"};}
         .crow:hover td{background:${lightMode?"#f1f5f9":"#0a1c32"}!important;}
         .crow:hover .star-toggle{opacity:1!important;}
+        /* "Hide indicators" toolbar toggle: when the table wrapper has this class, hide every badge/chip
+           in a campaign's name cell (★ monthly flight, RT, 🎯 Goal Hit, ⏳ Close, 🔔, NEW, ⚠ Note2) while
+           keeping the campaign name itself (.camp-name) visible. Uses visibility:hidden (NOT display:none)
+           on purpose: the badges keep their layout box, so the CAMPAIGN COLUMN WIDTH does not change when
+           you toggle indicators off/on — no reflow/jump — and hidden badges also stop taking clicks.
+           Purely visual — the flags still compute + function. */
+        .camp-inds-off .camp-name-cell > *:not(.camp-name){visibility:hidden!important;}
         button{font-family:inherit;}
         .xbtn{transition:transform .18s ease;}
         td,th{font-variant-numeric:tabular-nums;}
@@ -26055,6 +26149,17 @@ export default function App() {
             }} title={showPacingBar?"Hide pacing bars":"Show pacing bars"}>
             {showPacingBar?"📈 Pacing Bar":"📈 Pacing Bar"}
           </button>
+          <button onClick={()=>setHideIndicators(v=>{ const nv=!v; try{localStorage.setItem("campaigns-hide-indicators", nv?"1":"0");}catch{} return nv; })}
+            title={hideIndicators?"Show the row indicators again (Goal Hit, ★ Monthly Flight, RT, 🔔, badges)":"Hide the row indicators for a cleaner read — the flags still work, they're just not shown"}
+            style={{background:lightMode?(hideIndicators?"#eef2ff":"#f1f5f9"):(hideIndicators?"#0e1030":"#0e1a2e"),
+              border:`1px solid ${hideIndicators?(lightMode?"#818cf8":"#6366f180"):(lightMode?"#cbd5e1":"#1e293b")}`,
+              borderRadius:7,padding:"7px 11px",
+              color:hideIndicators?(lightMode?"#4f46e5":"#a5b4fc"):(lightMode?"#475569":"#4d6e8a"),
+              fontSize:12,fontWeight:hideIndicators?700:400,
+              cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s",
+            }}>
+            {hideIndicators?"🙈 Indicators Off":"👁 Indicators"}
+          </button>
           <button onClick={()=>setQuickCheckIn(v=>!v)}
             style={{background:lightMode?(quickCheckIn?"#f0fdf9":"#f1f5f9"):(quickCheckIn?"#001a2e":"#0e1a2e"),
               border:`1px solid ${quickCheckIn?(lightMode?"#00c896":"#00c896"):(lightMode?"#cbd5e1":"#1e293b")}`,
@@ -26079,7 +26184,7 @@ export default function App() {
             onClose={()=>setQuickCheckIn(false)}
           />
         )}
-        <div style={{background:lightMode?"#ffffff":"#0c1625",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:10,overflow:"hidden",boxShadow:lightMode?"0 1px 4px rgba(0,0,0,0.07)":"none"}}>
+        <div className={hideIndicators?"camp-inds-off":undefined} style={{background:lightMode?"#ffffff":"#0c1625",border:`1px solid ${lightMode?"#e2e8f0":"#1e293b"}`,borderRadius:10,overflow:"hidden",boxShadow:lightMode?"0 1px 4px rgba(0,0,0,0.07)":"none"}}>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:920}}>
               <thead>
@@ -26199,8 +26304,9 @@ export default function App() {
                               </td>
                               <TD><span style={{color:lightMode?"#94a3b8":"#4d6e8a",fontSize:11,paddingLeft:8}}>↳</span></TD>
                               <TD>
-                                <div style={{display:"flex",alignItems:"center",gap:5,paddingLeft:12}}>
-                                  <span style={{color:lightMode?"#0f172a":"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
+                                <CampaignNameCell c={c} reminders={reminders} onManageReminders={()=>setShowReminderModal(c.id)}>
+                                <div className="camp-name-cell" style={{display:"flex",alignItems:"center",gap:5,paddingLeft:12}}>
+                                  <span className="camp-name" style={{color:lightMode?"#0f172a":"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
                                   {(()=>{
                                     const disp=resolveMetrics(c,dateRange.preset);
                                     const pacing=computeMonthlyPacing(c, disp, c.note1);
@@ -26241,6 +26347,7 @@ export default function App() {
                                     </div>
                                   );
                                 })()}
+                              </CampaignNameCell>
                               </TD>
                               <TD><StatusBadge status={c.status}/></TD>
                               <TD><span style={{fontSize:12,color:(PLT[c.platform]||PLT.default),fontWeight:700}}>{c.platform}</span></TD>
@@ -26301,8 +26408,9 @@ export default function App() {
                         </td>
                         <TD><span title={c.mediaPartner.trim()} style={{color:lightMode?"#475569":"#a8c4e0",fontWeight:600,fontSize:12,letterSpacing:"0.02em",cursor:"default"}}>{partnerAbbrOf(c.mediaPartner, partnerAbbr)}</span></TD>
                         <TD>
-                          <div style={{display:"flex",alignItems:"center",gap:5}}>
-                            <span style={{color:lightMode?"#0f172a":"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
+                          <CampaignNameCell c={c} reminders={reminders} onManageReminders={()=>setShowReminderModal(c.id)}>
+                          <div className="camp-name-cell" style={{display:"flex",alignItems:"center",gap:5}}>
+                            <span className="camp-name" style={{color:lightMode?"#0f172a":"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
                             {(()=>{ const daysOld=(Date.now()-(typeof c.id==="number"?c.id:parseInt(c.id)||0))/86400000; return daysOld<=7?<span title={`Added ${daysOld<1?"today":Math.floor(daysOld)+"d ago"}`} style={{background:lightMode?"#dbeafe":"#7dd3fc18",border:`1px solid ${lightMode?"#7dd3fc":"#7dd3fc50"}`,borderRadius:4,padding:"1px 5px",fontSize:9,color:lightMode?"#1e40af":"#7dd3fc",fontWeight:700,flexShrink:0,letterSpacing:"0.04em"}}>NEW</span>:null; })()}
                             {c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:false})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:lightMode?"#059669":"#00e5c0",fontSize:13,lineHeight:1,flexShrink:0}}>★</button>}
                             {!c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:true})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#1e3048",fontSize:13,lineHeight:1,flexShrink:0,opacity:0}} className="star-toggle">★</button>}
@@ -26403,7 +26511,7 @@ export default function App() {
                               </div>
                             );
                           })()}
-
+                          </CampaignNameCell>
                         </TD>
                         <TD><PlatformTag p={c.platform}/></TD>
                         <TD>
