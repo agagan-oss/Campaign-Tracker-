@@ -3376,7 +3376,10 @@ function ReminderModal({ campaigns, archive=[], onClose, reminders, setReminders
   function dismiss(id) { setReminders(prev=>prev.map(r=>r.id===id?{...r,dismissed:true}:r)); }
   function del(id)     { setReminders(prev=>prev.filter(r=>r.id!==id)); }
   function edit(r)     { setForm({...r}); setView("add"); }
-  function addOnDate(date) { setForm({...blank,date}); setView("add"); }
+  // When the modal was opened focused on a specific campaign (e.g. from a row's "Manage →"), a NEW
+  // reminder should pre-link to THAT campaign so the user doesn't have to re-pick it. (the user hit this:
+  // added a reminder from Manage and had to relink the campaign by hand.)
+  function addOnDate(date) { setForm({...blank, campaignId: focusCampaignId||"", date}); setView("add"); }
 
   const today = getToday();
   const focusCampaign = focusCampaignId ? findCamp(focusCampaignId) : null;
@@ -3481,7 +3484,7 @@ function ReminderModal({ campaigns, archive=[], onClose, reminders, setReminders
                 ))}
               </div>
             )}
-            <button onClick={()=>{ setForm(blank); setView(view==="add"?"list":"add"); }} style={{background:view==="add"?(_lm?"#f0fdf9":"#002e24"):(_lm?"#f1f5f9":"#162236"),border:`1px solid ${view==="add"?(_lm?"#00c896":"#00c89640"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:7,padding:"5px 13px",color:view==="add"?(_lm?"#059669":"#00e5a0"):(_lm?"#475569":"#7a9bbf"),fontSize:12,fontWeight:700,cursor:"pointer"}}>
+            <button onClick={()=>{ setForm({...blank, campaignId: focusCampaignId||""}); setView(view==="add"?"list":"add"); }} style={{background:view==="add"?(_lm?"#f0fdf9":"#002e24"):(_lm?"#f1f5f9":"#162236"),border:`1px solid ${view==="add"?(_lm?"#00c896":"#00c89640"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:7,padding:"5px 13px",color:view==="add"?(_lm?"#059669":"#00e5a0"):(_lm?"#475569":"#7a9bbf"),fontSize:12,fontWeight:700,cursor:"pointer"}}>
               {view==="add"?"← Back":"+ Add"}
             </button>
             <button onClick={onClose} style={{background:"none",border:"none",color:_lm?"#94a3b8":"#4d6e8a",cursor:"pointer",fontSize:22,lineHeight:1,padding:0}}>×</button>
@@ -3775,18 +3778,24 @@ function RowActions({ c, onEdit, onRenew, onDuplicate, onDelete, onArchive }) {
 // click target + popover; the name span inside carries `camp-name` so the "hide indicators" CSS leaves it
 // visible. Dropdown is position:fixed (anchored to the cell via getBoundingClientRect) so the table's
 // overflow can't clip it; it closes on outside-click, scroll, or resize.
-function CampaignNameCell({ c, reminders = [], onManageReminders = () => {}, children }) {
+function CampaignNameCell({ c, reminders = [], onManageReminders = () => {}, onAddReminder = () => {}, onAddNote = () => {}, children }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ left: 0, top: undefined, bottom: undefined });
+  const [remNote, setRemNote] = useState("");
+  const [remDate, setRemDate] = useState(() => getToday());
+  const [noteText, setNoteText] = useState("");
   const ref = useRef(null);
   useEffect(() => {
     if (!open) return;
     const close = () => setOpen(false);
     const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener("mousedown", onDown);
-    window.addEventListener("scroll", close, true);
+    // Close on PAGE scroll (a fixed popover would otherwise detach) — NOT capture, so incidental scrolls of
+    // inner containers (the table's horizontal scroller, or this dropdown's own lists, e.g. right after a
+    // quick-add re-renders) don't spuriously close it. Only a real window/document scroll fires this.
+    window.addEventListener("scroll", close);
     window.addEventListener("resize", close);
-    return () => { document.removeEventListener("mousedown", onDown); window.removeEventListener("scroll", close, true); window.removeEventListener("resize", close); };
+    return () => { document.removeEventListener("mousedown", onDown); window.removeEventListener("scroll", close); window.removeEventListener("resize", close); };
   }, [open]);
   function handleOpen() {
     if (ref.current) {
@@ -3806,6 +3815,21 @@ function CampaignNameCell({ c, reminders = [], onManageReminders = () => {}, chi
     .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
   const historyLines = String(c.history || "").split("\n").map(s => s.trim()).filter(Boolean);
   const nm = (c.campaignName || "").trim();
+  // Quick-add: reminder (auto-linked to THIS campaign) + note (prepended, timestamped, to change history).
+  function addReminderQuick() {
+    const note = remNote.trim();
+    if (!note) return;
+    onAddReminder({ id: Date.now(), type: "other", campaignId: c.id, note, date: remDate || getToday(), repeat: "none", dismissed: false });
+    setRemNote(""); setRemDate(getToday());
+  }
+  function addNoteQuick() {
+    const t = noteText.trim();
+    if (!t) return;
+    onAddNote(t);
+    setNoteText("");
+  }
+  const qi = { flex: 1, minWidth: 0, background: _lm ? "#f8fafc" : "#0a1422", border: `1px solid ${_lm ? "#e2e8f0" : "#1e3350"}`, borderRadius: 5, padding: "5px 8px", color: _lm ? "#0f172a" : "#d8eaf8", fontSize: 11, fontFamily: "inherit", boxSizing: "border-box", outline: "none" };
+  const qbtn = { flexShrink: 0, background: _lm ? "#00c896" : "#002e24", border: `1px solid ${_lm ? "#00c896" : "#00c89650"}`, borderRadius: 5, padding: "5px 11px", color: _lm ? "#ffffff" : "#00e5a0", fontSize: 11, fontWeight: 700, cursor: "pointer" };
   return (
     <div ref={ref} onClick={onCellClick} onMouseDown={e => e.stopPropagation()} title="Click for reminders & change history" style={{ cursor: "pointer" }}>
       {children}
@@ -3834,6 +3858,17 @@ function CampaignNameCell({ c, reminders = [], onManageReminders = () => {}, chi
                     );
                   })}
                 </div>}
+            {/* Quick-add reminder — auto-linked to this campaign (no re-picking needed). */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 8 }}>
+              <input value={remNote} onChange={e => setRemNote(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addReminderQuick(); }} placeholder="Quick reminder…" style={qi} />
+              <div style={{ display: "flex", gap: 5, alignItems: "stretch" }}>
+                {/* On-brand calendar (same DatePicker as the Reminders tab) instead of the native date input.
+                    Its popup is position:fixed so the dropdown's overflow:hidden doesn't clip it, and it
+                    returns ISO dates — exactly what the reminder record + the list's fmtDate expect. */}
+                <div style={{ flex: 1, minWidth: 0 }}><DatePicker value={remDate} onChange={v => setRemDate(v)} placeholder="Pick a date" /></div>
+                <button onClick={addReminderQuick} disabled={!remNote.trim()} style={{ ...qbtn, opacity: remNote.trim() ? 1 : 0.5, cursor: remNote.trim() ? "pointer" : "default" }}>+ Add</button>
+              </div>
+            </div>
           </div>
           {/* Change history */}
           <div style={{ padding: "10px 12px" }}>
@@ -3845,6 +3880,11 @@ function CampaignNameCell({ c, reminders = [], onManageReminders = () => {}, chi
                     <div key={i} style={{ fontSize: 11, color: _lm ? "#334155" : "#a8c4e0", lineHeight: 1.45, borderLeft: `2px solid ${_lm ? "#e2e8f0" : "#1e293b"}`, paddingLeft: 8 }}>{line}</div>
                   ))}
                 </div>}
+            {/* Quick-add note — prepends a timestamped line to this campaign's change history. */}
+            <div style={{ display: "flex", gap: 5, marginTop: 8 }}>
+              <input value={noteText} onChange={e => setNoteText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addNoteQuick(); }} placeholder="Quick note…" style={qi} />
+              <button onClick={addNoteQuick} disabled={!noteText.trim()} style={{ ...qbtn, opacity: noteText.trim() ? 1 : 0.5, cursor: noteText.trim() ? "pointer" : "default" }}>+ Add</button>
+            </div>
           </div>
         </div>
       )}
@@ -25082,7 +25122,12 @@ export default function App() {
       {label}{sortKey===k?(sortDir==="asc"?" ↑":" ↓"):""}
     </th>
   );
-  const TD = ({children,style={}}) => <td style={{padding:"9px 12px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#060c18"}`,verticalAlign:"middle",...style}}>{children}</td>;
+  // Memoized so its component identity is STABLE across App re-renders. TD is defined inline in App, so
+  // without this every data change (a check-in, a reminder/note add, a status flip) gave <TD> a brand-new
+  // function type → React unmounted + remounted every cell and its whole subtree. That silently reset any
+  // state a cell held — which slammed the campaign-name reminders/notes popover shut the instant you added
+  // one. Keeping the identity stable (only re-created when lightMode flips) lets that state survive.
+  const TD = React.useCallback(({children,style={}}) => <td style={{padding:"9px 12px",borderBottom:`1px solid ${lightMode?"#e2e8f0":"#060c18"}`,verticalAlign:"middle",...style}}>{children}</td>, [lightMode]);
 
   return (
     <div style={{minHeight:"100vh",background:lightMode?"#f0f4f8":"#070d16",fontFamily:"'Inter','Segoe UI',sans-serif",color:lightMode?"#0f172a":"#d8eaf8",fontSize:14,transition:"background .2s ease"}}>
@@ -26304,7 +26349,7 @@ export default function App() {
                               </td>
                               <TD><span style={{color:lightMode?"#94a3b8":"#4d6e8a",fontSize:11,paddingLeft:8}}>↳</span></TD>
                               <TD>
-                                <CampaignNameCell c={c} reminders={reminders} onManageReminders={()=>setShowReminderModal(c.id)}>
+                                <CampaignNameCell c={c} reminders={reminders} onManageReminders={()=>setShowReminderModal(c.id)} onAddReminder={r=>setReminders(prev=>[...prev,r])} onAddNote={t=>{ const d=getToday(); const [yy,mm,dd]=d.split("-"); const line=`${mm}/${dd}/${yy} — ${t}`; updateCampaign({...c, history:(c.history&&c.history.trim())?`${line}\n${c.history}`:line}); }}>
                                 <div className="camp-name-cell" style={{display:"flex",alignItems:"center",gap:5,paddingLeft:12}}>
                                   <span className="camp-name" style={{color:lightMode?"#0f172a":"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
                                   {(()=>{
@@ -26408,7 +26453,7 @@ export default function App() {
                         </td>
                         <TD><span title={c.mediaPartner.trim()} style={{color:lightMode?"#475569":"#a8c4e0",fontWeight:600,fontSize:12,letterSpacing:"0.02em",cursor:"default"}}>{partnerAbbrOf(c.mediaPartner, partnerAbbr)}</span></TD>
                         <TD>
-                          <CampaignNameCell c={c} reminders={reminders} onManageReminders={()=>setShowReminderModal(c.id)}>
+                          <CampaignNameCell c={c} reminders={reminders} onManageReminders={()=>setShowReminderModal(c.id)} onAddReminder={r=>setReminders(prev=>[...prev,r])} onAddNote={t=>{ const d=getToday(); const [yy,mm,dd]=d.split("-"); const line=`${mm}/${dd}/${yy} — ${t}`; updateCampaign({...c, history:(c.history&&c.history.trim())?`${line}\n${c.history}`:line}); }}>
                           <div className="camp-name-cell" style={{display:"flex",alignItems:"center",gap:5}}>
                             <span className="camp-name" style={{color:lightMode?"#0f172a":"#edf4ff",fontWeight:600}}>{c.campaignName.trim()}</span>
                             {(()=>{ const daysOld=(Date.now()-(typeof c.id==="number"?c.id:parseInt(c.id)||0))/86400000; return daysOld<=7?<span title={`Added ${daysOld<1?"today":Math.floor(daysOld)+"d ago"}`} style={{background:lightMode?"#dbeafe":"#7dd3fc18",border:`1px solid ${lightMode?"#7dd3fc":"#7dd3fc50"}`,borderRadius:4,padding:"1px 5px",fontSize:9,color:lightMode?"#1e40af":"#7dd3fc",fontWeight:700,flexShrink:0,letterSpacing:"0.04em"}}>NEW</span>:null; })()}
