@@ -11457,7 +11457,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     </div>;
   }
 
-  function Section({label,color,items,defaultOpen=true,connected=false,note="",forceOpen=false}){
+  function Section({label,color,items,defaultOpen=true,connected=false,note="",forceOpen=false,tintHeader=false}){
     if(!items.length) return null;
     // Open/closed state lives in the parent (sectionOpen, keyed by label) so it survives the re-renders
     // that remount this component on any campaign change. The shim preserves the setOpen(v=>!v) calls.
@@ -11475,7 +11475,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // Lifetime view's connected look.
     if(connected){
       return <React.Fragment>
-        <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 16px",cursor:"pointer",userSelect:"none",borderBottom:"1px solid "+lmBrdR,background:lmBgInp}}>
+        <div onClick={()=>setOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 16px",cursor:"pointer",userSelect:"none",borderBottom:"1px solid "+lmBrdR,background: tintHeader ? lmC(color)+"22" : lmBgInp, boxShadow: tintHeader ? `inset 3px 0 0 ${lmC(color)}` : "none"}}>
           <span style={{fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",color:lmC(color)}}>{label}</span>
           <span style={{fontSize:11,color:lmTxtD,fontWeight:700}}>({items.length})</span>
           {note && <span style={{fontSize:10,color:lmTxtS,fontStyle:"italic"}}>· {note}</span>}
@@ -11756,7 +11756,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
             { key:"behind",  label:"Behind",   color:"#fde047", rows: rows.filter(r=>lifeBucket(r)==="behind") },
             { key:"ontrack", label:"On Track", color:"#00d48a", rows: rows.filter(r=>lifeBucket(r)==="ontrack") },
             { key:"ahead",   label:"Ahead",    color:"#f97316", rows: rows.filter(r=>lifeBucket(r)==="ahead") },
-            { key:"off",     label:"Off",      color:"#7a9bbf", rows: rows.filter(r=>lifeBucket(r)==="off") },
+            { key:"off",     label:"Off",      color:"#f87171", rows: rows.filter(r=>lifeBucket(r)==="off") },
           ];
           // Render flights through the SAME TableHeader + TableRow as This Month (the user: identical columns
           // + bar spacing) — just fed FLIGHT-basis data: cumulative delivered (prior+live) as the metric,
@@ -11782,7 +11782,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
               {!buckets.some(b=>b.rows.length>0) && <div style={{padding:"16px",textAlign:"center",fontSize:11,color:lmTxtS}}>Nothing at risk right now — everything's on pace or hit. Toggle off “At risk only” to see all.</div>}
               {buckets.map(b => b.rows.length===0 ? null : (
                 <div key={b.key}>
-                  <div onClick={()=>toggleLifeSection(b.key)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 16px",cursor:"pointer",userSelect:"none",borderBottom:"1px solid "+lmBrdR,background:lmBgInp}}>
+                  <div onClick={()=>toggleLifeSection(b.key)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 16px",cursor:"pointer",userSelect:"none",borderBottom:"1px solid "+lmBrdR,background: b.key==="off" ? lmC(b.color)+"22" : lmBgInp, boxShadow: b.key==="off" ? `inset 3px 0 0 ${lmC(b.color)}` : "none"}}>
                     <span style={{fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.07em",color:lmC(b.color)}}>{b.label}</span>
                     <span style={{fontSize:11,color:lmTxtD,fontWeight:700}}>({b.rows.length})</span>
                     <span style={{marginLeft:"auto",color:lmTxtD,fontSize:10,display:"inline-block",transform:lifeCollapsed.has(b.key)?"none":"rotate(90deg)",transition:"transform .15s"}}>▶</span>
@@ -12375,8 +12375,8 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     {(noPace.length || offFiltered.length) > 0 && (
       <div style={{border:"1px solid "+lmBrd,borderRadius:9,overflow:"visible",background:lmBg,marginTop:8,marginBottom:8}}>
         <TableHeader/>
-        {noPace.length>0 && <Section connected label="No Impressions" color="#4d6e8a" items={noPace} defaultOpen={false} forceOpen={troubleOnly}/>}
-        {offFiltered.length>0 && <Section connected label="Off / Paused Campaigns" color="#7a9bbf" items={offFiltered} defaultOpen={true} forceOpen={troubleOnly}
+        {noPace.length>0 && <Section connected label="No Impressions" color="#ef4444" tintHeader items={noPace} defaultOpen={false} forceOpen={troubleOnly}/>}
+        {offFiltered.length>0 && <Section connected label="Off / Paused Campaigns" color="#f87171" tintHeader items={offFiltered} defaultOpen={true} forceOpen={troubleOnly}
           note="off or paused — still visible for reference; one that hit goal early still counts as Trouble"/>}
       </div>
     )}
