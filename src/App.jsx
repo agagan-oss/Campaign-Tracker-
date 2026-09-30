@@ -18086,7 +18086,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                         <div style={{display:"flex",alignItems:"center",gap:4}}>
                           <div style={{fontSize:13,color:isUnmatched?"#f59e0b":(_lm?"#0f172a":"#edf4ff"),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:600,flex:1}} title={fileSource==="TradeDesk"?(ttdAdvName+" → "+name):name}>
                             {isUnmatched?"⚠ ":""}{displayName||"—"}
-                            {fileSource==="TradeDesk"&&name&&<span style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginLeft:6}}>({name})</span>}
+                            {fileSource==="TradeDesk"&&name&&<span style={{fontSize:12,fontWeight:600,color:_lm?"#475569":"#a8c4e0",marginLeft:6}}>({name})</span>}
                           </div>
                           {isLowConf&&(
                             <span title={`Low-confidence auto-match (${Math.round(rowConf*100)}%) — verify this is correct before applying`}
