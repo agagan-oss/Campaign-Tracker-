@@ -18084,7 +18084,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                     <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px"}}>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:4}}>
-                          <div style={{fontSize:11,color:isUnmatched?"#f59e0b":(_lm?"#0f172a":"#d8eaf8"),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:isUnmatched?600:400,flex:1}} title={fileSource==="TradeDesk"?(ttdAdvName+" → "+name):name}>
+                          <div style={{fontSize:13,color:isUnmatched?"#f59e0b":(_lm?"#0f172a":"#edf4ff"),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:600,flex:1}} title={fileSource==="TradeDesk"?(ttdAdvName+" → "+name):name}>
                             {isUnmatched?"⚠ ":""}{displayName||"—"}
                             {fileSource==="TradeDesk"&&name&&<span style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginLeft:6}}>({name})</span>}
                           </div>
@@ -18109,7 +18109,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                               style={{fontSize:9,fontWeight:800,color:_lm?"#0891b2":"#00d9ff",background:_lm?"#ecfeff":"#04222b",border:`1px solid ${_lm?"#67e8f9":"#00d9ff40"}`,borderRadius:3,padding:"0 4px",whiteSpace:"nowrap",flexShrink:0}}>↪ moved</span>
                           )}
                         </div>
-                        <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",marginTop:1,display:"flex",gap:8}}>
+                        <div style={{fontSize:11,color:_lm?"#64748b":"#8aa8c8",marginTop:3,display:"flex",gap:10,flexWrap:"wrap"}}>
                           <span>{m.impressions.toLocaleString()} impr</span>
                           <span>{m.clicks} clicks</span>
                           <span>CTR {computedCtr.toFixed(3)}%</span>
@@ -18222,7 +18222,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                       // name alone hides a wrong-tactic map, so the platform badge — where the mapping is
                       // actually confirmed — makes it unmistakable which line the data is about to land on.
                       const _pcol = (typeof PLT_COLORS!=="undefined" && PLT_COLORS[c.platform]) || (_lm?"#0369a1":"#7dd3fc");
-                      return <div style={{fontSize:9,color:_lm?"#059669":"#00e5a0",paddingLeft:10,paddingBottom:4,display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                      return <div style={{fontSize:11,color:_lm?"#059669":"#00e5a0",paddingLeft:10,paddingBottom:5,marginTop:1,display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
                         <span>🎯 <strong>{c.campaignName.trim()}</strong></span>
                         <span title={`Platform: ${c.platform}`} style={{background:_pcol+(_lm?"22":"26"),color:_pcol,border:`1px solid ${_pcol}66`,borderRadius:3,padding:"0 5px",fontWeight:800,letterSpacing:"0.02em",flexShrink:0}}>{c.platform}</span>
                         <span style={{color:_lm?"#64748b":"#4d6e8a"}}>· {c.mediaPartner}</span>
