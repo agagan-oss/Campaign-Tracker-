@@ -164,6 +164,27 @@ function getStorageBytes() {
 }
 function fmtBytes(b) { return b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.round(b / 1024) + " KB"; }
 
+// Stale "ambio::"-prefixed keys can sit in THIS tracker's localStorage from when Zeus and the Ambio fork
+// shared one browser origin (before Ambio moved to its own origin + the ambio:: isolation shim). Zeus never
+// reads them — this file has ZERO ambio:: references — so they're pure dead weight against the ~5 MB cap.
+// Purge them on load; safe and self-healing (if any ever reappear, the next load clears them). This lives in
+// Zeus ONLY (the Ambio file is separate), so it can never touch the live Ambio tracker's own data.
+// (the user hit "almost out of storage" in Zeus with ambio:: keys still present.)
+function purgeAmbioLeftovers() {
+  let removed = 0, bytes = 0;
+  try {
+    const kill = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf("ambio::") === 0) { kill.push(k); bytes += (k.length + (localStorage.getItem(k) || "").length) * 2; }
+    }
+    kill.forEach(k => { localStorage.removeItem(k); removed++; });
+    if (removed) try { console.info(`[Zeus] Cleared ${removed} stale "ambio::" storage key(s), freed ~${Math.round(bytes/1024)} KB`); } catch {}
+  } catch {}
+  return { removed, bytes };
+}
+try { purgeAmbioLeftovers(); } catch {}
+
 // Per-campaign fields that hold DELIVERY DETAIL rather than the campaign itself. These are what
 // actually grow without bound: a snapshot carries `breakdown`/`priorBreakdown` (one row per ad line,
 // per drop), creativeReport carries one row per AD, and metricSeries carries a reading per day.
@@ -15520,8 +15541,24 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     const cutoffStr = cutoff.toISOString().slice(0,10);
     return qciArchive.filter(a=>a.archivedDate && String(a.archivedDate)>=cutoffStr);
   },[qciArchive]);
+  // The current revenue-booking month (the un-closed month the whole app is anchored to via pacingNow).
+  const _pnBook = pacingNow();
+  const pacingMonthKey = `${_pnBook.getFullYear()}-${String(_pnBook.getMonth()+1).padStart(2,"0")}`;
+  // An archived campaign stops being an AUTO-match target once its flight ended BEFORE the booking month.
+  // Why: a brand-new same-named campaign (often a CO-WORKER's — which lives in THEIR tracker, so there's no
+  // active twin here for redirectToActiveTwin to catch) would otherwise get its fresh delivery auto-pinned
+  // onto last month's ended archive. Archives that ended IN the booking month still auto-match (the legit
+  // "ended mid-month, keep mapping it until month-end" revenue case), and ANY archive stays MANUALLY
+  // pickable via "show all" for a cross-month closeout. (the user, 2026-10-04 — co-worker's new Fairmont
+  // State campaign was auto-mapping onto his month-old archived Fairmont flight.)
+  const archiveEndedBeforeBookingMonth = React.useCallback((c) => {
+    const end = String((c && c.endDate) || "").slice(0,7);
+    return !!end && end < pacingMonthKey;
+  }, [pacingMonthKey]);
   // Pool used for AUTO-MATCH candidates — active campaigns plus recently-archived ones (kept lean on
-  // purpose: fresh fuzzy/client matches should never guess into the deep archive).
+  // purpose: fresh fuzzy/client matches should never guess into the deep archive). Closed-out archives stay
+  // in the pool (a campaign is sometimes REUSED, so we don't forbid the match) — but an auto-match onto one
+  // is forced to low confidence so it hits the ⚠ review gate instead of silently applying (see below).
   const assignPool = React.useMemo(()=>[...activeCamps, ...recentlyArchived],[activeCamps,recentlyArchived]);
   // Full universe for RESOLUTION + MANUAL mapping — active plus the (de-collided) archive. Used to
   // (a) resolve a mapped/remembered id to its campaign so it displays instead of going blank when a
@@ -15530,6 +15567,15 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   // so it wins ties over a same-named archived campaign (renewals).
   const fullPool = React.useMemo(()=>[...activeCamps, ...qciArchive],[activeCamps,qciArchive]);
   const allArchivedIds = React.useMemo(()=>new Set(qciArchive.map(a=>String(a.id))),[qciArchive]);
+  // True when a campId resolves to an archived campaign whose flight ended before the booking month. Used to
+  // FORCE any auto-match (memory or fuzzy) onto such a campaign down to low confidence so it hits the ⚠
+  // review gate instead of silently applying (see the CLOSED-ARCHIVE GUARD), and to show the "⚠ ended …"
+  // badge in the review row. Flag-don't-forbid: a reused campaign stays mappable, just surfaced for a y/n.
+  const memoryToClosedArchive = React.useCallback((campId) => {
+    if (!campId || !allArchivedIds.has(String(campId))) return false;
+    const c = fullPool.find(x => String(x.id) === String(campId));
+    return !!c && archiveEndedBeforeBookingMonth(c);
+  }, [allArchivedIds, fullPool, archiveEndedBeforeBookingMonth]);
   // If a remembered mapping resolves to an ARCHIVED campaign but an ACTIVE campaign with the same name
   // (+ platform) exists, prefer the ACTIVE one. This is the "archived the old flight, created a NEW
   // same-name campaign for the new IO" case: the old record is kept archived only to hold its closed
@@ -15612,13 +15658,22 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   const [rowOrder,     setRowOrder]     = React.useState(null);   // [origIdx, …] or null (= file order)
   function computeRowOrder(rows, mp, conf, mem){
     if(!Array.isArray(rows)) return null;
+    // Order the review list so anything NEEDING A DECISION floats to the top and the "all set" rows sink,
+    // matching the user's own heuristic: "once I scroll into purple checkmarks I know I'm done." Tiers:
+    //   0 = FLAGGED / needs review — confidence below the ⚠ review bar (<0.7), INCLUDING a downgraded
+    //       remembered match (e.g. a closed-archive ⚠ ended match). These are what he must look at first.
+    //   1 = normal auto-match (fuzzy, decent confidence, not remembered) — a glance.
+    //   2 = remembered (purple ✓) / exact — "all set".
+    //   3 = unmapped — the ignore pile (mostly other CMs' rows), parked at the very bottom.
+    const REVIEW = 0.7; // mirrors isLowConf in the row render
     const tier = (i)=>{
       const a = mp[i];
-      if(!a) return 2;                                            // unmapped → last
-      const isMem = mem[i] != null && String(mem[i]) === String(a);
+      if(!a) return 3;                                            // unmapped → very last
       const c = conf[i];
-      if(!isMem && c !== undefined && c < 1.0) return 0;          // fuzzy auto-match → top
-      return 1;                                                   // known (remembered / exact) → middle
+      const isMem = mem[i] != null && String(mem[i]) === String(a);
+      if(c !== undefined && c < REVIEW) return 0;                 // flagged → TOP, even if remembered
+      if(!isMem && c !== undefined && c < 1.0) return 1;          // normal fuzzy auto-match → middle
+      return 2;                                                   // remembered / exact (purple ✓) → "all set"
     };
     return rows.map((_,i)=>i).sort((a,b)=>{
       const ta=tier(a), tb=tier(b);
@@ -16635,6 +16690,9 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       cands.forEach(c=>{ const score=fuzzyScore(csvName,c.campaignName); if(score>bestScore&&score>=0.45){ bestScore=score; bestId=String(c.id); } });
       if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; }
     });
+    // Closed-archive guard (see the main drop path): a match onto an archived flight that ended before the
+    // booking month is forced to low confidence → ⚠ review gate, not a silent apply.
+    synthRows.forEach((_,i)=>{ if(initMap[i] && memoryToClosedArchive(initMap[i])) initConf[i] = Math.min(initConf[i] == null ? 0.99 : initConf[i], 0.4); });
     setFileRows(synthRows);
     setMapping(initMap); setMatchConf(initConf); setMemoryMap(memMap);
     setRowOrder(computeRowOrder(synthRows, initMap, initConf, memMap));
@@ -17159,6 +17217,14 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; }
       }
     });
+
+    // CLOSED-ARCHIVE GUARD: any row auto-matched (memory OR fuzzy) onto an archived campaign whose flight
+    // ended BEFORE the booking month is forced to low confidence, so it drops into the ⚠ review gate instead
+    // of silently applying. (the user hit this: a co-worker's NEW Fairmont State campaign auto-matched at 0.8
+    // onto his month-old archived Fairmont flight and he didn't notice.) We FLAG rather than forbid, because
+    // a campaign is sometimes legitimately REUSED — so it stays mapped + selectable, just surfaced for a
+    // conscious yes/no. redirectToActiveTwin already sends renewals to their active twin before this runs.
+    rows.forEach((_,i)=>{ if(initMap[i] && memoryToClosedArchive(initMap[i])) initConf[i] = Math.min(initConf[i] == null ? 0.99 : initConf[i], 0.4); });
 
     // COLLISION GUARD: two file rows AUTO-matched onto the SAME tracker campaign means one is probably
     // wrong, or the export splits a line the tracker keeps whole ("A Desert Co - OTT" + "A Desert Co -
@@ -18094,6 +18160,12 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                               ⚠ {Math.round(rowConf*100)}%
                             </span>
                           )}
+                          {assigned && allArchivedIds.has(String(assigned)) && assignedCamp && archiveEndedBeforeBookingMonth(assignedCamp) && (()=>{
+                            const em = String(assignedCamp.endDate||"").slice(0,7);
+                            const lbl = /^\d{4}-\d{2}$/.test(em) ? new Date(+em.slice(0,4), +em.slice(5,7)-1, 1).toLocaleDateString("en-US",{month:"short",year:"numeric"}) : "a prior month";
+                            return <span title={`This is an ARCHIVED campaign whose flight ended ${lbl} — before the current booking month. A new or renewed campaign (possibly a co-worker's) may be the right target; verify before applying.`}
+                              style={{fontSize:9,fontWeight:800,color:"#ef4444",background:_lm?"#fee2e2":"#200808",border:"1px solid #ef444460",borderRadius:3,padding:"0 4px",whiteSpace:"nowrap",flexShrink:0}}>⚠ ended {lbl}</span>;
+                          })()}
                           {!isLowConf&&assigned&&rowConf!==undefined&&rowConf<1.0&&(
                             <span title={`Auto-matched at ${Math.round(rowConf*100)}% confidence`}
                               style={{fontSize:9,color:_lm?"#059669":"#00c896",background:_lm?"#f0fdf9":"#001a0e",border:`1px solid ${_lm?"#00c896":"#00c89630"}`,borderRadius:3,padding:"0 4px",whiteSpace:"nowrap",flexShrink:0}}>
