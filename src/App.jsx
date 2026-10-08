@@ -41,6 +41,10 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // The campaign manager whose tracker this is. Set once per person (Config → General) so nothing is
 // hardcoded to one name — this drives the Zeus AI identity + the Home greeting, and is the per-user
 // identity for the multi-CM rollout (each manager runs their own copy). Blank = generic fallback.
+// Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
+// which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
+// it (in-browser Babel), so it's a hand-maintained constant.
+const APP_VERSION = "10/08/2026";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -5855,9 +5859,11 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
   // ── LLM settings ─────────────────────────────────────────────────────────────
   // ── LLM Settings ─────────────────────────────────────────────────────────────
   const LLM_DEFAULTS = {
-    mode: "groq",          // "groq" | "claude" | "ollama" | "superagent"
+    mode: "groq",          // "groq" | "gemini" | "claude" | "ollama" | "superagent"
     groqApiKey: "",        // stored in localStorage only — never in code
     groqModel: "llama-3.3-70b-versatile",
+    geminiApiKey: "",      // the user's own FREE Google AI Studio key — browser-local only, never in code
+    geminiModel: "gemini-2.0-flash",  // free tier, ~1M-token context (handles the full campaign dump)
     anthropicApiKey: "",   // the user's own Claude key — browser-local only, never in code/GitHub
     anthropicModel: "claude-haiku-4-5", // cheapest Claude ($1/$5 per 1M) — plenty for the brief
     anthropicMaxOut: 1500,
@@ -5883,6 +5889,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
   ];
   const activeModelLabel =
     llmSettings.mode === "groq" ? `Groq · ${llmSettings.groqModel||"llama-3.3-70b-versatile"}` :
+    llmSettings.mode === "gemini" ? `Gemini · ${llmSettings.geminiModel||"gemini-2.0-flash"}` :
     llmSettings.mode === "claude" ? `Claude · ${(CLAUDE_MODELS.find(m=>m.model===llmSettings.anthropicModel)||{}).label||llmSettings.anthropicModel||"Haiku 4.5"}` :
     llmSettings.mode === "superagent" ? (llmSettings.superagentModel||"Superagent") :
     `Ollama · ${llmSettings.model||"gemma4:e4b"}`;
@@ -5924,6 +5931,43 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
         if (!text) throw new Error("Empty response from Groq");
         return text;
       }
+
+    } else if (llmSettings.mode === "gemini") {
+      // Google Gemini (FREE tier) — called direct from the browser with the user's own free AI-Studio key
+      // (localStorage only, never in code/GitHub; browser-exposed, so fine on a personal machine but a tiny
+      // proxy is wanted before sharing). Gemini Flash has a ~1M-token context + generous free limits, so the
+      // full campaign dump fits where Groq's free per-request cap choked. Gemini's API differs from OpenAI's:
+      // the system prompt is a top-level `system_instruction`, and turns are {role:user|model, parts:[{text}]}.
+      const key = llmSettings.geminiApiKey;
+      if (!key) throw new Error("No Gemini API key set. Get a free one at aistudio.google.com/apikey, then add it in Zeus ⚙️ Settings → Gemini.");
+      const model = llmSettings.geminiModel || "gemini-2.0-flash";
+      const contents = messages.filter(m=>m.role!=="system").map(m=>({ role: m.role==="assistant"?"model":"user", parts:[{ text:String(m.content||"") }] }));
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: SYSTEM }] },
+          contents,
+          generationConfig: { maxOutputTokens: maxTokens },
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        if (res.status === 400 && /API key not valid/i.test(err)) throw new Error("Gemini rejected the key (400). Re-check it in Settings → Gemini (free key at aistudio.google.com/apikey).");
+        if (res.status === 429) throw new Error("Gemini free-tier limit hit (429) — wait a minute, or it's the daily cap. Try again shortly.");
+        throw new Error(`Gemini error ${res.status}: ${err.slice(0,200)}`);
+      }
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message || "Gemini error");
+      const cand = data.candidates && data.candidates[0];
+      const text = (cand && cand.content && Array.isArray(cand.content.parts)) ? cand.content.parts.map(p=>p.text||"").join("").trim() : "";
+      if (!text) {
+        const fr = cand && cand.finishReason;
+        if (fr === "MAX_TOKENS") throw new Error("Gemini stopped at the output limit — raise Max output in Settings or ask for less.");
+        if (fr === "SAFETY") throw new Error("Gemini blocked the response (safety filter).");
+        throw new Error("Empty response from Gemini.");
+      }
+      return text;
 
     } else if (llmSettings.mode === "claude") {
       // Anthropic Messages API, called direct from the browser for LOCAL TESTING with the user's own
@@ -7526,6 +7570,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
             {[
               {key:"groq",       label:"⚡ Groq",        desc:"Free cloud API",              color:"#f97316"},
+              {key:"gemini",     label:"✨ Gemini",      desc:"Free · huge context (handles 100+ campaigns)", color:"#4285f4"},
               {key:"claude",     label:"🧠 Claude",      desc:"Anthropic — best quality",    color:"#d97757"},
               {key:"ollama",     label:"🤖 Local Ollama", desc:"Your PC, runs offline",        color:"#00e5a0"},
               {key:"superagent", label:"🌩 Superagent",   desc:"Future superintelligence slot", color:"#f59e0b"},
@@ -7586,6 +7631,51 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
                 <strong style={{color:_lm?"#059669":"#00d48a"}}>Free tier includes:</strong> 100 requests/day on 70B model, 6,000 tokens/minute.
                 More than enough for daily tracker use. No credit card required.
                 <br/><strong style={{color:_lm?"#059669":"#00d48a",marginTop:4,display:"block"}}>Speed:</strong> Groq runs on custom AI chips — responses are typically 2–5 seconds, much faster than local models.
+              </div>
+            </div>
+          )}
+
+          {/* ── GEMINI (Google, free) ── */}
+          {llmSettings.mode==="gemini"&&(
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid #4285f4`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"20px 22px"}}>
+                <div style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:4}}>Gemini API Key <span style={{fontSize:10,fontWeight:700,color:"#4285f4",background:_lm?"#eff6ff":"#0a1a2e",border:"1px solid #4285f455",borderRadius:4,padding:"1px 6px",marginLeft:6}}>FREE</span></div>
+                <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginBottom:14,lineHeight:1.6}}>
+                  Stored in your browser only — never in your code or GitHub. Get a free key at <strong style={{color:"#4285f4"}}>aistudio.google.com/apikey</strong> (Google account, no card). Its ~1M-token context fits your whole campaign list, so it won't choke on big requests like Groq's free tier does.
+                </div>
+                <div style={{position:"relative"}}>
+                  <input
+                    type="password"
+                    value={llmSettings.geminiApiKey||""}
+                    onChange={e=>setLlmSettings(p=>({...p,geminiApiKey:e.target.value}))}
+                    placeholder="AIza..."
+                    style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${llmSettings.geminiApiKey?"#4285f4":(_lm?"#cbd5e1":"#334155")}`,borderRadius:7,padding:"10px 14px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontFamily:"monospace",boxSizing:"border-box",outline:"none",transition:"border-color .15s"}}
+                  />
+                  {llmSettings.geminiApiKey&&<span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:11,color:_lm?"#059669":"#00d48a",fontWeight:700}}>✓</span>}
+                </div>
+              </div>
+
+              <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
+                <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Model</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {[
+                    {model:"gemini-2.0-flash",      label:"Gemini 2.0 Flash",      desc:"Recommended — fast, free, 1M context"},
+                    {model:"gemini-2.5-flash",      label:"Gemini 2.5 Flash",      desc:"Newer, a bit sharper"},
+                    {model:"gemini-1.5-flash",      label:"Gemini 1.5 Flash",      desc:"Older fallback"},
+                  ].map(m=>(
+                    <button key={m.model} onClick={()=>setLlmSettings(p=>({...p,geminiModel:m.model}))}
+                      style={{background:(llmSettings.geminiModel||"gemini-2.0-flash")===m.model?(_lm?"#eff6ff":"#0a1a2e"):(_lm?"#f1f5f9":"#0e1a2e"),
+                        border:`1px solid ${(llmSettings.geminiModel||"gemini-2.0-flash")===m.model?"#4285f450":(_lm?"#cbd5e1":"#1e293b")}`,
+                        borderRadius:8,padding:"8px 13px",cursor:"pointer",transition:"all .15s",textAlign:"left"}}>
+                      <div style={{fontSize:12,fontWeight:700,color:(llmSettings.geminiModel||"gemini-2.0-flash")===m.model?"#4285f4":(_lm?"#0f172a":"#d8eaf8")}}>{m.label}</div>
+                      <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:1}}>{m.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{background:_lm?"#eff6ff":"#06101e",border:`1px solid ${_lm?"#93c5fd":"#4285f420"}`,borderRadius:10,padding:"14px 16px",fontSize:11,color:_lm?"#475569":"#4d6e8a",lineHeight:1.7}}>
+                <strong style={{color:"#4285f4"}}>Why Gemini for Zeus:</strong> the free tier allows ~15 requests/minute, ~1,500/day, and a 1-million-token context — so unlike Groq's free cap, the whole campaign list fits in one request. No credit card required.
               </div>
             </div>
           )}
@@ -7727,6 +7817,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
             <div style={{flex:1,fontSize:11,color:_lm?"#64748b":"#4d6e8a",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
               Active: <span style={{color:"#f97316",fontFamily:"monospace",fontWeight:700}}>{activeModelLabel}</span>
               {llmSettings.mode==="groq"&&!llmSettings.groqApiKey&&<span style={{color:"#ef4444",marginLeft:8}}>⚠ No API key set</span>}
+              {llmSettings.mode==="gemini"&&!llmSettings.geminiApiKey&&<span style={{color:"#ef4444",marginLeft:8}}>⚠ No API key set</span>}
             </div>
             <button onClick={async()=>{
               setError(null);
@@ -26979,6 +27070,10 @@ export default function App() {
           <div style={{fontSize:10,opacity:.7,marginTop:6}}>Click to dismiss</div>
         </div>
       )}
+      {/* Footer build stamp — tells you which version a CM is running (bump APP_VERSION on each deploy). */}
+      <div style={{maxWidth:1500,margin:"18px auto 0",padding:"12px 16px 26px",borderTop:`1px solid ${lightMode?"#e2e8f0":"#111c2e"}`,display:"flex",justifyContent:"center",alignItems:"center"}}>
+        <span style={{fontSize:10,color:lightMode?"#94a3b8":"#3d5a72",letterSpacing:"0.04em"}}>Zeus Tracker · build {APP_VERSION}</span>
+      </div>
       <ConfirmDialog dialog={dialog} onResolve={onResolve}/>
     </div>
   </div>
