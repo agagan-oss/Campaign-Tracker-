@@ -5863,7 +5863,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     groqApiKey: "",        // stored in localStorage only — never in code
     groqModel: "llama-3.3-70b-versatile",
     geminiApiKey: "",      // the user's own FREE Google AI Studio key — browser-local only, never in code
-    geminiModel: "gemini-2.0-flash",  // free tier, ~1M-token context (handles the full campaign dump)
+    geminiModel: "gemini-3.8-flash",  // free tier, ~1M-token context (handles the full campaign dump). Google retires model names periodically — if a "no longer available" error names a newer one, set it here or in Settings → Gemini → Model.
     anthropicApiKey: "",   // the user's own Claude key — browser-local only, never in code/GitHub
     anthropicModel: "claude-haiku-4-5", // cheapest Claude ($1/$5 per 1M) — plenty for the brief
     anthropicMaxOut: 1500,
@@ -5878,7 +5878,13 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     }
   };
   const [llmSettings, setLlmSettings] = useState(() => {
-    try { const s = localStorage.getItem("zeus-llm-settings"); return s ? {...LLM_DEFAULTS,...JSON.parse(s)} : LLM_DEFAULTS; } catch { return LLM_DEFAULTS; }
+    try {
+      const s = localStorage.getItem("zeus-llm-settings");
+      const merged = s ? {...LLM_DEFAULTS,...JSON.parse(s)} : LLM_DEFAULTS;
+      // One-time migration: Google retired gemini-2.0/1.5/2.5-flash. If a stale name is saved, bump it so Zeus doesn't 404.
+      if (/^gemini-(2\.0|2\.5|1\.5)-flash$/.test(merged.geminiModel||"")) merged.geminiModel = "gemini-3.8-flash";
+      return merged;
+    } catch { return LLM_DEFAULTS; }
   });
   useEffect(() => { try { localStorage.setItem("zeus-llm-settings", JSON.stringify(llmSettings)); } catch(e) {} }, [llmSettings]);
 
@@ -5889,7 +5895,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
   ];
   const activeModelLabel =
     llmSettings.mode === "groq" ? `Groq · ${llmSettings.groqModel||"llama-3.3-70b-versatile"}` :
-    llmSettings.mode === "gemini" ? `Gemini · ${llmSettings.geminiModel||"gemini-2.0-flash"}` :
+    llmSettings.mode === "gemini" ? `Gemini · ${llmSettings.geminiModel||"gemini-3.8-flash"}` :
     llmSettings.mode === "claude" ? `Claude · ${(CLAUDE_MODELS.find(m=>m.model===llmSettings.anthropicModel)||{}).label||llmSettings.anthropicModel||"Haiku 4.5"}` :
     llmSettings.mode === "superagent" ? (llmSettings.superagentModel||"Superagent") :
     `Ollama · ${llmSettings.model||"gemma4:e4b"}`;
@@ -5940,7 +5946,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
       // the system prompt is a top-level `system_instruction`, and turns are {role:user|model, parts:[{text}]}.
       const key = llmSettings.geminiApiKey;
       if (!key) throw new Error("No Gemini API key set. Get a free one at aistudio.google.com/apikey, then add it in Zeus ⚙️ Settings → Gemini.");
-      const model = llmSettings.geminiModel || "gemini-2.0-flash";
+      const model = llmSettings.geminiModel || "gemini-3.8-flash";
       const contents = messages.filter(m=>m.role!=="system").map(m=>({ role: m.role==="assistant"?"model":"user", parts:[{ text:String(m.content||"") }] }));
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
         method: "POST",
@@ -7657,21 +7663,26 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
 
               <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
                 <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Model</div>
-                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
                   {[
-                    {model:"gemini-2.0-flash",      label:"Gemini 2.0 Flash",      desc:"Recommended — fast, free, 1M context"},
-                    {model:"gemini-2.5-flash",      label:"Gemini 2.5 Flash",      desc:"Newer, a bit sharper"},
-                    {model:"gemini-1.5-flash",      label:"Gemini 1.5 Flash",      desc:"Older fallback"},
+                    {model:"gemini-3.8-flash",      label:"Gemini 3.8 Flash",      desc:"Recommended — fast, free, 1M context"},
+                    {model:"gemini-3.8-pro",        label:"Gemini 3.8 Pro",        desc:"Sharper, slower"},
                   ].map(m=>(
                     <button key={m.model} onClick={()=>setLlmSettings(p=>({...p,geminiModel:m.model}))}
-                      style={{background:(llmSettings.geminiModel||"gemini-2.0-flash")===m.model?(_lm?"#eff6ff":"#0a1a2e"):(_lm?"#f1f5f9":"#0e1a2e"),
-                        border:`1px solid ${(llmSettings.geminiModel||"gemini-2.0-flash")===m.model?"#4285f450":(_lm?"#cbd5e1":"#1e293b")}`,
+                      style={{background:(llmSettings.geminiModel||"gemini-3.8-flash")===m.model?(_lm?"#eff6ff":"#0a1a2e"):(_lm?"#f1f5f9":"#0e1a2e"),
+                        border:`1px solid ${(llmSettings.geminiModel||"gemini-3.8-flash")===m.model?"#4285f450":(_lm?"#cbd5e1":"#1e293b")}`,
                         borderRadius:8,padding:"8px 13px",cursor:"pointer",transition:"all .15s",textAlign:"left"}}>
-                      <div style={{fontSize:12,fontWeight:700,color:(llmSettings.geminiModel||"gemini-2.0-flash")===m.model?"#4285f4":(_lm?"#0f172a":"#d8eaf8")}}>{m.label}</div>
+                      <div style={{fontSize:12,fontWeight:700,color:(llmSettings.geminiModel||"gemini-3.8-flash")===m.model?"#4285f4":(_lm?"#0f172a":"#d8eaf8")}}>{m.label}</div>
                       <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:1}}>{m.desc}</div>
                     </button>
                   ))}
                 </div>
+                {/* Editable model name — Google renames models periodically; if an error says "use models/<name>", paste it here, no code change needed. */}
+                <input type="text" value={llmSettings.geminiModel||""}
+                  onChange={e=>setLlmSettings(p=>({...p,geminiModel:e.target.value.trim()}))}
+                  placeholder="gemini-3.8-flash"
+                  style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:7,padding:"8px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a73",marginTop:5,lineHeight:1.5}}>Or type any Gemini model name. If you ever see a "model no longer available" error, it names the new one — paste it here.</div>
               </div>
 
               <div style={{background:_lm?"#eff6ff":"#06101e",border:`1px solid ${_lm?"#93c5fd":"#4285f420"}`,borderRadius:10,padding:"14px 16px",fontSize:11,color:_lm?"#475569":"#4d6e8a",lineHeight:1.7}}>
