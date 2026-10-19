@@ -616,6 +616,94 @@ async function outlookFetchEvents(cfg, days = 7){
   }));
 }
 
+// ── Google Drive backup (Google sign-in) ─────────────────────────────────────────────────────────
+// Optional per-user cloud backup. The tracker is a PUBLIC SPA OAuth client — just a "Client ID" (NO
+// secret), safe to keep in config/localStorage. Each person signs in with THEIR OWN Google account and
+// backups upload to a "Zeus Tracker Backups" folder in THEIR Drive. Scope is drive.file, so the app can
+// only ever see/manage the files IT created — never anything else in your Drive. Powered by Google
+// Identity Services (loaded on demand). Unlike the folder/File-System-Access backup, this survives a
+// browser restart (no folder permission to re-grant) and lands straight in the cloud. Access tokens are
+// short-lived and kept in memory only (never persisted); we re-acquire silently when a backup runs.
+const GDRIVE_CFG_KEY = "campaign-tracker-gdrive"; // { clientId, enabled, folderId, folderName, email, lastBackupAt }
+function loadGDriveCfg(){ const def={clientId:"",enabled:false,folderId:"",folderName:"Zeus Tracker Backups",email:"",lastBackupAt:0}; try{ const s=localStorage.getItem(GDRIVE_CFG_KEY); return s?{...def,...JSON.parse(s)}:def; }catch{ return def; } }
+function saveGDriveCfg(c){ try{ localStorage.setItem(GDRIVE_CFG_KEY, JSON.stringify(c||{})); }catch(e){} }
+const GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+let _gdriveToken = "", _gdriveTokenExp = 0, _gdriveTokClient = null, _gdriveClientKey = "", _gisPromise = null;
+function ensureGis(){
+  if (_gisPromise) return _gisPromise;
+  _gisPromise = (async () => {
+    const ok = () => window.google && window.google.accounts && window.google.accounts.oauth2;
+    if (ok()) return window.google;
+    await loadScriptOnce("https://accounts.google.com/gsi/client");
+    for (let i=0;i<40 && !ok();i++) await new Promise(r=>setTimeout(r,50)); // GIS attaches a tick after load
+    if (!ok()) throw new Error("Google sign-in library didn't load.");
+    return window.google;
+  })();
+  return _gisPromise;
+}
+async function getGDriveTokenClient(cfg){
+  const g = await ensureGis();
+  if (_gdriveTokClient && _gdriveClientKey === cfg.clientId) return _gdriveTokClient;
+  _gdriveTokClient = g.accounts.oauth2.initTokenClient({ client_id: cfg.clientId, scope: GDRIVE_SCOPE, callback: ()=>{} });
+  _gdriveClientKey = cfg.clientId;
+  return _gdriveTokClient;
+}
+// Acquire an access token. interactive=true shows Google's account/consent popup (needs a user gesture);
+// interactive=false tries silently (prompt:"") — works once the user has granted before, so daily auto-
+// backups don't nag. A cached unexpired token short-circuits both.
+function gdriveGetToken(cfg, interactive){
+  return new Promise(async (resolve, reject) => {
+    try {
+      if (!cfg || !cfg.clientId) return reject(new Error("Enter your Google Client ID first."));
+      if (_gdriveToken && Date.now() < _gdriveTokenExp - 60000) return resolve(_gdriveToken);
+      const client = await getGDriveTokenClient(cfg);
+      client.callback = (resp) => {
+        if (resp && resp.access_token) { _gdriveToken = resp.access_token; _gdriveTokenExp = Date.now() + (resp.expires_in?resp.expires_in*1000:3600000); resolve(_gdriveToken); }
+        else reject(new Error(resp && resp.error ? ("Google sign-in: "+resp.error) : "Google sign-in failed."));
+      };
+      client.error_callback = (err) => reject(new Error(err && err.message ? err.message : "Google sign-in was cancelled."));
+      client.requestAccessToken({ prompt: interactive ? "consent" : "" });
+    } catch(e){ reject(e); }
+  });
+}
+async function gdriveSignIn(cfg){
+  const token = await gdriveGetToken(cfg, true);
+  let email = "";
+  try { const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers:{Authorization:"Bearer "+token} }); if(r.ok){ const j=await r.json(); email=j.email||""; } } catch(e){}
+  return { token, email };
+}
+function gdriveSignOut(){ _gdriveToken=""; _gdriveTokenExp=0; }
+function gdriveIsSignedIn(){ return !!_gdriveToken && Date.now() < _gdriveTokenExp - 60000; }
+// Find-or-create the backup folder; returns its id (cached back into cfg by the caller).
+async function gdriveFolderId(cfg, token){
+  if (cfg.folderId) return cfg.folderId;
+  const name = (cfg.folderName || "Zeus Tracker Backups").replace(/'/g,"\\'");
+  const q = encodeURIComponent(`mimeType='application/vnd.google-apps.folder' and name='${name}' and trashed=false`);
+  const sr = await fetch("https://www.googleapis.com/drive/v3/files?q="+q+"&fields=files(id,name)&spaces=drive", { headers:{Authorization:"Bearer "+token} });
+  if (sr.ok){ const j=await sr.json(); if (j.files && j.files.length) return j.files[0].id; }
+  const cr = await fetch("https://www.googleapis.com/drive/v3/files", { method:"POST", headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"}, body: JSON.stringify({ name: cfg.folderName||"Zeus Tracker Backups", mimeType:"application/vnd.google-apps.folder" }) });
+  if (!cr.ok) throw new Error("Couldn't create the Drive backup folder ("+cr.status+").");
+  return (await cr.json()).id;
+}
+// Upload one backup JSON into the folder (overwriting a same-named same-day file so we keep one/day).
+// Returns { fileId, folderId } so the caller can cache the folderId. Re-acquires a token silently first.
+async function gdriveUploadBackup(cfg, filename, jsonStr){
+  const token = await gdriveGetToken(cfg, false).catch(()=>gdriveGetToken(cfg, true));
+  const folderId = await gdriveFolderId(cfg, token);
+  const fn = filename.replace(/'/g,"\\'");
+  let existingId = "";
+  try { const sr=await fetch("https://www.googleapis.com/drive/v3/files?q="+encodeURIComponent(`name='${fn}' and '${folderId}' in parents and trashed=false`)+"&fields=files(id)&spaces=drive",{headers:{Authorization:"Bearer "+token}}); if(sr.ok){ const j=await sr.json(); if(j.files&&j.files.length) existingId=j.files[0].id; } } catch(e){}
+  const meta = existingId ? {} : { name: filename, parents:[folderId] };
+  const boundary = "zeusbk"+Date.now();
+  const body = "--"+boundary+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+JSON.stringify(meta)+"\r\n"
+             + "--"+boundary+"\r\nContent-Type: application/json\r\n\r\n"+jsonStr+"\r\n--"+boundary+"--";
+  const url = existingId ? "https://www.googleapis.com/upload/drive/v3/files/"+existingId+"?uploadType=multipart"
+                         : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
+  const res = await fetch(url, { method: existingId?"PATCH":"POST", headers:{Authorization:"Bearer "+token,"Content-Type":"multipart/related; boundary="+boundary}, body });
+  if (!res.ok){ const t=await res.text().catch(()=>""); throw new Error("Drive upload failed ("+res.status+") "+t.slice(0,120)); }
+  return { fileId:(await res.json()).id, folderId };
+}
+
 // ── "Add to Outlook" — build a downloadable .ics for a tracker reminder or flight date (one-way,
 // zero setup, works even without the Microsoft connection). All-day event on the given YYYY-MM-DD.
 function downloadICS(title, dateISO, opts = {}){
@@ -7842,175 +7930,6 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
           </div>
         </div>
       )}
-      {activePanel==="settings"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:14}}>
-
-          {/* Mode selector */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-            {[
-              {key:"ollama",   label:"🤖 Local Ollama",       desc:"Run on your machine",         color:"#00e5a0"},
-              {key:"worker",   label:"☁️ Cloudflare Worker",  desc:"Free proxy for GitHub Pages",  color:"#60a5fa"},
-              {key:"superagent",label:"⚡ Superagent",         desc:"Local superintelligence",      color:"#f59e0b"},
-            ].map(m=>(
-              <button key={m.key} onClick={()=>setLlmSettings(p=>({...p,mode:m.key}))}
-                style={{background:llmSettings.mode===m.key?(_lm?"#f8fafc":"#07101c"):(_lm?"#ffffff":"#0c1625"),border:`2px solid ${llmSettings.mode===m.key?m.color+"80":(_lm?"#e2e8f0":"#1e293b")}`,boxShadow:llmSettings.mode===m.key?`0 0 12px ${m.color}20`:(_lm?"0 1px 3px rgba(0,0,0,0.06)":"none"),borderRadius:10,padding:"12px 14px",cursor:"pointer",textAlign:"left",transition:"all .15s"}}>
-                <div style={{fontSize:13,fontWeight:700,color:llmSettings.mode===m.key?m.color:(_lm?"#475569":"#7a9bbf")}}>{m.label}</div>
-                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:3}}>{m.desc}</div>
-                {llmSettings.mode===m.key&&<div style={{fontSize:9,color:m.color,marginTop:4,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>● ACTIVE</div>}
-              </button>
-            ))}
-          </div>
-
-          {/* ── OLLAMA ── */}
-          {llmSettings.mode==="ollama"&&(<>
-            <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:12}}>Ollama Configuration</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                <div>
-                  <label style={labelS}>Endpoint</label>
-                  <input value={llmSettings.endpoint} onChange={e=>setLlmSettings(p=>({...p,endpoint:e.target.value}))} placeholder="http://localhost:11434" style={iS}/>
-                  <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>Default: http://localhost:11434</div>
-                </div>
-                <div>
-                  <label style={labelS}>Model</label>
-                  <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="gemma4:e4b" style={iS}/>
-                  <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>Run <code style={{fontSize:10,color:_lm?"#059669":"#00e5a0"}}>ollama list</code> to see installed models</div>
-                </div>
-              </div>
-            </div>
-            <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"16px 20px"}}>
-              <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Quick Select</div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                {[{label:"Gemma 4 27B",model:"gemma3:27b",desc:"Recommended"},{label:"Gemma 4 12B",model:"gemma3:12b",desc:"Faster"},{label:"Llama 3.3 70B",model:"llama3.3:70b",desc:"Best accuracy"},{label:"Qwen 2.5 32B",model:"qwen2.5:32b",desc:"Strong JSON"},{label:"Mistral 24B",model:"mistral-small:24b",desc:"Fast"},{label:"Phi-4 14B",model:"phi4:14b",desc:"Lightweight"}].map(m=>(
-                  <button key={m.model} onClick={()=>setLlmSettings(p=>({...p,model:m.model}))}
-                    style={{background:llmSettings.model===m.model?(_lm?"#f0fdf9":"#002e24"):(_lm?"#f1f5f9":"#0e1a2e"),border:`1px solid ${llmSettings.model===m.model?(_lm?"#00c896":"#00c89650"):(_lm?"#cbd5e1":"#1e293b")}`,borderRadius:8,padding:"7px 12px",cursor:"pointer",transition:"all .15s"}}>
-                    <div style={{fontSize:12,fontWeight:700,color:llmSettings.model===m.model?(_lm?"#059669":"#00e5a0"):(_lm?"#0f172a":"#d8eaf8")}}>{m.label}</div>
-                    <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:1}}>{m.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div style={{background:_lm?"#f8fafc":"#0a1218",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:10,padding:"14px 18px"}}>
-              <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Local Setup</div>
-              {[{step:1,cmd:"ollama pull gemma4:e4b",detail:"Your current model"},{step:2,cmd:"OLLAMA_ORIGINS=* ollama serve",detail:"Allow browser requests"},{step:3,cmd:"python -m http.server 8080",detail:"Serve tracker, open localhost:8080"}].map(s=>(
-                <div key={s.step} style={{display:"flex",gap:10,marginBottom:8,alignItems:"flex-start"}}>
-                  <span style={{background:_lm?"#fffbeb":"#1a1000",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:5,width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#f59e0b",flexShrink:0}}>{s.step}</span>
-                  <div><code style={{fontSize:11,color:_lm?"#059669":"#00e5a0",background:_lm?"#f0fdf9":"#07101c",borderRadius:4,padding:"1px 6px"}}>{s.cmd}</code>
-                  <div style={{fontSize:10,color:_lm?"#64748b":"#4d6e8a",marginTop:1}}>{s.detail}</div></div>
-                </div>
-              ))}
-            </div>
-          </>)}
-
-          {/* ── CLOUDFLARE WORKER ── */}
-          {llmSettings.mode==="worker"&&(<>
-            <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:10}}>Worker URL</div>
-              <input value={llmSettings.workerUrl||""} onChange={e=>setLlmSettings(p=>({...p,workerUrl:e.target.value}))}
-                placeholder="https://zeus-proxy.YOUR-SUBDOMAIN.workers.dev"
-                style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${llmSettings.workerUrl?(_lm?"#60a5fa":"#60a5fa50"):(_lm?"#cbd5e1":"#334155")}`,borderRadius:6,padding:"9px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
-              <div style={{marginTop:10}}>
-                <label style={labelS}>Model</label>
-                <input value={llmSettings.model} onChange={e=>setLlmSettings(p=>({...p,model:e.target.value}))} placeholder="llama-3.3-70b-versatile" style={iS}/>
-                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>Groq: <code style={{color:"#60a5fa"}}>llama-3.3-70b-versatile</code> · CF Workers AI: <code style={{color:"#60a5fa"}}>@cf/google/gemma-3-12b-it</code></div>
-              </div>
-            </div>
-            <div style={{background:_lm?"#f8fafc":"#0a1218",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:12,padding:"16px 20px"}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>Worker Code</div>
-                <button onClick={()=>{navigator.clipboard.writeText(WORKER_CODE);setActionFeedback({type:"success",msg:"✓ Copied to clipboard"});}}
-                  style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:6,padding:"3px 10px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>Copy 📋</button>
-              </div>
-              <pre style={{background:_lm?"#f1f5f9":"#060d18",borderRadius:6,padding:"10px",fontSize:10,color:_lm?"#475569":"#7a9bbf",lineHeight:1.5,overflowX:"auto",margin:0,maxHeight:160}}>{WORKER_CODE.slice(0,600)}…</pre>
-              <div style={{marginTop:10,fontSize:11,color:_lm?"#64748b":"#4d6e8a",lineHeight:1.6}}>
-                Deploy at <strong style={{color:"#60a5fa"}}>workers.cloudflare.com</strong> → Create Worker → paste code → add <code style={{color:"#f59e0b"}}>GROQ_API_KEY</code> secret → copy URL above.
-              </div>
-            </div>
-          </>)}
-
-          {/* ── SUPERAGENT ── */}
-          {llmSettings.mode==="superagent"&&(<>
-            <div style={{background:_lm?"#fffbeb":"linear-gradient(135deg,#0a0e00,#100d00)",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:12,padding:"18px 20px"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
-                <span style={{fontSize:20}}>⚡</span>
-                <div>
-                  <div style={{fontSize:13,fontWeight:800,color:"#f59e0b"}}>Superagent Mode</div>
-                  <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:1}}>For local superintelligent models. Same OpenAI-compatible API — just point it at your endpoint and go.</div>
-                </div>
-              </div>
-            </div>
-            <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#fcd34d":"#f59e0b30"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:12}}>Model Configuration</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-                <div>
-                  <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Endpoint</label>
-                  <input value={llmSettings.superagentEndpoint} onChange={e=>setLlmSettings(p=>({...p,superagentEndpoint:e.target.value}))} placeholder="http://localhost:11434"
-                    style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:6,padding:"8px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
-                </div>
-                <div>
-                  <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>Model Name</label>
-                  <input value={llmSettings.superagentModel} onChange={e=>setLlmSettings(p=>({...p,superagentModel:e.target.value}))} placeholder="e.g. superintelligence-v1"
-                    style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:6,padding:"8px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
-                </div>
-              </div>
-              <div>
-                <label style={{display:"block",fontSize:10,color:"#f59e0b",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>API Key <span style={{color:_lm?"#94a3b8":"#3d5a72",textTransform:"none",fontWeight:400}}>(optional — stored locally only, never in code)</span></label>
-                <input type="password" value={llmSettings.superagentApiKey} onChange={e=>setLlmSettings(p=>({...p,superagentApiKey:e.target.value}))} placeholder="sk-... or leave blank"
-                  style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:6,padding:"8px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
-              </div>
-            </div>
-
-            {/* Capability toggles */}
-            <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#fcd34d":"#f59e0b30"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#f59e0b",marginBottom:4}}>⚡ Capability Unlocks</div>
-              <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginBottom:14,lineHeight:1.6}}>Toggle on when your model is capable enough to handle each capability. These gate Zeus's behavior — start conservative and unlock as you gain confidence.</div>
-              {[
-                {key:"executeActions",   label:"Auto-Execute Actions",     desc:"Zeus executes campaign changes without waiting for your approval",         warn:true},
-                {key:"platformAccess",   label:"Platform API Access",       desc:"Direct calls to Meta, TTD, DSP APIs on your behalf",                       warn:true},
-                {key:"continuousMonitor",label:"Continuous Monitoring",     desc:"Zeus polls your campaigns in the background and alerts proactively",        warn:false},
-                {key:"autoEmail",        label:"Autonomous Emails",         desc:"Zeus drafts and sends partner emails without review",                       warn:true},
-                {key:"memoryWrite",      label:"Persistent Memory",         desc:"Zeus remembers context across sessions and builds knowledge about you",      warn:false},
-              ].map(cap=>{
-                const active = llmSettings.capabilities?.[cap.key];
-                return (
-                  <div key={cap.key} style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:12,padding:"10px 12px",background:active?(_lm?"#fffbeb":"#0a1500"):(_lm?"#f8fafc":"#07101c"),border:`1px solid ${active?(_lm?"#fcd34d":"#f59e0b30"):(_lm?"#e2e8f0":"#1a2744")}`,borderRadius:8,transition:"all .2s"}}>
-                    <button onClick={()=>setLlmSettings(p=>({...p,capabilities:{...p.capabilities,[cap.key]:!active}}))}
-                      style={{width:22,height:22,borderRadius:6,flexShrink:0,marginTop:1,cursor:"pointer",background:active?"#f59e0b":(_lm?"#e2e8f0":"#162236"),border:`1.5px solid ${active?"#f59e0b":(_lm?"#cbd5e1":"#334155")}`,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>
-                      {active&&<span style={{color:"#000",fontSize:12,fontWeight:900}}>✓</span>}
-                    </button>
-                    <div style={{flex:1}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{fontSize:12,fontWeight:700,color:active?"#f59e0b":(_lm?"#475569":"#7a9bbf")}}>{cap.label}</span>
-                        {cap.warn&&<span style={{fontSize:9,color:"#ef4444",background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444430"}`,borderRadius:4,padding:"1px 5px",fontWeight:700}}>HIGH TRUST</span>}
-                        {active&&<span style={{fontSize:9,color:"#f59e0b",background:_lm?"#fffbeb":"#1a1000",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:4,padding:"1px 5px",fontWeight:700}}>ENABLED</span>}
-                      </div>
-                      <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginTop:2}}>{cap.desc}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>)}
-
-          {/* Connection test — all modes */}
-          <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:10,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
-            <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              Active: <span style={{color:"#f59e0b",fontFamily:"monospace",fontWeight:700}}>{activeModelLabel}</span>
-            </div>
-            <button onClick={async()=>{
-              setError(null);
-              try {
-                const text = await callLLM([{role:"user",content:"Reply with exactly three words: Zeus is online."}], 30);
-                setActionFeedback({type:"success", msg:`✓ Connected — "${text.trim().slice(0,80)}"`});
-              } catch(e) {
-                setError(`Connection failed: ${e.message}`);
-              }
-            }} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89650"}`,borderRadius:7,padding:"8px 18px",color:_lm?"#0a1a0a":"#00e5a0",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-              ⚡ Test Connection
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -9552,8 +9471,11 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   const [clearPendingId, setClearPendingId] = useState(null); // campaign id awaiting clear confirm
   const [todayFilter,    setTodayFilter]    = useState(_persisted.todayFilter || "all"); // "all" | "today" | "not-today"
   const [troubleOnly,    setTroubleOnly]    = useState(!!_persisted.troubleOnly); // show only KPI-yellow/red + severe pacers
-  // "Filter by issue" — when Trouble is on, narrow to ONE reason (ctr/cpm/pace/vcr/…). null = all troubles.
-  const [reasonFocus,    setReasonFocus]    = useState(null);
+  // "Filter by issue" — when Trouble is on, include/exclude ANY mix of reasons (ctr/cpm/pace/vcr/…).
+  // Shape: { [reasonKey]: "inc" | "exc" }. Empty = all troubles. Clicking a chip cycles off→include→
+  // exclude→off, mirroring the search chips (include a term, click again to exclude it).
+  const [reasonFilters,  setReasonFilters]  = useState(_persisted.reasonFilters && typeof _persisted.reasonFilters==="object" ? _persisted.reasonFilters : {});
+  const cycleReason = (k) => setReasonFilters(prev => { const cur=prev[k]; const n={...prev}; if(!cur) n[k]="inc"; else if(cur==="inc") n[k]="exc"; else delete n[k]; return n; });
   // How many days back still counts as "updated" for the ✓/✕ pair. 1 = today only (the original
   // behaviour). Drops arrive in batches and a line checked yesterday isn't stale, so "today or
   // nothing" flagged too much — this widens the window without changing what the buttons mean.
@@ -9575,10 +9497,10 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     try {
       localStorage.setItem(PACING_FILTER_KEY, JSON.stringify({
         search, searchTerms, fPartner, fPlatforms: [...fPlatforms], fStatuses: [...fStatuses], fExcludeGoalHit, sortKey, sortDir, todayFilter, updatedDays, pacingView,
-        troubleOnly, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter,
+        troubleOnly, reasonFilters, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter,
       }));
     } catch {}
-  }, [search, searchTerms, fPartner, fPlatforms, fStatuses, fExcludeGoalHit, sortKey, sortDir, todayFilter, updatedDays, pacingView, troubleOnly, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter]);
+  }, [search, searchTerms, fPartner, fPlatforms, fStatuses, fExcludeGoalHit, sortKey, sortDir, todayFilter, updatedDays, pacingView, troubleOnly, reasonFilters, lifeSort, lifeDir, lifeAtRisk, lifeStartsAfter]);
   function clickSort(k) {
     if (sortKey === k) { setSortDir(d => d === "asc" ? "desc" : "asc"); return; }  // toggle direction
     setSortKey(k);
@@ -9769,7 +9691,17 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
   if(troubleOnly){
     [...allRows, ...offRows].forEach(r=>{ if(structPass(r.c) && statusPass(r) && excludeGoalHitPass(r) && inView(r.c)){ reasonsOf(r).forEach(k=>{ reasonCounts[k]=(reasonCounts[k]||0)+1; }); } });
   }
-  const effReasonFocus = (troubleOnly && reasonFocus && reasonCounts[reasonFocus]>0) ? reasonFocus : null;
+  // Active include/exclude reason sets (an include only "sticks" while its reason still matches something,
+  // so a persisted include can't silently empty the list). Shared by the active + Off trouble filters.
+  const reasonInc = Object.keys(reasonFilters).filter(k=>reasonFilters[k]==="inc" && reasonCounts[k]>0);
+  const reasonExc = Object.keys(reasonFilters).filter(k=>reasonFilters[k]==="exc");
+  const reasonPass = (row) => {
+    if(!reasonInc.length && !reasonExc.length) return true;
+    const rs = reasonsOf(row);
+    if(reasonExc.length && reasonExc.some(k=>rs.includes(k))) return false;   // any excluded issue hides the row
+    if(reasonInc.length && !reasonInc.some(k=>rs.includes(k))) return false;  // must have ≥1 included issue
+    return true;
+  };
   const filtered = allRows.filter((row)=>{
     if(!structPass(row.c)) return false;
     if(!statusPass(row)) return false;
@@ -9779,7 +9711,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // with monthly campaigns and vice-versa. inView = pacingView==="lifetime" ? flights : monthly.
     if(troubleOnly){
       if(!(inView(row.c) && rowIsTrouble(row))) return false;
-      if(effReasonFocus && !reasonsOf(row).includes(effReasonFocus)) return false;  // narrowed to one issue
+      if(!reasonPass(row)) return false;  // include/exclude issue filters
       return true;
     }
     return true;
@@ -9815,7 +9747,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     if(!excludeGoalHitPass(row)) return false;
     if(troubleOnly){
       if(!(inView(row.c) && rowIsTrouble(row))) return false;   // view-scoped off troubles (monthly vs flight)
-      if(effReasonFocus && !reasonsOf(row).includes(effReasonFocus)) return false;
+      if(!reasonPass(row)) return false;  // include/exclude issue filters (Off section)
       return true;
     }
     return true;
@@ -12089,7 +12021,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </select>
       {/* Trouble filter — one click narrows the list to campaigns that need a look: a yellow OR red
           KPI (CTR / view rate / CPM vs the user's benchmarks) or a severe under/over pacer. */}
-      <button onClick={()=>setTroubleOnly(v=>{ if(v) setReasonFocus(null); return !v; })}
+      <button onClick={()=>setTroubleOnly(v=>{ if(v) setReasonFilters({}); return !v; })}
         title="Show only campaigns with a yellow/red KPI (CTR, view rate, or CPM) or severe under/over-pacing (fresh data only)"
         style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:7,cursor:"pointer",whiteSpace:"nowrap",fontSize:11.5,fontWeight:troubleOnly?700:500,flexShrink:0,
           background:troubleOnly?(lightMode?"#fef2f2":"#2a0b0b"):lmBgInp,
@@ -12196,7 +12128,7 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       {/* Include the Off section's shown rows in the count when Trouble/crack-focus is on — otherwise a
           paused-but-spending focus reads "0" while its campaign sits visible in the Off section. */}
       <span style={{fontSize:11,color:lmTxtS}}>Showing {filtered.length + (troubleOnly ? offFiltered.length : 0)} of {allActive.length + (troubleOnly ? offRows.length : 0)}</span>
-      <button onClick={()=>{setSearch("");setSearchTerms([]);setFPartner("all");setFPlatforms(new Set());setFStatuses(new Set());setFExcludeGoalHit(false);setTodayFilter("all");setTroubleOnly(false);setReasonFocus(null);}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
+      <button onClick={()=>{setSearch("");setSearchTerms([]);setFPartner("all");setFPlatforms(new Set());setFStatuses(new Set());setFExcludeGoalHit(false);setTodayFilter("all");setTroubleOnly(false);setReasonFilters({});}} style={{background:"none",border:"1px solid "+lmBrd,borderRadius:5,padding:"2px 8px",color:lmTxtM,fontSize:11,cursor:"pointer"}}>Clear filters</button>
     </div>}
 
     {/* Row count — This Month only (the ✈ Flights view has its own summary strip). */}
@@ -12398,25 +12330,73 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       </div>
     )}
 
+    {/* Cross-view search hint — "This Month" and "✈ Flights" are two DISJOINT sets (monthly-goal campaigns
+        vs flight contracts, split by inView), so a search in one tab makes a campaign that lives in the other
+        look missing. When a search is active, surface the names that matched in the OTHER view + a one-click
+        switch, so nothing silently hides. */}
+    {(()=>{
+      if(!(searchTermsActive.include && searchTermsActive.include.length>0)) return null;
+      const otherIsLife = pacingView !== "lifetime";
+      // Mirror the OTHER view's real gating so the hint never promises a row that view then hides:
+      // Flights additionally requires a flight start on/after the data-start month (+ any "Starts after").
+      const _lifeStart = getDataStartMonth() + "-01";
+      const inOther = (c) => {
+        if(otherIsLife){
+          if(!flightGoalLabel(c) || !c.startDate || c.startDate < _lifeStart) return false;
+          if(lifeStartsAfter && c.startDate < lifeStartsAfter) return false;
+          return true;
+        }
+        return !flightGoalLabel(c);
+      };
+      const names = [...new Set(campaigns.filter(c => inOther(c)
+          && campaignMatchesTerms(c, searchTermsActive)
+          && (fPartner==="all"||c.mediaPartner===fPartner)
+          && (fPlatforms.size===0||fPlatforms.has(c.platform))
+        ).map(c=>(c.campaignName||"").trim()).filter(Boolean))];
+      if(!names.length) return null;
+      const otherLabel = otherIsLife ? "✈ Flights" : "This Month";
+      const shown = names.slice(0,6);
+      return (
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:10,
+          background:lightMode?"#eff6ff":"#0a1e33",border:`1px solid ${lightMode?"#bfdbfe":"#1e466e"}`,borderRadius:8,padding:"8px 12px"}}>
+          <span style={{fontSize:11.5,color:lightMode?"#1e40af":"#7ec8ff",lineHeight:1.5,flex:1,minWidth:200}}>
+            🔎 <b>{names.length}</b> match{names.length!==1?"es":""} in the <b>{otherLabel}</b> tab (not shown here):{" "}
+            <span style={{color:lightMode?"#334155":"#b9d6ef"}}>{shown.join(" · ")}{names.length>shown.length?` +${names.length-shown.length} more`:""}</span>
+          </span>
+          <button onClick={()=>setPacingView(otherIsLife?"lifetime":"month")}
+            style={{background:lightMode?"#dbeafe":"#0d2d4d",border:`1px solid ${lightMode?"#60a5fa":"#2a6099"}`,borderRadius:7,padding:"5px 12px",color:lightMode?"#1e40af":"#9fd0ff",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+            Switch to {otherLabel} →
+          </button>
+        </div>
+      );
+    })()}
+
     {/* "Filter by issue" chips — appear only under an active Trouble filter, one per KPI/reason that has
-        troubled campaigns (with a count). Click to narrow to just that issue (CTR/CPM/Pacing/…); click again
-        or "All" to clear. */}
+        troubled campaigns (with a count). Click to INCLUDE an issue · click again to EXCLUDE it · once more
+        to clear. Stack multiple. "All" clears every issue filter. */}
     {troubleOnly && TROUBLE_REASON_ORDER.some(k=>reasonCounts[k]>0) && (
       <div style={{display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:10}}>
-        <span style={{fontSize:10, fontWeight:700, color:lmTxtS, textTransform:"uppercase", letterSpacing:"0.05em", whiteSpace:"nowrap"}}>Filter by issue:</span>
+        <span style={{fontSize:10, fontWeight:700, color:lmTxtS, textTransform:"uppercase", letterSpacing:"0.05em", whiteSpace:"nowrap"}} title="Click a chip to INCLUDE that issue · click again to EXCLUDE it · once more to clear. Stack as many as you want.">Filter by issue:</span>
         {(()=>{
+          const EXC = "#ef4444";
+          // state per chip: "inc" (included, solid color) · "exc" (excluded, red strike-through) · undefined (off)
           const chip = (key, label, count, color) => {
-            const active = effReasonFocus===key || (key===null && !effReasonFocus);
+            const st   = key===null ? (Object.keys(reasonFilters).length===0 ? "inc" : undefined) : reasonFilters[key];
+            const isInc = st==="inc", isExc = st==="exc";
+            const col  = isExc ? EXC : color;
             return (
-              <button key={key||"all"} onClick={()=> setReasonFocus(key===null ? null : (reasonFocus===key?null:key)) }
+              <button key={key||"all"}
+                onClick={()=> key===null ? setReasonFilters({}) : cycleReason(key) }
+                title={key===null ? "Show all issues" : "Click: include · again: exclude · again: off"}
                 style={{fontSize:11, fontWeight:700, borderRadius:6, padding:"3px 9px", cursor:"pointer", whiteSpace:"nowrap",
-                  background: active ? (color+ (lightMode?"22":"33")) : lmBgInp,
-                  border:`1px solid ${active ? color : lmBrd}`,
-                  color: active ? (lightMode?color:"#fff") : lmTxtS}}>
-                {label}
+                  background: (isInc||isExc) ? (col+ (lightMode?"22":"33")) : lmBgInp,
+                  border:`1px solid ${(isInc||isExc) ? col : lmBrd}`,
+                  color: isExc ? EXC : (isInc ? (lightMode?col:"#fff") : lmTxtS),
+                  textDecoration: isExc ? "line-through" : "none"}}>
+                {isExc?"− ":""}{label}
                 <span style={{marginLeft:5, fontSize:10, fontWeight:800, borderRadius:8, padding:"0 6px",
-                  color: active ? "#fff" : color,
-                  background: active ? color : (color + (lightMode?"22":"33"))}}>{count}</span>
+                  color: (isInc||isExc) ? "#fff" : col,
+                  background: (isInc||isExc) ? col : (col + (lightMode?"22":"33"))}}>{count}</span>
               </button>
             );
           };
@@ -17343,6 +17323,29 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       if(initMap[k] && !memMap[k] && idCounts[initMap[k]] > 1 && initConf[k] > 0.5) initConf[k] = 0.5;
     });
 
+    // ── SELECTED-CAMPAIGN OVERRIDE ──────────────────────────────────────────────────────────────────
+    // "Pick a campaign on the left, then drop its file." When EXACTLY ONE campaign is selected, treat the
+    // file as THAT campaign's own export (e.g. a Meta file whose rows are all its ad sets) and map EVERY
+    // row to it — skipping the name-guessing that otherwise scatters rows onto look-alike campaigns (the
+    // user: dropped a Clean Air file onto a selected Clean Air line, auto-match sent it to Providence).
+    // Runs AFTER the closed-archive/collision guards so their demotions don't fight the deliberate pick.
+    // Guarded by platform fit: dropping an FB file while a DSP line is selected still matches normally,
+    // never force-books FB numbers onto the DSP campaign. Ignore-listed rows are left untouched.
+    let forcedToSelected = 0, forcedTarget = null;
+    if (selected.size === 1) {
+      const onlyId = [...selected][0];
+      const target = assignPool.find(c => String(c.id) === String(onlyId)) || fullPool.find(c => String(c.id) === String(onlyId));
+      const srcPlats = SOURCE_PLATFORMS[source];
+      if (target && (!srcPlats || srcPlats.has(target.platform))) {
+        forcedTarget = target;
+        rows.forEach((row, i) => {
+          if (isIgnoredName(getCampName(row, source))) return;
+          initMap[i] = String(target.id); initConf[i] = 1.0; delete memMap[i];
+          forcedToSelected++;
+        });
+      }
+    }
+
     const totalMatched=Object.values(initMap).filter(Boolean).length;
     setFileRows(rows);
     setMapping(initMap);
@@ -17351,7 +17354,8 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     setRowOrder(computeRowOrder(rows, initMap, initConf, memMap));
     setConfirmApplyPending(false);
     const hiddenNote = dspHiddenLowImpr>0 ? ` · 🚫 ${dspHiddenLowImpr} row${dspHiddenLowImpr!==1?"s":""} under 100 impr hidden` : "";
-    if(savedCount>0 && autoCount>0) setSavedMsg(`✓ ${savedCount} remembered · ⚡ ${autoCount} auto-matched · ${totalMatched}/${rows.length} total${hiddenNote}`);
+    if(forcedToSelected>0) setSavedMsg(`📌 Mapped all ${forcedToSelected} row${forcedToSelected!==1?"s":""} to "${forcedTarget.campaignName}" (your selected campaign) — review & ✓ Apply${hiddenNote}`);
+    else if(savedCount>0 && autoCount>0) setSavedMsg(`✓ ${savedCount} remembered · ⚡ ${autoCount} auto-matched · ${totalMatched}/${rows.length} total${hiddenNote}`);
     else if(savedCount>0) setSavedMsg(`✓ ${savedCount} of ${rows.length} remembered from past sessions${hiddenNote}`);
     else if(autoCount>0) setSavedMsg(`⚡ Auto-matched ${autoCount} of ${rows.length} — review and apply to save for next time${hiddenNote}`);
     else if(hiddenNote) setSavedMsg(`Loaded ${rows.length} row${rows.length!==1?"s":""}${hiddenNote}`);
@@ -25004,6 +25008,11 @@ export default function App() {
   // silent daily backup then can't write (a background run has no user gesture to re-request with) and folder
   // backups quietly stop. We surface the lapsed state in Config so it's OBVIOUS and one click re-arms it.
   const [backupPerm, setBackupPerm] = useState(null); // "granted" | "prompt" | "denied" | "none" | "na" | null(unknown)
+  // ── Google Drive (OAuth) backup state ──
+  const [gdriveCfg, setGdriveCfg] = useState(loadGDriveCfg);
+  const [gdriveBusy, setGdriveBusy] = useState("");   // ""|"signin"|"backup" — disables buttons + shows spinner text
+  const [gdriveErr, setGdriveErr] = useState("");
+  const saveGdrive = (patch) => setGdriveCfg(prev => { const n={...prev,...patch}; saveGDriveCfg(n); return n; });
   const refreshBackupPerm = React.useCallback(async () => {
     if(!FSA_SUPPORTED){ setBackupPerm("na"); return; }
     try { const h = await idbGetDirHandle(); if(!h){ setBackupPerm("none"); return; } const p = await h.queryPermission({mode:"readwrite"}); setBackupPerm(p); }
@@ -25043,6 +25052,17 @@ export default function App() {
           if (perm === "granted") { try { await writeBackupToFolder(h, filename, jsonStr); method="folder"; folderName=h.name; } catch(e){ console.error("Folder backup failed:", e); } }
         }
       }
+      // Google Drive (OAuth) — independent of the folder path; uploads straight to the cloud and
+      // survives browser restarts (no folder permission to re-grant). Silent token on auto-runs; falls
+      // back to an interactive token only during a user gesture. Best-effort: never blocks the other paths.
+      try {
+        const gcfg = loadGDriveCfg();
+        if (gcfg.enabled && gcfg.clientId) {
+          const { folderId } = await gdriveUploadBackup(gcfg, filename, jsonStr);
+          saveGDriveCfg({ ...gcfg, folderId: folderId || gcfg.folderId, lastBackupAt: Date.now() });
+          method = method ? method + "+gdrive" : "gdrive";
+        }
+      } catch(e){ console.error("Drive backup failed:", e); }
       if (!method && gesture) { downloadBackupFile(filename, jsonStr); method="download"; }
       if (method) {
         saveBackupCfg({ enabled:true, lastBackupDate:stamp, lastBackupAt:Date.now(), method, folderName });
@@ -25826,6 +25846,60 @@ export default function App() {
                       {cfg.folderName && (backupPerm==="prompt"||backupPerm==="denied") && <span style={{color:"#f59e0b",fontWeight:700}}> · ⚠ needs reconnect</span>}
                     </div>
                   )}
+                </div>
+              );
+            })()}
+            {/* ── Google Drive backup (OAuth) — uploads straight to the cloud; survives browser restarts,
+                unlike the File-System-Access folder which loses its grant on restart. */}
+            {(()=>{
+              const cardBg=lightMode?"#ffffff":"#0c1625", brd=lightMode?"#e2e8f0":"#1e293b", sub=lightMode?"#64748b":"#7a9bbf", txt=lightMode?"#0f172a":"#edf4ff";
+              const g=gdriveCfg;
+              const origin=(typeof window!=="undefined")?window.location.origin:"";
+              const btnS=(primary)=>({background:primary?(lightMode?"#1a73e8":"#0b2a52"):(lightMode?"#f1f5f9":"#162236"),border:`1px solid ${primary?"#1a73e8":(lightMode?"#e2e8f0":"#334155")}`,borderRadius:7,padding:"6px 13px",color:primary?"#ffffff":(lightMode?"#475569":"#7a9bbf"),fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"});
+              const doUpload=async()=>{ const stamp=getToday(); const jsonStr=JSON.stringify(buildBackupPayload(),null,2); const {folderId}=await gdriveUploadBackup({...gdriveCfg},`campaign-tracker-${stamp}.json`,jsonStr); saveGdrive({folderId:folderId||g.folderId,lastBackupAt:Date.now()}); };
+              const lastTxt=g.lastBackupAt?new Date(g.lastBackupAt).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"never";
+              return (
+                <div style={{background:cardBg,border:`1px solid ${brd}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:8}}>
+                    <span style={{fontSize:13,fontWeight:800,color:txt}}>📁 Google Drive Backup</span>
+                    <button onClick={()=>saveGdrive({enabled:!g.enabled})} title="Upload backups to your Google Drive automatically"
+                      style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",borderRadius:20,cursor:"pointer",fontSize:11,fontWeight:700,
+                        background:g.enabled?(lightMode?"#dcfce7":"#002e24"):(lightMode?"#f1f5f9":"#162236"),
+                        border:`1px solid ${g.enabled?"#00c896":(lightMode?"#e2e8f0":"#334155")}`,
+                        color:g.enabled?(lightMode?"#059669":"#00e5a0"):(lightMode?"#64748b":"#7a9bbf")}}>{g.enabled?"● On":"○ Off"}</button>
+                    {g.email && <span style={{fontSize:11,color:sub}}>Signed in: <b style={{color:txt}}>{g.email}</b></span>}
+                    <span style={{fontSize:11,color:sub}}>Last Drive backup: <b style={{color:txt}}>{lastTxt}</b></span>
+                  </div>
+                  <div style={{fontSize:11,color:sub,lineHeight:1.5,marginBottom:10}}>
+                    Uploads a full JSON snapshot straight to a “<b>{g.folderName||"Zeus Tracker Backups"}</b>” folder in your Google Drive — daily on open + at every month-close. Survives browser restarts (nothing to reconnect). The app only ever touches files it creates (scope <code>drive.file</code>), never the rest of your Drive. Your Client ID lives in this browser only; the sign-in token is never saved.
+                  </div>
+                  <div style={{marginBottom:8}}>
+                    <label style={{fontSize:10,color:sub,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Google OAuth Client ID</label>
+                    <input value={g.clientId} onChange={e=>saveGdrive({clientId:e.target.value.trim()})} placeholder="1234567890-abc.apps.googleusercontent.com"
+                      style={{width:"100%",boxSizing:"border-box",marginTop:3,background:lightMode?"#f8fafc":"#07101c",border:`1px solid ${g.clientId?"#1a73e8":(lightMode?"#cbd5e1":"#334155")}`,borderRadius:6,padding:"8px 11px",color:txt,fontSize:12,fontFamily:"monospace",outline:"none"}}/>
+                  </div>
+                  {gdriveErr && <div style={{fontSize:11,color:"#ef4444",marginBottom:8,lineHeight:1.5}}>⚠ {gdriveErr}</div>}
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                    {!g.email
+                      ? <button disabled={!g.clientId||!!gdriveBusy} onClick={async()=>{ setGdriveErr(""); setGdriveBusy("signin"); try{ const {email}=await gdriveSignIn(gdriveCfg); saveGdrive({email,enabled:true}); await doUpload(); }catch(e){ setGdriveErr(e.message||String(e)); } setGdriveBusy(""); }}
+                          style={{...btnS(true),opacity:(!g.clientId||gdriveBusy)?0.5:1}}>{gdriveBusy==="signin"?"Connecting…":"🔗 Sign in with Google"}</button>
+                      : <>
+                          <button disabled={!!gdriveBusy} onClick={async()=>{ setGdriveErr(""); setGdriveBusy("backup"); try{ await doUpload(); }catch(e){ setGdriveErr(e.message||String(e)); } setGdriveBusy(""); }}
+                            style={{...btnS(true),opacity:gdriveBusy?0.5:1}}>{gdriveBusy==="backup"?"Backing up…":"⬆ Back up to Drive now"}</button>
+                          <button onClick={()=>{ gdriveSignOut(); saveGdrive({email:"",enabled:false}); }} style={btnS(false)}>Sign out</button>
+                        </>}
+                  </div>
+                  <details style={{marginTop:10}}>
+                    <summary style={{fontSize:11,color:sub,cursor:"pointer",fontWeight:700}}>One-time setup (≈10 min) ▸</summary>
+                    <ol style={{fontSize:11,color:sub,lineHeight:1.7,margin:"6px 0 0",paddingLeft:18}}>
+                      <li>Open <b>console.cloud.google.com</b> → create or pick a project.</li>
+                      <li><b>APIs &amp; Services → Library</b> → search and <b>Enable “Google Drive API”</b>.</li>
+                      <li><b>OAuth consent screen</b> → External → add your own email under <b>Test users</b>.</li>
+                      <li><b>Credentials → Create credentials → OAuth client ID → Web application</b>.</li>
+                      <li>Under <b>Authorized JavaScript origins</b>, add this exact address:<br/><code style={{color:txt,fontSize:11}}>{origin}</code></li>
+                      <li>Copy the generated <b>Client ID</b> into the box above, then <b>Sign in with Google</b>.</li>
+                    </ol>
+                  </details>
                 </div>
               );
             })()}
