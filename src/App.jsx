@@ -12354,18 +12354,20 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
           && (fPlatforms.size===0||fPlatforms.has(c.platform))
         ).map(c=>(c.campaignName||"").trim()).filter(Boolean))];
       if(!names.length) return null;
-      const otherLabel = otherIsLife ? "✈ Flights" : "This Month";
-      const shown = names.slice(0,6);
+      // Short & sweet (matches the Ambio banner): amber strip + one compact button; the matched names
+      // move to the button's hover tooltip instead of being listed inline.
+      const title = names.slice(0,15).map(n=>"• "+n).join("\n")+(names.length>15?`\n…and ${names.length-15} more`:"");
       return (
-        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:10,
-          background:lightMode?"#eff6ff":"#0a1e33",border:`1px solid ${lightMode?"#bfdbfe":"#1e466e"}`,borderRadius:8,padding:"8px 12px"}}>
-          <span style={{fontSize:11.5,color:lightMode?"#1e40af":"#7ec8ff",lineHeight:1.5,flex:1,minWidth:200}}>
-            🔎 <b>{names.length}</b> match{names.length!==1?"es":""} in the <b>{otherLabel}</b> tab (not shown here):{" "}
-            <span style={{color:lightMode?"#334155":"#b9d6ef"}}>{shown.join(" · ")}{names.length>shown.length?` +${names.length-shown.length} more`:""}</span>
-          </span>
-          <button onClick={()=>setPacingView(otherIsLife?"lifetime":"month")}
-            style={{background:lightMode?"#dbeafe":"#0d2d4d",border:`1px solid ${lightMode?"#60a5fa":"#2a6099"}`,borderRadius:7,padding:"5px 12px",color:lightMode?"#1e40af":"#9fd0ff",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-            Switch to {otherLabel} →
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:12,
+          background:lightMode?"#fffbeb":"#2a2410",border:`1px solid ${lightMode?"#fde68a":"#5c4d16"}`,borderRadius:8,padding:"7px 12px"}}>
+          <span style={{fontSize:13}}>🔎</span>
+          <span style={{fontSize:12,color:lightMode?"#854d0e":"#fde68a",fontWeight:600}}>Also matching in the other tab:</span>
+          <button onClick={()=>setPacingView(otherIsLife?"lifetime":"month")} title={title}
+            style={{fontSize:11.5,fontWeight:700,borderRadius:6,padding:"3px 10px",cursor:"pointer",whiteSpace:"nowrap",
+              background: otherIsLife ? (lightMode?"#e0f2fe":"#052e2a") : (lightMode?"#dcfce7":"#002e24"),
+              border:`1px solid ${otherIsLife ? (lightMode?"#7dd3fc":"#0e5a52") : (lightMode?"#86efac":"#0e5a3e")}`,
+              color: otherIsLife ? (lightMode?"#0369a1":"#7dd3fc") : (lightMode?"#047857":"#00e5a0")}}>
+            {otherIsLife ? "✈" : "📅"} {names.length} in {otherIsLife ? "Flights" : "This Month"} →
           </button>
         </div>
       );
