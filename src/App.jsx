@@ -5952,6 +5952,8 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
     groqModel: "llama-3.3-70b-versatile",
     geminiApiKey: "",      // the user's own FREE Google AI Studio key — browser-local only, never in code
     geminiModel: "gemini-3.8-flash",  // free tier, ~1M-token context (handles the full campaign dump). Google retires model names periodically — if a "no longer available" error names a newer one, set it here or in Settings → Gemini → Model.
+    grokApiKey: "",        // the user's own xAI API key (console.x.ai) — browser-local only, never in code. This is the PAID xAI API, separate from the consumer Grok app.
+    grokModel: "grok-4-latest",   // xAI model id; editable in Settings (xAI renames: grok-2→grok-3→grok-4…). If an "unknown model" error appears, paste the current one from console.x.ai.
     anthropicApiKey: "",   // the user's own Claude key — browser-local only, never in code/GitHub
     anthropicModel: "claude-haiku-4-5", // cheapest Claude ($1/$5 per 1M) — plenty for the brief
     anthropicMaxOut: 1500,
@@ -5984,6 +5986,7 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
   const activeModelLabel =
     llmSettings.mode === "groq" ? `Groq · ${llmSettings.groqModel||"llama-3.3-70b-versatile"}` :
     llmSettings.mode === "gemini" ? `Gemini · ${llmSettings.geminiModel||"gemini-3.8-flash"}` :
+    llmSettings.mode === "grok" ? `Grok · ${llmSettings.grokModel||"grok-4-latest"}` :
     llmSettings.mode === "claude" ? `Claude · ${(CLAUDE_MODELS.find(m=>m.model===llmSettings.anthropicModel)||{}).label||llmSettings.anthropicModel||"Haiku 4.5"}` :
     llmSettings.mode === "superagent" ? (llmSettings.superagentModel||"Superagent") :
     `Ollama · ${llmSettings.model||"gemma4:e4b"}`;
@@ -6061,6 +6064,33 @@ function AIAdvisor({ campaigns, archive, reminders, dateRange, onAddCampaign, on
         if (fr === "SAFETY") throw new Error("Gemini blocked the response (safety filter).");
         throw new Error("Empty response from Gemini.");
       }
+      return text;
+
+    } else if (llmSettings.mode === "grok") {
+      // xAI Grok — OpenAI-compatible chat API, called direct from the browser with the user's own xAI API
+      // key (console.x.ai → API keys; localStorage only, never in code/GitHub). NOTE: this is the PAID xAI
+      // *API*, which is separate from the consumer Grok app. Model names change over time (grok-2→3→4…), so
+      // the model is editable in Settings → Grok; an "unknown model" error means paste the current id.
+      const key = llmSettings.grokApiKey;
+      if (!key) throw new Error("No xAI (Grok) API key set. Get one at console.x.ai → API Keys, then add it in Zeus ⚙️ Settings → Grok. (The Grok app isn't an API key — you need a key from console.x.ai.)");
+      const model = llmSettings.grokModel || "grok-4-latest";
+      const convo = [{ role:"system", content: SYSTEM }, ...messages.filter(m=>m.role!=="system")];
+      const res = await fetch("https://api.x.ai/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "Authorization":"Bearer "+key },
+        body: JSON.stringify({ model, messages: convo, max_tokens: maxTokens, temperature: 0.4 }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        if (res.status === 401) throw new Error("xAI rejected the key (401). Re-check it in Settings → Grok (console.x.ai → API Keys).");
+        if (res.status === 429) throw new Error("xAI rate/credit limit hit (429) — wait a moment, or check your xAI billing/credits.");
+        if (res.status === 404 && /model/i.test(err)) throw new Error(`xAI doesn't recognize the model "${model}". Set the current one in Settings → Grok (see console.x.ai for model names).`);
+        throw new Error(`Grok error ${res.status}: ${err.slice(0,200)}`);
+      }
+      const data = await res.json();
+      if (data.error) throw new Error((data.error.message||data.error)+"");
+      const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content ? data.choices[0].message.content.trim() : "";
+      if (!text) throw new Error("Empty response from Grok.");
       return text;
 
     } else if (llmSettings.mode === "claude") {
@@ -7665,6 +7695,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
             {[
               {key:"groq",       label:"⚡ Groq",        desc:"Free cloud API",              color:"#f97316"},
               {key:"gemini",     label:"✨ Gemini",      desc:"Free · huge context (handles 100+ campaigns)", color:"#4285f4"},
+              {key:"grok",       label:"🚀 Grok",        desc:"xAI — needs an API key (console.x.ai)", color:"#14b8a6"},
               {key:"claude",     label:"🧠 Claude",      desc:"Anthropic — best quality",    color:"#d97757"},
               {key:"ollama",     label:"🤖 Local Ollama", desc:"Your PC, runs offline",        color:"#00e5a0"},
               {key:"superagent", label:"🌩 Superagent",   desc:"Future superintelligence slot", color:"#f59e0b"},
@@ -7775,6 +7806,30 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
 
               <div style={{background:_lm?"#eff6ff":"#06101e",border:`1px solid ${_lm?"#93c5fd":"#4285f420"}`,borderRadius:10,padding:"14px 16px",fontSize:11,color:_lm?"#475569":"#4d6e8a",lineHeight:1.7}}>
                 <strong style={{color:"#4285f4"}}>Why Gemini for Zeus:</strong> the free tier allows ~15 requests/minute, ~1,500/day, and a 1-million-token context — so unlike Groq's free cap, the whole campaign list fits in one request. No credit card required.
+              </div>
+            </div>
+          )}
+
+          {/* ── GROK (xAI) ── */}
+          {llmSettings.mode==="grok"&&(
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid #14b8a6`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"20px 22px"}}>
+                <div style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",marginBottom:4}}>xAI (Grok) API Key</div>
+                <div style={{fontSize:11,color:_lm?"#64748b":"#4d6e8a",marginBottom:14,lineHeight:1.6}}>
+                  Stored in your browser only — never in your code or GitHub. Get a key at <strong style={{color:"#14b8a6"}}>console.x.ai</strong> → API Keys. <strong>Heads-up:</strong> this is the <strong>paid xAI API</strong>, which is separate from the Grok app you downloaded — the app itself can't be linked in, but an API key wires Grok in as Zeus's engine.
+                </div>
+                <div style={{position:"relative"}}>
+                  <input type="password" value={llmSettings.grokApiKey||""} onChange={e=>setLlmSettings(p=>({...p,grokApiKey:e.target.value}))} placeholder="xai-..."
+                    style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${llmSettings.grokApiKey?"#14b8a6":(_lm?"#cbd5e1":"#334155")}`,borderRadius:7,padding:"10px 14px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontFamily:"monospace",boxSizing:"border-box",outline:"none",transition:"border-color .15s"}}/>
+                  {llmSettings.grokApiKey&&<span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:11,color:_lm?"#059669":"#00d48a",fontWeight:700}}>✓</span>}
+                </div>
+              </div>
+
+              <div style={{background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,boxShadow:_lm?"0 1px 3px rgba(0,0,0,0.06)":"none",borderRadius:12,padding:"18px 20px"}}>
+                <div style={{fontSize:11,color:_lm?"#475569":"#4d6e8a",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Model</div>
+                <input type="text" value={llmSettings.grokModel||""} onChange={e=>setLlmSettings(p=>({...p,grokModel:e.target.value.trim()}))} placeholder="grok-4-latest"
+                  style={{width:"100%",background:_lm?"#f8fafc":"#07101c",border:`1px solid ${_lm?"#cbd5e1":"#334155"}`,borderRadius:7,padding:"8px 12px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,fontFamily:"monospace",boxSizing:"border-box",outline:"none"}}/>
+                <div style={{fontSize:10,color:_lm?"#94a3b8":"#3d5a73",marginTop:5,lineHeight:1.5}}>xAI renames models over time (grok-2 → grok-3 → grok-4…). If a request says the model is unknown, check <strong style={{color:"#14b8a6"}}>console.x.ai</strong> for the current id and paste it here.</div>
               </div>
             </div>
           )}
@@ -7917,6 +7972,7 @@ Format as clean sections with emoji headers. Sign off as Zeus ⚡`;
               Active: <span style={{color:"#f97316",fontFamily:"monospace",fontWeight:700}}>{activeModelLabel}</span>
               {llmSettings.mode==="groq"&&!llmSettings.groqApiKey&&<span style={{color:"#ef4444",marginLeft:8}}>⚠ No API key set</span>}
               {llmSettings.mode==="gemini"&&!llmSettings.geminiApiKey&&<span style={{color:"#ef4444",marginLeft:8}}>⚠ No API key set</span>}
+              {llmSettings.mode==="grok"&&!llmSettings.grokApiKey&&<span style={{color:"#ef4444",marginLeft:8}}>⚠ No API key set</span>}
             </div>
             <button onClick={async()=>{
               setError(null);
@@ -16833,6 +16889,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     const activePlats = _selFitsFile ? qciPlatforms : _fileFam;
     setQciPlatforms(activePlats);
     let dspHiddenLowImpr = 0; // DSP "Mobile" only — count of sub-100-impr rows hidden as prior-month bleed-over
+    let emptyHidden = 0;      // rows with NO delivery (0 impr/clicks/spend/views) hidden across sources — nothing to apply
 
     // ── TVsci spend sheet: keep only LIVE Recrue rows ──
     // The sheet is the whole network's book: ~132 "Ambio_*" education accounts plus every rep's
@@ -17119,6 +17176,19 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       }
     }
 
+    // Hide EMPTY rows (no delivery) across sources. A row with 0 impressions, 0 clicks, 0 spend AND 0 views
+    // carries NOTHING to apply — it only pads the review list (and the per-line breakdown) with a zero line.
+    // Company exports in particular list every ENDED campaign at 0, which is exactly the archived-at-0 clutter
+    // the user asked about ("archived campaigns but 0 actual metrics — do we need to show this?"). Skip DSP
+    // (already filtered to ≥100 impr) and the TVsci spend reports (their rows carry lifetime spend, not these
+    // MTD metric columns, so they'd false-read as empty).
+    if(source !== "DSP" && source !== "TVsci Spend" && source !== "TVsci Daily"){
+      const beforeEmpty = rows.length;
+      rows = rows.filter(row => { const m = extractMetrics(row, source); return (m.impressions>0 || m.clicks>0 || m.spend>0 || m.videoViews>0); });
+      emptyHidden = beforeEmpty - rows.length;
+      if(!rows.length){ setFileError("Every row in this file had 0 impressions, clicks, spend and views — there's nothing to check in (likely all ended/paused campaigns)."); return; }
+    }
+
     // Build initial mapping: 1) per-name memory, 2) legacy whole-file memory, 3) source-aware auto-match
     let initMap={};
     const memMap={};   // ONLY rows restored from saved memory (steps 1+2) — drives the purple "remembered" check
@@ -17355,7 +17425,8 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     setMemoryMap(memMap);
     setRowOrder(computeRowOrder(rows, initMap, initConf, memMap));
     setConfirmApplyPending(false);
-    const hiddenNote = dspHiddenLowImpr>0 ? ` · 🚫 ${dspHiddenLowImpr} row${dspHiddenLowImpr!==1?"s":""} under 100 impr hidden` : "";
+    const hiddenNote = (dspHiddenLowImpr>0 ? ` · 🚫 ${dspHiddenLowImpr} row${dspHiddenLowImpr!==1?"s":""} under 100 impr hidden` : "")
+      + (emptyHidden>0 ? ` · 🚫 ${emptyHidden} empty row${emptyHidden!==1?"s":""} hidden (no delivery)` : "");
     if(forcedToSelected>0) setSavedMsg(`📌 Mapped all ${forcedToSelected} row${forcedToSelected!==1?"s":""} to "${forcedTarget.campaignName}" (your selected campaign) — review & ✓ Apply${hiddenNote}`);
     else if(savedCount>0 && autoCount>0) setSavedMsg(`✓ ${savedCount} remembered · ⚡ ${autoCount} auto-matched · ${totalMatched}/${rows.length} total${hiddenNote}`);
     else if(savedCount>0) setSavedMsg(`✓ ${savedCount} of ${rows.length} remembered from past sessions${hiddenNote}`);
