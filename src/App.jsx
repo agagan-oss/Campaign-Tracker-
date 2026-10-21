@@ -17990,7 +17990,9 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         </label>
       )}
 
-      <div style={{display:"grid",gridTemplateColumns:fileRows?"1fr 1fr":"1fr",minHeight:200}}>
+      {/* Left checklist is capped (its name + tactic badge don't need half the panel — that left a big gap),
+          so the RIGHT mapping column gets the extra room for full campaign names (the user). */}
+      <div style={{display:"grid",gridTemplateColumns:fileRows?"minmax(240px, 340px) minmax(0, 1fr)":"1fr",minHeight:200}}>
 
         {/* ── Left: Campaign checklist ── */}
         <div style={{borderRight:fileRows?`1px solid ${_lm?"#e2e8f0":"#1a2744"}`:"none",display:"flex",flexDirection:"column"}}>
@@ -18443,7 +18445,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                         const canRevealMore = !showingAll && _reachable.length > displayList.length;
 
                         return (
-                          <div style={{display:"flex",flexDirection:"column",gap:2,minWidth:160,maxWidth:230}}>
+                          <div style={{display:"flex",flexDirection:"column",gap:2,minWidth:240,maxWidth:480,flex:1}}>
                             <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textAlign:"right",display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
                               {isTTD && !showingAll && <span style={{color:"#a78bfa",fontSize:9}}>TD/TDA/TDV</span>}
                               {(isFiltered||isTTD||canRevealMore) && (
