@@ -277,6 +277,43 @@ function planArchiveCleanup(archive, retentionMonths = ARCHIVE_RETENTION_MONTHS)
            freed: Math.max(0, before - after), withDetail, safeMonths: REVENUE_SAFE_MONTHS };
 }
 
+// Downsample a campaign's metricSeries for storage. `metricSeries` is the #1 storage hog — 100+ daily
+// delivery points per campaign going back months. Keep: every month-CLOSER row (MM/DD/YYYY — it carries the
+// month's TOTAL that lifetime pacing + revenue read) AND daily rows for the current & prior month (the pacing
+// chart). Drop: OLD daily rows, but ONLY when their month has a closer — so a month's total is never lost
+// (an un-closed older month keeps its dailies). Lossless for totals/revenue; only old DAY-BY-DAY detail goes.
+function trimOldDailies(series){
+  if(!Array.isArray(series)||!series.length) return {out:series, removed:0};
+  const now = pacingNow();
+  const cut = new Date(now.getFullYear(), now.getMonth()-1, 1);   // keep current + prior month of dailies
+  const cutKey = `${cut.getFullYear()}-${String(cut.getMonth()+1).padStart(2,"0")}`;
+  const isCloser = e => /^\d{2}\/\d{2}\/\d{4}$/.test(String(e&&e.d||""));
+  const closerMonths = new Set();
+  series.forEach(e=>{ if(isCloser(e)){ const m=String(e.d).match(/^(\d{2})\/\d{2}\/(\d{4})/); if(m) closerMonths.add(`${m[2]}-${m[1]}`); } });
+  let removed=0;
+  const out = series.filter(e=>{
+    if(isCloser(e)) return true;                               // month-closing total — always keep
+    const m = String(e&&e.d||"").match(/^(\d{4}-\d{2})/);
+    if(!m) return true;                                        // unknown row shape — keep
+    if(m[1] >= cutKey) return true;                            // current / prior month daily — keep
+    if(!closerMonths.has(m[1])) return true;                  // old month with NO closer — keep (don't lose it)
+    removed++; return false;                                   // old daily whose month total is safe → drop
+  });
+  return {out, removed};
+}
+// Plan the delivery-history trim across active + archived campaigns: the byte savings + counts, no mutation.
+function planDeliveryTrim(campaigns, archive){
+  const all = [...(campaigns||[]), ...(archive||[])];
+  let before=0, after=0, rowsRemoved=0, campsTouched=0;
+  all.forEach(c=>{
+    const s = Array.isArray(c.metricSeries)?c.metricSeries:[];
+    if(!s.length) return;
+    const {out, removed} = trimOldDailies(s);
+    if(removed>0){ before += _jsonBytes(s); after += _jsonBytes(out); rowsRemoved += removed; campsTouched++; }
+  });
+  return { freed: Math.max(0, before-after), rowsRemoved, campsTouched };
+}
+
 // Answers "what is actually using my 5 MB?" — every localStorage key by size, plus a field-level
 // breakdown INSIDE the campaign/archive blobs (the two that dominate). Read-only; changes nothing.
 function getStorageBreakdown() {
@@ -4701,6 +4738,19 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     if(total>0)set("goal",`${_fmtKs(total)}`);  /* goal box = number only; dates live in the Start/End fields */
     set("flightSegments",[]);
   }
+  // Keep a SINGLE By-dates flight's segment in sync with the Start/End date fields. The flight chip AND
+  // pacing read `flightSegments` FIRST (flightGoalLabel), so editing the plain Start/End dates without this
+  // left the flight frozen at the old window (the user: moved 10/22–11/22 → 11/2–12/2 but the flight stayed).
+  // ONLY for one segment — multi-segment burst flights are edited via the By-dates rows. Guarded to a real
+  // mismatch, so it's a no-op for healthy campaigns and self-heals a stale one when its edit form opens.
+  React.useEffect(() => {
+    const segs = Array.isArray(f.flightSegments) ? f.flightSegments : [];
+    if (segs.length !== 1 || !f.startDate || !f.endDate) return;
+    if (segs[0].start === f.startDate && segs[0].end === f.endDate) return;   // already in sync
+    const next = [{ start: f.startDate, end: f.endDate, goal: String(_gNum(segs[0].goal)) }];
+    setSegments(next);
+    applySegmentsToForm(next);   // recomputes note1 day-share + goal + flightSegments + span for the new window
+  }, [f.startDate, f.endDate]);
   // Parse a multi-phase Note-1 ("1000K Sep 1000K Oct 1000K Nov") into { monthIdx: number }.
   function parseMonthPhases(note1){
     const out={}; const ML=["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
@@ -25863,6 +25913,44 @@ export default function App() {
                                   ? "Archive is already slim — no delivery detail to strip and nothing older than "+ARCHIVE_RETENTION_MONTHS+" months."
                                   : <>Frees about <b style={{color:txt}}>{fmtBytes(plan.freed)}</b> — strips delivery detail from {plan.withDetail} archived campaign{plan.withDetail!==1?"s":""}{plan.drop.length>0?<> and deletes {plan.drop.length} archived before {fmtDate(plan.cutIso)}</>:null}. Export a JSON backup first.</>}
                                 {plan.protectedRecent>0 && <><br/><b style={{color:lightMode?"#059669":"#00d48a"}}>🛡 Revenue-safe:</b> {plan.protectedRecent} campaign{plan.protectedRecent!==1?"s":""} that ran in the last {plan.safeMonths} months {plan.protectedRecent!==1?"are":"is"} left fully intact.</>}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                        {/* Delivery-history trim — the BIG lever. metricSeries (daily delivery points) is the
+                            top storage hog on ACTIVE campaigns; this drops only OLD day-by-day detail, keeping
+                            monthly totals + the current/prior month daily. Revenue, pacing, history untouched. */}
+                        {(()=>{
+                          const dtrim = planDeliveryTrim(campaigns, archive);
+                          const nothingD = dtrim.rowsRemoved === 0;
+                          return (
+                            <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${brd2}`,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                              <button
+                                disabled={nothingD}
+                                className={nothingD?undefined:"glow-btn-danger"}
+                                onClick={async ()=>{
+                                  if(!await confirm({
+                                    title:`Trim old delivery history? Frees about ${fmtBytes(dtrim.freed)}`,
+                                    message:`• Removes ${dtrim.rowsRemoved.toLocaleString()} old daily delivery point${dtrim.rowsRemoved!==1?"s":""} from ${dtrim.campsTouched} campaign${dtrim.campsTouched!==1?"s":""} (active + archived).\n• KEEPS this month + last month day-by-day, and every month's closing TOTAL — so pacing, revenue and monthly history are untouched; only the day-by-day detail for OLDER months (which you rarely open) goes.\n\nThis CANNOT be undone. Export a JSON backup first if you haven't today.`,
+                                    confirmLabel:`Yes, trim`, danger:true,
+                                  })) return;
+                                  const freed = fmtBytes(dtrim.freed);
+                                  const trimAll = list => list.map(c=>{ const s=Array.isArray(c.metricSeries)?c.metricSeries:null; if(!s||!s.length) return c; const {out}=trimOldDailies(s); return out.length===s.length?c:{...c, metricSeries:out}; });
+                                  setCampaigns(cs=>trimAll(cs));
+                                  setArchive(as=>trimAll(as));
+                                  addLog({ type:"edited", campaignName:`${dtrim.campsTouched} campaigns`, partner:"", platform:"", detail:`Trimmed old delivery history — freed ${freed}, ${dtrim.rowsRemoved} old daily points`, prevSnapshot:null, campaignId:null });
+                                  await confirm({ title:`✅ Freed ${freed}`, message:`Trimmed ${dtrim.rowsRemoved.toLocaleString()} old daily point${dtrim.rowsRemoved!==1?"s":""} from ${dtrim.campsTouched} campaign${dtrim.campsTouched!==1?"s":""}. This month + last month stay day-by-day; monthly totals, pacing and revenue are unchanged.`, confirmLabel:"Done", okOnly:true });
+                                }}
+                                style={{background:nothingD?(lightMode?"#f1f5f9":"#0e1a2e"):(lightMode?"#fee2e2":"#2a0f0f"),
+                                        border:`1px solid ${nothingD?brd2:(lightMode?"#fca5a5":"#7f1d1d")}`,borderRadius:7,
+                                        padding:"6px 12px",color:nothingD?sub:(lightMode?"#b91c1c":"#fca5a5"),
+                                        fontSize:11,fontWeight:700,cursor:nothingD?"default":"pointer",whiteSpace:"nowrap"}}>
+                                ✂ Trim delivery history
+                              </button>
+                              <span style={{fontSize:10,color:sub,lineHeight:1.5,flex:1,minWidth:200}}>
+                                {nothingD
+                                  ? "No old daily detail to trim yet — all delivery points are within the last two months."
+                                  : <>Frees about <b style={{color:txt}}>{fmtBytes(dtrim.freed)}</b> — drops {dtrim.rowsRemoved.toLocaleString()} old daily point{dtrim.rowsRemoved!==1?"s":""} across {dtrim.campsTouched} campaign{dtrim.campsTouched!==1?"s":""}. <b style={{color:lightMode?"#059669":"#00d48a"}}>Keeps</b> this + last month daily and every monthly total. Export a JSON backup first.</>}
                               </span>
                             </div>
                           );
