@@ -1128,6 +1128,46 @@ function resolveMetrics(c, preset) {
   return { impressions:c.impressions||"", ctr:c.ctr||"", cpm:c.cpm||"", spend:c.spend||"", clicks:c.clicks||"", videoViews:c.videoViews||"", completionRate:c.completionRate||"", source:key?"manual-no-snapshot":"manual", snapshotKey:key };
 }
 
+// When restoring an archived campaign whose latest delivery is from a PRIOR month, treat the restore like a
+// month-close FOR THAT CAMPAIGN: stamp its prior-month closing total into metricSeries (history preserved),
+// then zero the live MTD fields + snapshots so the CURRENT month starts at 0. Archived campaigns skip the
+// normal month-close reset, so without this a Sept-ended campaign restored in Oct shows Sept's numbers as
+// October delivery — reading as "goal hit this month" (the user). No-op when the data is already current-month.
+function freshenRestoredMetrics(c) {
+  if (!c) return c;
+  const now = pacingNow();
+  const curMk = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  const rm = resolveMetrics(c, "mtd");
+  const impr = parseInt(rm.impressions || c.impressions) || 0;
+  const spend = parseFloat(rm.spend || c.spend) || 0;
+  const views = parseInt(rm.videoViews || c.videoViews) || 0;
+  if (!(impr > 0 || spend > 0 || views > 0)) return c;   // nothing to reset
+  // Newest month we have delivery data for (QCI/metric stamps + any snapshot's updatedAt).
+  const mks = [];
+  [c.lastQciDate, c.lastMetricUpdate].forEach(x => { if (x && /^\d{4}-\d{2}-\d{2}/.test(x)) mks.push(x.slice(0,7)); });
+  ["metaSnapshots","ttdSnapshots","dspSnapshots","googleSnapshots","snapSnapshots"].forEach(k => { const u = c[k] && c[k].mtd && c[k].mtd.updatedAt; if (u) mks.push(String(u).slice(0,7)); });
+  const newest = mks.sort().pop() || null;
+  const endedPrior = c.endDate && /^\d{4}-\d{2}/.test(c.endDate) && c.endDate.slice(0,7) < curMk;
+  const stale = (newest && newest < curMk) || (!newest && endedPrior);
+  if (!stale) return c;   // its delivery really is this month — leave it
+  // Stamp the closing total into metricSeries under the prior month's last day, then zero the MTD.
+  let metricSeries = Array.isArray(c.metricSeries) ? c.metricSeries : [];
+  const closeMk = newest || (c.endDate ? c.endDate.slice(0,7) : null);
+  if (closeMk) {
+    const [cy, cm] = closeMk.split("-").map(Number);
+    if (cy && cm) {
+      const closeStamp = `${String(cm).padStart(2,"0")}/${String(new Date(cy, cm, 0).getDate()).padStart(2,"0")}/${cy}`;
+      metricSeries = metricSeries.filter(e => !(e && e.d === closeStamp));
+      metricSeries = [...metricSeries, { d:closeStamp, i:impr, s:spend, vv:views }];
+    }
+  }
+  return { ...c, metricSeries,
+    impressions:"", ctr:"", cpm:"", spend:"", clicks:"", reach:"", frequency:"", videoViews:"", completionRate:"", conversions:"",
+    checkInLog:"", lastCheckInImpr:"",
+    metaSnapshots:undefined, ttdSnapshots:undefined, dspSnapshots:undefined, googleSnapshots:undefined, snapSnapshots:undefined,
+    goalHit:false, closeToGoal:false, goalHitDismissed:false, closeToGoalDismissed:false };
+}
+
 // ─── Metric source-of-truth mirroring ──────────────────────────────────────
 // A campaign's current-period delivery metrics live in TWO stores: the flat c.* fields and the
 // synced snapshot's `mtd`. The snapshot is the source of truth; c.* is a maintained mirror that raw
@@ -25051,7 +25091,7 @@ export default function App() {
     const today = getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`;
     const restoreNote = `${stamp} — Campaign restored from archive`;
     const updatedHistory = c.history&&c.history.trim() ? `${restoreNote}\n${c.history}` : restoreNote;
-    setCampaigns(cs=>[...cs,{...c,archivedDate:undefined,history:updatedHistory}]);
+    setCampaigns(cs=>[...cs,{...freshenRestoredMetrics(c),archivedDate:undefined,history:updatedHistory}]);
     setArchive(prev=>prev.filter(a=>a.id!==c.id));
   }
 
@@ -25065,7 +25105,7 @@ export default function App() {
     if (!await confirm({ title:`Restore ${n} campaign${n!==1?"s":""}?`, message:`Moves the selected campaign${n!==1?"s":""} back to your active list. Metric history is preserved.`, confirmLabel:"Restore" })) return;
     const today = getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`;
     const ids = new Set(list.map(c=>String(c.id)));
-    const restored = list.map(c=>{ const note=`${stamp} — Campaign restored from archive (bulk)`; return { ...c, archivedDate:undefined, history: c.history&&c.history.trim() ? `${note}\n${c.history}` : note }; });
+    const restored = list.map(c=>{ const note=`${stamp} — Campaign restored from archive (bulk)`; return { ...freshenRestoredMetrics(c), archivedDate:undefined, history: c.history&&c.history.trim() ? `${note}\n${c.history}` : note }; });
     setCampaigns(cs=>[...cs, ...restored]);
     setArchive(prev=>prev.filter(a=>!ids.has(String(a.id))));
     addLog({ type:"created", campaignName:`${n} campaign${n!==1?"s":""}`, partner:"", platform:"", detail:`Bulk restored ${n} campaign${n!==1?"s":""} from archive`, restoredIds: list.map(c=>c.id) });
@@ -25744,7 +25784,7 @@ export default function App() {
             onAddCampaign={(c)=>{ setCampaigns(cs=>[...cs,{...c, createdAt: c.createdAt||getToday()}]); addLog({type:"created",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Added by Zeus",campaignId:c.id,prevSnapshot:null}); }}
             onUpdateCampaign={(c)=>{ updateCampaign(c); }}
             onArchiveCampaign={(c)=>{ const tod=getToday(); const [ay,am,ad]=tod.split("-"); const stamp=`${am}/${ad}/${ay}`; const note=`${stamp} — Archived by Zeus`; const hist=c.history&&c.history.trim()?`${note}\n${c.history}`:note; setArchive(prev=>[...prev,{...c,archivedDate:tod,history:hist}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Archived by Zeus",campaignId:c.id,prevSnapshot:{...c}}); }}
-            onRestoreCampaign={(c)=>{ const tod=getToday(); const [ay,am,ad]=tod.split("-"); const stamp=`${am}/${ad}/${ay}`; const note=`${stamp} — Restored by Zeus`; const hist=c.history&&c.history.trim()?`${note}\n${c.history}`:note; setCampaigns(cs=>[...cs,{...c,archivedDate:undefined,history:hist}]); setArchive(prev=>prev.filter(a=>a.id!==c.id)); }}
+            onRestoreCampaign={(c)=>{ const tod=getToday(); const [ay,am,ad]=tod.split("-"); const stamp=`${am}/${ad}/${ay}`; const note=`${stamp} — Restored by Zeus`; const hist=c.history&&c.history.trim()?`${note}\n${c.history}`:note; setCampaigns(cs=>[...cs,{...freshenRestoredMetrics(c),archivedDate:undefined,history:hist}]); setArchive(prev=>prev.filter(a=>a.id!==c.id)); }}
             onSetReminder={(r)=>{ setReminders(prev=>[...prev,r]); }}
           />
         ) : activeTab==="config" ? (
