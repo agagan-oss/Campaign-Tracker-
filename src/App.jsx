@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "10/08/2026";
+const APP_VERSION = "10/27/2026";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -5547,7 +5547,6 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 const addDrop = (label="") => setDrops([...drops, {d:"", done:false, b:"", c:"", label}]);
                 const upd = (i,key,val) => setDrops(drops.map((d,j)=>j===i?{...d,[key]:val}:d));
                 const rm  = i => setDrops(drops.filter((_,j)=>j!==i));
-                const dInp = {background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px 7px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11.5,outline:"none",colorScheme:_lm?"light":"dark"};
                 const money = (val,onCh,ph,color="#34d399") => (
                   <div style={{display:"flex",alignItems:"center",width:66,flexShrink:0,background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,overflow:"hidden"}}>
                     <span style={{padding:"5px 4px",color,fontWeight:700,fontSize:11}}>$</span>
@@ -5581,7 +5580,10 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                     <div key={i} style={{display:"flex",gap:5,alignItems:"center",marginBottom:5}}>
                       <input type="checkbox" checked={!!d.done} onChange={e=>upd(i,"done",e.target.checked)} title="Confirm this drop actually went out" style={{accentColor:"#00c896",width:15,height:15,cursor:"pointer",flexShrink:0}}/>
                       <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:2}}>
-                        <input type="date" value={d.d||""} onChange={e=>upd(i,"d",e.target.value)} style={{...dInp,width:"100%"}}/>
+                        {/* Branded DatePicker — the SAME themed calendar the flight-window / reminder date
+                            fields use, so the popup follows the dark theme (a raw <input type=date>'s native
+                            popup ignored it, which is the mismatch the user flagged). */}
+                        <DatePicker value={d.d||""} onChange={v=>upd(i,"d",v)} placeholder="Drop date"/>
                         {d.label ? <span style={{fontSize:8.5,color:"#f97316",fontWeight:700,paddingLeft:2}}>{d.label}</span> : null}
                       </div>
                       {money(d.b, v=>upd(i,"b",v), String(defB||750))}
@@ -19034,6 +19036,7 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   const [showDtFixer, setShowDtFixer]       = useState(false); // expand the "device surcharge" suggestion list
   const [showRevForecast, setShowRevForecast] = useState(false); // on-demand month/quarter $ forecast
   const [showEnded, setShowEnded]           = useState(_revPersisted.showEnded || false); // show campaigns that ended before active month
+  const [unfilledOpen, setUnfilledOpen]     = useState(true); // month-end "not yet updated" reminder strip (expanded by default)
   useEffect(() => {
     try {
       localStorage.setItem(REVENUE_FILTER_KEY, JSON.stringify({
@@ -19673,6 +19676,27 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   }, []);
   const showAudit = (isCurrentFocus || isPastFocus);          // relevant when viewing a month you'd close/lock
 
+  // ── Month-end "not yet updated" reminder ─────────────────────────────────────
+  // Catches lines that are RUNNING this month and project revenue (goal × rate) but have NO delivery
+  // entered yet — focusCell.pending. These are the ones you must fill in by hand before close, chiefly
+  // campaigns that don't map from a TapClicks report. Auto-detected (no tagging), but kept quiet: it
+  // only appears in the LAST ~5 CALENDAR DAYS of the month (or once the close is overdue), on the current
+  // month. By month-end a line that's still empty genuinely needs attention — either hand-enter its
+  // numbers, or it failed to map.
+  const _nowDay = new Date();
+  const _daysInMo = new Date(_nowDay.getFullYear(), _nowDay.getMonth()+1, 0).getDate();
+  const _nearMonthEnd = (_daysInMo - _nowDay.getDate()) <= 4;   // last 5 calendar days
+  const _closeOverdue = moStr(_nowDay) > activeMonth;           // real calendar has rolled past the un-closed month
+  const unfilledRows = (isCurrentFocus && !isLockedFocus && (_nearMonthEnd || _closeOverdue))
+    ? rows.filter(r => {
+        if (!r.focusCell.pending) return false;                 // pending = revenue projected, no spend/delivery this month
+        const c = r.c;
+        if (c.endDate && c.endDate.slice(0,7) < activeMonth) return false;   // ended before this month
+        if (c.startDate && c.startDate.slice(0,7) > activeMonth) return false; // not started yet
+        return true;
+      }).sort((a,b)=> (b.focusCell.rev||0) - (a.focusCell.rev||0))          // biggest projected $ first
+    : [];
+
   // Sort
   const sortedRows = [...rows].sort((a,b)=>{
     if (sortKey==="profit") {
@@ -20015,6 +20039,47 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
                 );
               })}
               <div style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",marginTop:2}}>Each row is one platform record — a split campaign (e.g. FB + FBV) shows up once per side, so enable it on every record that has a device line. "Not this one" hides a row.</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Month-end "not yet updated" reminder ── surfaces lines still missing this month's delivery
+          in the final stretch before close (see unfilledRows). Mirrors the amber nudge styling above. ── */}
+      {unfilledRows.length>0&&(
+        <div style={{background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:9,padding:"10px 16px",marginBottom:14,order:-2}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <span style={{fontSize:13}}>⏰</span>
+            <div style={{flex:1,minWidth:0}}>
+              <span style={{fontSize:12,fontWeight:700,color:_lm?"#d97706":"#fcd34d"}}>{unfilledRows.length} line{unfilledRows.length!==1?"s":""} not yet updated for {focusLabelShort}</span>
+              <span style={{fontSize:11,color:_lm?"#d97706":"#caa46a",marginLeft:8}}>{_closeOverdue?"This month is overdue to close.":"The month closes soon."} These have projected revenue but no delivery entered — hand-enter them (or confirm they mapped) before you close.</span>
+            </div>
+            <button onClick={()=>setUnfilledOpen(v=>!v)}
+              style={{background:_lm?"#f59e0b":"#3a2800",border:`1px solid ${_lm?"#f59e0b":"#f59e0b60"}`,borderRadius:7,padding:"5px 13px",color:_lm?"#ffffff":"#fcd34d",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+              {unfilledOpen?"Hide":`Review ${unfilledRows.length} →`}
+            </button>
+          </div>
+          {unfilledOpen&&(
+            <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:5,maxHeight:360,overflowY:"auto"}}>
+              {unfilledRows.map(r=>{
+                const c=r.c; const pc=PLT_COLORS[c.platform]||PLT_COLORS.default;
+                return (
+                  <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:7}}>
+                    <span style={{background:pc+"22",color:pc,border:`1px solid ${pc}55`,borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+                    <span style={{fontSize:12,fontWeight:600,color:_lm?"#0f172a":"#d8eaf8",minWidth:150,flex:"0 1 auto",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={c.campaignName.trim()}>{c.campaignName.trim()}</span>
+                    <span style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",whiteSpace:"nowrap"}}>{c.mediaPartner}</span>
+                    <span style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",whiteSpace:"nowrap"}} title="Projected revenue for this month if it delivers to goal">proj. {$f(r.focusCell.rev||0)}</span>
+                    <div style={{display:"flex",alignItems:"center",gap:5,marginLeft:"auto",flexShrink:0}}>
+                      <button onClick={()=>onEdit(c,"metrics")}
+                        title="Open this campaign to enter this month's impressions / spend"
+                        style={{background:_lm?"#f0fdf9":"#06231a",border:`1px solid ${_lm?"#00c896":"#00c89655"}`,borderRadius:5,color:_lm?"#059669":"#00d48a",fontSize:10,fontWeight:700,padding:"3px 9px",cursor:"pointer",whiteSpace:"nowrap"}}>
+                        Enter delivery →
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              <div style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",marginTop:2}}>Auto-detected from lines running this month with no delivery recorded yet. A line drops off this list the moment you enter its impressions/spend or its check-in lands. Only shows in the last few days before close.</div>
             </div>
           )}
         </div>
