@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "10/27/2026";
+const APP_VERSION = "10/29/2026";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -15819,15 +15819,25 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     const arch = fullPool.find(c => String(c.id) === String(campId));
     const nm = (arch?.campaignName || "").trim().toLowerCase();
     if (!nm) return campId;
-    // 1) exact name + same platform (or same name any platform)
-    let twin = activeCamps.find(c => (c.campaignName||"").trim().toLowerCase() === nm && c.platform === arch.platform)
-            || activeCamps.find(c => (c.campaignName||"").trim().toLowerCase() === nm);
+    // Only redirect to a twin whose flight has actually STARTED. A rebuilt line scheduled to begin in the
+    // FUTURE (e.g. a mid-flight CPM/tactic switch created ahead of time — archive the old line, build next
+    // month's line early) must NOT absorb THIS month's check-in: that delivery belongs to the old line
+    // until the new one's flight opens. Without this guard, the remembered mapping jumped straight onto the
+    // not-yet-started twin and booked the month's delivery there as a false "Goal Hit" (the user, 2026-10-29).
+    // The fresh fuzzy/client auto-match already drops future-start lines (matchCandidates filter) — this
+    // brings the MEMORY/redirect path in line with it. Once the twin's start date arrives it redirects
+    // normally, so next month's drop flows to the new line on its own.
+    const _twinToday = getToday();
+    const _started = c => !(c && c.startDate && String(c.startDate).slice(0,10) > _twinToday);
+    // 1) exact name + same platform (or same name any platform) — started twins only
+    let twin = activeCamps.find(c => _started(c) && (c.campaignName||"").trim().toLowerCase() === nm && c.platform === arch.platform)
+            || activeCamps.find(c => _started(c) && (c.campaignName||"").trim().toLowerCase() === nm);
     // 2) fuzzy name + SAME platform — catches a renewal that was renamed (e.g. archived
     //    "Shining Star Christian" → active "Shining Star Christian School"). Same platform required so a
     //    DSP line never redirects to the FB twin. High bar (0.6) to avoid unrelated same-partner clients.
     if (!twin) {
       let best=null, bs=0;
-      activeCamps.forEach(c => { if (c.platform !== arch.platform) return; const s = fuzzyScore(nm, c.campaignName); if (s > bs && s >= 0.6) { bs = s; best = c; } });
+      activeCamps.forEach(c => { if (c.platform !== arch.platform || !_started(c)) return; const s = fuzzyScore(nm, c.campaignName); if (s > bs && s >= 0.6) { bs = s; best = c; } });
       twin = best;
     }
     return twin ? String(twin.id) : campId;
