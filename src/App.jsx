@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "10/31/2026c";
+const APP_VERSION = "10/31/2026d";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -25084,6 +25084,28 @@ export default function App() {
   }
   function onDragEnd(){ setDragId(null); setDragOverId(null); dragIdRef.current=null; }
   function updateCampaign(u, logEntry) {
+    // Never persist the transient revenue-merge flag onto a real record.
+    const { _fromArchive, ...u2 } = u;
+    u = u2;
+    // An ARCHIVED campaign can be edited from the Revenue tab (it shows in the active+archive merge).
+    // updateCampaign historically only mapped over the ACTIVE list, so saving an archived line was a
+    // silent no-op — "I hit save and nothing happened." Route it to the archive list instead when the id
+    // isn't active. Guard the endDate: the revenue merge caps an archived flight's endDate to its archive
+    // date, so never let an incoming EARLIER endDate shorten the real flight on a metrics/delivery save.
+    const inActive = campaigns.some(c => String(c.id) === String(u.id));
+    if (!inActive && archive.some(c => String(c.id) === String(u.id))) {
+      setArchive(as => as.map(c => {
+        if (String(c.id) !== String(u.id)) return c;
+        const next = { ...u };
+        if (c.endDate && next.endDate && String(next.endDate) < String(c.endDate)) next.endDate = c.endDate;
+        const snap = leanUndoSnapshot(c);
+        if (logEntry) addLog({ ...logEntry, campaignName:next.campaignName, partner:next.mediaPartner, platform:next.platform, prevSnapshot:snap, campaignId:u.id });
+        else if (c.impressions!==next.impressions||c.spend!==next.spend||c.cpm!==next.cpm||c.ctr!==next.ctr)
+          addLog({ type:"metrics", campaignName:next.campaignName, partner:next.mediaPartner, platform:next.platform, detail:`Archived line — entered delivery from Revenue tab`, prevSnapshot:snap, campaignId:u.id });
+        return next;
+      }));
+      return;
+    }
     setCampaigns(cs => {
       const old = cs.find(c=>c.id===u.id);
       // Lean undo snapshot — see leanUndoSnapshot: keeps the editable fields, drops the heavy
@@ -26500,7 +26522,15 @@ export default function App() {
             try{ localStorage.setItem("campaign-tracker-zeus-prompt", prompt); }catch{}
           }}/>
         ) : activeTab==="revenue" ? (
-          <RevenueDashboard monthPnl={monthPnl} campaigns={revenueCampaigns} onEdit={(camp,tab)=>{ setEditInitialTab(tab||"details"); setEditTarget(camp); }} onLock={(month, lockObj)=>{
+          <RevenueDashboard monthPnl={monthPnl} campaigns={revenueCampaigns} onEdit={(camp,tab)=>{
+            // The Revenue tab lists active+archive merged (revenueCampaigns), and an archived entry carries
+            // a transient _fromArchive flag plus an endDate CAPPED to its archive date (for the revenue math).
+            // Edit the REAL archive record instead so the modal shows the true flight and the save (which
+            // updateCampaign now routes to the archive list) can't write the capped endDate back.
+            let target = camp;
+            if (camp && camp._fromArchive) { const real = archive.find(a => String(a.id) === String(camp.id)); if (real) target = real; }
+            setEditInitialTab(tab||"details"); setEditTarget(target);
+          }} onLock={(month, lockObj)=>{
             // Activity log entry — permanent record of the lock event. The frozen numbers live in the
             // lock snapshot (monthLocks) and this log; we deliberately do NOT write anything to each
             // campaign's notes/history — that section is reserved for the user's own notes.
