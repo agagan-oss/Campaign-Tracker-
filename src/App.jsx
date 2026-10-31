@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "10/31/2026";
+const APP_VERSION = "10/31/2026b";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -19096,7 +19096,10 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   // Closing snapshots saved at each new-month reset — the source of truth for a CLOSED month's
   // actual spend/impressions, since the reset clears the live values. Lets past-month revenue
   // survive the reset instead of vanishing.
-  const monthlyBackups = useMemo(() => { try { return JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}"); } catch { return {}; } }, []);
+  // Re-read on every campaign/archive change (prop identity flips on an edit) so a Revenue-tab
+  // manual correction — which also patches the backup in onSetMonthMetrics — shows immediately
+  // instead of staying stale until the tab remounts. Parsing this small JSON per edit is cheap.
+  const monthlyBackups = useMemo(() => { try { return JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}"); } catch { return {}; } }, [campaigns]);
   const [showPLReport, setShowPLReport]     = useState(false);
   const [plByPlatOpen, setPlByPlatOpen]     = useState(false);   // "where the money's made" — collapsed by default (analytics live at the bottom now)
   const [plScope, setPlScope]               = useState("month"); // "month" (focused month) | "all" (all-time to date)
@@ -26534,6 +26537,29 @@ export default function App() {
             };
             setCampaigns(cs=>cs.map(x=>String(x.id)===String(id)?patch(x):x));
             setArchive(as=>as.map(x=>String(x.id)===String(id)?patch(x):x));
+            // Patch the month-close BACKUP too. closedMonthMetrics() reads the backup BEFORE metricSeries,
+            // so for a closed month that already has a backup (every archived/flighted line that was open at
+            // a month close) the series write above is silently overridden and the edit looks like it "didn't
+            // save." Update the backup's impressions/views (always) and spend (only when a value was typed —
+            // blank = leave the recorded spend) so the corrected numbers become the source of truth and
+            // survive reload/export. Only touch an existing backup entry; a month with no backup, or no entry
+            // for this campaign, is already served correctly by the metricSeries path.
+            try {
+              const bks = JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}");
+              const mb = bks[month];
+              if (mb && Array.isArray(mb.campaigns)) {
+                const bi = mb.campaigns.findIndex(r=>String(r.id)===String(id));
+                if (bi>=0) {
+                  const e = { ...mb.campaigns[bi] };
+                  e.impressions = String(impr!=null?impr:(parseInt(e.impressions)||0));
+                  if (views) e.videoViews = String(views);
+                  if (spend!=null) e.spend = String(spend);
+                  mb.campaigns[bi] = e;
+                  bks[month] = mb;
+                  localStorage.setItem(MONTHLY_BACKUP_KEY, JSON.stringify(bks));
+                }
+              }
+            } catch {}
             addLog({ type:"edited", campaignName:c.campaignName, partner:c.mediaPartner, platform:c.platform, detail:`Corrected ${month} numbers from Revenue tab`, campaignId:id, prevSnapshot:null });
           }}
           monthResetAvailable={monthResetAvailable} onCloseMonth={()=>setShowMonthReset(true)} confirm={confirm}/>
