@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "10/31/2026b";
+const APP_VERSION = "10/31/2026c";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -19813,8 +19813,18 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   const _closeOverdue = moStr(_nowDay) > activeMonth;           // real calendar has rolled past the un-closed month
   const unfilledRows = (isCurrentFocus && !isLockedFocus && (_nearMonthEnd || _closeOverdue))
     ? rows.filter(r => {
-        if (!r.focusCell.pending) return false;                 // pending = revenue projected, no spend/delivery this month
+        if (!r.focusCell.pending) return false;                 // pending = revenue projected, no spend recorded this month
         const c = r.c;
+        // The strip promises "a line drops off the moment you enter its impressions/spend." But
+        // focusCell.pending is SPEND-only (rev>0 && spend==null), so a CPM line where you hand-enter
+        // impressions — the delivery — but spend hasn't landed yet would wrongly STAY, looking like the
+        // entry "didn't save." Treat entered delivery (impressions, or views for CPV) as handled too:
+        // the revenue is now real, and the leftover spend gap is nagged separately (the "N% has spend
+        // data" banner + the data-gap audit). SEM has no impression delivery, so it's exempt from this.
+        if (c.platform !== "SEM") {
+          const deliv = dealBasis(c) === "CPV" ? actualViewsForMonth(c, activeMonth) : actualImprForMonth(c, activeMonth);
+          if (deliv != null && deliv > 0) return false;
+        }
         if (c.endDate && c.endDate.slice(0,7) < activeMonth) return false;   // ended before this month
         if (c.startDate && c.startDate.slice(0,7) > activeMonth) return false; // not started yet
         return true;
