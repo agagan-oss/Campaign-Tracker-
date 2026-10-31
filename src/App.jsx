@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "10/29/2026";
+const APP_VERSION = "10/31/2026";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -11281,6 +11281,72 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
         );
       })()
     )}
+    {/* Monthly closes — a clean per-month delivered TOTAL for each month the flight ran, so a short
+        month is obvious at a glance. The whole-flight daily chart below shows the SHAPE but not tidy
+        per-month numbers, which is what you need to see which month fell short of goal. Closed months
+        read the month-close backup (else the metricSeries closer row); the current month shows live
+        MTD (tagged, neutral color — it's still in progress). the user (2026-10-31): "show what the
+        previous months closed at — I can't tell where it was short." */}
+    {rowBreakdownOpen && (()=>{
+      const mk = pacingMetricFor(c.platform, c.dealType);              // "impressions" | "views" | "spend"
+      const isMoney = mk === "spend";
+      const unitLbl = mk === "views" ? "views" : isMoney ? "" : "impr";
+      const curKey = (()=>{ const n=pacingNow(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`; })();
+      const startMo = String(c.startDate||"").slice(0,7);
+      const endMo   = String(c.endDate||"").slice(0,7);
+      const backups = (()=>{ try { return JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}"); } catch { return {}; } })();
+      const series  = Array.isArray(c.metricSeries) ? c.metricSeries : [];
+      const pick = r => isMoney ? (parseFloat(r.spend)||0) : mk==="views" ? (parseInt(r.videoViews)||0) : (parseInt(r.impressions)||0);
+      const closedVal = (mo)=>{
+        const rec = ((backups[mo]&&backups[mo].campaigns)||[]).find(r=>String(r.id)===String(c.id));
+        if (rec) return pick(rec);                                     // the month-close snapshot = that month's final
+        let best=null;                                                 // else the latest metricSeries closer in that month
+        for (const e of series){ if(!e||!e.d) continue; const ed=parseSeriesDate(e.d); if(!ed) continue; if(`${ed.getFullYear()}-${String(ed.getMonth()+1).padStart(2,"0")}`!==mo) continue; const day=ed.getDate(); if(!best||day>best.day) best={day,i:parseInt(e.i)||0,s:parseFloat(e.s)||0,vv:parseInt(e.vv)||0}; }
+        if (best) return isMoney?best.s : mk==="views"?best.vv : best.i;
+        return null;
+      };
+      const dCur = resolveMetrics(c,"mtd")||{};
+      const curVal = isMoney ? (parseFloat(dCur.spend)||0) : mk==="views" ? (parseInt(dCur.videoViews)||0) : (parseInt(dCur.impressions)||0);
+      const goalForMonth = (mo)=>{
+        const g = parseMonthlyGoal(c.note1, parseInt(mo.slice(5,7))-1);
+        if (g != null && g > 0) return g;
+        const [y,m] = mo.split("-").map(Number);
+        return proratedMonthlyGoalFromTotal(parseGoalNumber(c.goal), c.startDate, c.endDate, new Date(y, m-1, 15)) || 0;
+      };
+      // Up to the last 6 months ending at the current (un-closed) month, clipped to the flight window.
+      const monthsAll=[]; { const [cy,cm]=curKey.split("-").map(Number); let y=cy,m=cm; for(let k=0;k<6;k++){ monthsAll.unshift(`${y}-${String(m).padStart(2,"0")}`); m--; if(m<1){m=12;y--;} } }
+      const cells = monthsAll
+        .filter(mo => (!startMo || mo>=startMo) && (!endMo || mo<=endMo))
+        .map(mo => ({ mo, isCur: mo===curKey, val: (mo===curKey ? curVal : closedVal(mo)), goal: goalForMonth(mo) }))
+        .filter(x => x.val!=null && (x.val>0 || x.goal>0));
+      if (cells.length < 2) return null;                               // nothing to compare → don't clutter
+      const fmtK = v => isMoney ? (v>=1000?"$"+(v/1000).toFixed(1)+"k":"$"+Math.round(v)) : (v>=1000000?(v/1000000).toFixed(2)+"M":v>=1000?(v/1000).toFixed(v>=10000?0:1)+"K":String(Math.round(v)));
+      const moLbl = mo => { const [y,m]=mo.split("-"); return new Date(+y,+m-1,1).toLocaleDateString("en-US",{month:"short"})+" '"+y.slice(2); };
+      const C_G=lightMode?"#059669":"#00d48a", C_Y=lightMode?"#d97706":"#fbbf24", C_R="#ef4444", C_N=lightMode?"#64748b":"#7a9bbf", C_CUR=lightMode?"#0891b2":"#00d9ff";
+      return (
+        <div style={{padding:"9px 16px",borderBottom:"1px solid "+lmBrdR,background:lightMode?"#f8fafc":"#08131f"}}>
+          <div style={{fontSize:9,color:lightMode?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700,marginBottom:6}}>📅 Monthly delivery{unitLbl?` (${unitLbl})`:""} · what each month closed at</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {cells.map(x=>{
+              const ratio = x.goal>0 ? x.val/x.goal : null;
+              const col = x.isCur ? C_CUR : ratio==null ? C_N : (ratio>=0.98 ? C_G : ratio>=0.8 ? C_Y : C_R);
+              const diff = x.goal>0 ? x.val - x.goal : null;
+              return (
+                <div key={x.mo} title={x.goal>0?`${(ratio*100).toFixed(0)}% of goal`+(x.isCur?" so far (month in progress)":""):"No monthly goal set"}
+                  style={{display:"flex",flexDirection:"column",gap:2,minWidth:84,background:lightMode?"#ffffff":"#0a1320",border:`1px solid ${lightMode?"#e2e8f0":"#1a2744"}`,borderLeft:`3px solid ${col}`,borderRadius:5,padding:"6px 10px"}}>
+                  <span style={{fontSize:9,color:lightMode?"#94a3b8":"#5a7ba0",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.04em"}}>{moLbl(x.mo)}{x.isCur?" · MTD":""}</span>
+                  {x.goal>0
+                    ? <span style={{fontSize:10,color:lightMode?"#64748b":"#7a9bbf",fontVariantNumeric:"tabular-nums"}}>goal {fmtK(x.goal)}</span>
+                    : <span style={{fontSize:10,color:lightMode?"#94a3b8":"#3d5a72"}}>no goal set</span>}
+                  <span style={{fontSize:13,fontWeight:800,color:lightMode?"#0f172a":"#edf4ff",fontVariantNumeric:"tabular-nums"}}>served {fmtK(x.val)}</span>
+                  {diff!=null && <span style={{fontSize:11,fontWeight:700,color:col,fontVariantNumeric:"tabular-nums"}}>{diff>=0?"+":"−"}{fmtK(Math.abs(diff))}</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    })()}
     {/* Weekly delivery-vs-clicks combo chart — shown in the expanded dropdown.
         Bars = weekly delivery of the campaign's pacing metric (impressions, or
         spend for SEM / views for YT), color-coded by how that week tracked vs the
