@@ -18970,7 +18970,7 @@ function ReportVault({ onAnalyzeWithZeus }) {
 // Inline "correct this month's numbers" editor shown inside a Revenue-tab campaign dropdown. Lets you
 // fix a campaign's delivered impressions/views and media spend for the focused month right there — even
 // a LOCKED month — and see the revenue/profit update live. onSave writes it through (see onSetMonthMetrics).
-function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, curImpr, curViews, curSpend, locked, goalRev=0, deviceFee=0, onSave }) {
+function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, curImpr, curViews, curSpend, locked, goalRev=0, deviceFee=0, onSave, billableUnitsFor=null }) {
   // DSP never reports real spend → its cost is ALWAYS auto-modeled (no spend field). Madhive DOES get real
   // spend/CPM from check-ins, so it shows a spend field and only ESTIMATES (× modeledCpm) as a fallback when
   // spend is left blank. Everything else is a normal real-spend platform.
@@ -18984,10 +18984,14 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, cur
   const lbl = {display:"block",fontSize:9,color:_lm?"#64748b":"#7a9bbf",textTransform:"uppercase",letterSpacing:".05em",fontWeight:700,marginBottom:3,whiteSpace:"nowrap"};
   const nImpr=parseInt(impr)||0, nViews=parseInt(views)||0, nSpend=String(spend).trim()===""?null:(parseFloat(spend)||0);
   const rawRev = isCPV ? nViews*rate : nImpr/1000*rate;
-  // Revenue can't exceed the monthly goal (goalRev) — over-delivery isn't billable (the user). The
-  // preview shows the CAPPED figure so this editor foots to the P&L it writes.
-  const rev  = goalRev>0 ? Math.min(rawRev, goalRev) : rawRev;
-  const overCap = goalRev>0 && rawRev > goalRev + 0.5;
+  // Revenue can't exceed the goal — over-delivery isn't billable (the user). For a FLIGHT the ceiling is
+  // the WHOLE-FLIGHT total: billableUnitsFor caps the TYPED units cumulatively (so a fast month bills in
+  // full as long as the flight total isn't passed). Otherwise it's the prorated monthly goal (goalRev).
+  // The preview shows the CAPPED figure so this editor foots to the P&L it writes.
+  const flightBillU = billableUnitsFor ? billableUnitsFor(isCPV ? nViews : nImpr) : null;
+  const rev  = flightBillU != null ? (isCPV ? flightBillU*rate : flightBillU/1000*rate)
+             : goalRev>0 ? Math.min(rawRev, goalRev) : rawRev;
+  const overCap = flightBillU != null ? (flightBillU < (isCPV?nViews:nImpr) - 0.5) : (goalRev>0 && rawRev > goalRev + 0.5);
   // DSP: always modeled. Madhive: real spend when entered, else estimate. Normal: the entered spend.
   const cost = alwaysModeled ? nImpr/1000*modeledCpm
              : (nSpend != null ? nSpend : (canEstimate ? nImpr/1000*modeledCpm : null));
@@ -19151,9 +19155,14 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
     // so editing in a big over-goal number must not book revenue above the goal (mirrors the
     // dashboard's per-row cap so a locked month's frozen figure matches the live one).
     const goalRev = revenueMapForCampaign(c)[month] || 0;
+    // Flight months cap on the WHOLE-FLIGHT total (cumulative), billing the TYPED units; recurring
+    // monthly campaigns cap at the prorated monthly goal (flightGoalLabel null → flightUnits null).
+    const flightUnits = (c.platform !== "SEM" && flightGoalLabel(c))
+      ? flightBillableUnitsForMonth(c, month, dt === "CPV" ? (views || 0) : (impr || 0)) : null;
     let rev = c.platform === "SEM" ? (semFeeMap(c)[month] || 0)
+      : flightUnits != null ? (dt === "CPV" ? flightUnits * rate : (flightUnits / 1000) * rate)
       : dt === "CPV" ? (views || 0) * rate : (impr || 0) / 1000 * rate;
-    if (c.platform !== "SEM" && goalRev > 0) rev = Math.min(rev, goalRev);
+    if (c.platform !== "SEM" && flightUnits == null && goalRev > 0) rev = Math.min(rev, goalRev);
     // DSP: always modeled at its assumed CPM. Madhive: entered spend wins, else impr × reported CPM
     // (c.cpm), else pending (no fixed estimate). Normal platforms: the entered spend.
     const sp = c.platform === "DSP"
@@ -19558,6 +19567,37 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   //  • CPM/CPV: bill on ACTUAL delivery (impr×CPM / views×CPV), capped at goalRev — over-delivery isn't
   //    billable. Spent-but-nothing-delivered → $0 here, and stays PENDING via spendForMonth (see #7).
   //  • Locked month: the frozen lock value always wins over a live recompute.
+  // For a total-goal FLIGHT (a dated buy whose revenue goal is a flight TOTAL, not a monthly "/Mo"
+  // figure), the billing cap is the WHOLE-FLIGHT total — NOT a prorated per-month goal. Capping each
+  // month at its prorated day-share makes a fast month lose its over-delivery while a slow month can't
+  // win it back, so an on-pace flight UNDER-bills (the user — Georgia Midterms AECTV 9/21–11/3 showed
+  // "106K impr over goal" in October while the flight was still under its contract total). Returns the
+  // units (impressions for CPM, views for CPV) that month `mo` may bill: the flight's CUMULATIVE actual
+  // delivery through `mo`, capped at the flight total goal, minus what the prior flight months already
+  // billed. Order-independent; the ceiling only engages once cumulative delivery passes the total.
+  // Returns null when there's no parseable total goal, so the caller keeps the normal monthly cap.
+  // `monthUnits` optionally overrides `mo`'s delivery (for the live editor / a hand-edited save, which
+  // bill the TYPED number, not the stored actual); omit it to use the stored actual delivery.
+  function flightBillableUnitsForMonth(c, mo, monthUnits) {
+    const totalUnits = parseGoalNumber(c.goal) || 0;
+    if (totalUnits <= 0) return null;
+    const sm = String(c.startDate || "").slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(sm) || !/^\d{4}-\d{2}$/.test(mo) || sm > mo) return null;
+    const isCPV = dealBasis(c) === "CPV";
+    const unitsFor = (k) => (isCPV ? actualViewsForMonth(c, k) : actualImprForMonth(c, k)) || 0;
+    let cumPrior = 0;                                   // actual delivery of every flight month BEFORE mo
+    let [y, m] = sm.split("-").map(Number);
+    for (let guard = 0; guard < 120; guard++) {
+      const k = `${y}-${String(m).padStart(2, "0")}`;
+      if (k >= mo) break;
+      cumPrior += unitsFor(k);
+      m++; if (m > 12) { m = 1; y++; }
+    }
+    const monthU = monthUnits != null ? monthUnits : unitsFor(mo);
+    const billablePrior   = Math.min(cumPrior,            totalUnits);
+    const billableThrough = Math.min(cumPrior + monthU,   totalUnits);
+    return Math.max(0, billableThrough - billablePrior);
+  }
   function billedRevenue(c, mo, goalRev) {
     let rev = goalRev;
     if (c.platform === "SEM") {
@@ -19572,13 +19612,18 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
     } else if (mo <= thisMonth && rev > 0) {
       const rate = parseFloat(c.contractRate);
       const effectiveDt = dealBasis(c);  // explicit dealType wins; else YouTube→CPV, others→CPM
+      // A total-goal FLIGHT caps on the WHOLE-FLIGHT total (cumulative), not the prorated monthly goal,
+      // so uneven monthly pacing bills the real flight delivery up to the contract total (see
+      // flightBillableUnitsForMonth). A recurring campaign with an explicit monthly goal keeps the
+      // per-month cap (flightGoalLabel is null for it → flightUnits stays null).
+      const flightUnits = flightGoalLabel(c) ? flightBillableUnitsForMonth(c, mo) : null;
       if (rate > 0 && effectiveDt === "CPM") {
         const actualImpr = actualImprForMonth(c, mo);
-        if (actualImpr != null && actualImpr > 0) rev = Math.min((actualImpr / 1000) * rate, goalRev);
+        if (actualImpr != null && actualImpr > 0) rev = flightUnits != null ? (flightUnits / 1000) * rate : Math.min((actualImpr / 1000) * rate, goalRev);
         else if (spendForMonth(c, mo) != null) rev = 0;
       } else if (rate > 0 && effectiveDt === "CPV") {
         const actualViews = actualViewsForMonth(c, mo);
-        if (actualViews != null && actualViews > 0) rev = Math.min(actualViews * rate, goalRev);
+        if (actualViews != null && actualViews > 0) rev = flightUnits != null ? flightUnits * rate : Math.min(actualViews * rate, goalRev);
         else if (spendForMonth(c, mo) != null) rev = 0;
       }
     }
@@ -21115,6 +21160,7 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
                         rate={parseFloat(r.c.contractRate)||0} modeledCpm={modeledCpmForCamp(r.c)} curImpr={curImpr} curViews={curViews}
                         curSpend={r.focusCell.spend} locked={!!monthLocks[activeMonth]}
                         goalRev={revenueMapForCampaign(r.c)[activeMonth]||0}
+                        billableUnitsFor={flightGoalLabel(r.c) ? ((u)=>flightBillableUnitsForMonth(r.c, activeMonth, u)) : null}
                         deviceFee={r.c.deviceSurcharge?(r.focusCell.deviceFee||0):0}
                         onSave={(vals)=>commitMonthMetrics(r.c, activeMonth, vals)}/>;
                     })()}
