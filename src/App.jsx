@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "10/31/2026d";
+const APP_VERSION = "11/01/2026c";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -16177,6 +16177,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if(f.includes("googleads")||f.includes("youtube"))   return "Google";
     if(f.includes("facebook")||f.includes("fbads")||f.includes("meta")) return "Facebook/Meta";
     if(f.includes("snapchat")||f.includes("snapads"))    return "Snapchat";
+    if(f.includes("madhivepacing")||f.includes("pacingreport")) return "Madhive Pacing"; // Madhive pacing export (impressions + pace)
     if(f.includes("madhive"))                            return "Madhive"; // Madhive CTV delivery export (GCTV/PCTV/AECTV)
     if(f.includes("dspinternal")||f.includes("allreps")) return "DSP-Internal";
     if(f.includes("mobile"))                             return "DSP"; // DSP "Mobile" device-targeting export
@@ -16215,6 +16216,11 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // wrongly claim the file and route it to SEM/YT — so Madhive MUST be tested BEFORE Google. Its
     // Line-Item + Completed-View-Rate signature is specific to Madhive/TVsci CTV, never a Google export.
     if (cols.includes("line item name") && cols.includes("completed view rate") && cols.includes("campaign name")) return "Madhive";
+    // Madhive PACING report (distinct from the delivery export above) — "Pacing Type" + "Delivered
+    // Impressions" + "Pacing Target" / "Goal". One row per Madhive line (General/Premium/Audience-Ext),
+    // named like "Alaska 2026 Midterms - Audience Extension TV". Impressions only (spend is modeled from
+    // the est. CPM, so the file's Delivered Spend is blank). "Pacing Type" is unique to this report.
+    if (cols.includes("pacing type") && cols.includes("delivered impressions")) return "Madhive Pacing";
     // Google Ads / YouTube — "campaign" + impressions/clicks + cost, but NOT TradeDesk or Meta columns
     if (cols.includes("campaign") && (cols.includes("impressions")||cols.includes("clicks")) && (cols.includes("cost")||cols.includes("spend")) && !cols.includes("advertiser name") && !cols.includes("amount spent")) return "Google";
     // TVsci spend report (the hourly "Ambio Spend Report" sheet): Ad Account Name + Campaign Name +
@@ -16323,6 +16329,21 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       completionRate = rawVcr > 0 && rawVcr <= 1 ? rawVcr*100 : rawVcr; // normalize 0-1 → 0-100
       spend = parseFloat(clean(row["Total Cost"]||row["Total cost"]||row["Cost"]||row["Spend"]))||0;
       cpm = impressions > 0 && spend > 0 ? (spend / impressions) * 1000 : 0;
+
+    } else if (source==="Madhive Pacing") {
+      // Madhive pacing report — IMPRESSIONS ONLY (Madhive cost is modeled from the est. CPM; the file's
+      // Delivered Spend is blank/"--"). Read the DATE-FILTERED "Delivered Impressions (In Filter)" as the
+      // month-to-date figure — the user sets Madhive's date range to the current month before exporting,
+      // so this column is exactly this month's delivery. Fall back to the flight-to-date "Delivered
+      // Impressions" if the In-Filter column is empty (no filter applied). Resolve columns by trimmed,
+      // case-insensitive name so stray header whitespace can't flip In-Filter and flight-to-date.
+      const clean = v => (v==null?"":v).toString().replace(/[$,%\s]/g,"");
+      const getv = (name) => { const k = Object.keys(row).find(kk => kk.trim().toLowerCase() === name.toLowerCase()); return k ? row[k] : ""; };
+      const inFilter = parseInt(clean(getv("Delivered Impressions (In Filter)")))||0;
+      const flightToDate = parseInt(clean(getv("Delivered Impressions")))||0;
+      impressions = inFilter > 0 ? inFilter : flightToDate;
+      // No clicks/spend/VCR in this report — leave them 0 so the check-in only refreshes impressions
+      // (and the modeled cost that derives from them).
 
     } else if (source==="Snapchat") {
       impressions = parseFloat(row["Paid Impressions"]||0)||0;
@@ -16440,6 +16461,8 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // Madhive CTV: show the Campaign Name (client + audience-tier label). Matching routes by client +
     // Premium/General → PCTV/GCTV (see matchMadhiveToTracker), not this display name.
     if (source==="Madhive") return row["Campaign Name"]||row["Line Item Name"]||"";
+    // Madhive Pacing: the "Name" column holds the flight + tier ("Alaska 2026 Midterms - Audience Extension TV").
+    if (source==="Madhive Pacing") return row["Name"]||row["Advertiser"]||"";
     // TVsci spend sheet — the Campaign Name carries both the client and the tactic ("Shining Star 2026 CTV").
     if (source==="TVsci Spend" || source==="TVsci Daily") return row["Campaign Name"]||"";
     // Generic — try common campaign name columns
@@ -16542,6 +16565,26 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if (/\bpremium\b/i.test(s)) return "PCTV";
     return "GCTV";
   }
+  // ── Madhive PACING report helpers ────────────────────────────────────────────
+  // The pacing report names each line "<flight/client> - <tier> TV", e.g.
+  // "Alaska 2026 Midterms - Audience Extension TV". No separate Client / Line-Item columns, so derive
+  // the client (for matching) and the tier (for the platform) from that single "Name" string.
+  function madhivePacingName(row){ return (row["Name"]||row["Advertiser"]||"").toString(); }
+  function madhivePacingPlatform(row){
+    const s = madhivePacingName(row);
+    if (/audience\s*ext(?:ension)?|\baectv\b/i.test(s)) return "AECTV";
+    if (/\bpremium\b/i.test(s)) return "PCTV";
+    if (/\bgeneral\b/i.test(s)) return "GCTV";
+    return "AECTV"; // this report is Audience-Extension-centric; default there
+  }
+  function madhivePacingClient(row){
+    let s = madhivePacingName(row);
+    // Strip the trailing tier label however it's written, leaving the flight/client part. An initials
+    // token the user adds to filter in Madhive (a prefix or suffix) can stay — matchMadhiveToTracker's
+    // substring/contains logic still lands it on the right tracker campaign.
+    s = s.replace(/\s*[-–]\s*(audience\s*ext(?:ension)?(?:\s*tv)?|premium(?:\s*audience)?(?:\s*ctv)?(?:\s*tv)?|general(?:\s*audience)?(?:\s*ctv)?(?:\s*tv)?|aectv|pctv|gctv)\s*$/i, "");
+    return s.trim() || madhivePacingName(row);
+  }
   // Route a Madhive row to the client's CTV campaign. Tries the line item's own tier first
   // (AECTV / PCTV / GCTV), then the other Madhive platforms as fallback — so an Audience Extension
   // line lands on the client's AECTV campaign, not their GCTV one.
@@ -16611,6 +16654,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     "DSP-Internal":  new Set(["DSP"]),
     "DSP":           new Set(["DSP"]),
     "Madhive":       new Set(["PCTV","GCTV","AECTV"]), // Madhive = GCTV/PCTV + Audience Extension (AECTV); plain CTV/OTT belong to TVsci
+    "Madhive Pacing":new Set(["PCTV","GCTV","AECTV"]), // Madhive pacing report — same platform family as the delivery export
     "TVsci Spend":   new Set(["CTV","OTT"]),    // TVsci = the plain CTV/OTT campaigns (never Madhive's GCTV/PCTV)
     "TVsci Daily":   new Set(["CTV","OTT","OTTD"]), // TVsci covers CTV + OTT + OTTD (its "Display" lines)
   };
@@ -17446,6 +17490,15 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
           const csvName=getCampName(row,source);
           if(csvName){ let bestId="",bestScore=0; matchCandidates.forEach(c=>{ const score=fuzzyScore(csvName,c.campaignName); if(score>bestScore&&score>=0.80){ bestScore=score; bestId=String(c.id); } }); if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; } }
         }
+      } else if(source==="Madhive Pacing"){
+        // Madhive pacing report — route by the flight/client name (tier stripped) + tier→AECTV/PCTV/GCTV,
+        // exactly like the Madhive delivery export (candidates already restricted to Madhive platforms).
+        const matchedId = matchMadhiveToTracker(madhivePacingClient(row), madhivePacingPlatform(row), matchCandidates);
+        if(matchedId){ initMap[i]=matchedId; initConf[i]=0.8; autoCount++; }
+        else {
+          const csvName=getCampName(row,source);
+          if(csvName){ let bestId="",bestScore=0; matchCandidates.forEach(c=>{ const score=fuzzyScore(csvName,c.campaignName); if(score>bestScore&&score>=0.80){ bestScore=score; bestId=String(c.id); } }); if(bestId){ initMap[i]=bestId; initConf[i]=bestScore; autoCount++; } }
+        }
       } else if(source==="TVsci Spend" || source==="TVsci Daily"){
         // Both TVsci reports name campaigns identically ("BD Slam Holy Redeemer (OTT)", "Britestar
         // Milwaukee CTV 2026"), so they share this matching AND the saved name-memory: whatever gets
@@ -17718,6 +17771,16 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // Shared by both the active-campaign map and the recently-archived map below, so a final
     // import lands identically whether the target is live or already archived.
     const buildUpdated = (c, u) => {
+      // Madhive Pacing drop: the file carries NO spend (Madhive bills modeled). Instead of leaving cost
+      // modeled downstream, HOLD the campaign's existing CPM and recompute spend from the new impressions
+      // (spend = impr ÷ 1000 × CPM). Uses the campaign's own CPM when it has one, else the configured est.
+      // CPM for its Madhive platform — so the CPM shown in the tracker stays put and only the dollars move.
+      // (computedCpm below then recovers that same CPM, so the campaign's CPM is unchanged.)
+      if (fileSource === "Madhive Pacing" && u.impressions > 0) {
+        const _modCpms = loadModeledCpms();
+        const _keepCpm = (parseFloat(c.cpm) > 0) ? parseFloat(c.cpm) : (_modCpms[c.platform] || 0);
+        if (_keepCpm > 0) u.spend = u.impressions / 1000 * _keepCpm;
+      }
       // Recompute CTR from aggregated clicks/impressions; stored as raw ratio (0.003531 = 0.353%)
       const computedCtr = u.impressions > 0 && u.clicks > 0 ? (u.clicks / u.impressions) : 0;
       // Compute CPM from aggregated spend + impressions (avoids picking one row's CPM arbitrarily)
@@ -17738,6 +17801,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                       // Madhive → ttdSnapshots so its per-line breakdown shows in the Pacing viewer,
                       // just like FB. Madhive's GCTV/PCTV/AECTV never collide with TradeDesk campaigns.
                       : fileSource==="Madhive"       ? "ttdSnapshots"
+                      : fileSource==="Madhive Pacing" ? "ttdSnapshots"
                       // TVsci Daily → ttdSnapshots too, so CTV/OTT campaigns get a snapshot + per-ad-group
                       // breakdown in the Pacing dropdown (CTV/OTT/OTTD are ttd-family in SNAPSHOT_PLATFORMS,
                       // so no collision). Without this the source wrote flat fields only — no breakdown.
@@ -18200,7 +18264,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                           ? "click a row on the right to assign →"
                           : <><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.mediaPartner}</span>
                             {c.lastQciDate&&(()=>{
-                              const srcMap={"TradeDesk":"TTD","Google":"GGL","Facebook/Meta":"FB","Snapchat":"SNAP","Generic":"CSV"};
+                              const srcMap={"TradeDesk":"TTD","Google":"GGL","Facebook/Meta":"FB","Snapchat":"SNAP","Madhive":"MADH","Madhive Pacing":"MADH","Generic":"CSV"};
                               const srcLabel=srcMap[c.lastQciSource]||(c.lastQciSource||"CSV").slice(0,4);
                               const isToday=c.lastQciDate===getToday();
                               return <span style={{flexShrink:0,color:isToday?(_lm?"#059669":"#00c896"):(_lm?"#94a3b8":"#2a4060"),fontWeight:isToday?700:400}} title={`Last QCI: ${c.lastQciDate} via ${c.lastQciSource||"CSV"}${c.lastQciAt&&!isNaN(new Date(c.lastQciAt).getTime())?` · pulled ${new Date(c.lastQciAt).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}`:""}`}>
@@ -19042,7 +19106,7 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, cur
   );
 }
 
-function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{}, onSetDeviceSurcharge=()=>{}, onSetMonthMetrics=()=>{}, monthResetAvailable=false, onCloseMonth=()=>{}, confirm=async()=>true }) {
+function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{}, onSetDeviceSurcharge=()=>{}, onSetMonthMetrics=()=>{}, onCloseoutFlight=()=>{}, monthResetAvailable=false, onCloseMonth=()=>{}, confirm=async()=>true }) {
   // Revenue tab filter/sort state persists to localStorage so the view sticks
   // across sessions. Same pattern as Pacing/Campaigns tabs. focusMonth is
   // intentionally NOT persisted — it's typically the current month and would be
@@ -19120,6 +19184,8 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   const [showRevForecast, setShowRevForecast] = useState(false); // on-demand month/quarter $ forecast
   const [showEnded, setShowEnded]           = useState(_revPersisted.showEnded || false); // show campaigns that ended before active month
   const [unfilledOpen, setUnfilledOpen]     = useState(true); // month-end "not yet updated" reminder strip (expanded by default)
+  const [closeoutOpen, setCloseoutOpen]     = useState(true); // flight close-out queue (expanded by default)
+  const [closeoutDrafts, setCloseoutDrafts] = useState({});   // {id: {impr, views, spend}} — per-line final-number edits in the close-out panel
   useEffect(() => {
     try {
       localStorage.setItem(REVENUE_FILTER_KEY, JSON.stringify({
@@ -19187,6 +19253,85 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
       saveMonthLocks({ ...monthLocks, [month]: { ...lock, campaigns: camps, totalRevenue: tR, totalSpend: tS, totalDeviceFee: tD, totalProfit: tR - tS - tD, margin: tR > 0 ? ((tR - tS - tD) / tR * 100) : 0 } });
     }
     onSetMonthMetrics(c.id, month, vals);
+  }
+  // Write one line's final numbers for the month its flight ended in, then stamp it closed-out so it
+  // drops from the queue. Reuses commitMonthMetrics (handles current OR already-closed month, active OR
+  // archived line, and the lock snapshot). `row` carries the prefilled current numbers; the draft (if the
+  // user edited) wins. Returns true if something was written.
+  function saveCloseoutRow(row) {
+    const c = row.c, d = closeoutDrafts[c.id] || {};
+    const imprStr  = d.impr  != null ? d.impr  : (row.curImpr  != null ? String(row.curImpr)  : "");
+    const viewsStr = d.views != null ? d.views : (row.curViews != null ? String(row.curViews) : "");
+    const spendStr = d.spend != null ? d.spend : (row.curSpend != null ? String(row.curSpend) : "");
+    const impr  = imprStr  === "" ? 0 : (parseInt(imprStr)  || 0);
+    const views = viewsStr === "" ? 0 : (parseInt(viewsStr) || 0);
+    const spend = spendStr === "" ? null : (parseFloat(spendStr) || 0);
+    const alwaysModeled = c.platform === "DSP"; // DSP cost is modeled — never carry a spend value
+    commitMonthMetrics(c, row.endMonth, { impr, views, spend: alwaysModeled ? null : spend });
+    // Only stamp a flight "closed out" when it has actually ENDED. A still-open line (kind:"open")
+    // just gets its delivery written — it drops off because it now has delivery, and must stay
+    // eligible to be updated again on later check-ins.
+    if (row.kind !== "open") onCloseoutFlight(c.id);
+    setCloseoutDrafts(p => { const n = { ...p }; delete n[c.id]; return n; });
+    return true;
+  }
+  // "Looks good" — the current numbers are already the final; just close it out (no write).
+  function dismissCloseoutRow(c) {
+    onCloseoutFlight(c.id);
+    setCloseoutDrafts(p => { const n = { ...p }; delete n[c.id]; return n; });
+  }
+  // Shared row element for the unified end-of-month entry panel — used for BOTH just-ended flights
+  // (kind:"ended") and still-open lines with no delivery yet (kind:"open"). `r` is normalized with
+  // endMonth / isCPV / curImpr / curViews / curSpend. Inline boxes prefill from the latest numbers;
+  // the draft (if edited) wins. Ended rows also offer "✓ looks good" (close out with no change).
+  function closeoutRowEl(r) {
+    const c = r.c; const pc = PLT_COLORS[c.platform] || PLT_COLORS.default;
+    const rate = parseFloat(c.contractRate) || 0;
+    const alwaysModeled = c.platform === "DSP";
+    const d = closeoutDrafts[c.id] || {};
+    const imprVal  = d.impr  != null ? d.impr  : (r.curImpr  != null ? String(r.curImpr)  : "");
+    const viewsVal = d.views != null ? d.views : (r.curViews != null ? String(r.curViews) : "");
+    const spendVal = d.spend != null ? d.spend : (r.curSpend != null ? String(r.curSpend) : "");
+    const seed = { impr:imprVal, views:viewsVal, spend:spendVal };
+    const setField = (key,val)=> setCloseoutDrafts(p=>({ ...p, [c.id]:{ ...seed, ...(p[c.id]||{}), [key]:val } }));
+    const nImpr=parseInt(imprVal)||0, nViews=parseInt(viewsVal)||0;
+    const units=r.isCPV?nViews:nImpr;
+    const billU=flightGoalLabel(c)?flightBillableUnitsForMonth(c,r.endMonth,units):null;
+    const billable=billU!=null?billU:units;
+    const rev=r.isCPV?billable*rate:billable/1000*rate;
+    const monLabel=moDate(r.endMonth).toLocaleDateString("en-US",{month:"short",year:"numeric"});
+    const ended=r.kind!=="open";
+    const iS={background:_lm?"#ffffff":"#06120f",border:`1px solid ${_lm?"#5eead4":"#0f3a2e"}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,width:96,fontFamily:"inherit",outline:"none"};
+    const lb={fontSize:8.5,color:_lm?"#0d9488":"#5eb8a0",textTransform:"uppercase",letterSpacing:".04em",fontWeight:700,marginBottom:2,display:"block",whiteSpace:"nowrap"};
+    return (
+      <div key={c.id} style={{display:"flex",alignItems:"flex-end",gap:10,flexWrap:"wrap",padding:"8px 10px",background:_lm?"#ffffff":"#0a1a15",border:`1px solid ${_lm?"#d1fae5":"#123a2e"}`,borderRadius:7}}>
+        <div style={{display:"flex",flexDirection:"column",gap:3,flex:"1 1 200px",minWidth:160,alignSelf:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:7}}>
+            <span style={{background:pc+"22",color:pc,border:`1px solid ${pc}55`,borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
+            <span style={{fontSize:12,fontWeight:600,color:_lm?"#0f172a":"#d8eaf8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={c.campaignName.trim()}>{c.campaignName.trim()}</span>
+          </div>
+          <span style={{fontSize:10,color:_lm?"#64748b":"#5a7a6e",whiteSpace:"nowrap"}}>
+            {ended
+              ? <>{c.mediaPartner||"—"} · ended {fmtDate(c.endDate)} · <b style={{color:_lm?"#0d9488":"#00c896"}}>{monLabel} final</b></>
+              : <>{c.mediaPartner||"—"} · running · <b style={{color:_lm?"#0d9488":"#00c896"}}>{monLabel}</b> · no delivery yet{r.focusCell&&r.focusCell.rev?` · proj. ${Math.round(r.focusCell.rev).toLocaleString()}`:""}</>}
+          </span>
+        </div>
+        <div><label style={lb}>{r.isCPV?"Views":"Impr."}</label>
+          <input type="number" value={r.isCPV?viewsVal:imprVal} onChange={e=>setField(r.isCPV?"views":"impr",e.target.value)} style={iS} placeholder="0"/></div>
+        <div><label style={lb}>Spend $</label>
+          {alwaysModeled
+            ? <div style={{...iS,display:"flex",alignItems:"center",color:_lm?"#d97706":"#caa46a",whiteSpace:"nowrap"}} title="DSP cost is auto-modeled from impressions">auto</div>
+            : <input type="number" value={spendVal} onChange={e=>setField("spend",e.target.value)} style={iS} placeholder="—"/>}</div>
+        <div style={{alignSelf:"center",minWidth:70}}><label style={lb}>Revenue</label>
+          <span style={{fontSize:13,fontWeight:700,color:_lm?"#059669":"#00e5a0",whiteSpace:"nowrap"}}>{rev>0?"$"+Math.round(rev).toLocaleString():"—"}{billU!=null&&units>billable+0.5&&<i style={{color:"#f59e0b",fontSize:10,fontWeight:600}}> cap</i>}</span></div>
+        <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto",alignSelf:"center"}}>
+          <button onClick={()=>saveCloseoutRow(r)}
+            style={{background:"#00c896",border:"none",borderRadius:5,padding:"5px 13px",color:"#06222b",fontSize:11,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>Save</button>
+          {ended && <button onClick={()=>dismissCloseoutRow(c)} title="These numbers are already final — just close it out"
+            style={{background:"none",border:`1px solid ${_lm?"#cbd5e1":"#1e3a2e"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#64748b":"#5a7a6e",fontSize:10,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>✓ looks good</button>}
+        </div>
+      </div>
+    );
   }
   function lockMonth(month) {
     const campData = rows.map(r => ({
@@ -19293,10 +19438,28 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
     }
     return null;
   }
+  // The YYYY-MM a campaign's LIVE figures actually belong to — the date of its most recent check-in /
+  // metric update. After a calendar month turns, a campaign that hasn't been checked in yet still carries
+  // LAST month's month-to-date numbers in its live fields (e.g. a flight's 10/31 finals on 11/01). Those
+  // are NOT the new month's delivery, so the current-month resolvers below must not read them as such —
+  // otherwise last month's spend/impressions get counted AGAIN in the new month (a phantom loss) and the
+  // flight's lifetime pacing double-counts them (served = closed-month backup + the same still-live number).
+  function latestDataMonth(c) {
+    const d = c.ttdSnapshots?.mtd?.updatedAt || c.metaSnapshots?.mtd?.updatedAt || c.dspSnapshots?.mtd?.updatedAt
+            || c.googleSnapshots?.mtd?.updatedAt || c.snapSnapshots?.mtd?.updatedAt
+            || c.lastQciDate || c.lastMetricUpdate || c.lastSpendUpdate || c.lastChecked || "";
+    return String(d).slice(0, 7);
+  }
+  // True when the live figures are dated in a PRIOR month — i.e. there is no actual data for the current
+  // month yet, so current-month delivery/spend should read as PENDING, not last month's carryover.
+  function isStaleForCurrentMonth(c) {
+    const dm = latestDataMonth(c);
+    return dm !== "" && dm < thisMonth;
+  }
   // Actual delivered impressions for a campaign in a month: live MTD for the current month,
   // the closed-month actuals for a past month, else null (no actuals → fall back to projection).
   function actualImprForMonth(c, mo) {
-    if (mo === thisMonth) return getActualMtdImpressions(c);
+    if (mo === thisMonth) return isStaleForCurrentMonth(c) ? null : getActualMtdImpressions(c);
     if (mo > thisMonth) return null;
     const cm = closedMonthMetrics(c, mo);
     return cm && cm.impressions > 0 ? cm.impressions : null;
@@ -19312,7 +19475,7 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   // Actual delivered VIEWS for a campaign in a month — the CPV counterpart to actualImprForMonth.
   // Current month = live MTD; a closed month = reset-proof backup/check-in actuals; future = null.
   function actualViewsForMonth(c, mo) {
-    if (mo === thisMonth) return getActualMtdViews(c);
+    if (mo === thisMonth) return isStaleForCurrentMonth(c) ? null : getActualMtdViews(c);
     if (mo > thisMonth) return null;
     const cm = closedMonthMetrics(c, mo);
     return cm && cm.views > 0 ? cm.views : null;
@@ -19410,6 +19573,11 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
       const lc = monthLocks[mo].campaigns?.find(r => String(r.id) === String(c.id));
       return lc ? lc.spend : null;
     }
+    // No fresh data for the CURRENT month yet — the live figures are dated in a prior month (e.g. a
+    // flight's 10/31 finals still sitting on the record on 11/01, before any new-month check-in). Treat
+    // the current month as PENDING so last month's spend isn't booked AGAIN as this month's cost (the
+    // phantom new-month loss). Past/closed and locked months are already handled above and unaffected.
+    if (mo === thisMonth && isStaleForCurrentMonth(c)) return null;
     // Modeled-cost platforms (DSP + Madhive GCTV/PCTV/AECTV). DSP never reports spend → always modeled
     // (impressions × assumed CPM). Madhive DOES get real spend/CPM from check-ins, so it prefers the REAL
     // number and only estimates as a fallback. No impressions yet → pending; future months → pending.
@@ -19827,9 +19995,63 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
         }
         if (c.endDate && c.endDate.slice(0,7) < activeMonth) return false;   // ended before this month
         if (c.startDate && c.startDate.slice(0,7) > activeMonth) return false; // not started yet
+        // Don't double-list a just-ended flight that the close-out queue already surfaces (that panel is
+        // the right tool for entering a flight's FINAL numbers). Mirrors flightCloseouts' detection.
+        if (c.endDate && c.platform !== "SEM") {
+          const _ed = new Date(c.endDate + "T00:00:00");
+          const _cut = new Date(_nowDay); _cut.setDate(_cut.getDate() - 10);
+          if (!isNaN(_ed.getTime()) && _ed <= _nowDay && _ed >= _cut && !(c.flightClosedOut && String(c.flightClosedOut) >= String(c.endDate))) return false;
+        }
         return true;
       }).sort((a,b)=> (b.focusCell.rev||0) - (a.focusCell.rev||0))          // biggest projected $ first
     : [];
+
+  // ── Flight close-out queue ───────────────────────────────────────────────────
+  // A flight's FINAL day (and, for a line that straddles into a new month, its first days of the next
+  // month) land AFTER the morning check-ins stop updating it — so the tail of spend/delivery never gets
+  // entered. This queue surfaces every flight whose end date just passed and lets the final numbers be
+  // entered once, in one place, for the month the flight ended in (the only month still open to catch up —
+  // earlier months were closed at their own month boundary). Appears for ~10 days after the end date; a
+  // line drops off once its final numbers are saved here (flightClosedOut stamped on/after the end date).
+  const _coCutoff = new Date(_nowDay); _coCutoff.setDate(_coCutoff.getDate() - 10);
+  const flightCloseouts = rows.filter(r => {
+    const c = r.c;
+    if (c.platform === "SEM") return false;                       // fee model closes out on its own basis
+    if (!c.endDate) return false;
+    const ed = new Date(c.endDate + "T00:00:00");
+    if (isNaN(ed.getTime())) return false;
+    if (ed > _nowDay) return false;                               // hasn't ended yet
+    if (ed < _coCutoff) return false;                             // ended too long ago to still be "fresh"
+    if (c.flightClosedOut && String(c.flightClosedOut) >= String(c.endDate)) return false; // already closed out
+    return true;
+  }).map(r => {
+    const c = r.c;
+    const endMonth = c.endDate.slice(0, 7);
+    const isCPV = dealBasis(c) === "CPV";
+    const curImpr  = actualImprForMonth(c, endMonth);
+    const curViews = actualViewsForMonth(c, endMonth);
+    const curSpend = endMonth === thisMonth
+      ? (() => { const a = getActualMtdSpend(c); const m = getManualSpend(c); return (a != null && a > 0) ? a : (m > 0 ? m : null); })()
+      : ((closedMonthMetrics(c, endMonth) || {}).spend || null);
+    return { ...r, endMonth, isCPV, curImpr, curViews, curSpend, kind:"ended" };
+  }).sort((a,b)=> String(b.c.endDate).localeCompare(String(a.c.endDate)));  // most recently ended first
+
+  // Normalize the still-open "not yet updated" lines into the SAME row shape so they share the
+  // close-out panel's inline-entry UI. These write to the CURRENT active month and do NOT stamp a
+  // flight closed (kind:"open"). unfilledRows already excludes just-ended flights, so no overlap.
+  const unfilledCloseouts = unfilledRows.map(r => {
+    const c = r.c;
+    const endMonth = activeMonth;
+    const isCPV = dealBasis(c) === "CPV";
+    const curImpr  = actualImprForMonth(c, endMonth);
+    const curViews = actualViewsForMonth(c, endMonth);
+    const curSpend = endMonth === thisMonth
+      ? (() => { const a = getActualMtdSpend(c); const m = getManualSpend(c); return (a != null && a > 0) ? a : (m > 0 ? m : null); })()
+      : ((closedMonthMetrics(c, endMonth) || {}).spend || null);
+    return { ...r, endMonth, isCPV, curImpr, curViews, curSpend, kind:"open" };
+  });
+  // One unified queue backing the single end-of-month panel (ended flights first, then still-open lines).
+  const closeoutQueue = [...flightCloseouts, ...unfilledCloseouts];
 
   // Sort
   const sortedRows = [...rows].sort((a,b)=>{
@@ -20178,46 +20400,45 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
         </div>
       )}
 
-      {/* ── Month-end "not yet updated" reminder ── surfaces lines still missing this month's delivery
-          in the final stretch before close (see unfilledRows). Mirrors the amber nudge styling above. ── */}
-      {unfilledRows.length>0&&(
-        <div style={{background:_lm?"#fffbeb":"#1a1200",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:9,padding:"10px 16px",marginBottom:14,order:-2}}>
+      {/* ── End-of-month entry panel (unified) ── one place to enter final numbers before you close.
+          Two sections: just-ended flights (their final tail of spend/delivery lands AFTER the morning
+          check-ins stop) and still-open lines that have no delivery recorded yet. Both use the same
+          inline Impr/Spend boxes — no bouncing to the edit modal. Sits at the very top (order:-3). ── */}
+      {closeoutQueue.length>0&&(()=>{
+        const nEnded=flightCloseouts.length, nOpen=unfilledCloseouts.length, bothGroups=nEnded>0&&nOpen>0;
+        const subHdr=(txt)=>(<div style={{fontSize:10,fontWeight:800,letterSpacing:".04em",textTransform:"uppercase",color:_lm?"#0d9488":"#5eb8a0",margin:"4px 2px 1px"}}>{txt}</div>);
+        return (
+        <div style={{background:_lm?"#f0fdf9":"#031a14",border:`1px solid ${_lm?"#5eead4":"#00c89640"}`,borderRadius:9,padding:"10px 16px",marginBottom:14,order:-3}}>
           <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-            <span style={{fontSize:13}}>⏰</span>
+            <span style={{fontSize:13}}>📋</span>
             <div style={{flex:1,minWidth:0}}>
-              <span style={{fontSize:12,fontWeight:700,color:_lm?"#d97706":"#fcd34d"}}>{unfilledRows.length} line{unfilledRows.length!==1?"s":""} not yet updated for {focusLabelShort}</span>
-              <span style={{fontSize:11,color:_lm?"#d97706":"#caa46a",marginLeft:8}}>{_closeOverdue?"This month is overdue to close.":"The month closes soon."} These have projected revenue but no delivery entered — hand-enter them (or confirm they mapped) before you close.</span>
+              <span style={{fontSize:12,fontWeight:700,color:_lm?"#0d9488":"#00e5a0"}}>{closeoutQueue.length} line{closeoutQueue.length!==1?"s":""} to close out</span>
+              <span style={{fontSize:11,color:_lm?"#0d9488":"#6ee7c7",marginLeft:8}}>{_closeOverdue?"This month is overdue to close. ":""}Enter each one's final impressions/spend — just-ended flights and any still-open lines with no delivery yet. One pass, then they're done.</span>
             </div>
-            <button onClick={()=>setUnfilledOpen(v=>!v)}
-              style={{background:_lm?"#f59e0b":"#3a2800",border:`1px solid ${_lm?"#f59e0b":"#f59e0b60"}`,borderRadius:7,padding:"5px 13px",color:_lm?"#ffffff":"#fcd34d",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-              {unfilledOpen?"Hide":`Review ${unfilledRows.length} →`}
+            {closeoutOpen && closeoutQueue.some(r=>closeoutDrafts[r.c.id]) && (
+              <button onClick={()=>{ closeoutQueue.forEach(r=>{ if(closeoutDrafts[r.c.id]) saveCloseoutRow(r); }); }}
+                title="Save every line you've entered a number on"
+                style={{background:"#00c896",border:"none",borderRadius:7,padding:"5px 14px",color:"#06222b",fontSize:11,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                Save all entered
+              </button>
+            )}
+            <button onClick={()=>setCloseoutOpen(v=>!v)}
+              style={{background:_lm?"#99f6e4":"#00251c",border:`1px solid ${_lm?"#2dd4bf":"#00c89660"}`,borderRadius:7,padding:"5px 13px",color:_lm?"#0f766e":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+              {closeoutOpen?"Hide":`Review ${closeoutQueue.length} →`}
             </button>
           </div>
-          {unfilledOpen&&(
-            <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:5,maxHeight:360,overflowY:"auto"}}>
-              {unfilledRows.map(r=>{
-                const c=r.c; const pc=PLT_COLORS[c.platform]||PLT_COLORS.default;
-                return (
-                  <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"7px 10px",background:_lm?"#ffffff":"#0c1625",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:7}}>
-                    <span style={{background:pc+"22",color:pc,border:`1px solid ${pc}55`,borderRadius:3,padding:"1px 5px",fontSize:9,fontWeight:700,flexShrink:0}}>{c.platform}</span>
-                    <span style={{fontSize:12,fontWeight:600,color:_lm?"#0f172a":"#d8eaf8",minWidth:150,flex:"0 1 auto",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={c.campaignName.trim()}>{c.campaignName.trim()}</span>
-                    <span style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",whiteSpace:"nowrap"}}>{c.mediaPartner}</span>
-                    <span style={{fontSize:10,color:_lm?"#64748b":"#7a9bbf",whiteSpace:"nowrap"}} title="Projected revenue for this month if it delivers to goal">proj. {$f(r.focusCell.rev||0)}</span>
-                    <div style={{display:"flex",alignItems:"center",gap:5,marginLeft:"auto",flexShrink:0}}>
-                      <button onClick={()=>onEdit(c,"metrics")}
-                        title="Open this campaign to enter this month's impressions / spend"
-                        style={{background:_lm?"#f0fdf9":"#06231a",border:`1px solid ${_lm?"#00c896":"#00c89655"}`,borderRadius:5,color:_lm?"#059669":"#00d48a",fontSize:10,fontWeight:700,padding:"3px 9px",cursor:"pointer",whiteSpace:"nowrap"}}>
-                        Enter delivery →
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-              <div style={{fontSize:10,color:_lm?"#94a3b8":"#4d6e8a",marginTop:2}}>Auto-detected from lines running this month with no delivery recorded yet. A line drops off this list the moment you enter its impressions/spend or its check-in lands. Only shows in the last few days before close.</div>
+          {closeoutOpen&&(
+            <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:6,maxHeight:460,overflowY:"auto"}}>
+              {bothGroups && subHdr(`🏁 Just ended · enter final numbers (${nEnded})`)}
+              {flightCloseouts.map(closeoutRowEl)}
+              {bothGroups && subHdr(`📂 Still open · no delivery entered yet (${nOpen})`)}
+              {unfilledCloseouts.map(closeoutRowEl)}
+              <div style={{fontSize:10,color:_lm?"#64748b":"#5a7a6e",marginTop:2}}>Numbers prefill from the latest check-in — adjust to the true final, then Save. Just-ended flights close out the month they ended in (earlier months were closed at their own boundary) and won't nag again; still-open lines just get this month's delivery written and drop off the moment a number lands.</div>
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Month navigator — prev/next + mini strip ─────────── */}
       <div style={{...card,padding:"16px 20px",marginBottom:14,order:-2}}>
@@ -25234,6 +25455,21 @@ export default function App() {
     try { prevMonth = localStorage.getItem(MONTH_RESET_KEY) || curMonth; } catch {}
     const prevMonthLabel = (()=>{ const [y,m]=prevMonth.split("-").map(Number); return m ? new Date(y,m-1,1).toLocaleDateString("en-US",{month:"long",year:"numeric"}) : prevMonth; })();
     const dataCount = campaigns.filter(c=>(parseInt(c.impressions)||0)>0 || (parseFloat(c.spend)||0)>0).length;
+    // GUARD — never advance past a month that isn't LOCKED. Closing clears this month's live numbers to
+    // start the new month fresh; once they're gone, an UNLOCKED past month gets recomputed from the
+    // backup, and that recompute can land a few % off what the dashboard showed (modeled/pro-rated cost
+    // paths differ between a live month and a closed one). A LOCK freezes the exact dashboard P&L, so a
+    // locked month reads identically forever. Requiring the lock first is what keeps the dashboard and the
+    // final report in agreement — the whole point of closing a month. (Locking is reversible via Unlock.)
+    const _locks = (()=>{ try { return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); } catch { return {}; } })();
+    if(!_locks[prevMonth] && dataCount>0){
+      await confirm({
+        title:`Lock ${prevMonthLabel} first`,
+        message:`${prevMonthLabel} isn't locked yet, so closing it out now could change its profit afterward — your dashboard and your report wouldn't match.\n\nFix: open the Revenue tab, focus ${prevMonthLabel}, and click "🔒 Lock ${prevMonthLabel}". That freezes its final numbers exactly as shown. Then come back here and close out. (Locking is reversible — Unlock anytime more data arrives.)`,
+        confirmLabel:"Got it — I'll lock it first",
+      });
+      return;
+    }
     if(!await confirm({
       title:`Close out ${prevMonthLabel}?`,
       message:`Saves ${prevMonthLabel}'s closing numbers — including any you entered by hand — then zeroes impressions, clicks, spend, etc. on all ${campaigns.length} active campaigns (${dataCount} have data) so you start clean. Goal badges clear too. Archived campaigns and your full history stay intact.`,
@@ -26601,6 +26837,14 @@ export default function App() {
               }
             } catch {}
             addLog({ type:"edited", campaignName:c.campaignName, partner:c.mediaPartner, platform:c.platform, detail:`Corrected ${month} numbers from Revenue tab`, campaignId:id, prevSnapshot:null });
+          }}
+          onCloseoutFlight={(id)=>{
+            // Stamp a flight closed-out (today, on/after its end date) so it leaves the close-out queue.
+            // Written to whichever list holds it; a later renewal that pushes the end date out past this
+            // stamp brings it back for a fresh close-out.
+            const stamp = getToday();
+            setCampaigns(cs=>cs.map(x=>String(x.id)===String(id)?{...x, flightClosedOut:stamp}:x));
+            setArchive(as=>as.map(x=>String(x.id)===String(id)?{...x, flightClosedOut:stamp}:x));
           }}
           monthResetAvailable={monthResetAvailable} onCloseMonth={()=>setShowMonthReset(true)} confirm={confirm}/>
         ) : (<>
