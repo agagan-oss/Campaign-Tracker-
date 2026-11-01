@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/01/2026c";
+const APP_VERSION = "11/01/2026d";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -13207,8 +13207,32 @@ function calcMonthlyRevenue(c, monthIdx, monthDate) {
 // and Madhive MODELED at the configured est. CPM (they rarely/never report spend) and SEM media pass-through
 // (fee ≈ profit). It is NOT the authoritative P&L — it skips month-locks + SEM cumulative-overage nuance —
 // so the tile links to the Revenue tab for the exact figure.
+// Flight-to-date delivery in the months BEFORE `mk`, from the monthly backups (reset-proof) with a
+// metricSeries fallback — mirrors the Revenue dashboard's closedMonthMetrics so the Home tile + pace-bar
+// projection can bill a flight on its WHOLE-flight cumulative total exactly like the realized P&L does.
+function flightPriorDelivered(c, mk, isCPV, monthlyBackups){
+  const sm = String(c.startDate||"").slice(0,7);
+  if(!/^\d{4}-\d{2}$/.test(sm)) return 0;
+  const series = Array.isArray(c.metricSeries) ? c.metricSeries : [];
+  const deliv = (k)=>{
+    const bk = monthlyBackups[k];
+    if(bk && Array.isArray(bk.campaigns)){
+      const rec = bk.campaigns.find(r=>String(r.id)===String(c.id));
+      if(rec) return isCPV?(parseInt(rec.videoViews)||0):(parseInt(rec.impressions)||0);
+    }
+    let best=null;
+    for(const e of series){ if(!e||!e.d) continue; const ed=parseSeriesDate(e.d); if(!ed) continue;
+      const em=`${ed.getFullYear()}-${String(ed.getMonth()+1).padStart(2,"0")}`; if(em!==k) continue;
+      const day=ed.getDate(); if(!best||day>best.day) best={day, v:isCPV?(parseInt(e.vv)||0):(parseInt(e.i)||0)}; }
+    return best?best.v:0;
+  };
+  let cum=0; let yy=parseInt(sm.slice(0,4)), mm=parseInt(sm.slice(5,7));
+  for(let g=0; g<120; g++){ const k=`${yy}-${String(mm).padStart(2,"0")}`; if(k>=mk) break; cum+=deliv(k); mm++; if(mm>12){mm=1;yy++;} }
+  return cum;
+}
 function estMonthlyProfit(campaigns){
   const modCpms = loadModeledCpms();   // DSP + Madhive: cost modeled from impressions × est. CPM
+  const monthlyBackups = (()=>{ try { return JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}"); } catch { return {}; } })(); // prior-month delivery for the flight-total cap
   const now=pacingNow(); const y=now.getFullYear(), m=now.getMonth();
   const mk=`${y}-${String(m+1).padStart(2,"0")}`;
   const dim=new Date(y,m+1,0).getDate(), dom=now.getDate();
@@ -13251,7 +13275,18 @@ function estMonthlyProfit(campaigns){
     const isCPV=dealBasis(c)==="CPV";
     const delivered=isCPV?viewsMtd:imprMtd;
     const billed=isCPV?delivered*rate:delivered/1000*rate;
-    const revA=Math.min(billed, goalRev);                    // capped at the monthly goal (over-delivery isn't billable)
+    // A total-goal FLIGHT bills on its WHOLE-flight cumulative total, NOT the prorated monthly goal —
+    // which reads LOW for an on-pace flight and dragged the Home tile / pace bar UNDER the realized P&L
+    // (Austin: "projection 71K even though I made 80K"). Mirror the Revenue dash's flightBillableUnitsForMonth:
+    // this month's billable units = min(prior+thisMonth, total) − min(prior, total). Recurring (monthly-goal)
+    // campaigns keep the prorated monthly cap (flightGoalLabel null).
+    const _isFlight=!!flightGoalLabel(c);
+    const _flightTotal=_isFlight?(parseGoalNumber(c.goal)||0):0;
+    const _flightPrior=(_isFlight&&_flightTotal>0)?flightPriorDelivered(c, mk, isCPV, monthlyBackups):0;
+    const _revFor=(md, mdBilled)=> (_isFlight&&_flightTotal>0)
+      ? (()=>{ const u=Math.max(0, Math.min(_flightPrior+md,_flightTotal)-Math.min(_flightPrior,_flightTotal)); return isCPV?u*rate:u/1000*rate; })()
+      : Math.min(mdBilled, goalRev);
+    const revA=_revFor(delivered, billed);                   // flight-total cap (flights) · monthly-goal cap (recurring)
     // DSP always modeled at its est CPM; Madhive = real spend, else reported CPM × impr, else pending
     // (no fixed estimate — skip it from this rough tile); others = reported spend.
     const spA = plat==="DSP"
@@ -13285,7 +13320,9 @@ function estMonthlyProfit(campaigns){
       }
       const windowDays = dt ? dt.daysInMonth : dim;
       const scale = Math.min(4, Math.max(1, windowDays/coverDays));
-      const revProj = Math.min(revA*scale, goalRev);            // billing cap: can't pace past the monthly goal
+      const _projDeliv = delivered*scale;
+      const _projBilled = isCPV?_projDeliv*rate:_projDeliv/1000*rate;
+      const revProj = _revFor(_projDeliv, _projBilled);         // billing cap: flight-total (flights) · monthly goal (recurring)
       const spendScale = revA>0 ? revProj/revA : scale;         // spend tracks the (capped) projected delivery
       projRev += revProj; projSpend += spA*spendScale;
     } else if(goalRev>0){
