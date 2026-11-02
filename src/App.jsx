@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/02/2026b";
+const APP_VERSION = "11/02/2026c";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -8727,7 +8727,7 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
 }
 
 
-function CampaignArchive({ archive, onRestore, onBulkRestore, onClear }) {
+function CampaignArchive({ archive, onRestore, onBulkRestore, onClear, onUnlock=()=>{} }) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(new Set());
   // Multi-select for BULK RESTORE (undo a bulk archive). Persists across month tabs so a batch spanning
@@ -8903,7 +8903,10 @@ function CampaignArchive({ archive, onRestore, onBulkRestore, onClear }) {
                               <div style={{display:"flex",alignItems:"center",gap:8,overflow:"hidden"}}>
                                 <DarkCheckbox checked={selected.has(c.id)} onChange={()=>toggleSel(c.id)}/>
                                 <div style={{overflow:"hidden"}}>
-                                  <div style={{fontSize:12,fontWeight:600,color:_lm?"#0f172a":"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.campaignName.trim()}</div>
+                                  <div style={{fontSize:12,fontWeight:600,color:_lm?"#0f172a":"#edf4ff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                                    {c.metricsLocked&&<span title={`Final numbers locked${c.metricsLockedAt?" "+fmtDate(c.metricsLockedAt):""} — check-ins can't change this line`} style={{fontSize:9,fontWeight:800,color:_lm?"#b45309":"#fcd34d",background:_lm?"#fef3c7":"#2a1e05",border:`1px solid ${_lm?"#f59e0b":"#b4870f"}`,borderRadius:3,padding:"0 4px",marginRight:6,letterSpacing:".03em"}}>🔒 LOCKED</span>}
+                                    {c.campaignName.trim()}
+                                  </div>
                                   {c.note1&&<div style={{fontSize:10,color:_lm?"#059669":"#00ffb3",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.note1.trim()}</div>}
                                 </div>
                               </div>
@@ -8920,7 +8923,8 @@ function CampaignArchive({ archive, onRestore, onBulkRestore, onClear }) {
                                 {isOpen?"▼ Hide":"▶ Show"}
                               </button>
                             </td>
-                            <td style={{padding:"9px 13px",borderBottom:cellBorder,textAlign:"right"}}>
+                            <td style={{padding:"9px 13px",borderBottom:cellBorder,textAlign:"right",whiteSpace:"nowrap"}}>
+                              {c.metricsLocked&&<button onClick={()=>onUnlock(c.id)} title="Unlock — let check-ins update this line again" style={{background:_lm?"#fef3c7":"#2a1e05",border:`1px solid ${_lm?"#f59e0b":"#b4870f"}`,borderRadius:5,color:_lm?"#b45309":"#fcd34d",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:700,marginRight:6}}>🔓 Unlock</button>}
                               <button onClick={()=>onRestore(c)} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:5,color:_lm?"#0a1a0a":"#00e5a0",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:700}}>Restore</button>
                             </td>
                           </tr>
@@ -17773,10 +17777,16 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     }
 
     const updates={};
+    const lockedSkipped=new Set();   // locked campaigns a drop tried to touch — reported, never applied
     Object.entries(mapping).forEach(([idxStr,campId])=>{
       if(!campId) return;
       const row=fileRows[parseInt(idxStr)]; if(!row) return;
       if(isRowIgnored(parseInt(idxStr))) return;   // never apply data for an ignored campaign
+      // LOCKED campaigns (final numbers frozen for good — e.g. political lines closed out after the
+      // election) never take automated check-in data. Matched BY ID, so no drop can change them no
+      // matter how the campaign name comes across in the file. Reversible via Unlock in the Archive tab.
+      const _lockTgt=fullPool.find(c=>String(c.id)===String(campId));
+      if(_lockTgt && _lockTgt.metricsLocked){ lockedSkipped.add(String(campId)); return; }
       const m=extractMetrics(row,fileSource);
       if(!updates[campId]) updates[campId]={impressions:0,clicks:0,spend:0,reach:0,videoViews:0,completionRate:0,frequency:0,freqCount:0,breakdown:[]};
       updates[campId].impressions+=m.impressions;
@@ -17945,14 +17955,15 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       };
     };
     // Apply to live campaigns. Archived ids won't match here (ids are unique to one list).
-    setCampaigns(cs=>cs.map(c=>{ const u=updates[c.id]||updates[String(c.id)]; return u?buildUpdated(c,u):c; }));
+    // Locked lines are already excluded from `updates`; the guard here is belt-and-suspenders.
+    setCampaigns(cs=>cs.map(c=>{ if(c.metricsLocked) return c; const u=updates[c.id]||updates[String(c.id)]; return u?buildUpdated(c,u):c; }));
     // Apply to archived campaigns too — keeps them archived but records their final numbers so the
     // Revenue tab reflects the closing impressions/spend. Uses the FULL archive (allArchivedIds), not
     // just the 31-day window, so a manually-mapped older archived campaign still gets its data.
     if (typeof setArchive === "function" && Object.keys(updates).some(id=>allArchivedIds.has(String(id)))) {
       // Only write to PURELY-archived entries (allArchivedIds excludes ids that also exist in active) —
       // never to an archive row that collides with a live campaign, so the data lands on active only.
-      setArchive(as=>as.map(c=>{ const u=allArchivedIds.has(String(c.id)) ? (updates[c.id]||updates[String(c.id)]) : null; return u?buildUpdated(c,u):c; }));
+      setArchive(as=>as.map(c=>{ if(c.metricsLocked) return c; const u=allArchivedIds.has(String(c.id)) ? (updates[c.id]||updates[String(c.id)]) : null; return u?buildUpdated(c,u):c; }));
     }
     // Save per-name memory (persists across future file drops even if file contents change)
     // For TradeDesk: also save the advertiser name so lookup is stable regardless of campaign name changes.
@@ -18011,6 +18022,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         lastImpr: parseInt(c.lastCheckInImpr)||parseInt(c.impressions)||0, lastDate: c.lastQciDate||c.lastChecked||"" }));
     setReconcile({ source:fileSource, missing:_missing, expected:_sourceHistory.length, applied:appliedCampCount, ts:Date.now(), scoped:_scoped });
     const msgParts = [`✓ Applied to ${appliedCampCount} campaign${appliedCampCount!==1?"s":""} · ${matchedRowCount}/${totalRowCount} rows matched`];
+    if(lockedSkipped.size>0) msgParts.push(`🔒 ${lockedSkipped.size} locked line${lockedSkipped.size>1?"s":""} left untouched (final numbers frozen)`);
     if(unmatchedRowCount>0) msgParts.push(`⚠ ${unmatchedRowCount} row${unmatchedRowCount>1?"s":""} had no match — verify below`);
     if(_missing.length>0) msgParts.push(`⚠ ${_missing.length} ${fileSource} campaign${_missing.length>1?"s":""}${_scoped?" in your filter":""} usually reported didn't update — see below`);
     else if(_sourceHistory.length>0) msgParts.push(`✓ all ${_sourceHistory.length} ${fileSource} campaigns${_scoped?" in your filter":""} reported`);
@@ -19152,7 +19164,7 @@ function MonthMetricsEditor({ monthLabel, platform, isCPV, rate, modeledCpm, cur
   );
 }
 
-function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=()=>{}, onSetRate=()=>{}, onSetDeviceSurcharge=()=>{}, onSetMonthMetrics=()=>{}, onCloseoutFlight=()=>{}, monthResetAvailable=false, onCloseMonth=()=>{}, confirm=async()=>true }) {
+function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=()=>{}, onLockCampaign=()=>{}, onSetRate=()=>{}, onSetDeviceSurcharge=()=>{}, onSetMonthMetrics=()=>{}, onCloseoutFlight=()=>{}, monthResetAvailable=false, onCloseMonth=()=>{}, confirm=async()=>true }) {
   // Revenue tab filter/sort state persists to localStorage so the view sticks
   // across sessions. Same pattern as Pacing/Campaigns tabs. focusMonth is
   // intentionally NOT persisted — it's typically the current month and would be
@@ -19231,7 +19243,8 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   const [showEnded, setShowEnded]           = useState(_revPersisted.showEnded || false); // show campaigns that ended before active month
   const [unfilledOpen, setUnfilledOpen]     = useState(true); // month-end "not yet updated" reminder strip (expanded by default)
   const [closeoutOpen, setCloseoutOpen]     = useState(true); // flight close-out queue (expanded by default)
-  const [closeoutDrafts, setCloseoutDrafts] = useState({});   // {id: {impr, views, spend}} — per-line final-number edits in the close-out panel
+  const [closeoutDrafts, setCloseoutDrafts] = useState({});   // {id: {impr, views, spend, mode}} — per-line final-number edits in the close-out panel
+  const [closeoutSearch, setCloseoutSearch] = useState("");   // search box — pull ANY campaign into the panel to reconcile (e.g. multi-month political flights)
   useEffect(() => {
     try {
       localStorage.setItem(REVENUE_FILTER_KEY, JSON.stringify({
@@ -19306,13 +19319,26 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   // user edited) wins. Returns true if something was written.
   function saveCloseoutRow(row) {
     const c = row.c, d = closeoutDrafts[c.id] || {};
-    const imprStr  = d.impr  != null ? d.impr  : (row.curImpr  != null ? String(row.curImpr)  : "");
-    const viewsStr = d.views != null ? d.views : (row.curViews != null ? String(row.curViews) : "");
-    const spendStr = d.spend != null ? d.spend : (row.curSpend != null ? String(row.curSpend) : "");
-    const impr  = imprStr  === "" ? 0 : (parseInt(imprStr)  || 0);
-    const views = viewsStr === "" ? 0 : (parseInt(viewsStr) || 0);
-    const spend = spendStr === "" ? null : (parseFloat(spendStr) || 0);
+    // WHOLE-FLIGHT mode: boxes hold LIFETIME totals; prefill falls back to the recorded lifetime so an
+    // unedited row is a no-op after the balance math below.
+    const _flt = d.mode === "flight" && canWholeFlight(c, row.endMonth);
+    const _lifeImpr  = _flt ? priorFlightUnits(c, row.endMonth, false) + (row.curImpr  || 0) : null;
+    const _lifeViews = _flt ? priorFlightUnits(c, row.endMonth, true)  + (row.curViews || 0) : null;
+    const _lifeSpend = _flt ? priorFlightSpend(c, row.endMonth)        + (row.curSpend || 0) : null;
+    const imprStr  = d.impr  != null ? d.impr  : (_flt ? String(_lifeImpr)  : (row.curImpr  != null ? String(row.curImpr)  : ""));
+    const viewsStr = d.views != null ? d.views : (_flt ? String(_lifeViews) : (row.curViews != null ? String(row.curViews) : ""));
+    const spendStr = d.spend != null ? d.spend : (_flt ? String(+_lifeSpend.toFixed(2)) : (row.curSpend != null ? String(row.curSpend) : ""));
+    let impr  = imprStr  === "" ? 0 : (parseInt(imprStr)  || 0);
+    let views = viewsStr === "" ? 0 : (parseInt(viewsStr) || 0);
+    let spend = spendStr === "" ? null : (parseFloat(spendStr) || 0);
     const alwaysModeled = c.platform === "DSP"; // DSP cost is modeled — never carry a spend value
+    // Keep earlier months as-is and write only the BALANCE (flight total − already booked before end month)
+    // into the end month, so recorded lifetime equals what was typed (floors at 0 if the total is lower).
+    if (_flt) {
+      if (row.isCPV) views = Math.max(0, views - priorFlightUnits(c, row.endMonth, true));
+      else           impr  = Math.max(0, impr  - priorFlightUnits(c, row.endMonth, false));
+      if (spend != null) spend = Math.max(0, +(spend - priorFlightSpend(c, row.endMonth)).toFixed(2));
+    }
     commitMonthMetrics(c, row.endMonth, { impr, views, spend: alwaysModeled ? null : spend });
     // Only stamp a flight "closed out" when it has actually ENDED. A still-open line (kind:"open")
     // just gets its delivery written — it drops off because it now has delivery, and must stay
@@ -19326,27 +19352,61 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
     onCloseoutFlight(c.id);
     setCloseoutDrafts(p => { const n = { ...p }; delete n[c.id]; return n; });
   }
+  // ── Whole-flight reconcile helpers ───────────────────────────────────────────
+  // For a multi-month flight you can paste the WHOLE-FLIGHT total (pulled from the platform) instead of
+  // one month's slice. We keep every earlier month exactly as recorded (closed/locked months never move)
+  // and write the BALANCE (flight total − everything already booked before the end month) into the end
+  // month — so the flight's lifetime equals your number and revenue still caps at the goal.
+  const flightMonthsBefore = (c, endMonth) => {
+    const sm = String(c.startDate || "").slice(0, 7); const out = [];
+    if (!/^\d{4}-\d{2}$/.test(sm) || !/^\d{4}-\d{2}$/.test(endMonth)) return out;
+    let [y, m] = sm.split("-").map(Number);
+    for (let g = 0; g < 120; g++) { const k = `${y}-${String(m).padStart(2, "0")}`; if (k >= endMonth) break; out.push(k); m++; if (m > 12) { m = 1; y++; } }
+    return out;
+  };
+  const priorFlightUnits = (c, endMonth, isCPV) => flightMonthsBefore(c, endMonth).reduce((s, k) => s + ((isCPV ? actualViewsForMonth(c, k) : actualImprForMonth(c, k)) || 0), 0);
+  const priorFlightSpend = (c, endMonth) => flightMonthsBefore(c, endMonth).reduce((s, k) => { const cm = closedMonthMetrics(c, k); return s + (cm ? (cm.spend || 0) : 0); }, 0);
+  // A row can offer the "Whole flight" toggle only when it's a flight-total-goal line spanning >1 month.
+  const canWholeFlight = (c, endMonth) => !!flightGoalLabel(c) && flightMonthsBefore(c, endMonth).length > 0;
   // Shared row element for the unified end-of-month entry panel — used for BOTH just-ended flights
   // (kind:"ended") and still-open lines with no delivery yet (kind:"open"). `r` is normalized with
   // endMonth / isCPV / curImpr / curViews / curSpend. Inline boxes prefill from the latest numbers;
-  // the draft (if edited) wins. Ended rows also offer "✓ looks good" (close out with no change).
+  // the draft (if edited) wins. Ended rows show "🔒 Save, lock & archive" (saveCloseoutRow + onLockCampaign)
+  // AND a "Dismiss" (dismissCloseoutRow — clears the queue, stays active & unlocked, for recurring flights
+  // that'll come back); still-open rows show a plain "Save".
   function closeoutRowEl(r) {
     const c = r.c; const pc = PLT_COLORS[c.platform] || PLT_COLORS.default;
     const rate = parseFloat(c.contractRate) || 0;
     const alwaysModeled = c.platform === "DSP";
     const d = closeoutDrafts[c.id] || {};
-    const imprVal  = d.impr  != null ? d.impr  : (r.curImpr  != null ? String(r.curImpr)  : "");
-    const viewsVal = d.views != null ? d.views : (r.curViews != null ? String(r.curViews) : "");
-    const spendVal = d.spend != null ? d.spend : (r.curSpend != null ? String(r.curSpend) : "");
-    const seed = { impr:imprVal, views:viewsVal, spend:spendVal };
-    const setField = (key,val)=> setCloseoutDrafts(p=>({ ...p, [c.id]:{ ...seed, ...(p[c.id]||{}), [key]:val } }));
+    const ended=r.kind!=="open";
+    const canFlight = canWholeFlight(c, r.endMonth);           // multi-month flight-total-goal line
+    const flightMode = canFlight && d.mode === "flight";
+    // Prefill: month mode → that month's recorded delivery; whole-flight mode → recorded LIFETIME (so you
+    // paste the platform's flight total over it). Save writes only the balance into the end month.
+    const lifeImpr  = String(priorFlightUnits(c, r.endMonth, false) + (r.curImpr  || 0));
+    const lifeViews = String(priorFlightUnits(c, r.endMonth, true)  + (r.curViews || 0));
+    const lifeSpend = String(+(priorFlightSpend(c, r.endMonth) + (r.curSpend || 0)).toFixed(2));
+    const imprVal  = d.impr  != null ? d.impr  : (flightMode ? lifeImpr  : (r.curImpr  != null ? String(r.curImpr)  : ""));
+    const viewsVal = d.views != null ? d.views : (flightMode ? lifeViews : (r.curViews != null ? String(r.curViews) : ""));
+    const spendVal = d.spend != null ? d.spend : (flightMode ? lifeSpend : (r.curSpend != null ? String(r.curSpend) : ""));
+    const setField = (key,val)=> setCloseoutDrafts(p=>({ ...p, [c.id]:{ ...(p[c.id]||{}), [key]:val } }));
+    const setMode  = (m)=> setCloseoutDrafts(p=>({ ...p, [c.id]:{ ...(p[c.id]||{}), mode:m, impr:undefined, views:undefined, spend:undefined } }));
     const nImpr=parseInt(imprVal)||0, nViews=parseInt(viewsVal)||0;
     const units=r.isCPV?nViews:nImpr;
-    const billU=flightGoalLabel(c)?flightBillableUnitsForMonth(c,r.endMonth,units):null;
-    const billable=billU!=null?billU:units;
-    const rev=r.isCPV?billable*rate:billable/1000*rate;
+    const goalUnits = parseGoalNumber(c.goal) || 0;
+    let billable, overCap;
+    if (flightMode) {                                          // boxes hold the whole-flight total → cap on goal
+      billable = goalUnits>0 ? Math.min(units, goalUnits) : units;
+      overCap  = goalUnits>0 && units > goalUnits+0.5;
+    } else {
+      const billU = flightGoalLabel(c) ? flightBillableUnitsForMonth(c, r.endMonth, units) : null;
+      billable = billU!=null ? billU : units;
+      overCap  = billU!=null && units > billable+0.5;
+    }
+    const rev = r.isCPV ? billable*rate : billable/1000*rate;
+    const belowPrior = flightMode && units>0 && units < priorFlightUnits(c, r.endMonth, r.isCPV);  // typed total < already-booked
     const monLabel=moDate(r.endMonth).toLocaleDateString("en-US",{month:"short",year:"numeric"});
-    const ended=r.kind!=="open";
     const iS={background:_lm?"#ffffff":"#06120f",border:`1px solid ${_lm?"#5eead4":"#0f3a2e"}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,width:96,fontFamily:"inherit",outline:"none"};
     const lb={fontSize:8.5,color:_lm?"#0d9488":"#5eb8a0",textTransform:"uppercase",letterSpacing:".04em",fontWeight:700,marginBottom:2,display:"block",whiteSpace:"nowrap"};
     return (
@@ -19362,19 +19422,38 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
               : <>{c.mediaPartner||"—"} · running · <b style={{color:_lm?"#0d9488":"#00c896"}}>{monLabel}</b> · no delivery yet{r.focusCell&&r.focusCell.rev?` · proj. ${Math.round(r.focusCell.rev).toLocaleString()}`:""}</>}
           </span>
         </div>
-        <div><label style={lb}>{r.isCPV?"Views":"Impr."}</label>
+        {canFlight && ended && (
+          <div style={{display:"flex",flexDirection:"column",gap:3,alignSelf:"center"}}>
+            <label style={lb}>Enter</label>
+            <div style={{display:"flex",border:`1px solid ${_lm?"#5eead4":"#0f3a2e"}`,borderRadius:5,overflow:"hidden"}}>
+              {["month","flight"].map(m=>{ const on=(d.mode||"month")===m; return (
+                <button key={m} onClick={()=>setMode(m)}
+                  title={m==="flight"?"Paste the WHOLE-FLIGHT total from the platform — earlier months stay as-is, the balance books into this month":"Enter just this month's delivery"}
+                  style={{background:on?(_lm?"#0d9488":"#00c896"):"transparent",color:on?(_lm?"#ffffff":"#06222b"):(_lm?"#0d9488":"#5eb8a0"),border:"none",padding:"4px 8px",fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{m==="month"?"This month":"Whole flight"}</button>
+              ); })}
+            </div>
+          </div>
+        )}
+        <div><label style={lb}>{flightMode?(r.isCPV?"Flight views":"Flight impr"):(r.isCPV?"Views":"Impr.")}</label>
           <input type="number" value={r.isCPV?viewsVal:imprVal} onChange={e=>setField(r.isCPV?"views":"impr",e.target.value)} style={iS} placeholder="0"/></div>
-        <div><label style={lb}>Spend $</label>
+        <div><label style={lb}>{flightMode?"Flight $":"Spend $"}</label>
           {alwaysModeled
             ? <div style={{...iS,display:"flex",alignItems:"center",color:_lm?"#d97706":"#caa46a",whiteSpace:"nowrap"}} title="DSP cost is auto-modeled from impressions">auto</div>
             : <input type="number" value={spendVal} onChange={e=>setField("spend",e.target.value)} style={iS} placeholder="—"/>}</div>
-        <div style={{alignSelf:"center",minWidth:70}}><label style={lb}>Revenue</label>
-          <span style={{fontSize:13,fontWeight:700,color:_lm?"#059669":"#00e5a0",whiteSpace:"nowrap"}}>{rev>0?"$"+Math.round(rev).toLocaleString():"—"}{billU!=null&&units>billable+0.5&&<i style={{color:"#f59e0b",fontSize:10,fontWeight:600}}> cap</i>}</span></div>
+        <div style={{alignSelf:"center",minWidth:70}}><label style={lb}>{flightMode?"Flight rev":"Revenue"}</label>
+          <span style={{fontSize:13,fontWeight:700,color:_lm?"#059669":"#00e5a0",whiteSpace:"nowrap"}}>{rev>0?"$"+Math.round(rev).toLocaleString():"—"}{overCap&&<i style={{color:"#f59e0b",fontSize:10,fontWeight:600}}> cap</i>}{belowPrior&&<i title="Below what's already booked in earlier (locked) months — those stay as-is." style={{color:"#ef4444",fontSize:10,fontWeight:600}}> ⚠</i>}</span></div>
         <div style={{display:"flex",alignItems:"center",gap:6,marginLeft:"auto",alignSelf:"center"}}>
-          <button onClick={()=>saveCloseoutRow(r)}
-            style={{background:"#00c896",border:"none",borderRadius:5,padding:"5px 13px",color:"#06222b",fontSize:11,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>Save</button>
-          {ended && <button onClick={()=>dismissCloseoutRow(c)} title="These numbers are already final — just close it out"
-            style={{background:"none",border:`1px solid ${_lm?"#cbd5e1":"#1e3a2e"}`,borderRadius:5,padding:"5px 9px",color:_lm?"#64748b":"#5a7a6e",fontSize:10,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>✓ looks good</button>}
+          {ended
+            ? <>
+                <button onClick={()=>{ onLockCampaign(c.id); saveCloseoutRow(r); }}
+                  title="Save these as the FINAL numbers, then lock + archive this line in one step — future check-ins can never change it (reversible: Unlock in the Archive tab)"
+                  style={{background:_lm?"#f59e0b":"#b4870f",border:"none",borderRadius:5,padding:"5px 15px",color:_lm?"#3a2500":"#1a1205",fontSize:11,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>🔒 Save, lock &amp; archive</button>
+                <button onClick={()=>dismissCloseoutRow(c)}
+                  title="Clear it from this queue but keep the line active & unlocked — for recurring/monthly flights that'll come back (e.g. Shining Star renewing next month). Doesn't lock, archive, or change any numbers."
+                  style={{background:"none",border:`1px solid ${_lm?"#cbd5e1":"#2a3f55"}`,borderRadius:5,padding:"5px 11px",color:_lm?"#64748b":"#8aa6c0",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Dismiss</button>
+              </>
+            : <button onClick={()=>saveCloseoutRow(r)}
+                style={{background:"#00c896",border:"none",borderRadius:5,padding:"5px 13px",color:"#06222b",fontSize:11,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>Save</button>}
         </div>
       </div>
     );
@@ -20069,6 +20148,34 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   // entered once, in one place, for the month the flight ended in (the only month still open to catch up —
   // earlier months were closed at their own month boundary). Appears for ~10 days after the end date; a
   // line drops off once its final numbers are saved here (flightClosedOut stamped on/after the end date).
+  // Has this line already hit its goal (so its revenue is capped at goal = fully tracked, nothing to catch up)?
+  // Covers BOTH shapes: a multi-month flight with a lifetime total goal (billable caps at the whole-flight
+  // total — "hit" = cumulative delivery through `mo` ≥ that total, e.g. Redwood reaching 30K lifetime) AND a
+  // recurring line with a monthly goal ("hit" = this month's delivery ≥ this month's goal, e.g. Harvey's).
+  // Used to keep goal-hitters OUT of the close-out queue so it only surfaces lines that MISSED goal or still
+  // have untracked revenue (the last-day-of-month TapClicks gap on multi-month flights is exactly that case).
+  const closeoutGoalMet = (c, mo) => {
+    if (c.goalHit) return true;                                    // explicitly flagged as hit (auto or manual)
+    if (!/^\d{4}-\d{2}$/.test(mo)) return false;
+    const isCPV = dealBasis(c) === "CPV";
+    const unitsFor = k => (isCPV ? actualViewsForMonth(c, k) : actualImprForMonth(c, k)) || 0;
+    if (flightGoalLabel(c)) {
+      const total = parseGoalNumber(c.goal) || 0;
+      if (total <= 0) return false;
+      const sm = String(c.startDate || "").slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(sm) || sm > mo) return false;
+      let cum = 0, [y, m] = sm.split("-").map(Number);
+      for (let g = 0; g < 120; g++) { const k = `${y}-${String(m).padStart(2, "0")}`; cum += unitsFor(k); if (k >= mo) break; m++; if (m > 12) { m = 1; y++; } }
+      return cum >= total * 0.995;                                 // reached the lifetime goal
+    }
+    const mi = parseInt(mo.slice(5, 7)) - 1;
+    const explicit = parseMonthlyGoal(c.note1, mi);
+    const monthlyGoal = (explicit && explicit > 0)
+      ? explicit
+      : (proratedMonthlyGoalFromTotal(parseGoalNumber(c.goal), c.startDate, c.endDate, new Date(parseInt(mo.slice(0, 4)), mi, 1)) || 0);
+    if (monthlyGoal <= 0) return false;
+    return unitsFor(mo) >= monthlyGoal * 0.995;                    // reached this month's goal
+  };
   const _coCutoff = new Date(_nowDay); _coCutoff.setDate(_coCutoff.getDate() - 10);
   const flightCloseouts = rows.filter(r => {
     const c = r.c;
@@ -20079,6 +20186,7 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
     if (ed > _nowDay) return false;                               // hasn't ended yet
     if (ed < _coCutoff) return false;                             // ended too long ago to still be "fresh"
     if (c.flightClosedOut && String(c.flightClosedOut) >= String(c.endDate)) return false; // already closed out
+    if (closeoutGoalMet(c, c.endDate.slice(0, 7))) return false;  // hit goal → revenue capped/tracked, don't nag
     return true;
   }).map(r => {
     const c = r.c;
@@ -20108,6 +20216,30 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   });
   // One unified queue backing the single end-of-month panel (ended flights first, then still-open lines).
   const closeoutQueue = [...flightCloseouts, ...unfilledCloseouts];
+  // ── Search: pull ANY campaign into the panel on demand (not just the auto-queued ones) ──────────────
+  // For reconciling specific lines by hand — e.g. the multi-month political flights — whether or not they
+  // auto-listed. Matches name/partner; skips SEM and anything already in the queue. Writes to each line's
+  // end month (or the current month if it hasn't ended), same row UI incl. the Whole-flight toggle.
+  const _coQuery = (closeoutSearch || "").trim().toLowerCase();
+  const _queuedIds = new Set(closeoutQueue.map(r => String(r.c.id)));
+  const searchedCloseouts = _coQuery.length >= 2
+    ? rows.filter(r => {
+        const c = r.c;
+        if (c.platform === "SEM") return false;
+        if (_queuedIds.has(String(c.id))) return false;
+        return (c.campaignName || "").toLowerCase().includes(_coQuery) || (c.mediaPartner || "").toLowerCase().includes(_coQuery);
+      }).slice(0, 15).map(r => {
+        const c = r.c;
+        const endMonth = (c.endDate && /^\d{4}-\d{2}/.test(c.endDate) && c.endDate.slice(0,7) <= thisMonth) ? c.endDate.slice(0,7) : activeMonth;
+        const isCPV = dealBasis(c) === "CPV";
+        const curImpr  = actualImprForMonth(c, endMonth);
+        const curViews = actualViewsForMonth(c, endMonth);
+        const curSpend = endMonth === thisMonth
+          ? (() => { const a = getActualMtdSpend(c); const m = getManualSpend(c); return (a != null && a > 0) ? a : (m > 0 ? m : null); })()
+          : ((closedMonthMetrics(c, endMonth) || {}).spend || null);
+        return { ...r, endMonth, isCPV, curImpr, curViews, curSpend, kind:"ended", _searched:true };
+      })
+    : [];
 
   // Sort
   const sortedRows = [...rows].sort((a,b)=>{
@@ -20460,36 +20592,54 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
           Two sections: just-ended flights (their final tail of spend/delivery lands AFTER the morning
           check-ins stop) and still-open lines that have no delivery recorded yet. Both use the same
           inline Impr/Spend boxes — no bouncing to the edit modal. Sits at the very top (order:-3). ── */}
-      {closeoutQueue.length>0&&(()=>{
+      {(()=>{
         const nEnded=flightCloseouts.length, nOpen=unfilledCloseouts.length, bothGroups=nEnded>0&&nOpen>0;
+        const hasQueue=closeoutQueue.length>0;
+        const searching=_coQuery.length>=2;
+        const anyRows=hasQueue||searchedCloseouts.length>0;
+        const bodyOpen=(closeoutOpen||searching)&&anyRows;
         const subHdr=(txt)=>(<div style={{fontSize:10,fontWeight:800,letterSpacing:".04em",textTransform:"uppercase",color:_lm?"#0d9488":"#5eb8a0",margin:"4px 2px 1px"}}>{txt}</div>);
+        const drafted=[...closeoutQueue,...searchedCloseouts].filter(r=>closeoutDrafts[r.c.id]);
         return (
         <div style={{background:_lm?"#f0fdf9":"#031a14",border:`1px solid ${_lm?"#5eead4":"#00c89640"}`,borderRadius:9,padding:"10px 16px",marginBottom:14,order:-3}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <span style={{fontSize:13}}>📋</span>
-            <div style={{flex:1,minWidth:0}}>
-              <span style={{fontSize:12,fontWeight:700,color:_lm?"#0d9488":"#00e5a0"}}>{closeoutQueue.length} line{closeoutQueue.length!==1?"s":""} to close out</span>
-              <span style={{fontSize:11,color:_lm?"#0d9488":"#6ee7c7",marginLeft:8}}>{_closeOverdue?"This month is overdue to close. ":""}Enter each one's final impressions/spend — just-ended flights and any still-open lines with no delivery yet. One pass, then they're done.</span>
+            <div style={{minWidth:0}}>
+              {hasQueue
+                ? <><span style={{fontSize:12,fontWeight:700,color:_lm?"#0d9488":"#00e5a0"}}>{closeoutQueue.length} to close out</span><span style={{fontSize:11,color:_lm?"#0d9488":"#6ee7c7",marginLeft:8}}>{_closeOverdue?"Overdue · ":""}Missed goal or no delivery — enter finals.</span></>
+                : <span style={{fontSize:12,fontWeight:700,color:_lm?"#0d9488":"#00e5a0"}}>Close out / reconcile</span>}
             </div>
-            {closeoutOpen && closeoutQueue.some(r=>closeoutDrafts[r.c.id]) && (
-              <button onClick={()=>{ closeoutQueue.forEach(r=>{ if(closeoutDrafts[r.c.id]) saveCloseoutRow(r); }); }}
-                title="Save every line you've entered a number on"
-                style={{background:"#00c896",border:"none",borderRadius:7,padding:"5px 14px",color:"#06222b",fontSize:11,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-                Save all entered
-              </button>
-            )}
-            <button onClick={()=>setCloseoutOpen(v=>!v)}
-              style={{background:_lm?"#99f6e4":"#00251c",border:`1px solid ${_lm?"#2dd4bf":"#00c89660"}`,borderRadius:7,padding:"5px 13px",color:_lm?"#0f766e":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-              {closeoutOpen?"Hide":`Review ${closeoutQueue.length} →`}
-            </button>
+            <div style={{display:"flex",alignItems:"center",gap:5}}>
+              <input value={closeoutSearch} onChange={e=>setCloseoutSearch(e.target.value)} placeholder="🔎 Find a campaign…"
+                style={{background:_lm?"#ffffff":"#06120f",border:`1px solid ${_lm?"#5eead4":"#0f3a2e"}`,borderRadius:6,padding:"5px 9px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11,outline:"none",width:190,maxWidth:"40vw"}}/>
+              {closeoutSearch && <button onClick={()=>setCloseoutSearch("")} title="Clear" style={{background:"none",border:"none",color:_lm?"#64748b":"#5a7a6e",fontSize:13,fontWeight:800,cursor:"pointer",padding:"0 2px"}}>✕</button>}
+            </div>
+            <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+              {bodyOpen && drafted.length>0 && (
+                <button onClick={()=>{ drafted.forEach(r=>saveCloseoutRow(r)); }}
+                  title="Save every line you've entered a number on"
+                  style={{background:"#00c896",border:"none",borderRadius:7,padding:"5px 14px",color:"#06222b",fontSize:11,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>
+                  Save all entered
+                </button>
+              )}
+              {anyRows && (
+                <button onClick={()=>setCloseoutOpen(v=>!v)}
+                  style={{background:_lm?"#99f6e4":"#00251c",border:`1px solid ${_lm?"#2dd4bf":"#00c89660"}`,borderRadius:7,padding:"5px 13px",color:_lm?"#0f766e":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                  {bodyOpen?"Hide":(hasQueue?`Review ${closeoutQueue.length} →`:`Review ${searchedCloseouts.length} →`)}
+                </button>
+              )}
+            </div>
           </div>
-          {closeoutOpen&&(
+          {bodyOpen&&(
             <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:6,maxHeight:460,overflowY:"auto"}}>
+              {searchedCloseouts.length>0 && subHdr(`🔎 Found · reconcile (${searchedCloseouts.length})`)}
+              {searchedCloseouts.map(closeoutRowEl)}
+              {searching && searchedCloseouts.length===0 && <div style={{fontSize:10,color:_lm?"#64748b":"#5a7a6e",padding:"2px 2px"}}>No other match — it may already be listed below.</div>}
               {bothGroups && subHdr(`🏁 Just ended · enter final numbers (${nEnded})`)}
               {flightCloseouts.map(closeoutRowEl)}
               {bothGroups && subHdr(`📂 Still open · no delivery entered yet (${nOpen})`)}
               {unfilledCloseouts.map(closeoutRowEl)}
-              <div style={{fontSize:10,color:_lm?"#64748b":"#5a7a6e",marginTop:2}}>Numbers prefill from the latest check-in — adjust to the true final, then Save. Just-ended flights close out the month they ended in (earlier months were closed at their own boundary) and won't nag again; still-open lines just get this month's delivery written and drop off the moment a number lands.</div>
+              <div style={{fontSize:10,color:_lm?"#64748b":"#5a7a6e",marginTop:2}}>🔒 Save, lock &amp; archive = freeze + file · <b>Dismiss</b> = keep active · <b>Whole flight</b> = paste the full-flight total.</div>
             </div>
           )}
         </div>
@@ -25605,7 +25755,7 @@ export default function App() {
     const today = getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`;
     const restoreNote = `${stamp} — Campaign restored from archive`;
     const updatedHistory = c.history&&c.history.trim() ? `${restoreNote}\n${c.history}` : restoreNote;
-    setCampaigns(cs=>[...cs,{...freshenRestoredMetrics(c),archivedDate:undefined,history:updatedHistory}]);
+    setCampaigns(cs=>[...cs,{...freshenRestoredMetrics(c),archivedDate:undefined,metricsLocked:false,metricsLockedAt:undefined,history:updatedHistory}]);
     setArchive(prev=>prev.filter(a=>a.id!==c.id));
   }
 
@@ -25619,7 +25769,7 @@ export default function App() {
     if (!await confirm({ title:`Restore ${n} campaign${n!==1?"s":""}?`, message:`Moves the selected campaign${n!==1?"s":""} back to your active list. Metric history is preserved.`, confirmLabel:"Restore" })) return;
     const today = getToday(); const [y,m,d]=today.split("-"); const stamp=`${m}/${d}/${y}`;
     const ids = new Set(list.map(c=>String(c.id)));
-    const restored = list.map(c=>{ const note=`${stamp} — Campaign restored from archive (bulk)`; return { ...freshenRestoredMetrics(c), archivedDate:undefined, history: c.history&&c.history.trim() ? `${note}\n${c.history}` : note }; });
+    const restored = list.map(c=>{ const note=`${stamp} — Campaign restored from archive (bulk)`; return { ...freshenRestoredMetrics(c), archivedDate:undefined, metricsLocked:false, metricsLockedAt:undefined, history: c.history&&c.history.trim() ? `${note}\n${c.history}` : note }; });
     setCampaigns(cs=>[...cs, ...restored]);
     setArchive(prev=>prev.filter(a=>!ids.has(String(a.id))));
     addLog({ type:"created", campaignName:`${n} campaign${n!==1?"s":""}`, partner:"", platform:"", detail:`Bulk restored ${n} campaign${n!==1?"s":""} from archive`, restoredIds: list.map(c=>c.id) });
@@ -26288,7 +26438,8 @@ export default function App() {
             onGoToPacing={(c)=>{ setPacingFocus({ name:(c.campaignName||"").trim(), ts:Date.now() }); setActiveTab("pacing"); }}
           />
         ) : activeTab==="archive" ? (
-          <CampaignArchive archive={archive} onRestore={handleRestore} onBulkRestore={bulkRestore} onClear={()=>setArchive([])}/>
+          <CampaignArchive archive={archive} onRestore={handleRestore} onBulkRestore={bulkRestore} onClear={()=>setArchive([])}
+            onUnlock={(id)=>{ setArchive(as=>as.map(x=>String(x.id)===String(id)?{...x, metricsLocked:false, metricsLockedAt:undefined}:x)); }}/>
         ) : activeTab==="ai" ? (
           <AIAdvisor
             campaigns={campaigns}
@@ -26298,7 +26449,7 @@ export default function App() {
             onAddCampaign={(c)=>{ setCampaigns(cs=>[...cs,{...c, createdAt: c.createdAt||getToday()}]); addLog({type:"created",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Added by Zeus",campaignId:c.id,prevSnapshot:null}); }}
             onUpdateCampaign={(c)=>{ updateCampaign(c); }}
             onArchiveCampaign={(c)=>{ const tod=getToday(); const [ay,am,ad]=tod.split("-"); const stamp=`${am}/${ad}/${ay}`; const note=`${stamp} — Archived by Zeus`; const hist=c.history&&c.history.trim()?`${note}\n${c.history}`:note; setArchive(prev=>[...prev,{...c,archivedDate:tod,history:hist}]); setCampaigns(cs=>cs.filter(x=>x.id!==c.id)); addLog({type:"deleted",campaignName:c.campaignName,partner:c.mediaPartner,platform:c.platform,detail:"Archived by Zeus",campaignId:c.id,prevSnapshot:{...c}}); }}
-            onRestoreCampaign={(c)=>{ const tod=getToday(); const [ay,am,ad]=tod.split("-"); const stamp=`${am}/${ad}/${ay}`; const note=`${stamp} — Restored by Zeus`; const hist=c.history&&c.history.trim()?`${note}\n${c.history}`:note; setCampaigns(cs=>[...cs,{...freshenRestoredMetrics(c),archivedDate:undefined,history:hist}]); setArchive(prev=>prev.filter(a=>a.id!==c.id)); }}
+            onRestoreCampaign={(c)=>{ const tod=getToday(); const [ay,am,ad]=tod.split("-"); const stamp=`${am}/${ad}/${ay}`; const note=`${stamp} — Restored by Zeus`; const hist=c.history&&c.history.trim()?`${note}\n${c.history}`:note; setCampaigns(cs=>[...cs,{...freshenRestoredMetrics(c),archivedDate:undefined,metricsLocked:false,metricsLockedAt:undefined,history:hist}]); setArchive(prev=>prev.filter(a=>a.id!==c.id)); }}
             onSetReminder={(r)=>{ setReminders(prev=>[...prev,r]); }}
           />
         ) : activeTab==="config" ? (
@@ -26901,6 +27052,32 @@ export default function App() {
             const stamp = getToday();
             setCampaigns(cs=>cs.map(x=>String(x.id)===String(id)?{...x, flightClosedOut:stamp}:x));
             setArchive(as=>as.map(x=>String(x.id)===String(id)?{...x, flightClosedOut:stamp}:x));
+          }}
+          onLockCampaign={(id)=>{
+            // LOCK & ARCHIVE — freeze a line's final numbers for good, then move it to the Archive tab.
+            // The metricsLocked flag makes every future Quick Check-in skip this campaign BY ID (see the
+            // QCI apply guard), so the rest of the month's drops can't change it. Reversible via Unlock in
+            // the Archive tab. Built for the political flights: enter perfect finals once, lock them in.
+            const stamp = getToday(); const [ly,lm,ld]=stamp.split("-"); const histStamp=`${lm}/${ld}/${ly}`;
+            const inActive = campaigns.find(c=>String(c.id)===String(id));
+            const inArch   = archive.find(c=>String(c.id)===String(id));
+            if(inActive){
+              // Active → stamp the flag + a history note, move the (already-finalized) object to archive.
+              const note=`${histStamp} — 🔒 Final numbers locked & archived`;
+              const locked={ ...inActive, metricsLocked:true, metricsLockedAt:stamp,
+                flightClosedOut: inActive.flightClosedOut || stamp,
+                archivedDate: inActive.archivedDate || stamp,
+                history: inActive.history&&inActive.history.trim() ? `${note}\n${inActive.history}` : note };
+              setArchive(prev=> prev.some(a=>String(a.id)===String(id))
+                ? prev.map(a=>String(a.id)===String(id)?{...a, metricsLocked:true, metricsLockedAt:stamp}:a)
+                : [locked, ...prev]);
+              setCampaigns(cs=>cs.filter(c=>String(c.id)!==String(id)));
+              addLog({ type:"edited", campaignName:inActive.campaignName, partner:inActive.mediaPartner, platform:inActive.platform, detail:"Locked final numbers & archived", campaignId:id, prevSnapshot:null });
+            } else if(inArch){
+              // Already archived → just set the lock flag so drops stop touching it.
+              setArchive(as=>as.map(x=>String(x.id)===String(id)?{...x, metricsLocked:true, metricsLockedAt:stamp}:x));
+              addLog({ type:"edited", campaignName:inArch.campaignName, partner:inArch.mediaPartner, platform:inArch.platform, detail:"Locked final numbers (already archived)", campaignId:id, prevSnapshot:null });
+            }
           }}
           monthResetAvailable={monthResetAvailable} onCloseMonth={()=>setShowMonthReset(true)} confirm={confirm}/>
         ) : (<>
