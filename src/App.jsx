@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/01/2026d";
+const APP_VERSION = "11/02/2026";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -19862,6 +19862,12 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
     // unlock→edit→relock, or a spend-logged/0-impression campaign) would be counted by the table's
     // focusCell but SKIPPED here — making a locked month's headline profit drift above the table total.
     months.forEach(mo => {
+      // A campaign earns nothing AFTER its flight ends. Skip any month past the end date so a stray
+      // month-end-close point dated on the 1st of the next month (a Sep-30 flight's final total captured
+      // 10/01) can't book that delivery as the NEXT month's cost — which silently dragged ~$10k of Sep
+      // tails into October's chart bar and made it disagree with the headline tiles once unlocked. Mirrors
+      // the same guard estMonthlyProfit already applies, and the dateVisibleRows "show ended" filter.
+      if (c.endDate && c.endDate.slice(0,7) < mo) return;
       // Goal→billed via the shared resolver (delivery cap · SEM paused-month · lock freeze) so the tiles,
       // chart, and Export P&L always match the per-campaign table below. For a locked month billedRevenue
       // ignores goalRev and returns the frozen per-campaign revenue, so passing spread[mo]||0 is safe.
@@ -19939,6 +19945,10 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
     const monthCells = {};
     let windowRev=0, windowSpend=0, windowDeviceFee=0, windowHasSpend=false;
     months.forEach(mo => {
+      // Same end-date guard as the monthTotals rollup above: a campaign contributes nothing to a month
+      // past its flight end, so a next-month-1st close point can't leak its final total into the wrong
+      // month's P&L. Keeps the per-campaign table + Export P&L in lockstep with the chart and tiles.
+      if (c.endDate && c.endDate.slice(0,7) < mo) { monthCells[mo] = { rev:0, spend:null, deviceFee:0, profit:null, pending:false }; return; }
       // Goal→billed via the shared resolver — bills on actual delivery (capped at goal), zeroes a closed
       // SEM month with no spend, and freezes to the lock. Same function the tile/chart rollups use, so
       // the table can never drift from the headline numbers or the Export P&L.
