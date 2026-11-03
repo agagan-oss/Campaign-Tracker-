@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/03/2026d";
+const APP_VERSION = "11/03/2026e";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -5165,15 +5165,24 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             const moVal=(mo)=>{ const ed=monthEdits[mo]||{}; const rec=recByMo[mo]||{i:0,s:0,vv:0}; return { i: ed.i!=null?ed.i:rec.i, s: ed.s!=null?ed.s:rec.s, vv: ed.vv!=null?ed.vv:rec.vv }; };
             const unitOf=(mo)=> isCPV ? moVal(mo).vv : moVal(mo).i;
             const _goalU=parseGoalNumber(f.goal)||0, _rate=parseFloat(f.contractRate)||0;
+            // MADHIVE (GCTV/PCTV/AECTV): cost is MODELED = impressions × the account CPM — you enter impressions
+            // only and spend autofills. DSP is modeled too (its own configured CPM, shown as "auto").
+            const _cpm = parseFloat(f.cpm)||0;
+            const _isDSP = f.platform==="DSP";
+            const _isMadhive = f.platform==="GCTV"||f.platform==="PCTV"||f.platform==="AECTV";
+            const _madhiveModel = _isMadhive && _cpm>0;     // Madhive with a CPM → spend auto-models from impressions
+            const _autoSpend = _isDSP || _madhiveModel;      // spend is not hand-entered
+            const spendOf = (mo)=> _madhiveModel ? ((moVal(mo).i||0)/1000*_cpm) : (moVal(mo).s||0);
             const _lifeUnits=flightMonths.reduce((s,mo)=>s+unitOf(mo),0);
-            const _lifeSpend=flightMonths.reduce((s,mo)=>s+(moVal(mo).s||0),0);
+            const _lifeSpend=flightMonths.reduce((s,mo)=>s+spendOf(mo),0);
             const _lifeBill=_goalU>0?Math.min(_lifeUnits,_goalU):_lifeUnits;
             const _lifeRev=_rate>0?(isCPV?_lifeBill*_rate:_lifeBill/1000*_rate):0;
             const _pct=_goalU>0?Math.round(_lifeUnits/_goalU*100):null;
             const _hit=_goalU>0 && _lifeUnits>=_goalU*0.995;
             const _multi=flightMonths.length>1;
             const setMoField=(mo,field,val)=>{ const num = field==='s' ? (val===''?0:(parseFloat(val)||0)) : (val===''?0:(parseInt(val)||0)); setMonthEdits(prev=>({ ...prev, [mo]:{ ...moVal(mo), ...(prev[mo]||{}), [field]:num } })); };
-            const saveMonth=(mo)=>{ if(!onSetMonthMetrics) return; const v=moVal(mo); onSetMonthMetrics(f.id, mo, { impr: v.i, views: v.vv, spend: f.platform==="DSP" ? null : v.s }); };
+            // When spend is modeled (DSP/Madhive-with-CPM), write null so the engine models it from impressions × CPM.
+            const saveMonth=(mo)=>{ if(!onSetMonthMetrics) return; const v=moVal(mo); onSetMonthMetrics(f.id, mo, { impr: v.i, views: v.vv, spend: _autoSpend ? null : v.s }); };
             const cellInput = {background:_lm?"#ffffff":"#06120f",border:`1px solid ${_lm?"#cbd5e1":"#24364f"}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,width:"100%",fontFamily:"inherit",outline:"none",boxSizing:"border-box"};
             // A LIFETIME-total edit books the balance into the END month (last flight month). Locked months are
             // patched surgically (just that one line), so this works even when the end month is locked.
@@ -5200,7 +5209,9 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                     {lifeTarget
                       ? <span style={{display:"inline-flex",alignItems:"center",gap:5}}><input type="number" value={lifeDraft.i!=null?lifeDraft.i:_lifeUnits} onChange={e=>setLifeDraft(d=>({...d,i:e.target.value}))} onBlur={()=>{ setLifetime('i', lifeDraft.i!=null?lifeDraft.i:String(_lifeUnits)); setLifeDraft(d=>({...d,i:undefined})); }} style={lifeImprBox}/><span style={{fontSize:11,fontWeight:600,color:_lm?"#047857":"#6ee7b7"}}>{isCPV?"views":"impr"}</span></span>
                       : <span style={{fontSize:17,fontWeight:800,color:_lm?"#065f46":"#00e5a0"}}>{_lifeUnits.toLocaleString()} <span style={{fontSize:11,fontWeight:600,color:_lm?"#047857":"#6ee7b7"}}>{isCPV?"views":"impr"}</span></span>}
-                    {f.platform!=="DSP" && (lifeTarget
+                    {_autoSpend
+                      ? (_lifeSpend>0 && <span style={{fontSize:13,fontWeight:700,color:_lm?"#0d9488":"#5eb8a0"}}>${Math.round(_lifeSpend).toLocaleString()} <span style={{fontSize:10,fontWeight:600,color:_lm?"#64748b":"#5a7a6e"}}>spend · auto</span></span>)
+                      : (lifeTarget
                       ? <span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{fontSize:12,fontWeight:700,color:_lm?"#64748b":"#5a7a6e"}}>$</span><input type="number" value={lifeDraft.s!=null?lifeDraft.s:Math.round(_lifeSpend)} onChange={e=>setLifeDraft(d=>({...d,s:e.target.value}))} onBlur={()=>{ setLifetime('s', lifeDraft.s!=null?lifeDraft.s:String(_lifeSpend)); setLifeDraft(d=>({...d,s:undefined})); }} style={lifeSpendBox}/><span style={{fontSize:10,fontWeight:600,color:_lm?"#64748b":"#5a7a6e"}}>spend</span></span>
                       : (_lifeSpend>0 && <span style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#d8eaf8"}}>${Math.round(_lifeSpend).toLocaleString()} <span style={{fontSize:10,fontWeight:600,color:_lm?"#64748b":"#5a7a6e"}}>spend</span></span>))}
                     {_lifeRev>0 && <span style={{fontSize:13,fontWeight:700,color:_lm?"#059669":"#00e5a0"}}>${Math.round(_lifeRev).toLocaleString()} <span style={{fontSize:10,fontWeight:600,color:_lm?"#64748b":"#5a7a6e"}}>revenue</span></span>}
@@ -5223,14 +5234,16 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                         <div key={mo} style={{display:"grid",gridTemplateColumns:"1.2fr 1.5fr 1.3fr",alignItems:"center",borderBottom:`1px solid ${_lm?"#f1f5f9":"#111c2e"}`,background:isCur?(_lm?"#f0fdf9":"#07211a"):"transparent"}}>
                           <div style={{padding:"6px 10px",fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#d8eaf8",whiteSpace:"nowrap"}}>{moLabel(mo)} {isCur&&<span style={{fontSize:8,fontWeight:800,color:_lm?"#0d9488":"#00c896",background:_lm?"#d1fae5":"#002e24",borderRadius:8,padding:"1px 5px",marginLeft:3}}>THIS MONTH</span>} {locked&&<span title="Locked month — editing only changes this line; the rest of the month stays frozen">🔒</span>}</div>
                           <div style={{padding:"4px 8px"}}><input type="number" value={(isCPV?v.vv:v.i)||""} onChange={e=>setMoField(mo,isCPV?'vv':'i',e.target.value)} onBlur={()=>saveMonth(mo)} style={locked?{...cellInput,border:`1px solid ${_lm?"#f59e0b":"#b4870f"}`}:cellInput} placeholder="0"/></div>
-                          <div style={{padding:"4px 8px"}}>{f.platform==="DSP"
+                          <div style={{padding:"4px 8px"}}>{_isDSP
                             ? <span style={{fontSize:11,color:_lm?"#d97706":"#caa46a"}} title="DSP cost is auto-modeled from impressions">auto</span>
-                            : <input type="number" value={v.s||""} onChange={e=>setMoField(mo,'s',e.target.value)} onBlur={()=>saveMonth(mo)} style={locked?{...cellInput,border:`1px solid ${_lm?"#f59e0b":"#b4870f"}`}:cellInput} placeholder="—"/>}</div>
+                            : _madhiveModel
+                              ? <span style={{fontSize:12,fontWeight:600,color:_lm?"#0d9488":"#5eb8a0"}} title={`Auto-modeled: impressions ÷ 1000 × $${_cpm} CPM`}>${Math.round((v.i||0)/1000*_cpm).toLocaleString()} <span style={{fontSize:9,fontWeight:600,color:_lm?"#94a3b8":"#4d6e8a"}}>auto</span></span>
+                              : <input type="number" value={v.s||""} onChange={e=>setMoField(mo,'s',e.target.value)} onBlur={()=>saveMonth(mo)} style={locked?{...cellInput,border:`1px solid ${_lm?"#f59e0b":"#b4870f"}`}:cellInput} placeholder="—"/>}</div>
                         </div>
                       );
                     })}
                   </div>
-                  <div style={{fontSize:9.5,color:_lm?"#94a3b8":"#4d6e8a",marginTop:5}}>Each month's figure is that month's total delivery — it flows straight to Pacing &amp; Revenue. Locked months 🔒 (amber) stay editable here — fixing one only changes that line; the rest of the month stays frozen.{isModeled && f.platform!=="DSP" && " Madhive cost = impressions × the CPM below."}</div>
+                  <div style={{fontSize:9.5,color:_lm?"#94a3b8":"#4d6e8a",marginTop:5}}>Each month's figure is that month's total delivery — it flows straight to Pacing &amp; Revenue. Locked months 🔒 (amber) stay editable here — fixing one only changes that line; the rest of the month stays frozen.{_madhiveModel && " Madhive spend auto-fills from impressions × the CPM — just enter impressions."}{_isMadhive && !_madhiveModel && " Set the CPM below, then Madhive spend will auto-fill from impressions."}</div>
                 </div>
                 {/* THIS MONTH — supporting metrics (rate/clicks/etc.; delivery is entered per-month above) */}
                 <div style={{fontSize:10,fontWeight:800,letterSpacing:".04em",textTransform:"uppercase",color:_lm?"#475569":"#7a9bbf",marginBottom:8}}>This month — supporting metrics</div>
@@ -28118,7 +28131,7 @@ export default function App() {
           the × button keeps changes. Explicit Save also closes the modal. */}
       {editTarget && <Modal
         campaign={editTarget}
-        onValuesChange={u => updateCampaign({...editTarget, ...u})}
+        onValuesChange={u => { const live = campaigns.find(c=>String(c.id)===String(editTarget.id)) || archive.find(c=>String(c.id)===String(editTarget.id)); const keep = live ? { metricSeries: live.metricSeries, impressions: live.impressions, spend: live.spend, videoViews: live.videoViews } : {}; updateCampaign({...editTarget, ...u, ...keep}); }}
         onSetMonthMetrics={commitCampaignMonth}
         monthLocks={(()=>{ try{ return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); }catch{ return {}; } })()}
         onArchive={ campaigns.some(c=>String(c.id)===String(editTarget.id)) ? (u)=>{
@@ -28148,7 +28161,11 @@ export default function App() {
           // noticeable when editing from deep in the Pacing tab. Capture scroll and restore it after the
           // re-render (double rAF), same as the pacing pause/clear handlers.
           const sy = (typeof window!=="undefined") ? window.scrollY : 0;
-          updateCampaign(u); setEditTarget(null); setEditInitialTab("details");
+          // Preserve the live (per-month-edited) delivery — the form `u` carries a STALE metricSeries snapshot
+          // that would otherwise clobber the per-month / locked-month edits saved via commitCampaignMonth.
+          const live = campaigns.find(c=>String(c.id)===String(u.id)) || archive.find(c=>String(c.id)===String(u.id));
+          const keep = live ? { metricSeries: live.metricSeries, impressions: live.impressions, spend: live.spend, videoViews: live.videoViews } : {};
+          updateCampaign({...u, ...keep}); setEditTarget(null); setEditInitialTab("details");
           if(typeof window!=="undefined" && typeof requestAnimationFrame==="function")
             requestAnimationFrame(()=>requestAnimationFrame(()=>window.scrollTo(0, sy)));
         }}
