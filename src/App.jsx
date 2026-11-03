@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/03/2026e";
+const APP_VERSION = "11/03/2026f";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -28151,7 +28151,11 @@ export default function App() {
             videoViews: live.videoViews!=null?live.videoViews:uClean.videoViews };
           const note=`${astamp} — Final metrics saved & archived`;
           const hist=clean.history&&clean.history.trim()?`${note}\n${clean.history}`:note;
-          setArchive(prev=>[{...clean, archivedDate:tod, history:hist}, ...prev.filter(a=>String(a.id)!==String(clean.id))]);
+          // Stamp flightClosedOut so this line drops out of the Revenue close-out queue (which only clears a
+          // line when the stamp is >= its end date). Use the later of today/end date so an early archive still
+          // clears the queue the moment the flight would otherwise show up there.
+          const coStamp = (clean.endDate && String(clean.endDate) > String(tod)) ? clean.endDate : tod;
+          setArchive(prev=>[{...clean, archivedDate:tod, flightClosedOut:coStamp, history:hist}, ...prev.filter(a=>String(a.id)!==String(clean.id))]);
           setCampaigns(cs=>cs.filter(c=>String(c.id)!==String(clean.id)));
           addLog({ type:"deleted", campaignName:clean.campaignName, partner:clean.mediaPartner, platform:clean.platform, detail:"Final metrics saved & archived from edit", campaignId:clean.id, prevSnapshot:{...clean} });
           setEditTarget(null); setEditInitialTab("details");
