@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/03/2026";
+const APP_VERSION = "11/03/2026d";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -4561,7 +4561,7 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
   );
 }
 
-function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null, onDiscardAllDrafts=null, onPrevDraft=null, onNextDraft=null, onValuesChange=null, onSaveDraft=null, onDiscardDraft=null, onSwitchTactic=null, initialTab="details" }) {
+function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null, onDiscardAllDrafts=null, onPrevDraft=null, onNextDraft=null, onValuesChange=null, onSaveDraft=null, onDiscardDraft=null, onSwitchTactic=null, onArchive=null, onSetMonthMetrics=null, monthLocks={}, initialTab="details" }) {
   const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",ioNumber:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",managementFee:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",targetAudience:"",lastCreativeUpdate:"",clientWebsite:"",
     // Email (EMAIL platform): billed per DROP. Each drop bills the client (default emailBillPerDrop, e.g.
     // $750) and costs us emailCostPerDrop (e.g. $500) → profit is the difference ($250). emailDrops is a
@@ -4577,6 +4577,11 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     geoData:"",       // JSON: [{label:"West Virginia",pct:45},{label:"Ohio",pct:22}...]
   };
   const [f, setF] = useState(campaign?{...campaign}:blank);
+  // Per-month delivery edits in the Metrics tab (keyed "YYYY-MM"), reflecting the campaign's record live as
+  // you type (the record saves on blur via onSetMonthMetrics). Reset when a different campaign opens.
+  const [monthEdits, setMonthEdits] = useState({});
+  const [lifeDraft, setLifeDraft] = useState({});   // in-progress edit of the LIFETIME total (reconciles into the editable month)
+  React.useEffect(()=>{ setMonthEdits({}); setLifeDraft({}); }, [campaign && campaign.id]);
   const blankR = { type:"other", note:"", date:"", repeat:"none" };
   const [newReminder, setNewReminder] = useState(blankR);
   const [showAddReminder, setShowAddReminder] = useState(false);
@@ -5144,17 +5149,93 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               </div>
             );
             const isModeled = f.platform==="DSP" || f.platform==="GCTV" || f.platform==="PCTV" || f.platform==="AECTV";
+            // ── Per-month delivery (the authoritative record) + lifetime roll-up ──────────────────────────
+            const _ser = Array.isArray(f.metricSeries)?f.metricSeries:[];
+            const curMoStr = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`;
+            const moLabel = (mo)=>{ const [yy,mm]=mo.split("-").map(Number); return new Date(yy,mm-1,1).toLocaleDateString("en-US",{month:"short",year:"numeric"}); };
+            // recorded per-month = each month's LATEST-day metricSeries reading (cumulative MTD = that month's total)
+            const recByMo={}; _ser.forEach(e=>{ const dt=parseSeriesDate(e&&e.d); if(!dt) return; const k=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`; const day=dt.getDate(); if(!recByMo[k]||day>recByMo[k].day) recByMo[k]={day,i:parseInt(e.i)||0,s:parseFloat(e.s)||0,vv:parseInt(e.vv)||0}; });
+            // months this flight ran (start→end, clamped ≤ current month), unioned with any months already recorded
+            const _fmS=String(f.startDate||"").slice(0,7), _fmE=String(f.endDate||"").slice(0,7);
+            let flightMonths=[];
+            if(/^\d{4}-\d{2}$/.test(_fmS)){ const end=/^\d{4}-\d{2}$/.test(_fmE)?(_fmE<curMoStr?_fmE:curMoStr):curMoStr; let [yy,mm]=_fmS.split("-").map(Number); for(let g=0;g<120;g++){ const k=`${yy}-${String(mm).padStart(2,"0")}`; if(k>curMoStr) break; flightMonths.push(k); if(k>=end) break; mm++; if(mm>12){mm=1;yy++;} } }
+            Object.keys(recByMo).forEach(k=>{ if(!flightMonths.includes(k) && k<=curMoStr) flightMonths.push(k); });
+            if(!flightMonths.length) flightMonths=[curMoStr];
+            flightMonths.sort();
+            const moVal=(mo)=>{ const ed=monthEdits[mo]||{}; const rec=recByMo[mo]||{i:0,s:0,vv:0}; return { i: ed.i!=null?ed.i:rec.i, s: ed.s!=null?ed.s:rec.s, vv: ed.vv!=null?ed.vv:rec.vv }; };
+            const unitOf=(mo)=> isCPV ? moVal(mo).vv : moVal(mo).i;
+            const _goalU=parseGoalNumber(f.goal)||0, _rate=parseFloat(f.contractRate)||0;
+            const _lifeUnits=flightMonths.reduce((s,mo)=>s+unitOf(mo),0);
+            const _lifeSpend=flightMonths.reduce((s,mo)=>s+(moVal(mo).s||0),0);
+            const _lifeBill=_goalU>0?Math.min(_lifeUnits,_goalU):_lifeUnits;
+            const _lifeRev=_rate>0?(isCPV?_lifeBill*_rate:_lifeBill/1000*_rate):0;
+            const _pct=_goalU>0?Math.round(_lifeUnits/_goalU*100):null;
+            const _hit=_goalU>0 && _lifeUnits>=_goalU*0.995;
+            const _multi=flightMonths.length>1;
+            const setMoField=(mo,field,val)=>{ const num = field==='s' ? (val===''?0:(parseFloat(val)||0)) : (val===''?0:(parseInt(val)||0)); setMonthEdits(prev=>({ ...prev, [mo]:{ ...moVal(mo), ...(prev[mo]||{}), [field]:num } })); };
+            const saveMonth=(mo)=>{ if(!onSetMonthMetrics) return; const v=moVal(mo); onSetMonthMetrics(f.id, mo, { impr: v.i, views: v.vv, spend: f.platform==="DSP" ? null : v.s }); };
+            const cellInput = {background:_lm?"#ffffff":"#06120f",border:`1px solid ${_lm?"#cbd5e1":"#24364f"}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,width:"100%",fontFamily:"inherit",outline:"none",boxSizing:"border-box"};
+            // A LIFETIME-total edit books the balance into the END month (last flight month). Locked months are
+            // patched surgically (just that one line), so this works even when the end month is locked.
+            const lifeTarget = flightMonths.length ? flightMonths[flightMonths.length-1] : curMoStr;
+            const lifeTargetLabel = moLabel(lifeTarget);
+            const setLifetime=(field,val)=>{
+              if(!lifeTarget) return;
+              const isS = field==='s'; const uf = isS?'s':(isCPV?'vv':'i');
+              const entered = isS ? (val===''?0:(parseFloat(val)||0)) : (val===''?0:(parseInt(val)||0));
+              const otherSum = flightMonths.filter(mo=>mo!==lifeTarget).reduce((s,mo)=> s + (isS?(moVal(mo).s||0):(isCPV?moVal(mo).vv:moVal(mo).i)), 0);
+              const balance = isS ? Math.max(0,+(entered-otherSum).toFixed(2)) : Math.max(0, entered-otherSum);
+              const nv = { ...moVal(lifeTarget), [uf]: balance };
+              setMonthEdits(prev=>({ ...prev, [lifeTarget]: nv }));
+              if(onSetMonthMetrics) onSetMonthMetrics(f.id, lifeTarget, { impr:nv.i, views:nv.vv, spend: f.platform==="DSP"?null:nv.s });
+            };
+            const lifeImprBox={background:_lm?"#ffffff":"#05140f",border:`1px solid ${_lm?"#10b981":"#0f5132"}`,borderRadius:6,padding:"3px 8px",color:_lm?"#065f46":"#00e5a0",fontSize:16,fontWeight:800,width:118,outline:"none",fontFamily:"inherit"};
+            const lifeSpendBox={background:_lm?"#ffffff":"#05140f",border:`1px solid ${_lm?"#cbd5e1":"#24364f"}`,borderRadius:6,padding:"3px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontWeight:700,width:92,outline:"none",fontFamily:"inherit"};
             return (
-              <div style={{maxWidth:760}}>
-                <div style={{fontSize:12,color:_lm?"#475569":"#7a9bbf",lineHeight:1.5,marginBottom:14,background:_lm?"#f8fafc":"#0b1626",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:8,padding:"10px 13px"}}>
-                  This month's delivery for <b style={{color:_lm?"#0f172a":"#edf4ff"}}>{f.campaignName||"this campaign"}</b>. Edits save straight to the campaign and flow to the Pacing & Revenue tabs.
-                  {isModeled && f.platform!=="DSP" && <span style={{color:_lm?"#b45309":"#fbbf24"}}> For Madhive, your <b>cost is impressions × the CPM you enter here</b> — enter it once you have it from the check-in.</span>}
+              <div style={{maxWidth:820}}>
+                {/* LIFETIME roll-up — the impressions & spend are EDITABLE (type the final flight total) */}
+                <div style={{marginBottom:14,background:_lm?"#ecfdf5":"#04221a",border:`1px solid ${_lm?"#6ee7b7":"#0f5132"}`,borderRadius:8,padding:"10px 13px"}}>
+                  <div style={{fontSize:10,fontWeight:800,letterSpacing:".04em",textTransform:"uppercase",color:_lm?"#047857":"#6ee7b7",marginBottom:6}}>📊 Lifetime · flight to date <span style={{fontWeight:600,textTransform:"none",letterSpacing:0,color:_lm?"#059669":"#5eb8a0"}}>— type the final flight total</span></div>
+                  <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"center"}}>
+                    {lifeTarget
+                      ? <span style={{display:"inline-flex",alignItems:"center",gap:5}}><input type="number" value={lifeDraft.i!=null?lifeDraft.i:_lifeUnits} onChange={e=>setLifeDraft(d=>({...d,i:e.target.value}))} onBlur={()=>{ setLifetime('i', lifeDraft.i!=null?lifeDraft.i:String(_lifeUnits)); setLifeDraft(d=>({...d,i:undefined})); }} style={lifeImprBox}/><span style={{fontSize:11,fontWeight:600,color:_lm?"#047857":"#6ee7b7"}}>{isCPV?"views":"impr"}</span></span>
+                      : <span style={{fontSize:17,fontWeight:800,color:_lm?"#065f46":"#00e5a0"}}>{_lifeUnits.toLocaleString()} <span style={{fontSize:11,fontWeight:600,color:_lm?"#047857":"#6ee7b7"}}>{isCPV?"views":"impr"}</span></span>}
+                    {f.platform!=="DSP" && (lifeTarget
+                      ? <span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{fontSize:12,fontWeight:700,color:_lm?"#64748b":"#5a7a6e"}}>$</span><input type="number" value={lifeDraft.s!=null?lifeDraft.s:Math.round(_lifeSpend)} onChange={e=>setLifeDraft(d=>({...d,s:e.target.value}))} onBlur={()=>{ setLifetime('s', lifeDraft.s!=null?lifeDraft.s:String(_lifeSpend)); setLifeDraft(d=>({...d,s:undefined})); }} style={lifeSpendBox}/><span style={{fontSize:10,fontWeight:600,color:_lm?"#64748b":"#5a7a6e"}}>spend</span></span>
+                      : (_lifeSpend>0 && <span style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#d8eaf8"}}>${Math.round(_lifeSpend).toLocaleString()} <span style={{fontSize:10,fontWeight:600,color:_lm?"#64748b":"#5a7a6e"}}>spend</span></span>))}
+                    {_lifeRev>0 && <span style={{fontSize:13,fontWeight:700,color:_lm?"#059669":"#00e5a0"}}>${Math.round(_lifeRev).toLocaleString()} <span style={{fontSize:10,fontWeight:600,color:_lm?"#64748b":"#5a7a6e"}}>revenue</span></span>}
+                    {_pct!=null && <span style={{fontSize:11,fontWeight:800,color:_hit?(_lm?"#059669":"#00e5a0"):(_lm?"#b45309":"#fbbf24"),background:_hit?(_lm?"#d1fae5":"#002e24"):(_lm?"#fef3c7":"#2a1e05"),border:`1px solid ${_hit?(_lm?"#10b981":"#00c89660"):(_lm?"#f59e0b":"#b4870f")}`,borderRadius:10,padding:"2px 9px"}}>{_pct}% of {_goalU.toLocaleString()} goal · {_hit?"✓ Hit":"⚠ Under"}</span>}
+                  </div>
+                  <div style={{fontSize:9.5,color:_lm?"#047857":"#5eb8a0",marginTop:5}}>Typing the flight total books the balance into {lifeTargetLabel}; other months stay as recorded. Or edit a specific month below.</div>
                 </div>
+                {/* PER-MONTH editable delivery — the authoritative record that flows to Pacing & Revenue */}
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:10,fontWeight:800,letterSpacing:".04em",textTransform:"uppercase",color:_lm?"#475569":"#7a9bbf",marginBottom:6}}>📅 Delivery by month <span style={{fontWeight:600,textTransform:"none",letterSpacing:0,color:_lm?"#94a3b8":"#4d6e8a"}}>— edit any month; the lifetime total updates</span></div>
+                  <div style={{border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:8,overflow:"hidden"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1.2fr 1.5fr 1.3fr",background:_lm?"#f8fafc":"#0b1626",borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:".05em",color:_lm?"#94a3b8":"#3d5a72"}}>
+                      <div style={{padding:"6px 10px"}}>Month</div>
+                      <div style={{padding:"6px 10px"}}>{isCPV?"Views":"Impressions"}</div>
+                      <div style={{padding:"6px 10px"}}>Spend $</div>
+                    </div>
+                    {flightMonths.map(mo=>{
+                      const v=moVal(mo); const isCur=mo===curMoStr; const locked=!!monthLocks[mo];
+                      return (
+                        <div key={mo} style={{display:"grid",gridTemplateColumns:"1.2fr 1.5fr 1.3fr",alignItems:"center",borderBottom:`1px solid ${_lm?"#f1f5f9":"#111c2e"}`,background:isCur?(_lm?"#f0fdf9":"#07211a"):"transparent"}}>
+                          <div style={{padding:"6px 10px",fontSize:12,fontWeight:700,color:_lm?"#0f172a":"#d8eaf8",whiteSpace:"nowrap"}}>{moLabel(mo)} {isCur&&<span style={{fontSize:8,fontWeight:800,color:_lm?"#0d9488":"#00c896",background:_lm?"#d1fae5":"#002e24",borderRadius:8,padding:"1px 5px",marginLeft:3}}>THIS MONTH</span>} {locked&&<span title="Locked month — editing only changes this line; the rest of the month stays frozen">🔒</span>}</div>
+                          <div style={{padding:"4px 8px"}}><input type="number" value={(isCPV?v.vv:v.i)||""} onChange={e=>setMoField(mo,isCPV?'vv':'i',e.target.value)} onBlur={()=>saveMonth(mo)} style={locked?{...cellInput,border:`1px solid ${_lm?"#f59e0b":"#b4870f"}`}:cellInput} placeholder="0"/></div>
+                          <div style={{padding:"4px 8px"}}>{f.platform==="DSP"
+                            ? <span style={{fontSize:11,color:_lm?"#d97706":"#caa46a"}} title="DSP cost is auto-modeled from impressions">auto</span>
+                            : <input type="number" value={v.s||""} onChange={e=>setMoField(mo,'s',e.target.value)} onBlur={()=>saveMonth(mo)} style={locked?{...cellInput,border:`1px solid ${_lm?"#f59e0b":"#b4870f"}`}:cellInput} placeholder="—"/>}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{fontSize:9.5,color:_lm?"#94a3b8":"#4d6e8a",marginTop:5}}>Each month's figure is that month's total delivery — it flows straight to Pacing &amp; Revenue. Locked months 🔒 (amber) stay editable here — fixing one only changes that line; the rest of the month stays frozen.{isModeled && f.platform!=="DSP" && " Madhive cost = impressions × the CPM below."}</div>
+                </div>
+                {/* THIS MONTH — supporting metrics (rate/clicks/etc.; delivery is entered per-month above) */}
+                <div style={{fontSize:10,fontWeight:800,letterSpacing:".04em",textTransform:"uppercase",color:_lm?"#475569":"#7a9bbf",marginBottom:8}}>This month — supporting metrics</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:"0 16px"}}>
-                  {mInput("impressions","Impressions")}
-                  {isCPV && mInput("videoViews","Video Views")}
                   {mInput("cpm", f.platform==="SEM" ? "CPC ($)" : "CPM ($)", isModeled && f.platform!=="DSP" ? "Madhive cost = impr × this CPM" : "")}
-                  {mInput("spend","Spend ($)", f.platform==="DSP" ? "DSP cost is modeled — leave blank" : "")}
                   {mInput("ctr","CTR (%)")}
                   {mInput("clicks","Clicks")}
                   {(isCPV || ["CTV","OTT","OTTD","GCTV","PCTV","AECTV","TDV","FBV","TT"].includes(f.platform)) && mInput("completionRate","Completion Rate (VCR %)")}
@@ -5876,6 +5957,10 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             </div>
           )}
           <button onClick={submit} className="glow-btn" style={{flex:1,background:"#00e19e",border:"none",borderRadius:7,padding:"11px 0",color:"#0a1a0a",fontWeight:700,fontSize:14,cursor:"pointer"}}>{isNew?"Add Campaign":"Save Changes"}</button>
+          {!isNew && onArchive && (
+            <button onClick={()=>onArchive(f)} title="Save these metrics and move the campaign to the Archive"
+              style={{flex:1,background:_lm?"#f59e0b":"#b4870f",border:"none",borderRadius:7,padding:"11px 0",color:_lm?"#3a2500":"#1a1205",fontWeight:800,fontSize:14,cursor:"pointer",whiteSpace:"nowrap"}}>🗄 Save &amp; Archive</button>
+          )}
           {/* Add Campaign (not the IO draft queue) gets explicit draft controls:
               "Save as Draft" closes but keeps the in-progress work; "Discard" clears
               it after a two-step confirm so a stray click can't wipe your work. */}
@@ -8727,7 +8812,7 @@ Always include historyNote. Chain multiple action blocks when needed. Use exact 
 }
 
 
-function CampaignArchive({ archive, onRestore, onBulkRestore, onClear, onUnlock=()=>{} }) {
+function CampaignArchive({ archive, onRestore, onBulkRestore, onClear, onUnlock=()=>{}, onEdit=()=>{} }) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(new Set());
   // Multi-select for BULK RESTORE (undo a bulk archive). Persists across month tabs so a batch spanning
@@ -8925,6 +9010,7 @@ function CampaignArchive({ archive, onRestore, onBulkRestore, onClear, onUnlock=
                             </td>
                             <td style={{padding:"9px 13px",borderBottom:cellBorder,textAlign:"right",whiteSpace:"nowrap"}}>
                               {c.metricsLocked&&<button onClick={()=>onUnlock(c.id)} title="Unlock — let check-ins update this line again" style={{background:_lm?"#fef3c7":"#2a1e05",border:`1px solid ${_lm?"#f59e0b":"#b4870f"}`,borderRadius:5,color:_lm?"#b45309":"#fcd34d",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:700,marginRight:6}}>🔓 Unlock</button>}
+                              <button onClick={()=>onEdit(c)} title="Edit this archived campaign's metrics — stays archived" style={{background:_lm?"#eef2ff":"#13213a",border:`1px solid ${_lm?"#c7d2fe":"#2a3f66"}`,borderRadius:5,color:_lm?"#4338ca":"#93b4ff",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:700,marginRight:6}}>✏️ Edit</button>
                               <button onClick={()=>onRestore(c)} style={{background:_lm?"#00e19e":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:5,color:_lm?"#0a1a0a":"#00e5a0",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:700}}>Restore</button>
                             </td>
                           </tr>
@@ -8937,12 +9023,17 @@ function CampaignArchive({ archive, onRestore, onBulkRestore, onClear, onUnlock=
                                     // just the last month's slice held in the headline fields — so a reconciled flight's
                                     // full numbers are visibly recorded here.
                                     const ser = Array.isArray(c.metricSeries)?c.metricSeries:[];
-                                    const mset = new Set(ser.map(e=>{ const dt=parseSeriesDate(e&&e.d); return dt?`${dt.getFullYear()}-${dt.getMonth()}`:null; }).filter(Boolean));
-                                    const multi = mset.size>1;
+                                    // metricSeries entries are CUMULATIVE month-to-date readings (one per check-in day),
+                                    // so lifetime = sum of each MONTH's final (latest-day) reading — NOT a sum of every
+                                    // entry (that would multiply-count every daily snapshot). Mirrors closedMonthMetrics.
+                                    const byMo={};
+                                    ser.forEach(e=>{ const dt=parseSeriesDate(e&&e.d); if(!dt) return; const k=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`; const day=dt.getDate(); if(!byMo[k]||day>byMo[k].day) byMo[k]={day,i:parseInt(e.i)||0,s:parseFloat(e.s)||0,vv:parseInt(e.vv)||0}; });
+                                    const moVals=Object.values(byMo);
+                                    const multi = moVals.length>1;
                                     const _isCPV = dealBasis(c)==="CPV";
-                                    const lifeImpr = ser.reduce((s,e)=>s+(parseInt(e.i)||0),0);
-                                    const lifeViews = ser.reduce((s,e)=>s+(parseInt(e.vv)||0),0);
-                                    const lifeSpend = ser.reduce((s,e)=>s+(parseFloat(e.s)||0),0);
+                                    const lifeImpr = moVals.reduce((s,m)=>s+m.i,0);
+                                    const lifeViews = moVals.reduce((s,m)=>s+m.vv,0);
+                                    const lifeSpend = moVals.reduce((s,m)=>s+m.s,0);
                                     const rate=parseFloat(c.contractRate)||0, goalU=parseGoalNumber(c.goal)||0;
                                     const lifeUnits=_isCPV?lifeViews:lifeImpr;
                                     const lifeBill=goalU>0?Math.min(lifeUnits,goalU):lifeUnits;
@@ -25658,6 +25749,92 @@ export default function App() {
       return cs.map(c=>c.id===u.id?u:c);
     });
   }
+  // Write ONE campaign-month's delivery to the authoritative record — metricSeries (dated the month's last
+  // day) + live headline fields (only when it's the current month or the flight's end month) + the monthly
+  // backup if one exists. Shared by the Revenue tab's per-month editor AND the edit modal's per-month grid,
+  // so both edit the exact same source of truth. (The month-LOCK snapshot is patched separately by
+  // RevenueDashboard.commitMonthMetrics; the modal's grid leaves locked months read-only.)
+  function commitCampaignMonth(id, month, vals){
+    const { impr, views, spend } = vals;
+    const c = campaigns.find(x=>String(x.id)===String(id)) || archive.find(x=>String(x.id)===String(id));
+    if (!c) return;
+    const [y,m] = month.split("-").map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    const dstamp = `${String(m).padStart(2,"0")}/${String(lastDay).padStart(2,"0")}/${y}`;
+    const curMo = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`;
+    const patch = (x)=>{
+      const series = (Array.isArray(x.metricSeries)?x.metricSeries:[]).filter(e=>{ const d=parseSeriesDate(e&&e.d); return !(d && d.getFullYear()===y && d.getMonth()===m-1); });
+      series.push({ d:dstamp, i:impr||0, s:(spend==null?0:spend), vv:views||0 });
+      const p = { ...x, metricSeries: series };
+      if (month===curMo || (x.endDate && x.endDate.slice(0,7)===month)) {
+        p.impressions = impr!=null?String(impr):x.impressions;
+        if (spend!=null) p.spend = String(spend);
+        if (views) p.videoViews = String(views);
+      }
+      return p;
+    };
+    setCampaigns(cs=>cs.map(x=>String(x.id)===String(id)?patch(x):x));
+    setArchive(as=>as.map(x=>String(x.id)===String(id)?patch(x):x));
+    try {
+      const bks = JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}");
+      const mb = bks[month];
+      if (mb && Array.isArray(mb.campaigns)) {
+        const bi = mb.campaigns.findIndex(r=>String(r.id)===String(id));
+        if (bi>=0) {
+          const e = { ...mb.campaigns[bi] };
+          e.impressions = String(impr!=null?impr:(parseInt(e.impressions)||0));
+          if (views) e.videoViews = String(views);
+          if (spend!=null) e.spend = String(spend);
+          mb.campaigns[bi] = e;
+          bks[month] = mb;
+          localStorage.setItem(MONTHLY_BACKUP_KEY, JSON.stringify(bks));
+        }
+      }
+    } catch {}
+    // If `month` is LOCKED, re-freeze THIS campaign's entry in the lock snapshot with its recomputed
+    // revenue/profit — surgical: every other campaign in that locked month stays exactly as it was. Mirrors
+    // RevenueDashboard.commitMonthMetrics so the figures match the Revenue tab. Written to localStorage; the
+    // Revenue tab re-reads the locks when it next mounts (the edit modal is opened from another tab).
+    try {
+      const locks = JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}");
+      if (locks[month] && c.platform!=="SEM" && c.platform!=="EMAIL") {
+        const base = campaigns.find(x=>String(x.id)===String(id)) || archive.find(x=>String(x.id)===String(id)) || c;
+        const newSeries = (Array.isArray(base.metricSeries)?base.metricSeries:[]).filter(e=>{ const d=parseSeriesDate(e&&e.d); return !(d && d.getFullYear()===y && d.getMonth()===m-1); });
+        newSeries.push({ d:dstamp, i:impr||0, s:(spend==null?0:spend), vv:views||0 });
+        const bks = JSON.parse(localStorage.getItem(MONTHLY_BACKUP_KEY)||"{}");
+        const delivFor = (mo)=>{ const bk=bks[mo]; if(bk&&Array.isArray(bk.campaigns)){ const be=bk.campaigns.find(r=>String(r.id)===String(id)); if(be) return {i:parseInt(be.impressions)||0,vv:parseInt(be.videoViews)||0,s:parseFloat(be.spend)||0}; } let best=null; newSeries.forEach(e=>{ const d=parseSeriesDate(e&&e.d); if(!d) return; const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; if(k!==mo) return; const day=d.getDate(); if(!best||day>best.day) best={day,i:parseInt(e.i)||0,vv:parseInt(e.vv)||0,s:parseFloat(e.s)||0}; }); return best||{i:0,vv:0,s:0}; };
+        const isCPVc = dealBasis(c)==="CPV";
+        const rate = parseFloat(c.contractRate)||0;
+        const goalTotal = parseGoalNumber(c.goal)||0;
+        const monthU = isCPVc ? (views||0) : (impr||0);
+        let rev=0;
+        if (flightGoalLabel(c) && goalTotal>0) {
+          const sm = String(c.startDate||"").slice(0,7); let cumPrior=0;
+          if(/^\d{4}-\d{2}$/.test(sm)){ let [yy,mm]=sm.split("-").map(Number); for(let g=0;g<120;g++){ const k=`${yy}-${String(mm).padStart(2,"0")}`; if(k>=month) break; const dv=delivFor(k); cumPrior+=isCPVc?dv.vv:dv.i; mm++; if(mm>12){mm=1;yy++;} } }
+          const billable=Math.max(0, Math.min(cumPrior+monthU,goalTotal)-Math.min(cumPrior,goalTotal));
+          rev = isCPVc ? billable*rate : billable/1000*rate;
+        } else {
+          const mg = effectiveMonthlyGoal(c)||0;
+          const goalRev = mg>0 ? (isCPVc?mg*rate:mg/1000*rate) : 0;
+          const dRev = isCPVc ? monthU*rate : monthU/1000*rate;
+          rev = goalRev>0 ? Math.min(dRev, goalRev) : dRev;
+        }
+        let sp;
+        if (c.platform==="DSP") { const mc=(typeof loadModeledCpms==="function"?(loadModeledCpms()["DSP"]||0):0); sp=(impr||0)/1000*mc; }
+        else if (c.platform==="GCTV"||c.platform==="PCTV"||c.platform==="AECTV") { sp=(spend!=null&&spend>0)?spend:(((impr||0)>0&&(parseFloat(c.cpm)||0)>0)?(impr/1000)*(parseFloat(c.cpm)||0):null); }
+        else sp = spend;
+        const lock=locks[month]; const camps=[...(lock.campaigns||[])];
+        const ci=camps.findIndex(x=>String(x.id)===String(id)); const dev=ci>=0?(camps[ci].deviceFee||0):0;
+        const entry={ ...(ci>=0?camps[ci]:{}), id, name:(c.campaignName||"").trim(), partner:c.mediaPartner, platform:c.platform, revenue:rev||0, spend:sp, profit: sp==null?null:((rev||0)-sp-dev), deviceFee:dev, impressions:impr||0, videoViews:views||0 };
+        if(ci>=0) camps[ci]=entry; else camps.push(entry);
+        const trk=camps.filter(x=>x.spend!=null&&x.spend>0);
+        const tR=trk.reduce((s,x)=>s+(x.revenue||0),0), tS=trk.reduce((s,x)=>s+x.spend,0), tD=trk.reduce((s,x)=>s+(x.deviceFee||0),0);
+        locks[month]={ ...lock, campaigns:camps, totalRevenue:tR, totalSpend:tS, totalDeviceFee:tD, totalProfit:tR-tS-tD, margin: tR>0?((tR-tS-tD)/tR*100):0 };
+        localStorage.setItem(MONTH_LOCK_KEY, JSON.stringify(locks));
+      }
+    } catch {}
+    addLog({ type:"edited", campaignName:c.campaignName, partner:c.mediaPartner, platform:c.platform, detail:`Corrected ${month} delivery`, campaignId:id, prevSnapshot:null });
+  }
   // Bulk archive the selected campaigns — same behavior as a single row's Archive action, looped.
   async function bulkArchive() {
     const toArchive = campaigns.filter(c => selectedIds.has(c.id));
@@ -26532,7 +26709,8 @@ export default function App() {
           />
         ) : activeTab==="archive" ? (
           <CampaignArchive archive={archive} onRestore={handleRestore} onBulkRestore={bulkRestore} onClear={()=>setArchive([])}
-            onUnlock={(id)=>{ setArchive(as=>as.map(x=>String(x.id)===String(id)?{...x, metricsLocked:false, metricsLockedAt:undefined}:x)); }}/>
+            onUnlock={(id)=>{ setArchive(as=>as.map(x=>String(x.id)===String(id)?{...x, metricsLocked:false, metricsLockedAt:undefined}:x)); }}
+            onEdit={(camp)=>{ setEditInitialTab("metrics"); setEditTarget(camp); }}/>
         ) : activeTab==="ai" ? (
           <AIAdvisor
             campaigns={campaigns}
@@ -27941,6 +28119,30 @@ export default function App() {
       {editTarget && <Modal
         campaign={editTarget}
         onValuesChange={u => updateCampaign({...editTarget, ...u})}
+        onSetMonthMetrics={commitCampaignMonth}
+        monthLocks={(()=>{ try{ return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); }catch{ return {}; } })()}
+        onArchive={ campaigns.some(c=>String(c.id)===String(editTarget.id)) ? (u)=>{
+          // Save & Archive from the edit modal: persist the edited metrics, then move the campaign to the
+          // Archive in one step (the natural "flight ended → confirm/fix final metrics → archive" flow).
+          // IMPORTANT: the per-month delivery edits live on the CAMPAIGN RECORD (written via commitCampaignMonth),
+          // NOT on the modal's form `u`, whose metricSeries/headline are a stale snapshot. The form's OTHER
+          // field edits are already auto-saved to the live record via onValuesChange. So archive the LIVE
+          // record and only layer `u`'s non-delivery fields on top — never let `u` clobber the live delivery.
+          const tod=getToday(); const [ay,am,ad]=tod.split("-"); const astamp=`${am}/${ad}/${ay}`;
+          const { _fromArchive, ...uClean } = u;
+          const live = campaigns.find(c=>String(c.id)===String(u.id)) || {};
+          const clean = { ...uClean,
+            metricSeries: live.metricSeries!=null?live.metricSeries:uClean.metricSeries,
+            impressions: live.impressions!=null?live.impressions:uClean.impressions,
+            spend: live.spend!=null?live.spend:uClean.spend,
+            videoViews: live.videoViews!=null?live.videoViews:uClean.videoViews };
+          const note=`${astamp} — Final metrics saved & archived`;
+          const hist=clean.history&&clean.history.trim()?`${note}\n${clean.history}`:note;
+          setArchive(prev=>[{...clean, archivedDate:tod, history:hist}, ...prev.filter(a=>String(a.id)!==String(clean.id))]);
+          setCampaigns(cs=>cs.filter(c=>String(c.id)!==String(clean.id)));
+          addLog({ type:"deleted", campaignName:clean.campaignName, partner:clean.mediaPartner, platform:clean.platform, detail:"Final metrics saved & archived from edit", campaignId:clean.id, prevSnapshot:{...clean} });
+          setEditTarget(null); setEditInitialTab("details");
+        } : null }
         onSave={u=>{
           // Saving re-renders the whole list, which drops the scroll position (bumps to the top) — most
           // noticeable when editing from deep in the Pacing tab. Capture scroll and restore it after the
