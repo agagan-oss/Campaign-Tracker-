@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/02/2026d";
+const APP_VERSION = "11/03/2026";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -8932,22 +8932,42 @@ function CampaignArchive({ archive, onRestore, onBulkRestore, onClear, onUnlock=
                             <tr style={{background:_lm?"#f8fafc":"#06101a"}}>
                               <td colSpan={7} style={{padding:"10px 16px",borderBottom:`1px solid ${_lm?"#e2e8f0":"#060c18"}`}}>
                                 <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:11}}>
-                                  {[
-                                    {label:"Impressions",val:c.impressions},
-                                    {label:"CTR",val:c.ctr?c.ctr+"%":null},
-                                    {label:"CPM",val:c.cpm?"$"+c.cpm:null},
-                                    {label:"Spend",val:c.spend?"$"+c.spend:null},
-                                    {label:"Clicks",val:c.clicks},
-                                    {label:"Reach",val:c.reach},
-                                    {label:"Freq",val:c.frequency},
-                                    {label:"VCR",val:c.completionRate?c.completionRate+"%":null},
-                                  ].filter(x=>x.val).map(({label,val})=>(
-                                    <div key={label} style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:5,padding:"4px 10px",textAlign:"center"}}>
-                                      <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
-                                      <div style={{fontWeight:700,color:_lm?"#0f172a":"#d8eaf8"}}>{val}</div>
-                                    </div>
-                                  ))}
-                                  {!c.impressions&&!c.spend&&<span style={{color:_lm?"#94a3b8":"#3d5a72",fontStyle:"italic"}}>No metrics recorded</span>}
+                                  {(()=>{
+                                    // Multi-month flights: show the WHOLE-FLIGHT totals (sum across months) + revenue, not
+                                    // just the last month's slice held in the headline fields — so a reconciled flight's
+                                    // full numbers are visibly recorded here.
+                                    const ser = Array.isArray(c.metricSeries)?c.metricSeries:[];
+                                    const mset = new Set(ser.map(e=>{ const dt=parseSeriesDate(e&&e.d); return dt?`${dt.getFullYear()}-${dt.getMonth()}`:null; }).filter(Boolean));
+                                    const multi = mset.size>1;
+                                    const _isCPV = dealBasis(c)==="CPV";
+                                    const lifeImpr = ser.reduce((s,e)=>s+(parseInt(e.i)||0),0);
+                                    const lifeViews = ser.reduce((s,e)=>s+(parseInt(e.vv)||0),0);
+                                    const lifeSpend = ser.reduce((s,e)=>s+(parseFloat(e.s)||0),0);
+                                    const rate=parseFloat(c.contractRate)||0, goalU=parseGoalNumber(c.goal)||0;
+                                    const lifeUnits=_isCPV?lifeViews:lifeImpr;
+                                    const lifeBill=goalU>0?Math.min(lifeUnits,goalU):lifeUnits;
+                                    const lifeRev=multi&&rate>0?(_isCPV?lifeBill*rate:lifeBill/1000*rate):null;
+                                    const tiles=[
+                                      {label:multi?"Impressions · flight":"Impressions",val:multi?(lifeImpr>0?lifeImpr.toLocaleString():c.impressions):c.impressions},
+                                      {label:"CTR",val:c.ctr?c.ctr+"%":null},
+                                      {label:"CPM",val:c.cpm?"$"+c.cpm:null},
+                                      {label:multi?"Spend · flight":"Spend",val:multi?(lifeSpend>0?"$"+Math.round(lifeSpend).toLocaleString():(c.spend?"$"+c.spend:null)):(c.spend?"$"+c.spend:null)},
+                                      (multi&&lifeRev!=null)?{label:"Revenue · flight",val:"$"+Math.round(lifeRev).toLocaleString()}:null,
+                                      {label:"Clicks",val:c.clicks},
+                                      {label:"Reach",val:c.reach},
+                                      {label:"Freq",val:c.frequency},
+                                      {label:"VCR",val:c.completionRate?c.completionRate+"%":null},
+                                    ].filter(x=>x&&x.val);
+                                    return (<>
+                                      {tiles.map(({label,val})=>(
+                                        <div key={label} style={{background:_lm?"#ffffff":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`,borderRadius:5,padding:"4px 10px",textAlign:"center"}}>
+                                          <div style={{fontSize:9,color:_lm?"#94a3b8":"#3d5a72",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:1}}>{label}</div>
+                                          <div style={{fontWeight:700,color:_lm?"#0f172a":"#d8eaf8"}}>{val}</div>
+                                        </div>
+                                      ))}
+                                      {!tiles.length&&<span style={{color:_lm?"#94a3b8":"#3d5a72",fontStyle:"italic"}}>No metrics recorded</span>}
+                                    </>);
+                                  })()}
                                 </div>
                                 {c.history&&c.history.trim()&&(
                                   <div style={{marginTop:12,paddingTop:10,borderTop:`1px solid ${_lm?"#e2e8f0":"#1a2744"}`}}>
@@ -19245,6 +19265,7 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   const [closeoutOpen, setCloseoutOpen]     = useState(false); // flight close-out / reconcile panel (collapsed by default — opens on click)
   const [closeoutDrafts, setCloseoutDrafts] = useState({});   // {id: {impr, views, spend, mode}} — per-line final-number edits in the close-out panel
   const [closeoutSearch, setCloseoutSearch] = useState("");   // search box — pull ANY campaign into the panel to reconcile (e.g. multi-month political flights)
+  const [closeoutMsg, setCloseoutMsg]       = useState("");   // confirmation of what a close-out/reconcile just saved
   useEffect(() => {
     try {
       localStorage.setItem(REVENUE_FILTER_KEY, JSON.stringify({
@@ -19339,6 +19360,9 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
     let views = viewsStr === "" ? 0 : (parseInt(viewsStr) || 0);
     let spend = spendStr === "" ? null : (parseFloat(spendStr) || 0);
     const alwaysModeled = c.platform === "DSP"; // DSP cost is modeled — never carry a spend value
+    // What was TYPED (whole-flight mode = the lifetime total) — used for the save confirmation below.
+    const enteredUnits = row.isCPV ? views : impr;
+    const enteredSpend = spend;
     // Keep earlier months as-is and write only the BALANCE (flight total − already booked before end month)
     // into the end month, so recorded lifetime equals what was typed (floors at 0 if the total is lower).
     if (_flt) {
@@ -19352,6 +19376,26 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
     // eligible to be updated again on later check-ins.
     if (row.kind !== "open") onCloseoutFlight(c.id);
     setCloseoutDrafts(p => { const n = { ...p }; delete n[c.id]; return n; });
+    // ── Confirmation — tell the user exactly what was recorded and where (so a whole-flight reconcile
+    //    whose revenue is capped at goal, or split across earlier months, doesn't read as "nothing saved").
+    (()=>{
+      const rate = parseFloat(c.contractRate) || 0;
+      const goalU = parseGoalNumber(c.goal) || 0;
+      const uLabel = row.isCPV ? "views" : "impr";
+      const moName = moDate(targetMonth).toLocaleDateString("en-US",{month:"short",year:"numeric"});
+      if (_flt) {
+        const billable = goalU>0 ? Math.min(enteredUnits, goalU) : enteredUnits;
+        const revAmt = row.isCPV ? billable*rate : billable/1000*rate;
+        const capped = goalU>0 && enteredUnits > goalU;
+        setCloseoutMsg(`✓ ${c.campaignName.trim()} — flight total ${enteredUnits.toLocaleString()} ${uLabel}`
+          + (enteredSpend!=null ? ` · $${Math.round(enteredSpend).toLocaleString()} spend` : "")
+          + ` saved & 🔒 archived · revenue $${Math.round(revAmt).toLocaleString()}`
+          + (capped ? ` (capped at ${goalU.toLocaleString()} goal — booked across the flight's months)` : ` (booked across the flight's months)`));
+      } else {
+        setCloseoutMsg(`✓ ${c.campaignName.trim()} — ${moName}: ${enteredUnits.toLocaleString()} ${uLabel}`
+          + (enteredSpend!=null ? ` · $${Math.round(enteredSpend).toLocaleString()} spend` : "") + " saved.");
+      }
+    })();
     return true;
   }
   // "Looks good" — the current numbers are already the final; just close it out (no write).
@@ -20668,6 +20712,12 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
               {bodyOpen?"Hide":(hasQueue?`Review ${closeoutQueue.length} →`:"Open →")}
             </button>
           </div>
+          {closeoutMsg && (
+            <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,background:_lm?"#ecfdf5":"#052b1e",border:`1px solid ${_lm?"#6ee7b7":"#0f5132"}`,borderRadius:7,padding:"6px 10px"}}>
+              <span style={{fontSize:11,color:_lm?"#047857":"#6ee7b7",fontWeight:600,flex:1}}>{closeoutMsg}</span>
+              <button onClick={()=>setCloseoutMsg("")} title="Dismiss" style={{background:"none",border:"none",color:_lm?"#047857":"#6ee7b7",fontSize:13,fontWeight:800,cursor:"pointer",flexShrink:0}}>✕</button>
+            </div>
+          )}
           {bodyOpen&&(
             <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:6,maxHeight:460,overflowY:"auto"}}>
               <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
