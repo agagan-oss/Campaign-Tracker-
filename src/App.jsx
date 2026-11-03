@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/03/2026f";
+const APP_VERSION = "11/03/2026h";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -16142,25 +16142,27 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if(!Array.isArray(rows)) return null;
     // Order the review list so anything NEEDING A DECISION floats to the top and the "all set" rows sink,
     // matching the user's own heuristic: "once I scroll into purple checkmarks I know I'm done." Tiers:
-    //   0 = FLAGGED / needs review — confidence below the ⚠ review bar (<0.7), INCLUDING a downgraded
-    //       remembered match (e.g. a closed-archive ⚠ ended match). These are what he must look at first.
-    //   1 = normal auto-match (fuzzy, decent confidence, not remembered) — a glance.
-    //   2 = remembered (purple ✓) / exact — "all set".
-    //   3 = unmapped — the ignore pile (mostly other CMs' rows), parked at the very bottom.
+    //   0 = UNMAPPED — no campaign assigned, so nothing books until you map it. These are the most urgent
+    //       (the user: unmapped rows "should always show at the top"). Ignored rows are hidden from this
+    //       list entirely (isIgnoredName), so an unmapped row here is always one that needs a decision.
+    //   1 = FLAGGED / needs review — confidence below the ⚠ review bar (<0.7), INCLUDING a downgraded
+    //       remembered match (e.g. a closed-archive ⚠ ended match). Lowest % first.
+    //   2 = normal auto-match (fuzzy, decent confidence, not remembered) — a glance.
+    //   3 = remembered (purple ✓) / exact — "all set", parked at the bottom.
     const REVIEW = 0.7; // mirrors isLowConf in the row render
     const tier = (i)=>{
       const a = mp[i];
-      if(!a) return 3;                                            // unmapped → very last
+      if(!a) return 0;                                            // unmapped → TOP (needs a decision)
       const c = conf[i];
       const isMem = mem[i] != null && String(mem[i]) === String(a);
-      if(c !== undefined && c < REVIEW) return 0;                 // flagged → TOP, even if remembered
-      if(!isMem && c !== undefined && c < 1.0) return 1;          // normal fuzzy auto-match → middle
-      return 2;                                                   // remembered / exact (purple ✓) → "all set"
+      if(c !== undefined && c < REVIEW) return 1;                 // flagged → near top, even if remembered
+      if(!isMem && c !== undefined && c < 1.0) return 2;          // normal fuzzy auto-match → middle
+      return 3;                                                   // remembered / exact (purple ✓) → "all set"
     };
     return rows.map((_,i)=>i).sort((a,b)=>{
       const ta=tier(a), tb=tier(b);
       if(ta!==tb) return ta-tb;
-      if(ta===0){ const ca=conf[a]??1, cb=conf[b]??1; if(ca!==cb) return ca-cb; } // lowest % first
+      if(ta===1){ const ca=conf[a]??1, cb=conf[b]??1; if(ca!==cb) return ca-cb; } // flagged: lowest % first
       return a-b;                                                 // stable: keep file order within tier
     });
   }
@@ -17644,7 +17646,18 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
         // TradeDesk: match by advertiser name (client name) — exact/substring, not fuzzy guessing
         const advName = getTTDAdvertiserName(row);
         const clientName = getTTDClientName(advName);
-        const matchedId = matchTTDClientToTracker(clientName, matchCandidates);
+        let matchedId = matchTTDClientToTracker(clientName, matchCandidates);
+        // Fallback: if the advertiser name didn't match, try the row's CAMPAIGN name. TradeDesk advertiser
+        // names are hand-typed and sometimes misspelled ("Hometown Matress" vs the tracker's "Hometown
+        // Mattress"), which breaks exact/substring and drops word-overlap below the bar — yet the Campaign
+        // name ("Hometown Mattress Display Campaign") is spelled right and contains the tracker name as a
+        // substring. Same strict matcher (exact/substring/0.7 word-overlap), so this adds recall without
+        // loosening the guard that keeps near-identical political flights (e.g. SC vs GA midterms) apart.
+        if(!matchedId){
+          const campName = getCampName(row, "TradeDesk");
+          if(campName && campName.trim().toLowerCase() !== String(clientName||"").toLowerCase())
+            matchedId = matchTTDClientToTracker(campName, matchCandidates);
+        }
         // TTD matching is deterministic (exact/substring/word-overlap) — assign 0.8 base confidence
         if(matchedId){ initMap[i]=matchedId; initConf[i]=0.8; autoCount++; }
       } else if(source==="DSP"){
@@ -25784,6 +25797,26 @@ export default function App() {
         if (spend!=null) p.spend = String(spend);
         if (views) p.videoViews = String(views);
       }
+      // When editing the CURRENT month, the Revenue/Pacing tabs read the live MTD snapshot (ttdSnapshots
+      // etc.) — NOT metricSeries — and ignore a campaign whose latest data date is in a prior month (treated
+      // as "pending", so last month's finals aren't double-counted). Writing only metricSeries/c.* therefore
+      // leaves the edit INVISIBLE for the current month. So mirror the values into every existing platform
+      // snapshot's mtd and stamp today's data date, so the current-month resolvers reflect the edit.
+      if (month===curMo) {
+        const iso = (typeof getToday==="function") ? getToday()
+          : `${y}-${String(m).padStart(2,"0")}-${String(new Date().getDate()).padStart(2,"0")}`;
+        ["metaSnapshots","ttdSnapshots","dspSnapshots","googleSnapshots","snapSnapshots"].forEach(k=>{
+          if (p[k] && p[k].mtd) {
+            p[k] = { ...p[k], mtd: { ...p[k].mtd,
+              ...(impr!=null?{impressions:impr}:{}),
+              ...(spend!=null?{spend:spend}:{}),
+              ...(views?{video_views:views, videoViews:views}:{}),
+              updatedAt: iso } };
+          }
+        });
+        p.lastMetricUpdate = iso;
+        if (spend!=null) p.lastSpendUpdate = iso;
+      }
       return p;
     };
     setCampaigns(cs=>cs.map(x=>String(x.id)===String(id)?patch(x):x));
@@ -27299,6 +27332,24 @@ export default function App() {
                 p.impressions = impr!=null?String(impr):x.impressions;
                 if (spend!=null) p.spend = String(spend);
                 if (views) p.videoViews = String(views);
+              }
+              // A CURRENT-month correction must reach the live MTD snapshot (what Revenue/Pacing read for the
+              // current month) + stamp today's data date, or the staleness gate treats it as pending and the
+              // edit never shows. Mirrors commitCampaignMonth. (See that function for the full rationale.)
+              if (month===curMo) {
+                const iso = (typeof getToday==="function") ? getToday()
+                  : `${y}-${String(m).padStart(2,"0")}-${String(new Date().getDate()).padStart(2,"0")}`;
+                ["metaSnapshots","ttdSnapshots","dspSnapshots","googleSnapshots","snapSnapshots"].forEach(k=>{
+                  if (p[k] && p[k].mtd) {
+                    p[k] = { ...p[k], mtd: { ...p[k].mtd,
+                      ...(impr!=null?{impressions:impr}:{}),
+                      ...(spend!=null?{spend:spend}:{}),
+                      ...(views?{video_views:views, videoViews:views}:{}),
+                      updatedAt: iso } };
+                  }
+                });
+                p.lastMetricUpdate = iso;
+                if (spend!=null) p.lastSpendUpdate = iso;
               }
               return p;
             };
