@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/04/2026e";
+const APP_VERSION = "11/04/2026f";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -5669,78 +5669,63 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                   drop's date; Contract Value = the sum of all drops' bill. Re-drops / matchback are just drops. */}
               {f.platform==="EMAIL" && (()=>{
                 const n = v => parseFloat(v)||0;
-                const defB = n(f.emailBillPerDrop), defC = n(f.emailCostPerDrop);
+                const defB = n(f.emailBillPerDrop)||750, defC = n(f.emailCostPerDrop)||500;   // baked-in $750/$500 default
                 let drops=[]; try{ drops=JSON.parse(f.emailDrops||"[]"); }catch{} if(!Array.isArray(drops)) drops=[];
                 const setDrops = arr => { setCvTouched(false); set("emailDrops", JSON.stringify(arr)); };
                 const billOf = d => (d.b!=null&&d.b!=="")?n(d.b):defB;
                 const costOf = d => (d.c!=null&&d.c!=="")?n(d.c):defC;
-                const revenue = drops.reduce((s,d)=>s+billOf(d),0);
-                const cost    = drops.reduce((s,d)=>s+costOf(d),0);
-                const profit  = revenue - cost;
-                const done    = drops.filter(d=>d.done).length;
-                const today   = getToday();
-                const missed  = drops.filter(d=>!d.done && d.d && d.d < today).length; // past-due, not confirmed
-                const addDrop = (label="") => setDrops([...drops, {d:"", done:false, b:"", c:"", label}]);
+                const today  = getToday();
+                const isBooked = d => !!d.done || (!!d.d && d.d<=today);   // a dated (past/today) drop books on its own
+                const booked  = drops.filter(isBooked);
+                const profit  = booked.reduce((s,d)=>s+(billOf(d)-costOf(d)),0);
+                const scheduled = drops.length - booked.length;
+                const addDrop = (label="") => setDrops([...drops, {d:today, done:false, b:"", c:"", label}]);  // defaults to today = it dropped
                 const upd = (i,key,val) => setDrops(drops.map((d,j)=>j===i?{...d,[key]:val}:d));
                 const rm  = i => setDrops(drops.filter((_,j)=>j!==i));
-                const money = (val,onCh,ph,color="#34d399") => (
-                  <div style={{display:"flex",alignItems:"center",width:66,flexShrink:0,background:_lm?"#f8fafc":"#0e1a2e",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,overflow:"hidden"}}>
-                    <span style={{padding:"5px 4px",color,fontWeight:700,fontSize:11}}>$</span>
-                    <input type="number" value={val??""} onChange={e=>onCh(e.target.value)} placeholder={ph} style={{width:"100%",minWidth:0,background:"transparent",border:"none",padding:"5px 2px",color:_lm?"#0f172a":"#d8eaf8",fontSize:11.5,outline:"none"}}/>
-                  </div>
-                );
                 return (
                 <div style={{marginBottom:12}}>
-                  <label style={{display:"block",fontSize:10,color:"#f97316",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.06em"}}>📧 Email Drops <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>(bill − cost = profit per drop)</span></label>
-                  {/* Default bill / cost per drop — pre-fills new drops */}
-                  <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"center"}}>
-                    <span style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textTransform:"uppercase",letterSpacing:".05em",width:52,flexShrink:0}}>Default</span>
-                    <div style={{display:"flex",alignItems:"center",flex:1,minWidth:0,background:_lm?"#f8fafc":"#162236",border:`1px solid ${f.emailBillPerDrop?(_lm?"#00c896":"#00c89660"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,overflow:"hidden"}}>
-                      <span style={{padding:"6px 7px",color:"#34d399",fontWeight:700,fontSize:12,background:_lm?"#f1f5f9":"#0e1a2e"}}>$</span>
-                      <input type="number" value={f.emailBillPerDrop||""} onChange={e=>set("emailBillPerDrop",e.target.value)} placeholder="750 bill/drop" style={{flex:1,minWidth:0,background:"transparent",border:"none",padding:"6px 4px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
-                    </div>
-                    <span style={{color:_lm?"#94a3b8":"#4d6e8a",fontSize:11}}>−</span>
-                    <div style={{display:"flex",alignItems:"center",flex:1,minWidth:0,background:_lm?"#f8fafc":"#162236",border:`1px solid ${f.emailCostPerDrop?(_lm?"#e879a6":"#e879a655"):(_lm?"#e2e8f0":"#334155")}`,borderRadius:6,overflow:"hidden"}}>
-                      <span style={{padding:"6px 7px",color:"#e879a6",fontWeight:700,fontSize:12,background:_lm?"#fdf2f8":"#1e0f1a"}}>$</span>
-                      <input type="number" value={f.emailCostPerDrop||""} onChange={e=>set("emailCostPerDrop",e.target.value)} placeholder="500 cost/drop" style={{flex:1,minWidth:0,background:"transparent",border:"none",padding:"6px 4px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
-                    </div>
-                    {(defB>0||defC>0) && <span style={{fontSize:10,color:_lm?"#059669":"#00e5a0",fontWeight:700,whiteSpace:"nowrap"}}>= ${(defB-defC).toLocaleString()}/drop</span>}
-                  </div>
-                  {/* Drop schedule — a dated, confirmable line per drop */}
-                  {drops.length>0 && (
-                    <div style={{display:"flex",gap:5,marginBottom:3,paddingLeft:22,fontSize:8,color:_lm?"#94a3b8":"#4d6e8a",textTransform:"uppercase",letterSpacing:".05em"}}>
-                      <span style={{flex:1}}>Drop date</span><span style={{width:66,flexShrink:0}}>Bill</span><span style={{width:66,flexShrink:0}}>Cost</span><span style={{width:16,flexShrink:0}}></span>
-                    </div>
-                  )}
-                  {drops.map((d,i)=>(
-                    <div key={i} style={{display:"flex",gap:5,alignItems:"center",marginBottom:5}}>
-                      <input type="checkbox" checked={!!d.done} onChange={e=>upd(i,"done",e.target.checked)} title="Confirm this drop actually went out" style={{accentColor:"#00c896",width:15,height:15,cursor:"pointer",flexShrink:0}}/>
-                      <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:2}}>
-                        {/* Branded DatePicker — the SAME themed calendar the flight-window / reminder date
-                            fields use, so the popup follows the dark theme (a raw <input type=date>'s native
-                            popup ignored it, which is the mismatch the user flagged). */}
-                        <DatePicker value={d.d||""} onChange={v=>upd(i,"d",v)} placeholder="Drop date"/>
+                  <label style={{display:"block",fontSize:10,color:"#f97316",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📧 Email Drops <span style={{color:_lm?"#94a3b8":"#3d5a72",fontWeight:400,textTransform:"none",letterSpacing:0}}>— just add the date each email dropped · <b style={{color:_lm?"#059669":"#00e5a0"}}>${(defB-defC).toLocaleString()} profit</b> books automatically</span></label>
+                  {/* Dates only — bill/cost default to $750/$500 (set once below if a client differs) */}
+                  {drops.map((d,i)=>{
+                    const bk = isBooked(d); const pf = billOf(d)-costOf(d);
+                    return (
+                    <div key={i} style={{display:"flex",gap:7,alignItems:"center",marginBottom:5}}>
+                      <div style={{flex:1,minWidth:0,maxWidth:200,display:"flex",flexDirection:"column",gap:2}}>
+                        <DatePicker value={d.d||""} onChange={v=>upd(i,"d",v)} placeholder="Date it dropped"/>
                         {d.label ? <span style={{fontSize:8.5,color:"#f97316",fontWeight:700,paddingLeft:2}}>{d.label}</span> : null}
                       </div>
-                      {money(d.b, v=>upd(i,"b",v), String(defB||750))}
-                      {money(d.c, v=>upd(i,"c",v), String(defC||500), "#e879a6")}
-                      <button type="button" onClick={()=>rm(i)} title="Remove drop" style={{background:"none",border:"none",color:"#ef4444",fontSize:15,fontWeight:800,lineHeight:1,cursor:"pointer",padding:"0 2px",flexShrink:0}}>×</button>
-                    </div>
-                  ))}
+                      <span style={{fontSize:11,fontWeight:700,whiteSpace:"nowrap",color:bk?(_lm?"#059669":"#00e5a0"):(_lm?"#b45309":"#fbbf24")}}>
+                        {bk ? `✓ $${pf.toLocaleString()} booked` : "🗓 scheduled"}
+                      </span>
+                      <button type="button" onClick={()=>rm(i)} title="Remove drop" style={{background:"none",border:"none",color:"#ef4444",fontSize:16,fontWeight:800,lineHeight:1,cursor:"pointer",padding:"0 2px",flexShrink:0,marginLeft:"auto"}}>×</button>
+                    </div>);
+                  })}
                   <div style={{display:"flex",gap:6,marginTop:2,marginBottom:6}}>
-                    <button type="button" onClick={()=>addDrop()} style={{flex:1,background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:5,padding:"5px",color:_lm?"#059669":"#00e5a0",fontSize:10,fontWeight:700,cursor:"pointer"}}>+ Drop</button>
-                    <button type="button" onClick={()=>addDrop("Re-drop")} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px",color:_lm?"#475569":"#8aa0b6",fontSize:10,cursor:"pointer"}}>+ Re-drop</button>
-                    <button type="button" onClick={()=>addDrop("Matchback")} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"5px",color:_lm?"#475569":"#8aa0b6",fontSize:10,cursor:"pointer"}}>+ Matchback</button>
+                    <button type="button" onClick={()=>addDrop()} style={{flex:1,background:_lm?"#f0fdf9":"#002e24",border:`1px solid ${_lm?"#00c896":"#00c89640"}`,borderRadius:5,padding:"6px",color:_lm?"#059669":"#00e5a0",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Add drop</button>
+                    <button type="button" onClick={()=>addDrop("Re-drop")} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px",color:_lm?"#475569":"#8aa0b6",fontSize:11,cursor:"pointer"}}>+ Re-drop</button>
+                    <button type="button" onClick={()=>addDrop("Matchback")} style={{flex:1,background:_lm?"#f1f5f9":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:5,padding:"6px",color:_lm?"#475569":"#8aa0b6",fontSize:11,cursor:"pointer"}}>+ Matchback</button>
                   </div>
-                  {(revenue>0||cost>0||drops.length>0) && (
+                  {drops.length>0 && (
                     <div style={{fontSize:11,color:_lm?"#475569":"#9fb8d4",lineHeight:1.6,background:_lm?"#fff7ed":"#1a1005",border:`1px solid ${_lm?"#fed7aa":"#f9731633"}`,borderRadius:6,padding:"6px 10px"}}>
-                      Revenue <b style={{color:_lm?"#059669":"#00e5a0"}}>${revenue.toLocaleString()}</b> − cost <b style={{color:_lm?"#be185d":"#f9a8d4"}}>${cost.toLocaleString()}</b> = <b style={{color:profit>=0?(_lm?"#059669":"#00e5a0"):"#ef4444"}}>${profit.toLocaleString()} profit</b>
-                      <div style={{fontSize:9.5,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>
-                        <b style={{color:done===drops.length&&drops.length>0?(_lm?"#059669":"#00e5a0"):(_lm?"#475569":"#9fb8d4")}}>{done}/{drops.length} dropped ✓</b> · revenue books per confirmed drop's date · Contract Value = total bill.
-                        {missed>0 && <span style={{color:"#ef4444",fontWeight:700}}> · ⚠ {missed} past-due, not confirmed</span>}
-                      </div>
+                      <b style={{color:_lm?"#059669":"#00e5a0"}}>{booked.length}</b> drop{booked.length!==1?"s":""} booked = <b style={{color:profit>=0?(_lm?"#059669":"#00e5a0"):"#ef4444"}}>${profit.toLocaleString()} profit</b>{scheduled>0 && <span style={{color:_lm?"#b45309":"#fbbf24"}}> · {scheduled} scheduled (books when its date arrives)</span>}
+                      <div style={{fontSize:9.5,color:_lm?"#94a3b8":"#3d5a72",marginTop:2}}>Each drop books its profit in the month it dropped — straight to the Revenue tab.</div>
                     </div>
                   )}
+                  {/* Price per drop — only if a client isn't the standard $750/$500. Collapsed by default. */}
+                  <details style={{marginTop:7}}>
+                    <summary style={{fontSize:9.5,color:_lm?"#94a3b8":"#4d6e8a",cursor:"pointer",outline:"none"}}>Price per drop: ${defB.toLocaleString()} bill − ${defC.toLocaleString()} cost (change only if this client differs)</summary>
+                    <div style={{display:"flex",gap:6,marginTop:6,alignItems:"center"}}>
+                      <div style={{display:"flex",alignItems:"center",flex:1,minWidth:0,background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,overflow:"hidden"}}>
+                        <span style={{padding:"6px 7px",color:"#34d399",fontWeight:700,fontSize:12,background:_lm?"#f1f5f9":"#0e1a2e"}}>$</span>
+                        <input type="number" value={f.emailBillPerDrop||""} onChange={e=>set("emailBillPerDrop",e.target.value)} placeholder="750 bill/drop" style={{flex:1,minWidth:0,background:"transparent",border:"none",padding:"6px 4px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                      </div>
+                      <span style={{color:_lm?"#94a3b8":"#4d6e8a",fontSize:11}}>−</span>
+                      <div style={{display:"flex",alignItems:"center",flex:1,minWidth:0,background:_lm?"#f8fafc":"#162236",border:`1px solid ${_lm?"#e2e8f0":"#334155"}`,borderRadius:6,overflow:"hidden"}}>
+                        <span style={{padding:"6px 7px",color:"#e879a6",fontWeight:700,fontSize:12,background:_lm?"#fdf2f8":"#1e0f1a"}}>$</span>
+                        <input type="number" value={f.emailCostPerDrop||""} onChange={e=>set("emailCostPerDrop",e.target.value)} placeholder="500 cost/drop" style={{flex:1,minWidth:0,background:"transparent",border:"none",padding:"6px 4px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,outline:"none"}}/>
+                      </div>
+                    </div>
+                  </details>
                 </div>
                 );
               })()}
@@ -13644,8 +13629,9 @@ function emailDropList(c) {
   let arr = [];
   try { arr = JSON.parse(c.emailDrops || "[]"); } catch { arr = []; }
   if (!Array.isArray(arr)) arr = [];
-  const defB = parseFloat(c.emailBillPerDrop) || 0;
-  const defC = parseFloat(c.emailCostPerDrop) || 0;
+  // Baked-in defaults: $750 bill − $500 cost = $250 profit per drop, so a drop needs nothing but a date.
+  const defB = parseFloat(c.emailBillPerDrop) || 750;
+  const defC = parseFloat(c.emailCostPerDrop) || 500;
   return arr.filter(d => d).map(d => ({
     d: d.d || "",
     done: !!d.done,
@@ -13654,9 +13640,20 @@ function emailDropList(c) {
     label: d.label || "",
   }));
 }
+// A drop is BOOKED (revenue + cost recognized) once it has gone out: either explicitly confirmed (done)
+// OR dated today-or-earlier. The workflow is "add the date it dropped" → a past-dated drop books on its
+// own, no confirm step; a FUTURE-dated drop stays pending until its date arrives, so scheduling ahead
+// doesn't book early. Books in the month of the drop's date.
+function emailDropBooked(d) {
+  if (!d || !d.d) return false;
+  if (d.done) return true;
+  const t = new Date();
+  const today = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`;
+  return String(d.d) <= today;
+}
 function emailContractValue(c) { return emailDropList(c).reduce((s, d) => s + (d.b || 0), 0); }
-function emailRevenueForMonth(c, mo) { return emailDropList(c).reduce((s, d) => (d.done && d.d && d.d.slice(0,7) === mo) ? s + (d.b || 0) : s, 0); }
-function emailCostForMonth(c, mo)    { return emailDropList(c).reduce((s, d) => (d.done && d.d && d.d.slice(0,7) === mo) ? s + (d.c || 0) : s, 0); }
+function emailRevenueForMonth(c, mo) { return emailDropList(c).reduce((s, d) => (emailDropBooked(d) && d.d.slice(0,7) === mo) ? s + (d.b || 0) : s, 0); }
+function emailCostForMonth(c, mo)    { return emailDropList(c).reduce((s, d) => (emailDropBooked(d) && d.d.slice(0,7) === mo) ? s + (d.c || 0) : s, 0); }
 
 // Returns a { [YYYY-MM]: revenue } map for a campaign.
 // Prefers CPM/CPV rate-based monthly revenue (if contractRate is set), computed PER MONTH so a
@@ -13668,7 +13665,7 @@ function revenueMapForCampaign(c) {
   // EMAIL: revenue books per CONFIRMED drop, in the month of its date.
   if (c && c.platform === "EMAIL") {
     const map = {};
-    emailDropList(c).forEach(d => { if (d.done && d.d) { const m = d.d.slice(0,7); map[m] = (map[m] || 0) + (d.b || 0); } });
+    emailDropList(c).forEach(d => { if (emailDropBooked(d)) { const m = d.d.slice(0,7); map[m] = (map[m] || 0) + (d.b || 0); } });
     return map;
   }
   // Rate-based: spread each calendar month the campaign is active using THAT month's goal.
@@ -20063,7 +20060,8 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   const withContract = campaigns.filter(c =>
     parseFloat(c.contractValue) > 0 ||
     (parseFloat(c.contractRate) > 0 && c.platform !== "SEM" && true /* YT defaults to CPV, no explicit dealType required */) ||
-    (c.platform === "SEM" && Object.keys(semFeeMap(c)).length > 0)
+    (c.platform === "SEM" && Object.keys(semFeeMap(c)).length > 0) ||
+    (c.platform === "EMAIL" && emailDropList(c).length > 0)  // EMAIL bills per drop (no rate/contractValue needed) — include any line that has drops
   );
   // Active non-SEM campaigns that have no CPM rate set yet — shown as a nudge in the header.
   // Mirror the same date filter that `withContract` uses (exclude campaigns that ended
