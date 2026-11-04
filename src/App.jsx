@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/04/2026c";
+const APP_VERSION = "11/04/2026d";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -5194,9 +5194,16 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             const _cpm = parseFloat(f.cpm)||0;
             const _isDSP = f.platform==="DSP";
             const _isMadhive = f.platform==="GCTV"||f.platform==="PCTV"||f.platform==="AECTV";
-            const _madhiveModel = _isMadhive && _cpm>0;     // Madhive with a CPM → spend auto-models from impressions
+            // "The CPM we already had": a Madhive line with no CPM of its own reuses the effective cost CPM
+            // from its most recent recorded month that had BOTH impressions and spend (e.g. October's
+            // spend ÷ impressions × 1000) — so entering the final impressions auto-fills spend at the rate
+            // we were already paying. No such history → stays manual (no made-up fixed estimate).
+            const _recCpm = (()=>{ if(!_isMadhive || _cpm>0) return 0; const ms=flightMonths.slice().sort(); for(let k=ms.length-1;k>=0;k--){ const r=recByMo[ms[k]]; if(r && (r.i||0)>0 && (r.s||0)>0) return r.s/r.i*1000; } return 0; })();
+            const _effCpm = _cpm>0 ? _cpm : _recCpm;
+            const _cpmFromHistory = _isMadhive && _cpm<=0 && _effCpm>0;   // modeling off a derived CPM, not the line's own
+            const _madhiveModel = _isMadhive && _effCpm>0;   // Madhive with a CPM (own or carried) → spend auto-models from impressions
             const _autoSpend = _isDSP || _madhiveModel;      // spend is not hand-entered
-            const spendOf = (mo)=> _madhiveModel ? ((moVal(mo).i||0)/1000*_cpm) : (moVal(mo).s||0);
+            const spendOf = (mo)=> _madhiveModel ? ((moVal(mo).i||0)/1000*_effCpm) : (moVal(mo).s||0);
             const _lifeUnits=flightMonths.reduce((s,mo)=>s+unitOf(mo),0);
             const _lifeSpend=flightMonths.reduce((s,mo)=>s+spendOf(mo),0);
             const _lifeBill=_goalU>0?Math.min(_lifeUnits,_goalU):_lifeUnits;
@@ -5205,8 +5212,10 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             const _hit=_goalU>0 && _lifeUnits>=_goalU*0.995;
             const _multi=flightMonths.length>1;
             const setMoField=(mo,field,val)=>{ const num = field==='s' ? (val===''?0:(parseFloat(val)||0)) : (val===''?0:(parseInt(val)||0)); setMonthEdits(prev=>({ ...prev, [mo]:{ ...moVal(mo), ...(prev[mo]||{}), [field]:num } })); };
-            // When spend is modeled (DSP/Madhive-with-CPM), write null so the engine models it from impressions × CPM.
-            const saveMonth=(mo)=>{ if(!onSetMonthMetrics) return; const v=moVal(mo); onSetMonthMetrics(f.id, mo, { impr: v.i, views: v.vv, spend: _autoSpend ? null : v.s }); };
+            // Modeled spend writes null so the engine models it (DSP from its configured CPM; Madhive from the
+            // line's OWN CPM). But when Madhive models off a DERIVED CPM the line has no CPM of its own, so the
+            // engine would read it as pending — write the computed spend instead so it actually books.
+            const saveMonth=(mo)=>{ if(!onSetMonthMetrics) return; const v=moVal(mo); const sp = _isDSP ? null : (_madhiveModel ? (_cpmFromHistory ? spendOf(mo) : null) : v.s); onSetMonthMetrics(f.id, mo, { impr: v.i, views: v.vv, spend: sp }); };
             const cellInput = {background:_lm?"#ffffff":"#06120f",border:`1px solid ${_lm?"#cbd5e1":"#24364f"}`,borderRadius:5,padding:"5px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:12,width:"100%",fontFamily:"inherit",outline:"none",boxSizing:"border-box"};
             // A LIFETIME-total edit books the balance into the END month (last flight month). Locked months are
             // patched surgically (just that one line), so this works even when the end month is locked.
@@ -5220,7 +5229,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
               const balance = isS ? Math.max(0,+(entered-otherSum).toFixed(2)) : Math.max(0, entered-otherSum);
               const nv = { ...moVal(lifeTarget), [uf]: balance };
               setMonthEdits(prev=>({ ...prev, [lifeTarget]: nv }));
-              if(onSetMonthMetrics) onSetMonthMetrics(f.id, lifeTarget, { impr:nv.i, views:nv.vv, spend: f.platform==="DSP"?null:nv.s });
+              if(onSetMonthMetrics) onSetMonthMetrics(f.id, lifeTarget, { impr:nv.i, views:nv.vv, spend: _isDSP ? null : (_madhiveModel ? (_cpmFromHistory ? (nv.i/1000*_effCpm) : null) : nv.s) });
             };
             const lifeImprBox={background:_lm?"#ffffff":"#05140f",border:`1px solid ${_lm?"#10b981":"#0f5132"}`,borderRadius:6,padding:"3px 8px",color:_lm?"#065f46":"#00e5a0",fontSize:16,fontWeight:800,width:118,outline:"none",fontFamily:"inherit"};
             const lifeSpendBox={background:_lm?"#ffffff":"#05140f",border:`1px solid ${_lm?"#cbd5e1":"#24364f"}`,borderRadius:6,padding:"3px 8px",color:_lm?"#0f172a":"#d8eaf8",fontSize:13,fontWeight:700,width:92,outline:"none",fontFamily:"inherit"};
@@ -5261,13 +5270,13 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                           <div style={{padding:"4px 8px"}}>{_isDSP
                             ? <span style={{fontSize:11,color:_lm?"#d97706":"#caa46a"}} title="DSP cost is auto-modeled from impressions">auto</span>
                             : _madhiveModel
-                              ? <span style={{fontSize:12,fontWeight:600,color:_lm?"#0d9488":"#5eb8a0"}} title={`Auto-modeled: impressions ÷ 1000 × $${_cpm} CPM`}>${Math.round((v.i||0)/1000*_cpm).toLocaleString()} <span style={{fontSize:9,fontWeight:600,color:_lm?"#94a3b8":"#4d6e8a"}}>auto</span></span>
+                              ? <span style={{fontSize:12,fontWeight:600,color:_lm?"#0d9488":"#5eb8a0"}} title={`Auto-modeled: impressions ÷ 1000 × $${_effCpm.toFixed(2)} CPM${_cpmFromHistory?" (carried from a prior month)":""}`}>${Math.round((v.i||0)/1000*_effCpm).toLocaleString()} <span style={{fontSize:9,fontWeight:600,color:_lm?"#94a3b8":"#4d6e8a"}}>auto{_cpmFromHistory?"*":""}</span></span>
                               : <input type="number" value={v.s||""} onChange={e=>setMoField(mo,'s',e.target.value)} onBlur={()=>saveMonth(mo)} style={locked?{...cellInput,border:`1px solid ${_lm?"#f59e0b":"#b4870f"}`}:cellInput} placeholder="—"/>}</div>
                         </div>
                       );
                     })}
                   </div>
-                  <div style={{fontSize:9.5,color:_lm?"#94a3b8":"#4d6e8a",marginTop:5}}>Each month's figure is that month's total delivery — it flows straight to Pacing &amp; Revenue. Locked months 🔒 (amber) stay editable here — fixing one only changes that line; the rest of the month stays frozen.{_madhiveModel && " Madhive spend auto-fills from impressions × the CPM — just enter impressions."}{_isMadhive && !_madhiveModel && " Set the CPM below, then Madhive spend will auto-fill from impressions."}</div>
+                  <div style={{fontSize:9.5,color:_lm?"#94a3b8":"#4d6e8a",marginTop:5}}>Each month's figure is that month's total delivery — it flows straight to Pacing &amp; Revenue. Locked months 🔒 (amber) stay editable here — fixing one only changes that line; the rest of the month stays frozen.{_madhiveModel && (_cpmFromHistory ? ` Madhive spend auto-fills from impressions × $${_effCpm.toFixed(2)} CPM (carried from a prior month) — just enter impressions.` : " Madhive spend auto-fills from impressions × the CPM — just enter impressions.")}{_isMadhive && !_madhiveModel && " No CPM on this line yet — enter spend manually, or set a CPM below and it'll auto-fill from impressions."}</div>
                 </div>
                 {/* THIS MONTH — supporting metrics (rate/clicks/etc.; delivery is entered per-month above) */}
                 <div style={{fontSize:10,fontWeight:800,letterSpacing:".04em",textTransform:"uppercase",color:_lm?"#475569":"#7a9bbf",marginBottom:8}}>This month — supporting metrics</div>
