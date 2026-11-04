@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/04/2026b";
+const APP_VERSION = "11/04/2026c";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -221,17 +221,41 @@ function clearMetricsUndoSnapshot(c) {
 // archive for 12 months or so."
 const ARCHIVE_RETENTION_MONTHS = 12;
 
-// Strips the DELIVERY DETAIL from an archived campaign. Deliberately keeps the campaign's own
-// scalars (impressions/spend/ctr/cpm…): they're a few bytes each, they're what the Archive tab
-// shows, and monthly revenue can still read them — so dropping them would risk money to save
-// nothing. What goes is the per-day / per-line / per-ad detail, which is ~95% of the weight and
-// is only ever used to draw pacing charts for a LIVE campaign.
-// Note this keeps id + campaignName + platform, so archived campaigns stay mappable in Quick
-// Check-in (see the full-archive mapping in the QCI panel).
+// Collapse a metricSeries to ONE entry per month — that month's latest-day reading, which is the
+// month TOTAL that closedMonthMetrics (and therefore monthly revenue) reads. Drops the intra-month
+// daily points (~95% of the weight) while keeping every month's number intact. Self-contained date
+// parsing (MM/DD/YYYY or YYYY-MM-DD) so it can live at module scope; unparseable rows are kept.
+function collapseSeriesToMonthly(series) {
+  if (!Array.isArray(series) || series.length <= 1) return series;
+  const dayOf = (d) => {
+    const s = String(d || "");
+    let m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/); if (m) return { k: `${m[3]}-${m[1]}`, day: +m[2] };
+    m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);        if (m) return { k: `${m[1]}-${m[2]}`, day: +m[3] };
+    return null;
+  };
+  const byMonth = {}; const keepAsIs = [];
+  series.forEach(e => {
+    const p = dayOf(e && e.d);
+    if (!p) { keepAsIs.push(e); return; }            // unknown shape → keep it, don't lose data
+    if (!byMonth[p.k] || p.day > byMonth[p.k].day) byMonth[p.k] = { e, day: p.day };
+  });
+  const out = [...keepAsIs, ...Object.values(byMonth).map(x => x.e)];
+  return out.length < series.length ? out : series;  // only replace if we actually shrank it
+}
+
+// Strips the DELIVERY DETAIL from an archived campaign. Keeps the campaign's own scalars
+// (impressions/spend/ctr/cpm…) AND a COLLAPSED metricSeries of one row per month — the month totals
+// that monthly revenue reads via closedMonthMetrics. Fully dropping metricSeries silently changed
+// older-month revenue on MULTI-MONTH flights (the scalars only hold the LAST month, so every earlier
+// month's delivery was lost). Collapsing still sheds ~95% of the weight (the daily detail) with no
+// revenue impact. The other heavy fields (check-in log, per-platform snapshots, creative report) are
+// only used for LIVE pacing charts, so they go. Keeps id + campaignName + platform so archived
+// campaigns stay mappable in Quick Check-in (see the full-archive mapping in the QCI panel).
 function slimArchivedCampaign(c) {
   const { metricSeries, checkInLog, metaSnapshots, ttdSnapshots, dspSnapshots,
           googleSnapshots, snapSnapshots, creativeReport, ...rest } = c;
-  return rest;
+  const collapsed = collapseSeriesToMonthly(metricSeries);
+  return (Array.isArray(collapsed) && collapsed.length) ? { ...rest, metricSeries: collapsed } : rest;
 }
 
 // REVENUE SAFETY: a campaign that ran recently keeps ALL its data — never slimmed, never dropped —
