@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/03/2026h";
+const APP_VERSION = "11/04/2026a";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -5971,8 +5971,8 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
           )}
           <button onClick={submit} className="glow-btn" style={{flex:1,background:"#00e19e",border:"none",borderRadius:7,padding:"11px 0",color:"#0a1a0a",fontWeight:700,fontSize:14,cursor:"pointer"}}>{isNew?"Add Campaign":"Save Changes"}</button>
           {!isNew && onArchive && (
-            <button onClick={()=>onArchive(f)} title="Save these metrics and move the campaign to the Archive"
-              style={{flex:1,background:_lm?"#f59e0b":"#b4870f",border:"none",borderRadius:7,padding:"11px 0",color:_lm?"#3a2500":"#1a1205",fontWeight:800,fontSize:14,cursor:"pointer",whiteSpace:"nowrap"}}>🗄 Save &amp; Archive</button>
+            <button onClick={()=>onArchive(f)} title="Save these metrics and move the campaign to the Archive" className="glow-btn-amber"
+              style={{flex:1,background:"#f59e0b",border:"none",borderRadius:7,padding:"11px 0",color:"#3a2500",fontWeight:800,fontSize:14,cursor:"pointer",whiteSpace:"nowrap"}}>🗄 Save &amp; Archive</button>
           )}
           {/* Add Campaign (not the IO draft queue) gets explicit draft controls:
               "Save as Draft" closes but keeps the in-progress work; "Discard" clears
@@ -19709,7 +19709,12 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   // Pull synced MTD spend (current month actual) from any platform source
   function getActualMtdSpend(c) {
     const mtd = c.metaSnapshots?.mtd?.spend ?? c.ttdSnapshots?.mtd?.spend ?? c.dspSnapshots?.mtd?.spend ?? c.googleSnapshots?.mtd?.spend ?? c.snapSnapshots?.mtd?.spend;
-    return mtd != null ? parseFloat(mtd) : null;
+    if (mtd != null) return parseFloat(mtd);
+    // Fall back to the manually-entered spend (mirrors getActualMtdImpressions). A campaign with NO platform
+    // snapshot — one whose finals were typed in the Metrics/close-out panel rather than synced from a QCI —
+    // otherwise reads as "spend pending" forever even though c.spend holds this month's real figure.
+    const manual = parseFloat(c.spend);
+    return manual > 0 ? manual : null;
   }
   // Actual MTD impressions from the most recent QCI drop or synced snapshot
   function getActualMtdImpressions(c) {
@@ -25814,7 +25819,10 @@ export default function App() {
               updatedAt: iso } };
           }
         });
-        p.lastMetricUpdate = iso;
+        // Stamp lastQciDate too: latestDataMonth() checks it BEFORE lastMetricUpdate, so without this a
+        // snapshot-less campaign (Madhive AECTV/GCTV/PCTV, or any manually-tracked line) still reads as a
+        // prior-month = stale line and the current-month entry is nulled out as "pending".
+        p.lastMetricUpdate = iso; p.lastQciDate = iso;
         if (spend!=null) p.lastSpendUpdate = iso;
       }
       return p;
@@ -25880,6 +25888,19 @@ export default function App() {
       }
     } catch {}
     addLog({ type:"edited", campaignName:c.campaignName, partner:c.mediaPartner, platform:c.platform, detail:`Corrected ${month} delivery`, campaignId:id, prevSnapshot:null });
+  }
+  // Fields the LIVE campaign record owns that the edit form must NEVER clobber on save. The modal's form
+  // holds a STALE copy of all of these from when it opened, so every save path (onValuesChange / onSave /
+  // onArchive) must re-overlay them from the live record. Beyond the per-month delivery (metricSeries +
+  // headline impressions/spend/videoViews), this CRUCIALLY includes the live MTD snapshots and data-date
+  // stamps that commitCampaignMonth writes for a current-month entry — without them, entering this month's
+  // finals then hitting Save/Archive reverts the snapshot to last month and the entry goes invisible in
+  // Revenue (reads as pending). Only keys the live record actually has override, so nothing is nulled out.
+  function liveOwnedFields(live){
+    if(!live) return {};
+    const out={};
+    ["metricSeries","impressions","spend","videoViews","ttdSnapshots","metaSnapshots","dspSnapshots","googleSnapshots","snapSnapshots","lastMetricUpdate","lastSpendUpdate","lastQciDate"].forEach(k=>{ if(live[k]!==undefined) out[k]=live[k]; });
+    return out;
   }
   // Bulk archive the selected campaigns — same behavior as a single row's Archive action, looped.
   async function bulkArchive() {
@@ -27348,7 +27369,8 @@ export default function App() {
                       updatedAt: iso } };
                   }
                 });
-                p.lastMetricUpdate = iso;
+                // lastQciDate too — latestDataMonth() checks it before lastMetricUpdate (see commitCampaignMonth).
+                p.lastMetricUpdate = iso; p.lastQciDate = iso;
                 if (spend!=null) p.lastSpendUpdate = iso;
               }
               return p;
@@ -28182,7 +28204,7 @@ export default function App() {
           the × button keeps changes. Explicit Save also closes the modal. */}
       {editTarget && <Modal
         campaign={editTarget}
-        onValuesChange={u => { const live = campaigns.find(c=>String(c.id)===String(editTarget.id)) || archive.find(c=>String(c.id)===String(editTarget.id)); const keep = live ? { metricSeries: live.metricSeries, impressions: live.impressions, spend: live.spend, videoViews: live.videoViews } : {}; updateCampaign({...editTarget, ...u, ...keep}); }}
+        onValuesChange={u => { const live = campaigns.find(c=>String(c.id)===String(editTarget.id)) || archive.find(c=>String(c.id)===String(editTarget.id)); updateCampaign({...editTarget, ...u, ...liveOwnedFields(live)}); }}
         onSetMonthMetrics={commitCampaignMonth}
         monthLocks={(()=>{ try{ return JSON.parse(localStorage.getItem(MONTH_LOCK_KEY)||"{}"); }catch{ return {}; } })()}
         onArchive={ campaigns.some(c=>String(c.id)===String(editTarget.id)) ? (u)=>{
@@ -28195,11 +28217,7 @@ export default function App() {
           const tod=getToday(); const [ay,am,ad]=tod.split("-"); const astamp=`${am}/${ad}/${ay}`;
           const { _fromArchive, ...uClean } = u;
           const live = campaigns.find(c=>String(c.id)===String(u.id)) || {};
-          const clean = { ...uClean,
-            metricSeries: live.metricSeries!=null?live.metricSeries:uClean.metricSeries,
-            impressions: live.impressions!=null?live.impressions:uClean.impressions,
-            spend: live.spend!=null?live.spend:uClean.spend,
-            videoViews: live.videoViews!=null?live.videoViews:uClean.videoViews };
+          const clean = { ...uClean, ...liveOwnedFields(live) };
           const note=`${astamp} — Final metrics saved & archived`;
           const hist=clean.history&&clean.history.trim()?`${note}\n${clean.history}`:note;
           // Stamp flightClosedOut so this line drops out of the Revenue close-out queue (which only clears a
@@ -28219,8 +28237,7 @@ export default function App() {
           // Preserve the live (per-month-edited) delivery — the form `u` carries a STALE metricSeries snapshot
           // that would otherwise clobber the per-month / locked-month edits saved via commitCampaignMonth.
           const live = campaigns.find(c=>String(c.id)===String(u.id)) || archive.find(c=>String(c.id)===String(u.id));
-          const keep = live ? { metricSeries: live.metricSeries, impressions: live.impressions, spend: live.spend, videoViews: live.videoViews } : {};
-          updateCampaign({...u, ...keep}); setEditTarget(null); setEditInitialTab("details");
+          updateCampaign({...u, ...liveOwnedFields(live)}); setEditTarget(null); setEditInitialTab("details");
           if(typeof window!=="undefined" && typeof requestAnimationFrame==="function")
             requestAnimationFrame(()=>requestAnimationFrame(()=>window.scrollTo(0, sy)));
         }}
