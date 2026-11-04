@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/04/2026d";
+const APP_VERSION = "11/04/2026e";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -16173,29 +16173,29 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   const [rowOrder,     setRowOrder]     = React.useState(null);   // [origIdx, …] or null (= file order)
   function computeRowOrder(rows, mp, conf, mem){
     if(!Array.isArray(rows)) return null;
-    // Order the review list so anything NEEDING A DECISION floats to the top and the "all set" rows sink,
-    // matching the user's own heuristic: "once I scroll into purple checkmarks I know I'm done." Tiers:
-    //   0 = UNMAPPED — no campaign assigned, so nothing books until you map it. These are the most urgent
-    //       (the user: unmapped rows "should always show at the top"). Ignored rows are hidden from this
-    //       list entirely (isIgnoredName), so an unmapped row here is always one that needs a decision.
-    //   1 = FLAGGED / needs review — confidence below the ⚠ review bar (<0.7), INCLUDING a downgraded
-    //       remembered match (e.g. a closed-archive ⚠ ended match). Lowest % first.
-    //   2 = normal auto-match (fuzzy, decent confidence, not remembered) — a glance.
-    //   3 = remembered (purple ✓) / exact — "all set", parked at the bottom.
+    // Order the review list so the matches NEEDING YOUR EYES float to the top and the settled rows sink,
+    // matching the user's heuristic: review the fuzzy/uncertain matches first, then the remembered ones,
+    // and the "probably not mine" unmapped rows go to the very bottom. Tiers:
+    //   0 = FLAGGED / needs review — a fuzzy match below the ⚠ review bar (<0.7), INCLUDING a downgraded
+    //       remembered match (e.g. a closed-archive ⚠ ended match). Lowest % first. These come first.
+    //   1 = normal auto-match (fuzzy, decent confidence, not remembered) — a glance to confirm.
+    //   2 = remembered (purple ✓) / exact 100% — "all set".
+    //   3 = UNMAPPED — nothing assigned (mostly other CMs' rows / not yours), parked at the very bottom.
+    //       Ignored rows are hidden from this list entirely (isIgnoredName).
     const REVIEW = 0.7; // mirrors isLowConf in the row render
     const tier = (i)=>{
       const a = mp[i];
-      if(!a) return 0;                                            // unmapped → TOP (needs a decision)
+      if(!a) return 3;                                            // unmapped → very last
       const c = conf[i];
       const isMem = mem[i] != null && String(mem[i]) === String(a);
-      if(c !== undefined && c < REVIEW) return 1;                 // flagged → near top, even if remembered
-      if(!isMem && c !== undefined && c < 1.0) return 2;          // normal fuzzy auto-match → middle
-      return 3;                                                   // remembered / exact (purple ✓) → "all set"
+      if(c !== undefined && c < REVIEW) return 0;                 // flagged → TOP, even if remembered
+      if(!isMem && c !== undefined && c < 1.0) return 1;          // normal fuzzy auto-match → next
+      return 2;                                                   // remembered / exact (purple ✓) → "all set"
     };
     return rows.map((_,i)=>i).sort((a,b)=>{
       const ta=tier(a), tb=tier(b);
       if(ta!==tb) return ta-tb;
-      if(ta===1){ const ca=conf[a]??1, cb=conf[b]??1; if(ca!==cb) return ca-cb; } // flagged: lowest % first
+      if(ta===0){ const ca=conf[a]??1, cb=conf[b]??1; if(ca!==cb) return ca-cb; } // flagged: lowest % first
       return a-b;                                                 // stable: keep file order within tier
     });
   }
