@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/04/2026a";
+const APP_VERSION = "11/04/2026b";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -19383,6 +19383,7 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   const [closeoutDrafts, setCloseoutDrafts] = useState({});   // {id: {impr, views, spend, mode}} — per-line final-number edits in the close-out panel
   const [closeoutSearch, setCloseoutSearch] = useState("");   // search box — pull ANY campaign into the panel to reconcile (e.g. multi-month political flights)
   const [closeoutMsg, setCloseoutMsg]       = useState("");   // confirmation of what a close-out/reconcile just saved
+  const [coDismissed, setCoDismissed]       = useState(()=>new Set()); // ids Dismissed from the SEARCH reconcile list this session — the search matches by name, so without this a Dismissed searched row keeps re-matching and won't go away
   useEffect(() => {
     try {
       localStorage.setItem(REVENUE_FILTER_KEY, JSON.stringify({
@@ -19519,6 +19520,9 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
   function dismissCloseoutRow(c) {
     onCloseoutFlight(c.id);
     setCloseoutDrafts(p => { const n = { ...p }; delete n[c.id]; return n; });
+    // Also remember it as dismissed-from-search: the auto-queue drops it via flightClosedOut, but the
+    // search list matches by name, so it needs an explicit exclusion to actually disappear.
+    setCoDismissed(s => { const n = new Set(s); n.add(String(c.id)); return n; });
   }
   // ── Whole-flight reconcile helpers ───────────────────────────────────────────
   // For a multi-month flight you can paste the WHOLE-FLIGHT total (pulled from the platform) instead of
@@ -20440,6 +20444,7 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
         const c = r.c;
         if (c.platform === "SEM") return false;
         if (_queuedIds.has(String(c.id))) return false;
+        if (coDismissed.has(String(c.id))) return false;   // Dismissed from the search this session
         return (c.campaignName || "").toLowerCase().includes(_coQuery) || (c.mediaPartner || "").toLowerCase().includes(_coQuery);
       }).slice(0, 15).map(r => {
         const c = r.c;
