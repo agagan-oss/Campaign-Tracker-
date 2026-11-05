@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/05/2026a";
+const APP_VERSION = "11/05/2026b";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -2292,7 +2292,12 @@ function parseIOPdf(text, uris = []) {
       { re: new RegExp("^" + flex + "\\s+Included\\??\\s+Yes\\s*$", "i"), isPre:false },
       { re: new RegExp("^Is\\s+(?:an?\\s+|the\\s+)?" + flex + "\\s+Included\\??\\s+Yes\\s*$", "i"), isPre:true },
     ];
-    const insideIsFlag = (i) => /^is\s/i.test(lines[i-1]||"") || /^is\s/i.test(lines[i-2]||"") || /^is\s/i.test(lines[i-3]||"");
+    // A preceding line only "opens" an UNCLOSED "Is …" flag (that the current bare label could be the TAIL of)
+    // when it starts with "Is" AND is NOT itself already a COMPLETE "Is X Included?" flag. Without the
+    // completeness check, a legitimate no-"Is" flag ("Blended Premium Channel Included?") was wrongly rejected
+    // just because the PREVIOUS complete flag ("Is Premium Audience CTV Included? No") also starts with "Is".
+    const opensIsFlag = (j) => { const l = (lines[j]||"").trim(); return /^is\s/i.test(l) && !/Included\??(\s+(Yes|No))?\s*$/i.test(l); };
+    const insideIsFlag = (i) => opensIsFlag(i-1) || opensIsFlag(i-2) || opensIsFlag(i-3);
     const MAXJOIN = 6; // a wrapped flag ("Is Targeted"/"Display"/"Included?") can be several fragments
     for (let i = 0; i < lines.length; i++) {
       let joined = "";
@@ -2651,6 +2656,10 @@ function parseIOPdf(text, uris = []) {
     { label: "Channel Select CTV",           key: "ctv_channel",     platform: "CTV" },
     { label: "General Audience CTV",         key: "ctv_general",     platform: "GCTV" }, // dedicated platform per the user's tracker convention
     { label: "Premium Audience CTV",         key: "ctv_premium",     platform: "PCTV" }, // dedicated platform per the user's tracker convention
+    // Blended Premium = a Blended Premium CTV buy on TradeDesk → the user's custom TDBP platform. Same AMB
+    // Universal IO field shape as General/Premium Audience CTV ("…Inventory: Gross Impressions", "Hard Cost
+    // to CTVBuyer", "Gross Dollar($) Budget to CTVBuyer"); flagged "Blended Premium Channel Included? Yes".
+    { label: "Blended Premium Channel",      key: "ctv_blended_premium", platform: "TDBP" },
     { label: "Netflix CTV",                  key: "ctv_netflix",     platform: "CTV" },
     { label: "Hulu CTV",                     key: "ctv_hulu",        platform: "CTV" },
     { label: "Amazon Prime CTV",             key: "ctv_amazon_prime",platform: "CTV" },
@@ -3303,7 +3312,8 @@ function buildFallbackDraft(io) {
   // Platform guess from keywords (most specific first).
   const has = (...ks) => ks.some(k => lc.includes(k));
   let platform = "";
-  if (has("general audience ctv", "gctv")) platform = "GCTV";
+  if (has("blended premium")) platform = "TDBP";   // Blended Premium CTV on TradeDesk → the user's TDBP platform
+  else if (has("general audience ctv", "gctv")) platform = "GCTV";
   else if (has("premium audience ctv")) platform = "PCTV";
   else if (has("digital audio")) platform = "TDA";
   else if (has("instream", "preroll", "pre-roll", "pre roll")) platform = "TDV";
