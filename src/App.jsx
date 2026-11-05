@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/04/2026f";
+const APP_VERSION = "11/05/2026a";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -20171,12 +20171,13 @@ function RevenueDashboard({ campaigns=[], monthPnl=null, onEdit=()=>{}, onLock=(
         else if (spendForMonth(c, mo) != null) rev = 0;
       }
     }
-    // SEM revenue is the DETERMINISTIC management fee (computed from the fee/budget model, NOT captured from
-    // a CSV delivery drop), so a month-lock must NOT freeze it — otherwise a fee-math fix can never reach a
-    // locked month (a stale lock kept booking the old, buggy SEM revenue). Skip the freeze for SEM; it keeps
-    // using the live semFeeMap spread. spendForMonth already recomputes the SEM overage live for the same
-    // reason, so the two stay consistent. Non-SEM revenue (real delivery data) is still frozen by the lock.
-    if (monthLocks[mo] && c.platform !== "SEM") {
+    // SEM and EMAIL revenue are DETERMINISTIC (SEM = the management fee; EMAIL = $bill per confirmed drop),
+    // computed live from their own models rather than captured from a delivery drop — so a month-lock must
+    // NOT freeze them, or editing/confirming a drop (or a fee-math fix) can never reach a locked month and
+    // the stale lock keeps booking the old number. spendForMonth already returns the live EMAIL cost / SEM
+    // overage, so skipping the freeze here keeps revenue and cost consistent — otherwise a locked month shows
+    // the live $500 drop COST with $0 frozen revenue = a phantom loss. Delivery-based revenue is still frozen.
+    if (monthLocks[mo] && c.platform !== "SEM" && c.platform !== "EMAIL") {
       const _lk = monthLocks[mo].campaigns?.find(rr => String(rr.id) === String(c.id));
       rev = _lk ? (_lk.revenue || 0) : 0;
     }
