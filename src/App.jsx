@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/05/2026b";
+const APP_VERSION = "11/06/2026a";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -4963,7 +4963,16 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
     <div style={{marginBottom:12}}>
       <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em"}}>{label}</label>
       {key==="status" ? <select value={f.status||""} onChange={e=>set("status",e.target.value)} style={iS}>{Object.entries(STATUS_CFG).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
-      :key==="platform" ? <select value={f.platform} onChange={e=>set("platform",e.target.value)} style={iS}>{sortPlatforms([...ALL_PLATFORMS]).map(p=><option key={p}>{p}</option>)}</select>
+      :key==="platform" ? <select value={f.platform} onChange={e=>set("platform",e.target.value)} style={iS}>{(()=>{
+        // Group the options under their vendor (Meta → FB/FBV/IG · The Trade Desk → TD/TDV/TDA · Madhive →
+        // GCTV/PCTV/AECTV …) so it's clear which tactic you're picking. sortPlatforms already orders by vendor
+        // group, so consecutive same-vendor platforms fall into one <optgroup>. A single-tactic vendor whose
+        // name IS the code (e.g. DSP) stays a plain option so there's no redundant "DSP ▸ DSP" header.
+        const groups=[]; sortPlatforms([...ALL_PLATFORMS]).forEach(p=>{ const v=vendorOf(p); const g=groups[groups.length-1]; if(g&&g.v===v) g.items.push(p); else groups.push({v, items:[p]}); });
+        return groups.map(g=> (g.items.length===1 && g.v===g.items[0])
+          ? <option key={g.items[0]} value={g.items[0]}>{g.items[0]}</option>
+          : <optgroup key={g.v} label={g.v}>{g.items.map(p=><option key={p} value={p}>{p}</option>)}</optgroup>);
+      })()}</select>
       :type==="date" ? <DatePicker value={f[key]||""} onChange={v=>set(key,v)}/>
       :<input type={type} value={f[key]||""} onChange={e=>set(key,e.target.value)} style={iS}/>}
     </div>
