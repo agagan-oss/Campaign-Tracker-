@@ -16039,6 +16039,69 @@ function InitialsPrompt({ current, onSave, onClose }){
   );
 }
 
+// Searchable campaign picker for Quick Check-in rows — replaces the native <select> (whose type-ahead can't
+// filter) with a button that opens a portal'd dropdown carrying its OWN search box, so typing "Alvernia"
+// shows only the Alvernia campaigns. Empty search = the smart candidates (`options`); once you type it
+// searches the broader on-platform pool (`searchOptions`). Ported from the Ambio fork.
+function CampaignPicker({ value, options, searchOptions, archivedIds, onPick, onIgnore, lm, isUnmatched }){
+  const _lm = lm;
+  const [open, setOpen] = React.useState(false);
+  const [q, setQ] = React.useState("");
+  const [rect, setRect] = React.useState(null);
+  const btnRef = React.useRef(null), panelRef = React.useRef(null);
+  const assigned = React.useMemo(()=>{
+    if(!value) return null;
+    return [...(options||[]), ...(searchOptions||[])].find(c=>String(c.id)===String(value)) || null;
+  }, [value, options, searchOptions]);
+  const doOpen = ()=>{ const el=btnRef.current; if(el) setRect(el.getBoundingClientRect()); setQ(""); setOpen(true); };
+  React.useEffect(()=>{
+    if(!open) return;
+    const inside = (el)=> (btnRef.current&&btnRef.current.contains(el)) || (panelRef.current&&panelRef.current.contains(el));
+    const onDoc = e=>{ if(!inside(e.target)) setOpen(false); };
+    const onKey = e=>{ if(e.key==="Escape") setOpen(false); };
+    const onScroll = e=>{ const t=e.target; if(t&&t.nodeType&&panelRef.current&&panelRef.current.contains(t)) return; setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return ()=>{ document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", onScroll); };
+  }, [open]);
+  const qq = q.trim().toLowerCase();
+  const base = qq ? ((searchOptions && searchOptions.length) ? searchOptions : options) : options;
+  const list = (base||[]).filter(c=> !qq || c.campaignName.toLowerCase().includes(qq) || String(c.platform||"").toLowerCase().includes(qq) || String(c.mediaPartner||"").toLowerCase().includes(qq));
+  const labelTxt = assigned ? `${assigned.campaignName.trim()} · ${assigned.platform} · ${assigned.mediaPartner}` : "— leave unassigned —";
+  const bg = value?(_lm?"#f0fdf9":"#002e24"):isUnmatched?(_lm?"#fffbeb":"#1a0e00"):(_lm?"#f8fafc":"#0e1a2e");
+  const bd = value?(_lm?"#00c896":"#00c89640"):isUnmatched?"#f59e0b40":(_lm?"#e2e8f0":"#1e293b");
+  const fg = value?(_lm?"#059669":"#00e5a0"):isUnmatched?"#f59e0b":(_lm?"#334155":"#cbd5e1");
+  const optSt = { padding:"6px 9px", fontSize:12, cursor:"pointer", borderBottom:`1px solid ${_lm?"#eef2f7":"#13203a"}`, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" };
+  const panel = (open && rect) ? safePortal(
+    <div ref={panelRef} style={{position:"fixed", zIndex:9999, top:Math.round(rect.bottom+2), left:Math.round(rect.left), width:Math.round(Math.max(rect.width, 340)), maxHeight:320, background:_lm?"#ffffff":"#0b1524", border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`, borderRadius:7, boxShadow:"0 10px 30px rgba(0,0,0,0.45)", display:"flex", flexDirection:"column", overflow:"hidden"}}>
+      <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Type to filter campaigns…"
+        onKeyDown={e=>{ if(e.key==="Enter"&&list.length===1){ onPick(String(list[0].id)); setOpen(false); } }}
+        style={{border:"none", borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`, background:_lm?"#f8fafc":"#0e1a2e", color:_lm?"#0f172a":"#e2e8f0", fontSize:12, padding:"8px 10px", outline:"none"}}/>
+      <div style={{overflowY:"auto"}}>
+        <div onClick={()=>{ onPick(""); setOpen(false); }} style={{...optSt, color:"#64748b"}}>— leave unassigned —</div>
+        <div onClick={()=>{ onIgnore(); setOpen(false); }} style={{...optSt, color:"#ef4444", fontWeight:600}}>🚫 Ignore this campaign</div>
+        {list.length===0 && <div style={{padding:"9px 10px", fontSize:11, color:"#64748b"}}>No matches{qq?` for “${q.trim()}”`:""}</div>}
+        {list.slice(0,300).map(c=>{ const sel=String(c.id)===String(value); return (
+          <div key={c.id} onClick={()=>{ onPick(String(c.id)); setOpen(false); }}
+            style={{...optSt, background:sel?(_lm?"#f0fdf9":"#09322a"):"transparent", color:sel?(_lm?"#059669":"#00e5a0"):(_lm?"#0f172a":"#cbd5e1"), fontWeight:sel?700:400}}>
+            {c.campaignName.trim()} <span style={{opacity:0.62}}>· {c.platform} · {c.mediaPartner}{archivedIds&&archivedIds.has(String(c.id))?" · (archived)":""}</span>
+          </div>); })}
+      </div>
+    </div>) : null;
+  return (
+    <div style={{width:"100%"}}>
+      <button type="button" ref={btnRef} onClick={()=> open ? setOpen(false) : doOpen()}
+        style={{background:bg, border:`1px solid ${bd}`, borderRadius:5, padding:"4px 7px", color:fg, fontSize:10, outline:"none", cursor:"pointer", width:"100%", textAlign:"left", display:"flex", alignItems:"center", gap:6}}>
+        <span style={{flex:1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{labelTxt}</span>
+        <span style={{opacity:0.6, fontSize:10}}>▾</span>
+      </button>
+      {panel}
+    </div>
+  );
+}
+
 function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampaigns, onClose, autoLoadFile=null, onAutoLoadConsumed=()=>{} }) {
   // autoLoadFile: a File handed in by the email-inbox flow — processed once through the normal drop
   // handler (so it goes through the same review/apply gate), then reported consumed to the parent.
@@ -18624,6 +18687,9 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                       }
                     });
                     setMapping(reMap); setMatchConf(reConf); setMemoryMap({});
+                    // Re-sort on the FRESH matches — otherwise rows keep the pre-reset order and the fuzzy
+                    // scores look unsorted after a Reset Memory (parity with the Ambio fork).
+                    setRowOrder(computeRowOrder(fileRows, reMap, reConf, {}));
                     setSavedMsg(`🗑 Memory cleared for ${fileSource} · ⚡ Re-matched ${autoC} rows`);
                   }}
                   style={{background:_lm?"#fee2e2":"#1a0808",border:`1px solid ${_lm?"#fca5a5":"#ef444430"}`,borderRadius:5,padding:"3px 9px",color:_lm?"#dc2626":"#f87171",fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}
@@ -18931,14 +18997,16 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                                 </button>
                               )}
                             </div>
-                            <select value={assigned} onChange={e=>{ const v=e.target.value; if(v==="__ignore__"){ addIgnore(name); assignRow(i,""); } else { assignRow(i, v); } }}
-                              style={{background:assigned?(_lm?"#f0fdf9":"#002e24"):isUnmatched?(_lm?"#fffbeb":"#1a0e00"):(_lm?"#f8fafc":"#0e1a2e"),border:`1px solid ${assigned?(_lm?"#00c896":"#00c89640"):isUnmatched?"#f59e0b40":(_lm?"#e2e8f0":"#1e293b")}`,borderRadius:5,padding:"3px 7px",color:assigned?(_lm?"#059669":"#00e5a0"):isUnmatched?"#f59e0b":(_lm?"#64748b":"#4d6e8a"),fontSize:10,outline:"none",cursor:"pointer",width:"100%"}}>
-                              <option value="">— leave unassigned —</option>
-                              <option value="__ignore__" style={{color:"#ef4444"}}>🚫 Ignore this campaign</option>
-                              {displayList.map(c=>(
-                                <option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}{allArchivedIds.has(String(c.id))?" · (archived)":""}</option>
-                              ))}
-                            </select>
+                            <CampaignPicker
+                              value={assigned}
+                              options={displayList}
+                              searchOptions={_reachable}
+                              archivedIds={allArchivedIds}
+                              onPick={(v)=>assignRow(i, v)}
+                              onIgnore={()=>{ addIgnore(name); assignRow(i, ""); }}
+                              lm={_lm}
+                              isUnmatched={isUnmatched}
+                            />
                           </div>
                         );
                       })()}
