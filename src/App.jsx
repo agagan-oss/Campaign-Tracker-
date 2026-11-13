@@ -16043,12 +16043,17 @@ function InitialsPrompt({ current, onSave, onClose }){
 // filter) with a button that opens a portal'd dropdown carrying its OWN search box, so typing "Alvernia"
 // shows only the Alvernia campaigns. Empty search = the smart candidates (`options`); once you type it
 // searches the broader on-platform pool (`searchOptions`). Ported from the Ambio fork.
-function CampaignPicker({ value, options, searchOptions, archivedIds, onPick, onIgnore, lm, isUnmatched }){
+function CampaignPicker({ value, options, searchOptions, archivedIds, onPick, onIgnore, lm, isUnmatched, rowLabel }){
   const _lm = lm;
   const [open, setOpen] = React.useState(false);
   const [q, setQ] = React.useState("");
   const [rect, setRect] = React.useState(null);
   const btnRef = React.useRef(null), panelRef = React.useRef(null);
+  // Pin the font so this body-portal picker ALWAYS matches the rest of the tracker. The menu renders on
+  // document.body (outside the app's root container); on the deployed build the body's font-family isn't
+  // guaranteed, so without this the dropdown fell back to the browser's serif default and looked foreign
+  // from everything else (Austin). Same stack the app uses (see index.html body rule).
+  const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const assigned = React.useMemo(()=>{
     if(!value) return null;
     return [...(options||[]), ...(searchOptions||[])].find(c=>String(c.id)===String(value)) || null;
@@ -16059,7 +16064,11 @@ function CampaignPicker({ value, options, searchOptions, archivedIds, onPick, on
     const inside = (el)=> (btnRef.current&&btnRef.current.contains(el)) || (panelRef.current&&panelRef.current.contains(el));
     const onDoc = e=>{ if(!inside(e.target)) setOpen(false); };
     const onKey = e=>{ if(e.key==="Escape") setOpen(false); };
-    const onScroll = e=>{ const t=e.target; if(t&&t.nodeType&&panelRef.current&&panelRef.current.contains(t)) return; setOpen(false); };
+    // Scrolling the review list no longer CLOSES the dropdown (Austin: "when I scroll the picker goes away")
+    // — instead it REPOSITIONS the portal to stay pinned under its button, so the open picker rides along
+    // with the row. Scrolling the dropdown's OWN inner list is ignored.
+    const reposition = ()=>{ const el=btnRef.current; if(el) setRect(el.getBoundingClientRect()); };
+    const onScroll = e=>{ const t=e.target; if(t&&t.nodeType&&panelRef.current&&panelRef.current.contains(t)) return; reposition(); };
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
     window.addEventListener("scroll", onScroll, true);
@@ -16067,35 +16076,64 @@ function CampaignPicker({ value, options, searchOptions, archivedIds, onPick, on
     return ()=>{ document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", onScroll); };
   }, [open]);
   const qq = q.trim().toLowerCase();
-  const base = qq ? ((searchOptions && searchOptions.length) ? searchOptions : options) : options;
-  const list = (base||[]).filter(c=> !qq || c.campaignName.toLowerCase().includes(qq) || String(c.platform||"").toLowerCase().includes(qq) || String(c.mediaPartner||"").toLowerCase().includes(qq));
-  const labelTxt = assigned ? `${assigned.campaignName.trim()} · ${assigned.platform} · ${assigned.mediaPartner}` : "— leave unassigned —";
+  // Multi-term AND search: "suny ug" matches "SUNY Brockport (UG Adult)" — each space-separated term just has
+  // to appear SOMEWHERE in the campaign's name + platform + partner (any order, case-insensitive). Was a single
+  // contiguous substring match, which failed any time the words weren't adjacent in that exact order (Austin).
+  const terms = qq ? qq.split(/\s+/).filter(Boolean) : [];
+  const base = terms.length ? ((searchOptions && searchOptions.length) ? searchOptions : options) : options;
+  const list = (base||[]).filter(c=>{
+    if(!terms.length) return true;
+    const hay = (c.campaignName + " " + (c.platform||"") + " " + (c.mediaPartner||"")).toLowerCase();
+    return terms.every(t => hay.includes(t));
+  });
   const bg = value?(_lm?"#f0fdf9":"#002e24"):isUnmatched?(_lm?"#fffbeb":"#1a0e00"):(_lm?"#f8fafc":"#0e1a2e");
   const bd = value?(_lm?"#00c896":"#00c89640"):isUnmatched?"#f59e0b40":(_lm?"#e2e8f0":"#1e293b");
   const fg = value?(_lm?"#059669":"#00e5a0"):isUnmatched?"#f59e0b":(_lm?"#334155":"#cbd5e1");
-  const optSt = { padding:"6px 9px", fontSize:12, cursor:"pointer", borderBottom:`1px solid ${_lm?"#eef2f7":"#13203a"}`, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" };
+  const optSt = { padding:"6px 9px", fontSize:12, cursor:"pointer", borderBottom:`1px solid ${_lm?"#eef2f7":"#13203a"}`, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", display:"flex", alignItems:"center", gap:6 };
+  // Colored platform pill so the tactic reads at a glance (DSP/TDV/VRT… get the tactic's own color) — matches
+  // the colors used everywhere else in the app and makes a wrong-tactic pick jump out (Austin).
+  const pbadge = (plat)=>{ const pc=(typeof PLT_COLORS!=="undefined"&&(PLT_COLORS[plat]||PLT_COLORS.default))||(_lm?"#0369a1":"#7dd3fc"); return <span style={{background:pc+(_lm?"22":"26"),color:pc,border:`1px solid ${pc}55`,borderRadius:3,padding:"0 5px",fontSize:9,fontWeight:800,letterSpacing:"0.02em",flexShrink:0,fontFamily:FONT}}>{plat}</span>; };
+  // Give the menu real room (campaign names were clipping on the right) and keep it inside the viewport:
+  // it's a wide fixed panel, so when the button sits near the right edge we shift it LEFT instead of letting
+  // it overflow/clip (Austin: "move it further left, give it more room"). min 500px, 8px gutters.
+  const _vw = (typeof window!=="undefined" ? window.innerWidth : 1280);
+  const PANEL_W = rect ? Math.round(Math.min(Math.max(rect.width, 600), _vw - 16)) : 600;
+  const PANEL_L = rect ? Math.round(Math.max(8, Math.min(rect.left, _vw - PANEL_W - 8))) : 8;
   const panel = (open && rect) ? safePortal(
-    <div ref={panelRef} style={{position:"fixed", zIndex:9999, top:Math.round(rect.bottom+2), left:Math.round(rect.left), width:Math.round(Math.max(rect.width, 340)), maxHeight:320, background:_lm?"#ffffff":"#0b1524", border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`, borderRadius:7, boxShadow:"0 10px 30px rgba(0,0,0,0.45)", display:"flex", flexDirection:"column", overflow:"hidden"}}>
+    <div ref={panelRef} style={{position:"fixed", zIndex:9999, top:Math.round(rect.bottom+4), left:PANEL_L, width:PANEL_W, maxHeight:360, background:_lm?"#ffffff":"#0b1524", border:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`, borderRadius:7, boxShadow:"0 10px 30px rgba(0,0,0,0.45)", display:"flex", flexDirection:"column", overflow:"hidden", fontFamily:FONT}}>
+      {/* Which file row you're mapping — shown at the TOP of the picker so you never lose track while scrolling
+          the options (Austin). Own band, uppercase micro-label, name allowed to WRAP so it's never clipped. */}
+      {rowLabel && <div style={{padding:"8px 11px 9px", background:_lm?"#f1f5f9":"#0e1a2e", borderBottom:`2px solid ${_lm?"#e2e8f0":"#1e293b"}`, fontFamily:FONT}}>
+        <div style={{fontSize:8.5, fontWeight:800, letterSpacing:"0.06em", textTransform:"uppercase", color:_lm?"#64748b":"#5f9ac0", marginBottom:2}}>Name in file</div>
+        <div style={{fontSize:11.5, fontWeight:700, lineHeight:1.3, color:_lm?"#0f172a":"#e2e8f0", whiteSpace:"normal", wordBreak:"break-word"}}>{rowLabel}</div>
+      </div>}
       <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Type to filter campaigns…"
         onKeyDown={e=>{ if(e.key==="Enter"&&list.length===1){ onPick(String(list[0].id)); setOpen(false); } }}
-        style={{border:"none", borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`, background:_lm?"#f8fafc":"#0e1a2e", color:_lm?"#0f172a":"#e2e8f0", fontSize:12, padding:"8px 10px", outline:"none"}}/>
+        style={{border:"none", borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`, background:_lm?"#f8fafc":"#0e1a2e", color:_lm?"#0f172a":"#e2e8f0", fontSize:12, padding:"8px 10px", outline:"none", fontFamily:FONT}}/>
       <div style={{overflowY:"auto"}}>
         <div onClick={()=>{ onPick(""); setOpen(false); }} style={{...optSt, color:"#64748b"}}>— leave unassigned —</div>
         <div onClick={()=>{ onIgnore(); setOpen(false); }} style={{...optSt, color:"#ef4444", fontWeight:600}}>🚫 Ignore this campaign</div>
         {list.length===0 && <div style={{padding:"9px 10px", fontSize:11, color:"#64748b"}}>No matches{qq?` for “${q.trim()}”`:""}</div>}
         {list.slice(0,300).map(c=>{ const sel=String(c.id)===String(value); return (
           <div key={c.id} onClick={()=>{ onPick(String(c.id)); setOpen(false); }}
-            style={{...optSt, background:sel?(_lm?"#f0fdf9":"#09322a"):"transparent", color:sel?(_lm?"#059669":"#00e5a0"):(_lm?"#0f172a":"#cbd5e1"), fontWeight:sel?700:400}}>
-            {c.campaignName.trim()} <span style={{opacity:0.62}}>· {c.platform} · {c.mediaPartner}{archivedIds&&archivedIds.has(String(c.id))?" · (archived)":""}</span>
+            style={{...optSt, whiteSpace:"normal", overflow:"visible", textOverflow:"clip", alignItems:"flex-start", background:sel?(_lm?"#f0fdf9":"#09322a"):"transparent", color:sel?(_lm?"#059669":"#00e5a0"):(_lm?"#0f172a":"#cbd5e1"), fontWeight:sel?700:400}}>
+            {pbadge(c.platform)}
+            {/* Long names WRAP instead of truncating — so even the biggest campaign (e.g. "… PSU Transfer
+                (Satellite Campus) · West Virginia Radio") is fully readable, never clipped (Austin). */}
+            <span style={{flex:1, minWidth:0, whiteSpace:"normal", wordBreak:"break-word", lineHeight:1.3}}>{c.campaignName.trim()} <span style={{opacity:0.62}}>· {c.mediaPartner}{archivedIds&&archivedIds.has(String(c.id))?" · (archived)":""}</span></span>
           </div>); })}
       </div>
     </div>) : null;
   return (
     <div style={{width:"100%"}}>
       <button type="button" ref={btnRef} onClick={()=> open ? setOpen(false) : doOpen()}
-        style={{background:bg, border:`1px solid ${bd}`, borderRadius:5, padding:"4px 7px", color:fg, fontSize:10, outline:"none", cursor:"pointer", width:"100%", textAlign:"left", display:"flex", alignItems:"center", gap:6}}>
-        <span style={{flex:1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{labelTxt}</span>
-        <span style={{opacity:0.6, fontSize:10}}>▾</span>
+        title={assigned ? `${assigned.campaignName.trim()} · ${assigned.platform} · ${assigned.mediaPartner}` : undefined}
+        style={{background:bg, border:`1px solid ${bd}`, borderRadius:5, padding:"4px 7px", color:fg, fontSize:12, outline:"none", cursor:"pointer", width:"100%", textAlign:"left", display:"flex", alignItems:"center", gap:6, fontFamily:FONT}}>
+        {/* The assigned name WRAPS rather than truncating, so even the longest campaign (e.g. "… PSU Transfer
+            (Satellite Campus) · West Virginia Radio") is fully readable in the collapsed button (Austin). */}
+        {assigned ? <>{pbadge(assigned.platform)}<span style={{flex:1, minWidth:0, whiteSpace:"normal", wordBreak:"break-word", lineHeight:1.25}}>{assigned.campaignName.trim()} <span style={{opacity:0.7}}>· {assigned.mediaPartner}</span></span></>
+                  : <span style={{flex:1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>— leave unassigned —</span>}
+        <span style={{opacity:0.6, fontSize:10, flexShrink:0}}>▾</span>
       </button>
       {panel}
     </div>
@@ -18987,7 +19025,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                         const canRevealMore = !showingAll && _reachable.length > displayList.length;
 
                         return (
-                          <div style={{display:"flex",flexDirection:"column",gap:2,minWidth:240,maxWidth:480,flex:1}}>
+                          <div style={{display:"flex",flexDirection:"column",gap:2,minWidth:280,maxWidth:820,flex:"2.8 1 0"}}>
                             <div style={{fontSize:9,color:_lm?"#64748b":"#4d6e8a",textAlign:"right",display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
                               {isTTD && !showingAll && <span style={{color:"#a78bfa",fontSize:9}}>TD/TDA/TDV</span>}
                               {(isFiltered||isTTD||canRevealMore) && (
@@ -19006,6 +19044,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                               onIgnore={()=>{ addIgnore(name); assignRow(i, ""); }}
                               lm={_lm}
                               isUnmatched={isUnmatched}
+                              rowLabel={isTTD && name ? `${displayName} (${name})` : (displayName||name)}
                             />
                           </div>
                         );
