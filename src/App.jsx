@@ -10366,11 +10366,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
       snap.breakdown.forEach(b => {
         const prior = priorBy[b.name]; if (!prior) return;
         const priorImpr = prior.impressions || 0, curImpr = b.impressions || 0;
-        if (priorImpr < 500) return;          // wasn't meaningfully running before — ignore
+        const share = totalImpr > 0 ? (curImpr / totalImpr * 100) : 0;
+        // Ignore only truly-tiny NOISE lines: skip when the line barely ran (<100 impr) AND is a small
+        // slice of the campaign (<25%). A modest line that was still a MEANINGFUL share — e.g. the sole
+        // ad set of a single-line campaign — gets flagged when it stops, even with low impressions. (Was a
+        // flat 500-impr floor that silently missed a 158-impr Device Targeting line Austin had turned off.)
+        if (priorImpr < 100 && share < 25) return;
         if (curImpr - priorImpr > 0) return;  // still delivering
         const key = qlineKey(c.id, b.name, curImpr);
         if (isDismissed(key)) return;
-        out.push({ c, lineName: b.name, curImpr, share: totalImpr > 0 ? (curImpr / totalImpr * 100) : 0, daysFlat, sinceDisp, key });
+        out.push({ c, lineName: b.name, curImpr, share, daysFlat, sinceDisp, key });
       });
     });
     // Most days-flat first, then biggest share of the campaign
