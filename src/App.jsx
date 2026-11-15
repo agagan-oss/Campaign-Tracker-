@@ -16295,29 +16295,31 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   const [rowOrder,     setRowOrder]     = React.useState(null);   // [origIdx, …] or null (= file order)
   function computeRowOrder(rows, mp, conf, mem){
     if(!Array.isArray(rows)) return null;
-    // Order the review list so the matches NEEDING YOUR EYES float to the top and the settled rows sink,
-    // matching the user's heuristic: review the fuzzy/uncertain matches first, then the remembered ones,
-    // and the "probably not mine" unmapped rows go to the very bottom. Tiers:
-    //   0 = FLAGGED / needs review — a fuzzy match below the ⚠ review bar (<0.7), INCLUDING a downgraded
-    //       remembered match (e.g. a closed-archive ⚠ ended match). Lowest % first. These come first.
-    //   1 = normal auto-match (fuzzy, decent confidence, not remembered) — a glance to confirm.
-    //   2 = remembered (purple ✓) / exact 100% — "all set".
-    //   3 = UNMAPPED — nothing assigned (mostly other CMs' rows / not yours), parked at the very bottom.
+    // Order the review list so everything NEEDING YOUR EYES floats to the top and the settled rows sink.
+    // UNMAPPED rows now go FIRST (Austin): a file that's all purple ✓ except one unmapped row at the bottom
+    // is easy to miss — you won't scroll down to spot it. So unmapped (map it, or ignore it) comes first,
+    // then the flagged fuzzy matches to verify, then normal auto-matches, then the "all set" remembered ones.
+    // Tiers:
+    //   0 = UNMAPPED — nothing assigned yet (needs a map or an ignore). Surfaced FIRST so it's never buried.
+    //   1 = FLAGGED / needs review — a fuzzy match below the ⚠ review bar (<0.7), INCLUDING a downgraded
+    //       remembered match (e.g. a closed-archive ⚠ ended match). Lowest % first.
+    //   2 = normal auto-match (fuzzy, decent confidence, not remembered) — a glance to confirm.
+    //   3 = remembered (purple ✓) / exact 100% — "all set", sinks to the bottom.
     //       Ignored rows are hidden from this list entirely (isIgnoredName).
     const REVIEW = 0.7; // mirrors isLowConf in the row render
     const tier = (i)=>{
       const a = mp[i];
-      if(!a) return 3;                                            // unmapped → very last
+      if(!a) return 0;                                            // UNMAPPED → very top (easy to miss otherwise)
       const c = conf[i];
       const isMem = mem[i] != null && String(mem[i]) === String(a);
-      if(c !== undefined && c < REVIEW) return 0;                 // flagged → TOP, even if remembered
-      if(!isMem && c !== undefined && c < 1.0) return 1;          // normal fuzzy auto-match → next
-      return 2;                                                   // remembered / exact (purple ✓) → "all set"
+      if(c !== undefined && c < REVIEW) return 1;                 // flagged → next
+      if(!isMem && c !== undefined && c < 1.0) return 2;          // normal fuzzy auto-match
+      return 3;                                                   // remembered / exact (purple ✓) → "all set"
     };
     return rows.map((_,i)=>i).sort((a,b)=>{
       const ta=tier(a), tb=tier(b);
       if(ta!==tb) return ta-tb;
-      if(ta===0){ const ca=conf[a]??1, cb=conf[b]??1; if(ca!==cb) return ca-cb; } // flagged: lowest % first
+      if(ta===1){ const ca=conf[a]??1, cb=conf[b]??1; if(ca!==cb) return ca-cb; } // flagged: lowest % first
       return a-b;                                                 // stable: keep file order within tier
     });
   }
