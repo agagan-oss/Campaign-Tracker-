@@ -6007,10 +6007,8 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
             </div>
           )}
           <button onClick={submit} className="glow-btn" style={{flex:1,background:"#00e19e",border:"none",borderRadius:7,padding:"11px 0",color:"#0a1a0a",fontWeight:700,fontSize:14,cursor:"pointer"}}>{isNew?"Add Campaign":"Save Changes"}</button>
-          {!isNew && onArchive && (
-            <button onClick={()=>onArchive(f)} title="Save these metrics and move the campaign to the Archive" className="glow-btn-amber"
-              style={{flex:1,background:"#f59e0b",border:"none",borderRadius:7,padding:"11px 0",color:"#3a2500",fontWeight:800,fontSize:14,cursor:"pointer",whiteSpace:"nowrap"}}>🗄 Save &amp; Archive</button>
-          )}
+          {/* "🗄 Save & Archive" removed from the edit form (Austin: too easy to hit by accident next to Save).
+              Archive a single campaign from the row's ⋯ menu, or close a flight via the Revenue close-out queue. */}
           {/* Add Campaign (not the IO draft queue) gets explicit draft controls:
               "Save as Draft" closes but keeps the in-progress work; "Discard" clears
               it after a two-step confirm so a stray click can't wipe your work. */}
