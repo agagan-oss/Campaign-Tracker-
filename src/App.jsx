@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/06/2026a";
+const APP_VERSION = "11/18/2026a";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -16293,31 +16293,25 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
   const [rowOrder,     setRowOrder]     = React.useState(null);   // [origIdx, …] or null (= file order)
   function computeRowOrder(rows, mp, conf, mem){
     if(!Array.isArray(rows)) return null;
-    // Order the review list so everything NEEDING YOUR EYES floats to the top and the settled rows sink.
-    // UNMAPPED rows now go FIRST (Austin): a file that's all purple ✓ except one unmapped row at the bottom
-    // is easy to miss — you won't scroll down to spot it. So unmapped (map it, or ignore it) comes first,
-    // then the flagged fuzzy matches to verify, then normal auto-matches, then the "all set" remembered ones.
-    // Tiers:
-    //   0 = UNMAPPED — nothing assigned yet (needs a map or an ignore). Surfaced FIRST so it's never buried.
-    //   1 = FLAGGED / needs review — a fuzzy match below the ⚠ review bar (<0.7), INCLUDING a downgraded
-    //       remembered match (e.g. a closed-archive ⚠ ended match). Lowest % first.
-    //   2 = normal auto-match (fuzzy, decent confidence, not remembered) — a glance to confirm.
-    //   3 = remembered (purple ✓) / exact 100% — "all set", sinks to the bottom.
+    // Order the review list so YOUR campaigns surface first and the noise sinks (Austin — reversed the earlier
+    // "unmapped first", which buried his real matches under rows he just scrolls past to find his own). Order:
+    //   0 = FUZZY auto-match — a real match to one of your campaigns (score < 100%) → TOP, SHAKIEST (lowest)
+    //       score first (Austin), so the uncertain matches that need a look are right where you land.
+    //   1 = REMEMBERED (purple ✓) / exact 100% / manual pick → MIDDLE ("all set" — nothing to decide).
+    //   2 = UNMAPPED — no match found (map it, or most likely ignore) → BOTTOM.
     //       Ignored rows are hidden from this list entirely (isIgnoredName).
-    const REVIEW = 0.7; // mirrors isLowConf in the row render
     const tier = (i)=>{
       const a = mp[i];
-      if(!a) return 0;                                            // UNMAPPED → very top (easy to miss otherwise)
+      if(!a) return 2;                                            // UNMAPPED → bottom (most likely ignore)
       const c = conf[i];
       const isMem = mem[i] != null && String(mem[i]) === String(a);
-      if(c !== undefined && c < REVIEW) return 1;                 // flagged → next
-      if(!isMem && c !== undefined && c < 1.0) return 2;          // normal fuzzy auto-match
-      return 3;                                                   // remembered / exact (purple ✓) → "all set"
+      if(isMem || c === undefined || c >= 1.0) return 1;         // remembered / exact 100% / manual → "all set"
+      return 0;                                                   // fuzzy auto-match (score < 1.0) → top
     };
     return rows.map((_,i)=>i).sort((a,b)=>{
       const ta=tier(a), tb=tier(b);
       if(ta!==tb) return ta-tb;
-      if(ta===1){ const ca=conf[a]??1, cb=conf[b]??1; if(ca!==cb) return ca-cb; } // flagged: lowest % first
+      if(ta===0){ const ca=conf[a]??1, cb=conf[b]??1; if(ca!==cb) return ca-cb; } // fuzzy: SHAKIEST (lowest) score first
       return a-b;                                                 // stable: keep file order within tier
     });
   }
