@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/18/2026a";
+const APP_VERSION = "11/18/2026b";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -16546,6 +16546,11 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // named like "Alaska 2026 Midterms - Audience Extension TV". Impressions only (spend is modeled from
     // the est. CPM, so the file's Delivered Spend is blank). "Pacing Type" is unique to this report.
     if (cols.includes("pacing type") && cols.includes("delivered impressions")) return "Madhive Pacing";
+    // TikTok Ads campaign export — "Campaign name" + the TikTok-specific "(destination)" metric columns
+    // (Clicks / CPC / CTR "(destination)"). MUST be tested BEFORE Google, whose generic campaign + impr/clicks
+    // + spend test would otherwise claim it (and then miss the suffixed click/CTR columns → 0 clicks). A
+    // trailing "Total of N results" summary row is dropped on parse. Routes to the TT platform.
+    if (cols.includes("campaign name") && (cols.includes("clicks (destination)")||cols.includes("cpc (destination)")||cols.includes("ctr (destination)"))) return "TikTok";
     // Google Ads / YouTube — "campaign" + impressions/clicks + cost, but NOT TradeDesk or Meta columns
     if (cols.includes("campaign") && (cols.includes("impressions")||cols.includes("clicks")) && (cols.includes("cost")||cols.includes("spend")) && !cols.includes("advertiser name") && !cols.includes("amount spent")) return "Google";
     // TVsci spend report (the hourly "Ambio Spend Report" sheet): Ad Account Name + Campaign Name +
@@ -16678,6 +16683,18 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
       // CTR column ("Click Rate") stores a % value whose scale is ambiguous — always compute from clicks/impressions
       ctr = impressions > 0 && clicks > 0 ? clicks / impressions : 0;
 
+    } else if (source==="TikTok") {
+      // TikTok Ads campaign export — Impressions / Spend / CPM are plain columns; clicks & CTR carry a
+      // "(destination)" suffix (destination = link clicks to the advertiser's site). CTR is computed from
+      // clicks/impressions for consistency (the file's CTR is a decimal ratio we fall back to if no clicks).
+      const clean = v => (v==null?"":v).toString().replace(/[$,%\s]/g,"");
+      impressions = parseInt(clean(row["Impressions"]||row["impressions"]))||0;
+      clicks      = parseInt(clean(row["Clicks (destination)"]||row["Clicks"]||row["clicks"]))||0;
+      spend       = parseFloat(clean(row["Spend"]||row["spend"]))||0;
+      cpm         = parseFloat(clean(row["CPM"]||row["cpm"]))||0;
+      ctr         = impressions>0 && clicks>0 ? (clicks/impressions) : (parseFloat(clean(row["CTR (destination)"]||row["CTR"]||0))||0);
+      if (ctr > 1) ctr = ctr/100; // normalize if expressed as a whole percent
+
     } else if (source==="Facebook/Meta") {
       // Defensive cleaner — XLSX cells can be either strings (with commas/$) or
       // raw numbers. Calling .replace() on a number crashes (TypeError → white screen).
@@ -16790,6 +16807,8 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if (source==="Madhive Pacing") return row["Name"]||row["Advertiser"]||"";
     // TVsci spend sheet — the Campaign Name carries both the client and the tactic ("Shining Star 2026 CTV").
     if (source==="TVsci Spend" || source==="TVsci Daily") return row["Campaign Name"]||"";
+    // TikTok Ads export — "Campaign name" (lowercase n) is the campaign.
+    if (source==="TikTok") return row["Campaign name"]||row["Campaign Name"]||"";
     // Generic — try common campaign name columns
     return findCol(row, ["campaign name","campaign","name","ad campaign","campaign title"])||"";
   }
@@ -16976,6 +16995,7 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     "Google":        new Set(["SEM","YT"]),
     "Facebook/Meta": new Set(["FB","FBV","IG"]),
     "Snapchat":      new Set(["SP"]),
+    "TikTok":        new Set(["TT"]),
     "DSP-Internal":  new Set(["DSP"]),
     "DSP":           new Set(["DSP"]),
     "Madhive":       new Set(["PCTV","GCTV","AECTV"]), // Madhive = GCTV/PCTV + Audience Extension (AECTV); plain CTV/OTT belong to TVsci
@@ -17414,6 +17434,12 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // Filename detection wins — it's explicit. Fall back to header sniffing only if unknown.
     const source = detectSourceFromFilename(file.name) || detectSource(rows);
     setFileSource(source);
+    // TikTok campaign exports end with a "Total of N results" summary row — drop it so it isn't shown as an
+    // unmapped campaign in the review list.
+    if(source==="TikTok"){
+      rows = rows.filter(r => !/^total of\b/i.test(String(r["Campaign name"]||r["Campaign Name"]||"").trim()));
+      if(!rows.length){ setFileError("No TikTok campaign rows found (only the summary total row)."); return; }
+    }
     // ── Auto-select the platform family this file covers ──────────────────────────────────────────
     // So a teammate never has to know which tactics go together: drop a Trade Desk file → TD/TDV/TDA
     // light up on their own. Rules: keep a deliberate NARROWER pick that still fits this file (e.g. the
