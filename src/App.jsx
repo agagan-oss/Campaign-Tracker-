@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/18/2026b";
+const APP_VERSION = "11/19/2026a";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -5688,7 +5688,7 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                   drop's date; Contract Value = the sum of all drops' bill. Re-drops / matchback are just drops. */}
               {f.platform==="EMAIL" && (()=>{
                 const n = v => parseFloat(v)||0;
-                const defB = n(f.emailBillPerDrop)||750, defC = n(f.emailCostPerDrop)||500;   // baked-in $750/$500 default
+                const defB = n(f.emailBillPerDrop)||750, defC = n(f.emailCostPerDrop)||Math.max(0, defB-250);   // cost defaults to bill−$250 → always $250 profit/drop
                 let drops=[]; try{ drops=JSON.parse(f.emailDrops||"[]"); }catch{} if(!Array.isArray(drops)) drops=[];
                 const setDrops = arr => { setCvTouched(false); set("emailDrops", JSON.stringify(arr)); };
                 const billOf = d => (d.b!=null&&d.b!=="")?n(d.b):defB;
@@ -13651,9 +13651,12 @@ function emailDropList(c) {
   let arr = [];
   try { arr = JSON.parse(c.emailDrops || "[]"); } catch { arr = []; }
   if (!Array.isArray(arr)) arr = [];
-  // Baked-in defaults: $750 bill − $500 cost = $250 profit per drop, so a drop needs nothing but a date.
+  // Baked-in default: every drop nets $250 profit (Austin). Bill defaults to $750; COST defaults to the bill
+  // MINUS $250 — so whatever the bill is (the IO rate, or a client-specific price like $500), an un-overridden
+  // drop still books a clean $250 profit instead of $0. Enter an explicit cost only when a client's real cost
+  // differs. (Was a flat $500 cost, which zeroed out a $500-bill client.)
   const defB = parseFloat(c.emailBillPerDrop) || 750;
-  const defC = parseFloat(c.emailCostPerDrop) || 500;
+  const defC = parseFloat(c.emailCostPerDrop) || Math.max(0, defB - 250);
   return arr.filter(d => d).map(d => ({
     d: d.d || "",
     done: !!d.done,
