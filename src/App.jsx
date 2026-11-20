@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/19/2026a";
+const APP_VERSION = "11/20/2026a";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -16576,6 +16576,10 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     if (/\bdisplay\b/i.test(s)) return "OTTD";
     if (/\bOTT\b/i.test(s)) return "OTT";
     if (/\bCTV\b/i.test(s)) return "CTV";
+    // "PTV" / "Performance TV" = Performance Television (CTV + OTT combined). TVsci's newer naming uses PTV
+    // where the older export said CTV; route it to the CTV platform so e.g. "Aquabliss PTV (Brooklyn)" lands
+    // on the "Aquabliss (Brooklyn NY)" CTV campaign instead of getting an empty pool and staying unassigned.
+    if (/\bPTV\b|performance\s*tv/i.test(s)) return "CTV";
     return null;
   }
   // The daily report's Date column arrives as an Excel SERIAL NUMBER (2026-07-01 → 46204), because
@@ -16603,7 +16607,8 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
     // "Greenwood Credit Union". Without the display/retargeting tokens an OTTD line would score
     // against the tracker name with "- Display Retargeting" still attached and lose to noise.
     return String(name||"")
-      .replace(/\b(ctv|ott|ottd|display|retargeting|rt|20\d\d)\b/gi," ")
+      .replace(/\bperformance\s*tv\b/gi," ")
+      .replace(/\b(ctv|ott|ottd|ptv|display|retargeting|rt|20\d\d)\b/gi," ")
       .replace(/[()\/\-]/g," ").replace(/\s+/g," ").trim();
   }
 
@@ -18782,20 +18787,47 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                 </button>
               </div>
             </div>
-            {/* Pick-mode banner — shown when user clicked an unmapped left-side campaign */}
+            {/* Pick-mode banner — shown when user clicked an unmapped left-side campaign. Surfaces the CLOSEST
+                unmapped file rows for that campaign (Austin: "let me click a campaign and see what's close to
+                link it") so you don't scroll hundreds of rows. One click on a suggestion links it. */}
             {leftPickCampId && (()=>{
               const c = activeCamps.find(x=>x.id===leftPickCampId);
-              return c ? (
-                <div style={{padding:"5px 10px",background:_lm?"#fffbeb":"#1a1000",borderBottom:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:11,color:"#f59e0b",fontWeight:700,flex:1}}>
-                    → Click any row below to assign it to <span style={{color:_lm?"#0f172a":"#edf4ff"}}>{c.campaignName.trim()}</span> ({c.platform})
-                  </span>
-                  <button onClick={()=>setLeftPickCampId(null)}
-                    style={{background:"none",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:4,padding:"2px 8px",color:"#f59e0b",fontSize:10,cursor:"pointer"}}>
-                    Cancel
-                  </button>
+              if(!c) return null;
+              const isTvsci = fileSource==="TVsci Daily" || fileSource==="TVsci Spend";
+              const scoreRow = (row)=>{ const nm=getCampName(row, fileSource); if(!nm) return 0;
+                if(isTvsci){ const t=tvsciTactic(nm); if(t && t!==c.platform) return 0; return fuzzyScore(tvsciLabel(nm), c.campaignName); }
+                return fuzzyScore(nm, c.campaignName); };
+              const sugg = (fileRows||[]).map((row,i)=>({i,row,score:scoreRow(row)}))
+                .filter(x=> !mapping[x.i] && !isRowIgnored(x.i) && x.score>=0.3)
+                .sort((a,b)=>b.score-a.score).slice(0,5);
+              return (
+                <div style={{padding:"6px 10px",background:_lm?"#fffbeb":"#1a1000",borderBottom:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:11,color:"#f59e0b",fontWeight:700,flex:1}}>
+                      → Linking a file row to <span style={{color:_lm?"#0f172a":"#edf4ff"}}>{c.campaignName.trim()}</span> ({c.platform})
+                    </span>
+                    <button onClick={()=>setLeftPickCampId(null)}
+                      style={{background:"none",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:4,padding:"2px 8px",color:"#f59e0b",fontSize:10,cursor:"pointer"}}>
+                      Cancel
+                    </button>
+                  </div>
+                  {sugg.length>0 ? (
+                    <div style={{marginTop:6,display:"flex",flexDirection:"column",gap:3}}>
+                      <div style={{fontSize:9,color:_lm?"#b45309":"#d19a4a",textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:700}}>Closest in the file — click to link:</div>
+                      {sugg.map(({i,row,score})=>(
+                        <button key={i} onClick={()=>{ assignRow(i, String(leftPickCampId)); setLeftPickCampId(null); }}
+                          title="Link this file row to the selected campaign"
+                          style={{display:"flex",alignItems:"center",gap:8,textAlign:"left",background:_lm?"#fff7e6":"#120a00",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:5,padding:"4px 8px",cursor:"pointer"}}>
+                          <span style={{flex:1,minWidth:0,fontSize:11,fontWeight:600,color:_lm?"#0f172a":"#edf4ff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{getCampName(row, fileSource)}</span>
+                          <span style={{flexShrink:0,fontSize:9.5,fontWeight:800,color:score>=0.7?(_lm?"#059669":"#00e5a0"):"#f59e0b"}}>{Math.round(score*100)}%</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{marginTop:5,fontSize:10,color:_lm?"#92826a":"#a07a4a"}}>No close matches in the file — click any row below to assign it manually.</div>
+                  )}
                 </div>
-              ) : null;
+              );
             })()}
 
             {/* ── Low-confidence review panel — appears when user clicks Apply with uncertain matches ── */}
