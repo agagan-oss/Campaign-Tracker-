@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/20/2026a";
+const APP_VERSION = "11/20/2026c";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -16049,7 +16049,7 @@ function InitialsPrompt({ current, onSave, onClose }){
 // filter) with a button that opens a portal'd dropdown carrying its OWN search box, so typing "Alvernia"
 // shows only the Alvernia campaigns. Empty search = the smart candidates (`options`); once you type it
 // searches the broader on-platform pool (`searchOptions`). Ported from the Ambio fork.
-function CampaignPicker({ value, options, searchOptions, archivedIds, onPick, onIgnore, lm, isUnmatched, rowLabel }){
+function CampaignPicker({ value, options, searchOptions, archivedIds, onPick, onIgnore, lm, isUnmatched, rowLabel, rowLabelTitle="Name in file", hideIgnore=false, placeholder="— leave unassigned —", searchPlaceholder="Type to filter campaigns…" }){
   const _lm = lm;
   const [open, setOpen] = React.useState(false);
   const [q, setQ] = React.useState("");
@@ -16110,15 +16110,15 @@ function CampaignPicker({ value, options, searchOptions, archivedIds, onPick, on
       {/* Which file row you're mapping — shown at the TOP of the picker so you never lose track while scrolling
           the options (Austin). Own band, uppercase micro-label, name allowed to WRAP so it's never clipped. */}
       {rowLabel && <div style={{padding:"8px 11px 9px", background:_lm?"#f1f5f9":"#0e1a2e", borderBottom:`2px solid ${_lm?"#e2e8f0":"#1e293b"}`, fontFamily:FONT}}>
-        <div style={{fontSize:8.5, fontWeight:800, letterSpacing:"0.06em", textTransform:"uppercase", color:_lm?"#64748b":"#5f9ac0", marginBottom:2}}>Name in file</div>
+        <div style={{fontSize:8.5, fontWeight:800, letterSpacing:"0.06em", textTransform:"uppercase", color:_lm?"#64748b":"#5f9ac0", marginBottom:2}}>{rowLabelTitle}</div>
         <div style={{fontSize:11.5, fontWeight:700, lineHeight:1.3, color:_lm?"#0f172a":"#e2e8f0", whiteSpace:"normal", wordBreak:"break-word"}}>{rowLabel}</div>
       </div>}
-      <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Type to filter campaigns…"
+      <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder={searchPlaceholder}
         onKeyDown={e=>{ if(e.key==="Enter"&&list.length===1){ onPick(String(list[0].id)); setOpen(false); } }}
         style={{border:"none", borderBottom:`1px solid ${_lm?"#e2e8f0":"#1e293b"}`, background:_lm?"#f8fafc":"#0e1a2e", color:_lm?"#0f172a":"#e2e8f0", fontSize:12, padding:"8px 10px", outline:"none", fontFamily:FONT}}/>
       <div style={{overflowY:"auto"}}>
-        <div onClick={()=>{ onPick(""); setOpen(false); }} style={{...optSt, color:"#64748b"}}>— leave unassigned —</div>
-        <div onClick={()=>{ onIgnore(); setOpen(false); }} style={{...optSt, color:"#ef4444", fontWeight:600}}>🚫 Ignore this campaign</div>
+        <div onClick={()=>{ onPick(""); setOpen(false); }} style={{...optSt, color:"#64748b"}}>{placeholder}</div>
+        {!hideIgnore && <div onClick={()=>{ onIgnore(); setOpen(false); }} style={{...optSt, color:"#ef4444", fontWeight:600}}>🚫 Ignore this campaign</div>}
         {list.length===0 && <div style={{padding:"9px 10px", fontSize:11, color:"#64748b"}}>No matches{qq?` for “${q.trim()}”`:""}</div>}
         {list.slice(0,300).map(c=>{ const sel=String(c.id)===String(value); return (
           <div key={c.id} onClick={()=>{ onPick(String(c.id)); setOpen(false); }}
@@ -16138,7 +16138,7 @@ function CampaignPicker({ value, options, searchOptions, archivedIds, onPick, on
         {/* The assigned name WRAPS rather than truncating, so even the longest campaign (e.g. "… PSU Transfer
             (Satellite Campus) · West Virginia Radio") is fully readable in the collapsed button (Austin). */}
         {assigned ? <>{pbadge(assigned.platform)}<span style={{flex:1, minWidth:0, whiteSpace:"normal", wordBreak:"break-word", lineHeight:1.25}}>{assigned.campaignName.trim()} <span style={{opacity:0.7}}>· {assigned.mediaPartner}</span></span></>
-                  : <span style={{flex:1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>— leave unassigned —</span>}
+                  : <span style={{flex:1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{placeholder}</span>}
         <span style={{opacity:0.6, fontSize:10, flexShrink:0}}>▾</span>
       </button>
       {panel}
@@ -18787,9 +18787,9 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
                 </button>
               </div>
             </div>
-            {/* Pick-mode banner — shown when user clicked an unmapped left-side campaign. Surfaces the CLOSEST
-                unmapped file rows for that campaign (Austin: "let me click a campaign and see what's close to
-                link it") so you don't scroll hundreds of rows. One click on a suggestion links it. */}
+            {/* Pick-mode banner — shown when user clicked an unmapped left-side campaign. Mirrors the RIGHT
+                side's layout (Austin): the CAMPAIGN NAME on top, a DROPDOWN of file rows right below it —
+                closest match first with a % — so the names line up and you pick the right one in one move. */}
             {leftPickCampId && (()=>{
               const c = activeCamps.find(x=>x.id===leftPickCampId);
               if(!c) return null;
@@ -18797,35 +18797,48 @@ function QuickCheckInPanel({ campaigns, archive, setArchive, filtered, setCampai
               const scoreRow = (row)=>{ const nm=getCampName(row, fileSource); if(!nm) return 0;
                 if(isTvsci){ const t=tvsciTactic(nm); if(t && t!==c.platform) return 0; return fuzzyScore(tvsciLabel(nm), c.campaignName); }
                 return fuzzyScore(nm, c.campaignName); };
-              const sugg = (fileRows||[]).map((row,i)=>({i,row,score:scoreRow(row)}))
-                .filter(x=> !mapping[x.i] && !isRowIgnored(x.i) && x.score>=0.3)
-                .sort((a,b)=>b.score-a.score).slice(0,5);
+              const all = (fileRows||[]).map((row,i)=>({i,row,score:scoreRow(row)}))
+                .filter(x=> !mapping[x.i] && !isRowIgnored(x.i))
+                .sort((a,b)=>b.score-a.score);
+              const relevant = all.filter(x=>x.score>0);
+              const list = relevant.length ? relevant : all;   // only on-tactic / name-overlapping rows, else all
+              const _pcol = (typeof PLT_COLORS!=="undefined" && PLT_COLORS[c.platform]) || "#f59e0b";
+              // Shape file rows as CampaignPicker options so the dropdown gets the SAME colored tactic pills +
+              // search + no-scroll-assign behavior as the right side (Austin: native <select> was auto-picking
+              // on scroll and had no tactic colors). platform = the row's tactic (colored pill); the % match
+              // rides the mediaPartner slot so it shows as "· NN% match".
+              const toOpt = ({i,row,score})=>{ const nm=getCampName(row, fileSource);
+                return { id:i, campaignName:nm||"(unnamed row)", platform:(isTvsci ? (tvsciTactic(nm)||c.platform) : c.platform), mediaPartner: score>0 ? `${Math.round(score*100)}% match` : "" }; };
               return (
-                <div style={{padding:"6px 10px",background:_lm?"#fffbeb":"#1a1000",borderBottom:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{fontSize:11,color:"#f59e0b",fontWeight:700,flex:1}}>
-                      → Linking a file row to <span style={{color:_lm?"#0f172a":"#edf4ff"}}>{c.campaignName.trim()}</span> ({c.platform})
-                    </span>
+                <div style={{padding:"8px 12px",background:_lm?"#fffbeb":"#1a1000",borderBottom:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`}}>
+                  <div style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:5}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:9,color:_lm?"#b45309":"#d19a4a",textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:700,marginBottom:1}}>Link a file row to this campaign</div>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontSize:13,fontWeight:700,color:_lm?"#0f172a":"#edf4ff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaignName.trim()}</span>
+                        <span title={`Platform: ${c.platform}`} style={{flexShrink:0,fontSize:9,fontWeight:800,color:_pcol,background:_pcol+(_lm?"22":"26"),border:`1px solid ${_pcol}66`,borderRadius:3,padding:"0 5px"}}>{c.platform}</span>
+                      </div>
+                    </div>
                     <button onClick={()=>setLeftPickCampId(null)}
-                      style={{background:"none",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:4,padding:"2px 8px",color:"#f59e0b",fontSize:10,cursor:"pointer"}}>
+                      style={{flexShrink:0,background:"none",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:4,padding:"3px 9px",color:"#f59e0b",fontSize:10,cursor:"pointer"}}>
                       Cancel
                     </button>
                   </div>
-                  {sugg.length>0 ? (
-                    <div style={{marginTop:6,display:"flex",flexDirection:"column",gap:3}}>
-                      <div style={{fontSize:9,color:_lm?"#b45309":"#d19a4a",textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:700}}>Closest in the file — click to link:</div>
-                      {sugg.map(({i,row,score})=>(
-                        <button key={i} onClick={()=>{ assignRow(i, String(leftPickCampId)); setLeftPickCampId(null); }}
-                          title="Link this file row to the selected campaign"
-                          style={{display:"flex",alignItems:"center",gap:8,textAlign:"left",background:_lm?"#fff7e6":"#120a00",border:`1px solid ${_lm?"#fcd34d":"#f59e0b40"}`,borderRadius:5,padding:"4px 8px",cursor:"pointer"}}>
-                          <span style={{flex:1,minWidth:0,fontSize:11,fontWeight:600,color:_lm?"#0f172a":"#edf4ff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{getCampName(row, fileSource)}</span>
-                          <span style={{flexShrink:0,fontSize:9.5,fontWeight:800,color:score>=0.7?(_lm?"#059669":"#00e5a0"):"#f59e0b"}}>{Math.round(score*100)}%</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div style={{marginTop:5,fontSize:10,color:_lm?"#92826a":"#a07a4a"}}>No close matches in the file — click any row below to assign it manually.</div>
-                  )}
+                  {/* File-row dropdown — the SAME CampaignPicker the right side uses (colored tactic pills,
+                      search, custom portal so scrolling never changes the selection). Closest match first. */}
+                  <CampaignPicker
+                    value=""
+                    options={list.map(toOpt)}
+                    searchOptions={all.map(toOpt)}
+                    onPick={(v)=>{ if(v!==""){ assignRow(parseInt(v,10), String(leftPickCampId)); } setLeftPickCampId(null); }}
+                    onIgnore={()=>{}}
+                    hideIgnore
+                    lm={_lm}
+                    rowLabel={c.campaignName.trim()}
+                    rowLabelTitle="Linking a file row to"
+                    placeholder={list.length ? "— pick the matching file row —" : "— no unassigned rows left —"}
+                    searchPlaceholder="Type to find a file row…"
+                  />
                 </div>
               );
             })()}
