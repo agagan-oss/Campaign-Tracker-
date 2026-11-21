@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/20/2026c";
+const APP_VERSION = "11/21/2026a";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -11113,8 +11113,16 @@ function PacingDashboard({ campaigns=[], dateRange={preset:"mtd"}, setDateRange=
     // Need/Day — how many impr/views/$ must deliver per remaining day to hit goal
     const npdRem = Math.max(0, (monthlyGoal||0) - primaryRaw);
     const npdDaysMonth = dim - dom;
-    // Actual days remaining — the rest of the month, or the flight end if it lands sooner.
-    const npdDaysActual = (dr !== null && dr >= 0 && dr < npdDaysMonth) ? dr : npdDaysMonth;
+    // Actual days remaining to the deadline this Need/Day is measured against:
+    //  • FLIGHT / lifetime view (pacing.flightBasis) — the goal is the WHOLE-flight goal, so the
+    //    deadline is the flight END. Use ALL remaining flight days (dr). Capping at month-end here was
+    //    the bug: a 375K flight ending 1/5 showed "46K/day" because it divided the full flight goal by
+    //    the ~8 days left in the current month instead of the ~44 days left in the flight.
+    //  • MONTHLY view — the goal is THIS month's share, so the deadline is month-end, or the flight end
+    //    if it lands sooner.
+    const npdDaysActual = (pacing && pacing.flightBasis)
+      ? (dr !== null && dr >= 0 ? dr : npdDaysMonth)
+      : (dr !== null && dr >= 0 && dr < npdDaysMonth) ? dr : npdDaysMonth;
     // Aim to finish ~1 day EARLY (Austin: rather hit goal a day early and pause for a day or two than risk
     // missing it) — so Need/Day is spread over one fewer day. Floored at 1 so it never divides by zero at
     // the very end of the month/flight.
