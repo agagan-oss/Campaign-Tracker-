@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/21/2026a";
+const APP_VERSION = "11/24/2026a";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -3596,6 +3596,11 @@ function ReminderModal({ campaigns, archive=[], onClose, reminders, setReminders
   const campPool = [...campaigns, ...archive];
   const findCamp = (id) => campPool.find(c=>c.id===id) || null;
   const isArchivedCamp = (id) => archive.some(a=>a.id===id);
+  // Deduped pool for the searchable campaign picker (active wins over an archived copy sharing an id —
+  // a JSON-import artifact — so the dropdown never renders two options with the same React key).
+  const _activeIds = new Set(campaigns.map(c=>String(c.id)));
+  const pickerSearchPool = [...campaigns, ...archive.filter(a=>!_activeIds.has(String(a.id)))];
+  const archivedIdSet = new Set(archive.map(a=>String(a.id)));
   const [form, setForm] = useState(blank);
   const [view, setView] = useState("list");
   const sf = (k,v) => setForm(p=>({...p,[k]:v}));
@@ -3757,13 +3762,23 @@ function ReminderModal({ campaigns, archive=[], onClose, reminders, setReminders
             </div>
             <div style={{marginBottom:12}}>
               <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Campaign (optional)</label>
-              <select value={form.campaignId||""} onChange={e=>sf("campaignId",e.target.value?parseInt(e.target.value):"")} style={iS}>
-                <option value="">— No specific campaign —</option>
-                {campaigns.map(c=><option key={c.id} value={c.id}>{c.campaignName.trim()} · {c.platform} · {c.mediaPartner}</option>)}
-                {/* Keep an archived campaign selectable/visible when the reminder is already linked to it,
-                    so editing the reminder doesn't blank the link. */}
-                {form.campaignId && !campaigns.some(c=>c.id===form.campaignId) && (()=>{ const a=findCamp(form.campaignId); return a ? <option key={a.id} value={a.id}>{a.campaignName.trim()} · {a.platform} · {a.mediaPartner} (archived)</option> : null; })()}
-              </select>
+              {/* Searchable picker — the native <select> only type-ahead-jumped to the first letter (Austin).
+                  This is the Quick Check-in CampaignPicker: multi-term AND search across name + tactic +
+                  partner ("suny ug" → SUNY … (UG Adult)), with a color-coded tactic pill on every option.
+                  Default list = active campaigns; typing also searches ARCHIVED ones (deduped) so a reminder
+                  can still be linked to a finished flight. Portal dropdown, so it rides above the modal. */}
+              <CampaignPicker
+                value={form.campaignId ? String(form.campaignId) : ""}
+                options={campaigns}
+                searchOptions={pickerSearchPool}
+                archivedIds={archivedIdSet}
+                onPick={(v)=>sf("campaignId", v ? parseInt(v,10) : "")}
+                onIgnore={()=>{}}
+                hideIgnore
+                lm={_lm}
+                placeholder="— No specific campaign —"
+                searchPlaceholder="Search campaigns — name, tactic, or partner…"
+              />
             </div>
             <div style={{marginBottom:12}}>
               <label style={{display:"block",fontSize:10,color:_lm?"#475569":"#7a9bbf",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>Note</label>
