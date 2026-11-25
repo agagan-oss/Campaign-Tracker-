@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/25/2026a";
+const APP_VERSION = "11/25/2026b";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -24135,6 +24135,8 @@ function HomeDashboard({ campaigns, monthPnl=null, archive=[], reminders, activi
   const [launchOpen, setLaunchOpen] = useState(()=>{ try{ return localStorage.getItem("home-show-launch")!=="0"; }catch{ return true; } }); // Launch & flag watch — open by default (don't let launches slip)
   const [showAllPrios, setShowAllPrios] = useState(false); // Today's priorities is now the single operational list — expand to see all (replaces the removed "flagged" card)
   const [showAllLaunch, setShowAllLaunch] = useState(false); // Launch & flag watch — expand past the first 8
+  const [upcomingOpen, setUpcomingOpen] = useState(()=>{ try{ return localStorage.getItem("home-show-upcoming")!=="0"; }catch{ return true; } }); // Upcoming/On-deck — open by default
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false); // Upcoming — expand past the first 12 rows
   const [parkedOpen, setParkedOpen] = useState(false); // Parked (Note-2-flagged off) campaigns — collapsed by default
   const [priosOpen, setPriosOpen] = useState(()=>{ try{ return localStorage.getItem("home-show-priorities")!=="0"; }catch{ return true; } }); // Today's priorities — open by default, collapsible + persisted
   const [calendarOpen, setCalendarOpen] = useState(false); // full calendar popout (meetings + reminders)
@@ -24308,6 +24310,31 @@ function HomeDashboard({ campaigns, monthPnl=null, archive=[], reminders, activi
   const launchParked = launchWatch.filter(w=>w.parked);
   const launchActive = launchWatch.filter(w=>!w.parked);
   const launchUrgent = launchActive.filter(w=>w.sev>=2).length;  // "to unblock" count = the real fires only
+
+  // ── Upcoming / On-deck — the full forward pipeline: EVERY campaign whose flight hasn't started yet
+  // (start date in the future), grouped by start month, each with a readiness check so nothing goes live
+  // half-set-up. Complements Launch & flag watch (which only fires in the last ~3 days) — this is the
+  // "get my ducks in a row" view the user asked for: what starts next month / later, and which aren't ready.
+  const upcomingList = [];
+  campaigns.forEach(c=>{
+    if((c.status||"active")==="archived") return;
+    const startISO = c.startDate ? c.startDate.slice(0,10) : null;
+    if(!startISO || startISO <= todayISO) return;              // future starts only
+    const status = c.status||"active";
+    const rate = parseFloat(c.contractRate)||0;
+    const goalN = parseGoalNumber(c.goal)||0;
+    const gaps = [];
+    if(status==="off"||status==="paused") gaps.push("⏸ Off — turn on before it starts");
+    if(rate<=0 && c.platform!=="SEM")     gaps.push("no rate set");
+    if(goalN<=0)                          gaps.push("no goal set");
+    if(!c.endDate)                        gaps.push("no end date");
+    upcomingList.push({ c, startISO, startDays: daysFromToday(startISO), gaps, notReady: gaps.length>0 });
+  });
+  upcomingList.sort((a,b)=> a.startISO.localeCompare(b.startISO) || (a.c.campaignName||"").localeCompare(b.c.campaignName||""));
+  const upcomingByMonth = (()=>{ const map={}; upcomingList.forEach(u=>{ const k=u.startISO.slice(0,7); (map[k]=map[k]||[]).push(u); }); return Object.keys(map).sort().map(k=>({ key:k, items:map[k] })); })();
+  const upcomingNotReady = upcomingList.filter(u=>u.notReady).length;
+  const monthLabelLong  = k => { try { return new Date(k+"-01T12:00:00Z").toLocaleDateString("en-US",{month:"long",  year:"numeric", timeZone:"UTC"}); } catch { return k; } };
+  const monthLabelShort = k => { try { return new Date(k+"-01T12:00:00Z").toLocaleDateString("en-US",{month:"short", year:"2-digit", timeZone:"UTC"}); } catch { return k; } };
   const topAttention = attention.slice(0, 8);
   const staleCount = running.filter(c=>!updatedWithin(c,3)).length;
 
@@ -24683,6 +24710,75 @@ function HomeDashboard({ campaigns, monthPnl=null, archive=[], reminders, activi
                 </button>
                 {parkedOpen && launchParked.map(launchRow)}
               </div>
+            )}
+          </>)}
+        </div>
+        );
+      })()}
+
+      {/* Upcoming / On-deck — full-width forward pipeline of not-yet-started flights, grouped by start
+          month, with a per-line readiness check (Off / no rate / no goal / no end date). Only shown when
+          something is on deck. */}
+      {upcomingList.length>0 && (()=>{
+        const upcomingRow = (u)=>{
+          const c=u.c; const pc=PLT_COLORS[c.platform]||PLT_COLORS.default;
+          const [,mm,dd]=u.startISO.split("-");
+          return (
+            <div key={c.id} onClick={()=>onEdit(c)} title="Open this campaign"
+              style={{display:"flex", alignItems:"center", gap:10, padding:"8px 8px", borderTop:`1px solid ${_lm?"#f1f5f9":"#111e33"}`, cursor:"pointer"}}>
+              <span style={{background:pc+"22", color:pc, borderRadius:3, padding:"1px 6px", fontSize:9.5, fontWeight:800, flexShrink:0}}>{c.platform}</span>
+              <div style={{minWidth:0, flex:1}}>
+                <div style={{fontSize:12.5, fontWeight:700, color:_lm?"#0f172a":"#edf4ff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{(c.campaignName||"").trim()}</div>
+                {u.gaps.length>0 && <div style={{fontSize:10.5, color:"#f59e0b", marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{u.gaps.join(" · ")}</div>}
+              </div>
+              <span style={{fontSize:10, color:_lm?"#64748b":"#7a9bbf", flexShrink:0, whiteSpace:"nowrap"}}>{parseInt(mm)}/{parseInt(dd)} · in {u.startDays}d</span>
+              {u.notReady
+                ? <span style={{fontSize:9, fontWeight:800, color:"#fff", background:"#f59e0b", borderRadius:9, padding:"1px 7px", flexShrink:0, whiteSpace:"nowrap"}}>⚠ not ready</span>
+                : <span style={{fontSize:9, fontWeight:800, color:_lm?"#059669":"#00d48a", background:_lm?"#f0fdf9":"#00200f", border:`1px solid ${_lm?"#00c896":"#00c89660"}`, borderRadius:9, padding:"1px 7px", flexShrink:0}}>ready</span>}
+              <span style={{fontSize:11, color:_lm?"#94a3b8":"#4d6e8a", flexShrink:0}}>→</span>
+            </div>
+          );
+        };
+        let shown=0; const cap = showAllUpcoming ? Infinity : 12;
+        return (
+        <div style={{...card, padding:"14px 18px", marginBottom:14, border:`1px solid ${upcomingNotReady>0?(_lm?"#fde68a":"#78531a"):(_lm?"#e2e8f0":"#1a2744")}`}}>
+          <button onClick={()=>setUpcomingOpen(v=>{ const nv=!v; try{localStorage.setItem("home-show-upcoming", nv?"1":"0");}catch{} return nv; })}
+            title={upcomingOpen?"Hide upcoming":"Show upcoming"}
+            style={{display:"flex", alignItems:"center", gap:8, width:"100%", background:"none", border:"none", cursor:"pointer", padding:0, marginBottom: upcomingOpen?8:0, textAlign:"left"}}>
+            <span style={{fontSize:10, color:_lm?"#64748b":"#4d6e8a", display:"inline-block", transform:upcomingOpen?"rotate(90deg)":"none", transition:"transform .15s"}}>▸</span>
+            <span style={{...labelStyle, margin:0}}>🔭 Upcoming — not started yet</span>
+            {upcomingNotReady>0 && <span style={{fontSize:10, fontWeight:800, color:"#fff", background:"#f59e0b", borderRadius:9, padding:"1px 7px"}}>{upcomingNotReady} not ready</span>}
+            <span style={{flex:1}}/>
+            <span style={{fontSize:12, fontWeight:800, color:_lm?"#0f172a":"#edf4ff"}}>{upcomingList.length}</span>
+          </button>
+          {upcomingOpen && (<>
+            {/* Per-month summary chips */}
+            <div style={{display:"flex", flexWrap:"wrap", gap:6, marginBottom:4}}>
+              {upcomingByMonth.map(g=>{ const nr=g.items.filter(x=>x.notReady).length; return (
+                <span key={g.key} style={{fontSize:10.5, fontWeight:700, color:_lm?"#0369a1":"#7dd3fc", background:_lm?"#e0f2fe":"#07293b", border:`1px solid ${_lm?"#bae6fd":"#0e7490"}`, borderRadius:7, padding:"2px 8px"}}>
+                  {monthLabelShort(g.key)} <b style={{color:_lm?"#0f172a":"#edf4ff"}}>{g.items.length}</b>{nr>0 && <span style={{color:"#f59e0b"}}> · ⚠{nr}</span>}
+                </span>
+              ); })}
+            </div>
+            {upcomingByMonth.map(g=>{
+              const rowsToShow = [];
+              for(const u of g.items){ if(shown<cap){ rowsToShow.push(u); shown++; } }
+              if(rowsToShow.length===0) return null;
+              return (
+                <div key={g.key}>
+                  <div style={{display:"flex", alignItems:"center", gap:8, marginTop:8, marginBottom:2}}>
+                    <span style={{fontSize:10.5, fontWeight:800, color:_lm?"#0369a1":"#7dd3fc", textTransform:"uppercase", letterSpacing:"0.05em"}}>{monthLabelLong(g.key)}</span>
+                    <span style={{fontSize:10, color:_lm?"#94a3b8":"#4d6e8a"}}>{g.items.length}</span>
+                  </div>
+                  {rowsToShow.map(upcomingRow)}
+                </div>
+              );
+            })}
+            {upcomingList.length>12 && (
+              <button onClick={()=>setShowAllUpcoming(v=>!v)}
+                style={{background:"none", border:"none", padding:"8px 2px 0", cursor:"pointer", fontSize:10.5, fontWeight:700, color:_lm?"#0891b2":"#38bdf8", textAlign:"left"}}>
+                {showAllUpcoming ? "▴ Show fewer" : `▾ Show all ${upcomingList.length}`}
+              </button>
             )}
           </>)}
         </div>
