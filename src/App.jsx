@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/24/2026a";
+const APP_VERSION = "11/25/2026a";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -530,6 +530,14 @@ const PLATFORM_VENDOR_DEFAULT = {
 // without a reload, and re-read here on refresh.
 const PLATFORM_VENDOR = (()=>{ try{ const c=loadCustomPlatforms(); return {...PLATFORM_VENDOR_DEFAULT, ...(c.vendors||{})}; }catch{ return {...PLATFORM_VENDOR_DEFAULT}; } })();
 function vendorOf(platform){ return PLATFORM_VENDOR[platform] || (platform ? String(platform) : "Other"); }
+// A tactic bought through The Trade Desk or Madhive → default MONTHLY-FLIGHT tracking ON when it comes
+// in from an IO drop (Austin runs these as recurring monthly flights). Covers the streaming-CTV flavors
+// (NFLX/HULU/DSNY/AMZN/PCOK → Trade Desk) and any TD* code (e.g. TDBP) via the vendor map + a TD-prefix
+// fallback, plus the three Madhive products.
+function isMonthlyFlightTactic(platform){
+  const v = vendorOf(platform);
+  return v === "The Trade Desk" || v === "Madhive" || /^TD/.test(platform||"") || ["GCTV","PCTV","AECTV"].includes(platform);
+}
 // Vendor display order follows the first tactic of each vendor in PLATFORM_GROUP_ORDER, so the
 // breakdown lists vendors in the same familiar order as every platform picker.
 function vendorRank(vendor){
@@ -3245,6 +3253,18 @@ function buildDraftsFromIO(io) {
     }
   });
 
+  // ── IO-drop defaults (Austin) ──────────────────────────────────────────────────────────────────
+  //  • Trade Desk / Madhive tactics → turn MONTHLY FLIGHTS on by default (he tracks these per-month).
+  //  • Any campaign whose flight hasn't started yet (start date in the future) → default status to the
+  //    tracker's PENDING state (status === "" → STATUS_CFG label "Pending") instead of "off". "off" is a
+  //    STOPPED status, which forces effStatus() to "off" and blocks the future-start → pending auto-label;
+  //    "" is non-stopped, so effStatus() reads the future date and surfaces it as Pending everywhere.
+  const _ioToday = getToday();
+  drafts.forEach(d => {
+    if (isMonthlyFlightTactic(d.platform)) d.monthlyFlight = true;
+    if (d.startDate && d.startDate > _ioToday) d.status = "";
+  });
+
   return drafts;
 }
 
@@ -3346,7 +3366,10 @@ function buildFallbackDraft(io) {
     campaignName: advertiser || `Review IO #${io.reference || "?"}`,   // platform shown by the button — no code in the name (the user)
     platform: platform || "DSP",
     startDate, endDate,
-    status: "off",
+    // Future flight → tracker Pending state (status "" = STATUS_CFG "Pending"); else keep the review default.
+    status: (startDate && startDate > getToday()) ? "" : "off",
+    // Trade Desk / Madhive tactics default to monthly-flight tracking (Austin).
+    monthlyFlight: isMonthlyFlightTactic(platform || "DSP"),
     goal: impressions > 0 ? String(impressions) : "",
     note1: monthlyImpr > 0 ? `${fmtK(monthlyImpr)}/Mo` : "",
     contractRate: cpm > 0 ? String(parseFloat(cpm.toFixed(2))) : "",
