@@ -44,7 +44,7 @@ const USER_INITIALS_KEY = "campaign-tracker-user-initials";
 // Build stamp shown in the footer (MM/DD/YYYY). BUMP THIS on every deploy — it's how you tell at a glance
 // which build a CM is on (each CM runs their own copy; a stale build = different math). No build step injects
 // it (in-browser Babel), so it's a hand-maintained constant.
-const APP_VERSION = "11/25/2026b";
+const APP_VERSION = "11/27/2026a";
 const USER_NAME_KEY = "campaign-tracker-user-name";
 function loadUserName(){ try{ return (localStorage.getItem(USER_NAME_KEY)||"").trim(); }catch{ return ""; } }
 function loadUserFirstName(){ return (loadUserName().split(/\s+/)[0]||""); }
@@ -4634,7 +4634,7 @@ function DatePicker({ value, onChange, label, placeholder="Pick a date" }) {
 }
 
 function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], setReminders=()=>{}, campaigns=[], draftQueueInfo=null, onSkipDraft=null, onDiscardAllDrafts=null, onPrevDraft=null, onNextDraft=null, onValuesChange=null, onSaveDraft=null, onDiscardDraft=null, onSwitchTactic=null, onArchive=null, onSetMonthMetrics=null, monthLocks={}, initialTab="details" }) {
-  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",ioNumber:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",managementFee:"",monthlyFlight:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",targetAudience:"",lastCreativeUpdate:"",clientWebsite:"",
+  const blank = {mediaPartner:"",campaignName:"",platform:"FB",goal:"",startDate:"",endDate:"",status:"active",note1:"",note2:"",ioNumber:"",lastChecked:getToday(),impressions:"",ctr:"",cpm:"",spend:"",completionRate:"",conversions:"",clicks:"",reach:"",frequency:"",videoViews:"",contractValue:"",dealType:"",contractRate:"",managementFee:"",monthlyFlight:false,needsCreative:false,retargeting:false,projectionUrl:"",history:"",folderPath:"",geoTarget:"",targetAudience:"",lastCreativeUpdate:"",clientWebsite:"",
     // Email (EMAIL platform): billed per DROP. Each drop bills the client (default emailBillPerDrop, e.g.
     // $750) and costs us emailCostPerDrop (e.g. $500) → profit is the difference ($250). emailDrops is a
     // JSON list of the scheduled drops: [{d:"2026-10-01", done:false, b:750, c:500, label:""}] — each with a
@@ -5915,6 +5915,27 @@ function Modal({ campaign, onSave, onClose, isNew, partners=[], reminders=[], se
                 <span style={{fontSize:15,color:f.monthlyFlight?(_lm?"#059669":"#00e5c0"):(_lm?"#94a3b8":"#3d5a72")}}>★</span>
                 <span style={{fontSize:12,color:f.monthlyFlight?(_lm?"#059669":"#00e5c0"):(_lm?"#64748b":"#4d6e8a"),fontWeight:f.monthlyFlight?700:400}}>{f.monthlyFlight?"Monthly flights enabled":"No monthly flights"}</span>
                 <span style={{marginLeft:"auto",fontSize:10,color:f.monthlyFlight?(_lm?"#059669":"#00e5c0"):(_lm?"#cbd5e1":"#1e3350")}}>{f.monthlyFlight?"ON":"OFF"}</span>
+              </button>
+            </div>
+
+            {/* Creative status — one-click flag for "waiting on creative", the most common pre-launch blocker.
+                Flows into the Home Upcoming readiness check + the Campaigns-tab 🎨 badge + Launch watch. */}
+            <div>
+              <label style={{display:"block",fontSize:10,color:f.needsCreative?"#f59e0b":(_lm?"#475569":"#7a9bbf"),marginBottom:3,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:f.needsCreative?700:400}}>
+                Creative {f.needsCreative?"⚠ Missing":"✓ Ready"}
+              </label>
+              <button onClick={()=>set("needsCreative",!f.needsCreative)}
+                style={{display:"flex",alignItems:"center",gap:8,
+                  background:f.needsCreative?(_lm?"#fffbeb":"#1a1200"):(_lm?"#f0fdf9":"#001a0e"),
+                  border:`1px solid ${f.needsCreative?(_lm?"#fcd34d":"#f59e0b60"):(_lm?"#00c896":"#2dd4bf40")}`,
+                  borderRadius:7,padding:"8px 12px",cursor:"pointer",width:"100%",boxSizing:"border-box"}}>
+                <span style={{fontSize:14,color:f.needsCreative?"#f59e0b":(_lm?"#059669":"#00e5c0")}}>🎨</span>
+                <span style={{fontSize:12,fontWeight:f.needsCreative?700:400,color:f.needsCreative?(_lm?"#b45309":"#fbbf24"):(_lm?"#64748b":"#4d6e8a")}}>
+                  {f.needsCreative?"Missing creative — waiting on assets":"Creative ready"}
+                </span>
+                <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:f.needsCreative?"#f59e0b":(_lm?"#059669":"#00e5c060")}}>
+                  {f.needsCreative?"MISSING":"✓"}
+                </span>
               </button>
             </div>
 
@@ -24276,6 +24297,13 @@ function HomeDashboard({ campaigns, monthPnl=null, archive=[], reminders, activi
       return;                                   // one row per campaign — the note wins over other checks
     }
     if(ended) return;
+    // Missing-creative flag (the 🎨 toggle) — the most common pre-launch blocker. Structured, so it's caught
+    // here reliably instead of relying on a free-text Note-2. Launching within a week bumps it to a real fire.
+    if(c.needsCreative){
+      const soon = !started && startDays!=null && startDays<=7;
+      launchWatch.push({ c, msg: soon?`Missing creative — starts in ${startDays} day${startDays>1?"s":""}. Get assets in.`:"Missing creative — waiting on assets.", sub:"🎨 Needs creative", sev: soon?2:1, confirmable:false, isNew, parked:!soon });
+      return;
+    }
     // Already ticked "✓ Confirm" → trust it and stay quiet, so a verified-live campaign stops nagging even
     // before data lands. SAFETY NET: if it's still delivering nothing 7+ days after being confirmed live,
     // the confirmation was optimistic — resurface it (not confirmable; the fix is to look, not re-confirm).
@@ -24324,6 +24352,7 @@ function HomeDashboard({ campaigns, monthPnl=null, archive=[], reminders, activi
     const rate = parseFloat(c.contractRate)||0;
     const goalN = parseGoalNumber(c.goal)||0;
     const gaps = [];
+    if(c.needsCreative)                   gaps.push("🎨 missing creative");
     if(status==="off"||status==="paused") gaps.push("⏸ Off — turn on before it starts");
     if(rate<=0 && c.platform!=="SEM")     gaps.push("no rate set");
     if(goalN<=0)                          gaps.push("no goal set");
@@ -25534,15 +25563,16 @@ export default function App() {
   const [fNote2, setFNote2]                     = useState(_campPersisted.fNote2 || false); // show only campaigns with Note 2 filled
   const [fHasData, setFHasData]                 = useState(_campPersisted.fHasData || "all"); // all | yes | no — filter by whether campaign has metrics
   const [fNoRetargeting, setFNoRetargeting]     = useState(_campPersisted.fNoRetargeting || false); // show only campaigns without retargeting
+  const [fCreative, setFCreative]               = useState(_campPersisted.fCreative || false); // show only campaigns flagged missing creative
   // Save all Campaigns tab filters on change. Single effect → one localStorage write per render.
   useEffect(() => {
     try {
       localStorage.setItem(CAMPAIGNS_FILTER_KEY, JSON.stringify({
         search, searchTerms, fStatuses: [...fStatuses], fPlatforms: [...fPlatforms], fMonthly, fGoalType, sortKey, sortDir,
-        groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fStaleDays, fNote2, fHasData, fNoRetargeting,
+        groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fStaleDays, fNote2, fHasData, fNoRetargeting, fCreative,
       }));
     } catch {}
-  }, [search, searchTerms, fStatuses, fPlatforms, fMonthly, fGoalType, sortKey, sortDir, groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fStaleDays, fNote2, fHasData, fNoRetargeting]);
+  }, [search, searchTerms, fStatuses, fPlatforms, fMonthly, fGoalType, sortKey, sortDir, groupByClient, fGoalHit, fCloseToGoal, fExcludeGoalHit, fRecentDays, fStaleDays, fNote2, fHasData, fNoRetargeting, fCreative]);
   const [showDailyGoal, setShowDailyGoal]       = useState(false);
   const [showPacingBar, setShowPacingBar]       = useState(false);
   const [quickCheckIn, setQuickCheckIn]         = useState(false);
@@ -26021,6 +26051,9 @@ export default function App() {
       if(fNote2) {
         if(!(c.note2&&c.note2.trim())) return false;
       }
+      if(fCreative) {
+        if(!c.needsCreative) return false;
+      }
       if(fNoRetargeting) {
         if(c.retargeting) return false;
         if((c.status||"")!=="active") return false;
@@ -26073,7 +26106,7 @@ export default function App() {
       if(sortKey==="endDate"){va=new Date(va);vb=new Date(vb);}
       return va<vb?(sortDir==="asc"?-1:1):va>vb?(sortDir==="asc"?1:-1):0;
     });
-  },[campaigns,reminders,search,searchTerms,fStatuses,fPlatforms,fMonthly,fGoalType,fGoalHit,fCloseToGoal,fExcludeGoalHit,fRecentDays,fStaleDays,fNote2,fNoRetargeting,fHasData,sortKey,sortDir,dateRange.preset]);
+  },[campaigns,reminders,search,searchTerms,fStatuses,fPlatforms,fMonthly,fGoalType,fGoalHit,fCloseToGoal,fExcludeGoalHit,fRecentDays,fStaleDays,fNote2,fNoRetargeting,fCreative,fHasData,sortKey,sortDir,dateRange.preset]);
 
   const stats = useMemo(()=>({
     total: campaigns.length,
@@ -26086,6 +26119,7 @@ export default function App() {
     monthlyFlights: campaigns.filter(c=>c.monthlyFlight).length,
     retargeting: campaigns.filter(c=>c.retargeting).length,
     noRetargeting: campaigns.filter(c=>c.status==="active"&&!c.retargeting).length,
+    missingCreative: campaigns.filter(c=>c.needsCreative).length,
   }),[campaigns]);
 
   const pendingReminders = reminders.filter(r=>!r.dismissed&&r.date<=today).length;
@@ -28043,6 +28077,7 @@ export default function App() {
             { key:"recent",   label:"🆕 Recently Added",        active:fRecentDays>0,        toggle:()=>setFRecentDays(d=>d>0?0:7) },
             { key:"note2",    label:"⚠ Has Note 2",            active:fNote2,               toggle:()=>setFNote2(v=>!v) },
             { key:"noRT",     label:"⚠ RT Pixel Missing",      active:fNoRetargeting,       toggle:()=>setFNoRetargeting(v=>!v) },
+            { key:"creative", label:`🎨 Missing Creative${stats.missingCreative?` (${stats.missingCreative})`:""}`, active:fCreative, toggle:()=>setFCreative(v=>!v) },
             { key:"hasData",  label:"✓ Has Metrics",           active:fHasData==="yes",     toggle:()=>setFHasData(v=>v==="yes"?"all":"yes") },
             { key:"noData",   label:"✗ No Metrics",            active:fHasData==="no",      toggle:()=>setFHasData(v=>v==="no"?"all":"no") },
           ]}/>
@@ -28377,6 +28412,8 @@ export default function App() {
                             {!c.monthlyFlight && <button onClick={()=>updateCampaign({...c,monthlyFlight:true})} style={{background:"none",border:"none",padding:0,cursor:"pointer",color:"#1e3048",fontSize:13,lineHeight:1,flexShrink:0,opacity:0}} className="star-toggle">★</button>}
                             {c.retargeting && <button onClick={()=>updateCampaign({...c,retargeting:false})} title="RT pixel not placed — click when pixel is live" style={{background:"#FF6B6B22",border:"1px solid #FF6B6B60",borderRadius:4,padding:"0px 5px",cursor:"pointer",color:"#FF6B6B",fontSize:10,lineHeight:1.6,flexShrink:0,fontWeight:900}}>RT</button>}
                             {!c.retargeting && <button onClick={()=>updateCampaign({...c,retargeting:true})} title="Pixel placed — click to flag as missing" style={{background:"none",border:"1px solid #1e3048",borderRadius:4,padding:"0px 5px",cursor:"pointer",color:"#FF6B6B",fontSize:10,lineHeight:1.6,flexShrink:0,fontWeight:900,opacity:0}} className="star-toggle">RT</button>}
+                            {c.needsCreative && <button onClick={()=>updateCampaign({...c,needsCreative:false})} title="Missing creative — click when assets are in" style={{background:"#f59e0b22",border:"1px solid #f59e0b66",borderRadius:4,padding:"0px 4px",cursor:"pointer",color:"#f59e0b",fontSize:11,lineHeight:1.5,flexShrink:0}}>🎨</button>}
+                            {!c.needsCreative && <button onClick={()=>updateCampaign({...c,needsCreative:true})} title="Creative ready — click to flag as missing" style={{background:"none",border:"1px solid #1e3048",borderRadius:4,padding:"0px 4px",cursor:"pointer",fontSize:11,lineHeight:1.5,flexShrink:0,opacity:0}} className="star-toggle">🎨</button>}
                             {(()=>{
                               const disp=resolveMetrics(c,dateRange.preset);
                               const pacing=computeMonthlyPacing(c, disp, c.note1);
@@ -28670,7 +28707,7 @@ export default function App() {
         // (the user: "I had platform filters on, so it just bumped me to the tab and didn't pull it up").
         setSearch(""); setSearchTerms([]); setFStatuses(new Set()); setFPlatforms(new Set()); setFMonthly(false); setFGoalType("all");
         setFGoalHit(false); setFCloseToGoal(false); setFExcludeGoalHit(false);
-        setFRecentDays(0); setFStaleDays(0); setFNote2(false); setFHasData("all"); setFNoRetargeting(false);
+        setFRecentDays(0); setFStaleDays(0); setFNote2(false); setFHasData("all"); setFNoRetargeting(false); setFCreative(false);
         setActiveTab("campaigns"); setExpanded(prev=>{ const n=new Set(prev); n.add(campId); return n; });
         setTimeout(()=>{ const el=document.getElementById(`campaign-row-${campId}`); if(el) el.scrollIntoView({behavior:"smooth",block:"center"}); },300);
       }}/>}
